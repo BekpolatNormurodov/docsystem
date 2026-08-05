@@ -37,6 +37,7 @@ model Snapshot {
   processedRows  Int      @default(0)
   totalDebt      Decimal  @default(0) @db.Decimal(30, 2)
   importedAt     DateTime @default(now())
+  excludedCount  Int      @default(0)
   loans          Loan[]
 }
 
@@ -66,12 +67,14 @@ model Loan {
   debtOverdueInterest  Decimal  @default(0) @db.Decimal(20, 2) // sumnachpr_eqv
   totalDebt            Decimal  @default(0) @db.Decimal(20, 2)
   raw                  Json     // the complete sheet row, header->value (full client detail)
+  excluded             Boolean  @default(false)
 
   @@index([snapshotId])
   @@index([snapshotId, pinfl])
   @@index([snapshotId, branchCode])
   @@index([snapshotId, clientName])
   @@index([snapshotId, totalDebt])
+  @@index([snapshotId, excluded])
 }
 
 model Setting {
