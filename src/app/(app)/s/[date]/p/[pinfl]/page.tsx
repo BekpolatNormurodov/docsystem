@@ -104,7 +104,7 @@ export default async function PersonPage({
                             {formatSumDecimal(String(loan.totalDebt))} soʻm
                           </span>
                           <a
-                            href={`/api/ariza/${loan.id}.docx`}
+                            href={`/api/ariza/${loan.id}`}
                             className="btn-ghost text-xs"
                           >
                             .docx
