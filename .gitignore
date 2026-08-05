@@ -4,3 +4,6 @@ node_modules/
 *.log
 uploads/
 exports/
+
+# TS incremental build cache
+*.tsbuildinfo

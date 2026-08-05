@@ -1,0 +1,240 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Design tokens (light default, dark via .dark) ───────────────────────── */
+:root {
+  --bg: #f5f8fd;
+  --surface: #ffffff;
+  --surface-2: #f1f5fd;
+  --fg: #0f172a;
+  --muted: #64748b;
+  --line: #e4ecfc;
+  /* Inputs need their own fill: on --surface they'd be invisible inside a card. */
+  --field: #f7faff;
+  --field-line: #d3dff5;
+}
+.dark {
+  --bg: #070b16;
+  --surface: #0e1626;
+  --surface-2: #16213a;
+  --fg: #e6edf7;
+  --muted: #93a4bf;
+  --line: rgba(255, 255, 255, 0.09);
+  --field: #080f1c;
+  --field-line: rgba(255, 255, 255, 0.14);
+}
+
+html { color-scheme: light dark; }
+
+body {
+  @apply bg-bg text-fg antialiased;
+  font-family: 'Plus Jakarta Sans', Inter, system-ui, sans-serif;
+  min-height: 100vh;
+}
+.dark body {
+  background-image:
+    radial-gradient(55rem 55rem at 108% -8%, rgba(37, 99, 235, 0.16), transparent 60%),
+    radial-gradient(45rem 45rem at -8% 108%, rgba(5, 150, 105, 0.10), transparent 60%);
+  background-attachment: fixed;
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 9999px; }
+
+@layer components {
+  .card { @apply rounded-2xl border border-line bg-surface; }
+  .btn {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition
+           active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40;
+  }
+  .btn-primary { @apply btn bg-brand-600 text-white shadow-glow hover:bg-brand-500; }
+  .btn-ghost { @apply btn border border-line bg-surface text-fg hover:bg-surface-2; }
+  .btn-accent { @apply btn bg-accent-600 text-white hover:bg-accent-500; }
+  .btn-danger { @apply btn border border-rose-500/30 text-rose-600 hover:bg-rose-500/10 dark:text-rose-300; }
+  .field-label { @apply mb-1.5 block text-sm font-medium text-muted; }
+  .field-input {
+    @apply w-full rounded-xl border border-[var(--field-line)] bg-[var(--field)] px-3.5 py-2.5 text-sm text-fg outline-none transition
+           focus:border-brand-500 focus:ring-2 focus:ring-brand-500/25;
+  }
+  .field-input::placeholder { color: var(--muted); opacity: 0.6; }
+  .badge { @apply inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+/* ── Certificate sheet — exact A4 geometry from the source .docx ─────────
+   pgSz 11906×16838 twips = 210×297mm; pgMar top/bottom 1134 (20mm),
+   right 851 (15mm), left 1701 (30mm). Always light — it is paper.        */
+.cert-frame { overflow-x: auto; }
+.cert-sheet {
+  width: 210mm;
+  min-height: 297mm;
+  padding: 20mm 15mm 20mm 30mm;
+  box-sizing: border-box;
+  background: #fff;
+  color: #000;
+  margin: 0 auto;
+}
+
+/* ── In-place editing ────────────────────────────────────────────────────
+   The sheet is the form. Everything below is screen-only: the printed page and the frozen PDF
+   render the same component with no `edit` prop, so none of it can reach paper.          */
+
+/* The paper while it is being written on — a sheet on a desk, not a page in a document. */
+.cert-paper { padding: 6px 0 10px; }
+.cert-paper .cert-sheet {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .06), 0 12px 32px -8px rgba(15, 23, 42, .14);
+  border-radius: 3px;
+}
+.dark .cert-paper .cert-sheet { box-shadow: 0 12px 40px -8px rgba(0, 0, 0, .6); }
+
+/* Softer than the printed black, on request. Screen-only: the print-preview toggle drops
+   .cert-editing, which is how this difference stays visible rather than hidden.          */
+.cert-editing .cert-sheet { color: #3f4756; }
+.cert-editing .cert-sheet b { color: #232a36; }
+
+/* A slot reads as document text until it is asked to read as a field. Marking every editable
+   value at rest would turn the page back into a form — the thing this replaces.           */
+.cert-slot {
+  border-radius: 2px;
+  outline: none;
+  transition: background-color .12s, box-shadow .12s;
+  box-shadow: inset 0 -1px 0 rgba(59, 130, 246, .22);
+}
+.cert-slot:hover { background: rgba(59, 130, 246, .07); box-shadow: inset 0 -1px 0 rgba(59, 130, 246, .5); }
+.cert-slot:focus,
+.cert-slot:focus-within { background: rgba(59, 130, 246, .1); box-shadow: 0 0 0 2px rgba(59, 130, 246, .35); }
+
+/* An empty slot shows a grey example of what belongs in it. It also needs a box of its own: an
+   empty inline element is what browsers refuse to put a caret in, and it would be nothing to click
+   at. `:empty` stops matching the instant a letter lands, which returns the slot to inline so a
+   long name wraps and re-justifies the way printed text does.
+
+   None of this can print. The PDF and the public page render the same component with no `edit`
+   prop, and a placeholder only exists inside an editor. */
+/* The placeholder supplies the width; this is only the floor for a slot that somehow has none,
+   and the box browsers need before they will put a caret anywhere. */
+.cert-slot:empty,
+.cert-slot-btn:empty {
+  display: inline-block;
+  min-width: 2ch;
+  vertical-align: baseline;
+  text-indent: 0;
+}
+.cert-slot[data-placeholder]:empty::before {
+  content: attr(data-placeholder);
+  color: #9aa4b8;
+  font-weight: 400;
+}
+
+.cert-slot-bad { box-shadow: inset 0 -1px 0 rgba(225, 29, 72, .55); background: rgba(225, 29, 72, .06); }
+.cert-slot-bad:hover,
+.cert-slot-bad:focus { box-shadow: 0 0 0 2px rgba(225, 29, 72, .35); }
+
+/* Click-to-edit values: a button indistinguishable from the text around it. */
+.cert-slot-btn {
+  font: inherit; color: inherit; background: none; border: 0; padding: 0;
+  cursor: text; text-align: inherit;
+}
+.cert-slot-empty { color: #9aa4b8; }
+
+/* An input cannot size itself, so the wrapper does it.
+
+   Both the input and a hidden copy of its text sit in one grid cell, so the cell — and therefore
+   the box in the line — is exactly as wide as that text rendered in the document's own font. It
+   grows a letter at a time as the value does, and never by more.
+
+   The previous attempt set the width in `ch`. A `ch` is the width of a zero, and in Times a zero is
+   wider than most letters, so opening a slot made the box jump wider than the text it replaced and
+   shoved the whole justified paragraph sideways. */
+/* The hidden copy of the text is the only thing that gets to decide how wide this is, so the input
+   is taken out of the layout entirely and stretched over it.
+
+   The obvious version — both in one grid cell — does not work: `min-width: 0` removes an item's
+   automatic minimum but not its max-content contribution, and Chrome gives an <input> an intrinsic
+   width of its own regardless of `size="1"`. Measured on the short slots, where it showed: the
+   contract number wanted 37.3px of text and got a 48.8px box. */
+.cert-fit {
+  display: inline-grid;
+  position: relative;
+  vertical-align: baseline;
+  /* The body paragraphs carry `text-indent: 1.25cm` from the blank, and text-indent inherits and
+     applies to the first line of every block container — which an inline-block is. So each slot
+     was indenting its own contents by 47.2cm-worth of nothing and opening 48px wider than the
+     value it held. Measured in the browser: an empty slot was 48.2px, and 1.25cm is 47.24px. */
+  text-indent: 0;
+}
+/* Both items inherit the paragraph's metrics exactly. An input otherwise brings its own
+   line-height — `normal`, not the document's 1.45 — and the taller box pushes the whole line
+   apart the moment a slot is opened. No min-width either: the placeholder is the minimum, and a
+   floor on top of it would only make short values sit in a box wider than they are. */
+.cert-fit-sizer,
+.cert-fit > input {
+  font: inherit;
+  line-height: inherit;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  resize: none;
+  appearance: none;
+}
+.cert-fit > input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
+/* Both sizers share one grid cell, so the column is the wider of them: the placeholder is the
+   floor and the text grows past it. Nothing is added around them — the paragraph is justified, so
+   a single stray pixel is enough to tip a word onto the next line and re-space the whole one. */
+.cert-fit-sizer {
+  grid-area: 1 / 1;
+  visibility: hidden;
+  white-space: pre;
+  pointer-events: none;
+}
+
+/* An open slot is still a word in a sentence, so it is marked the way the closed one is — a tint
+   and the line under it. A 2px ring around it drew a box the size of a button in the middle of a
+   justified paragraph, which is what made it look like it did not belong there. */
+.cert-slot-editing {
+  font: inherit; color: inherit;
+  width: 100%;
+  background: rgba(59, 130, 246, .12);
+  outline: none;
+  box-shadow: inset 0 -1px 0 rgba(59, 130, 246, .8);
+}
+
+
+/* Dropping a contract has to say which one, so it stays in the sentence — but out of sight until
+   the paragraph is hovered. Adding is a control in the bar above the paper instead: a «+» in the
+   middle of a legal paragraph reads as part of the document.                              */
+.cert-row-del {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.15em; height: 1.15em; margin: 0 .15em; vertical-align: middle;
+  border-radius: 999px; border: 1px solid rgba(225, 29, 72, .35);
+  color: #e11d48; background: rgba(225, 29, 72, .08); cursor: pointer;
+  opacity: 0; transition: opacity .12s;
+}
+.cert-editing p:hover .cert-row-del,
+.cert-row-del:focus-visible { opacity: 1; }
+.cert-row-del:hover { background: rgba(225, 29, 72, .18); }
+
+@media print {
+  @page { size: A4; margin: 0; }
+  .no-print { display: none !important; }
+  body { background: #fff !important; }
+  .cert-frame { overflow: visible !important; }
+  .cert-sheet { box-shadow: none !important; border-radius: 0 !important; margin: 0 !important; }
+  /* Whatever the screen was doing, paper gets the document. */
+  .cert-editing .cert-sheet,
+  .cert-editing .cert-sheet b { color: #000 !important; }
+  .cert-slot, .cert-slot-editing, .cert-slot-bad { box-shadow: none !important; background: none !important; }
+}
