@@ -46,8 +46,11 @@ export async function POST(req: NextRequest) {
   const filePath = path.join(UPLOADS_DIR, `${snapshot.id}.xlsx`);
   await fs.writeFile(filePath, Buffer.from(await file.arrayBuffer()));
 
+  // Seed an estimated row total (~820 bytes/row in these portfolios) so the client can show a real
+  // percentage while streaming — the exact count is only known when the stream finishes.
+  const estimatedRows = Math.max(1, Math.round(file.size / 820));
   const job = await prisma.job.create({
-    data: { type: 'IMPORT', status: 'PENDING', snapshotId: snapshot.id },
+    data: { type: 'IMPORT', status: 'PENDING', snapshotId: snapshot.id, total: estimatedRows },
   });
 
   // Fire-and-forget: the server process carries this to completion; the client polls the Job.

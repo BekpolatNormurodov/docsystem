@@ -29,6 +29,7 @@ export function ImportForm() {
   const [date, setDate] = useState('');
   const [phase, setPhase] = useState<Phase>('idle');
   const [progress, setProgress] = useState(0);
+  const [total, setTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   async function onFileChosen(picked: FileList | null) {
@@ -63,6 +64,7 @@ export function ImportForm() {
         if (!res.ok) return;
         const job: JobStatus = await res.json();
         setProgress(job.progress);
+        setTotal(job.total);
         if (job.status === 'DONE') {
           clearInterval(timer);
           setPhase('done');
@@ -104,6 +106,8 @@ export function ImportForm() {
   }
 
   const busy = phase === 'uploading' || phase === 'running';
+  // Capped at 99% mid-stream because `total` is an estimate; the DONE state shows completion.
+  const pct = total > 0 ? Math.min(99, Math.round((progress / total) * 100)) : 0;
 
   return (
     <div className="card max-w-xl space-y-5 p-6">
@@ -164,17 +168,20 @@ export function ImportForm() {
 
       {phase === 'running' && (
         <div>
-          {/* Total is unknown mid-stream (the sheet is read row-by-row), so this is an indeterminate
-              bar, not a percentage — showing a growing row count is the honest signal. */}
+          {/* `total` is an estimate from file size, so we cap the bar at 99% until the stream truly
+              finishes (DONE), then it snaps to 100% — never a false 100% mid-import. */}
           <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
-            <div className="h-full w-1/3 animate-[pulse_1.2s_ease-in-out_infinite] rounded-full bg-brand-600" />
+            <div
+              className="h-full rounded-full bg-brand-600 transition-all"
+              style={{ width: `${pct}%` }}
+            />
           </div>
           <p className="mt-2 text-sm font-medium">
-            Ma'lumotlar saqlanyapti (orqa fonda)… {progress.toLocaleString('ru-RU')} qator
+            Ma'lumotlar saqlanyapti (orqa fonda)… {pct}%
           </p>
           <p className="mt-1 text-[11px] text-muted">
-            106 MB fayl 128 mingga yaqin qatorni oʻz ichiga oladi — bu bir necha daqiqa oladi.
-            Sahifani yopsangiz ham import serverda davom etadi.
+            {progress.toLocaleString('ru-RU')} qator saqlandi. Bir necha daqiqa oladi —
+            sahifani yopsangiz ham import serverda davom etadi.
           </p>
         </div>
       )}

@@ -19,8 +19,10 @@ export async function runImportJob(jobId: number, filePath: string, snapshotId: 
 
   try {
     const result = await importPortfolio(filePath, snapshotId, (n) => {
-      // Fire-and-forget progress write, guarded: a deleted Job here must not reject unhandled.
-      prisma.job.updateMany({ where: { id: jobId }, data: { progress: n, total: n } }).catch(() => {});
+      // Only progress here — `total` was seeded on the Job (an estimate from file size) so the UI
+      // can show a real percentage while streaming; overwriting it with `n` would peg it at 100%.
+      // Fire-and-forget, guarded: a deleted Job here must not reject unhandled.
+      prisma.job.updateMany({ where: { id: jobId }, data: { progress: n } }).catch(() => {});
     });
 
     await prisma.job.updateMany({
