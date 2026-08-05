@@ -74,6 +74,11 @@ model Loan {
   @@index([snapshotId, totalDebt])
 }
 
+model Setting {
+  key   String @id
+  value String @db.Text
+}
+
 model Job {
   id         Int      @id @default(autoincrement())
   type       String   // IMPORT | EXPORT
