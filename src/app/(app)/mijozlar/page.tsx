@@ -43,7 +43,14 @@ export default async function MijozlarPage({
   const where = {
     snapshotId: snapshot!.id,
     ...(q
-      ? { OR: [{ pinfl: { contains: q } }, { clientName: { contains: q } }, { passportSn: { contains: q } }] }
+      ? {
+          OR: [
+            { pinfl: { contains: q } },
+            { clientName: { contains: q } },
+            { passportSn: { contains: q } },
+            { ldId: { contains: q } },
+          ],
+        }
       : {}),
   };
 
@@ -57,6 +64,17 @@ export default async function MijozlarPage({
     skip: (page - 1) * PAGE,
     take: PAGE,
   });
+
+  const pagePinfls = groups.map((g) => g.pinfl).filter((p): p is string => Boolean(p));
+  const exPinfls = new Set(
+    (
+      await prisma.loan.findMany({
+        where: { snapshotId: snapshot!.id, pinfl: { in: pagePinfls }, excluded: true },
+        select: { pinfl: true },
+        distinct: ['pinfl'],
+      })
+    ).map((r) => r.pinfl),
+  );
 
   const hrefWith = (patch: Record<string, string | number>) => {
     const p = new URLSearchParams();
@@ -82,7 +100,7 @@ export default async function MijozlarPage({
           </select>
         </label>
         <label className="block flex-1">
-          <span className="field-label">Qidiruv (PINFL, F.I.Sh, passport)</span>
+          <span className="field-label">Qidiruv (PINFL, F.I.Sh, passport yoki shartnoma raqami)</span>
           <input name="q" defaultValue={q} placeholder="masalan: 3210… yoki ABDULLAYEV" className="field-input w-full" />
         </label>
         <button type="submit" className="btn-primary">
@@ -107,7 +125,14 @@ export default async function MijozlarPage({
               {groups.map((g) => (
                 <ClickableRow key={g.pinfl ?? Math.random()} href={`/s/${date}/p/${g.pinfl}`}>
                   <td className="px-4 py-2.5 font-mono text-xs">{g.pinfl}</td>
-                  <td className="px-4 py-2.5 font-medium">{g.clientName}</td>
+                  <td className="px-4 py-2.5 font-medium">
+                    {g.clientName}
+                    {g.pinfl && exPinfls.has(g.pinfl) && (
+                      <span className="badge border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-300 text-[10px] ml-2">
+                        istisno
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-right">{g._count}</td>
                   <td className="px-4 py-2.5 text-right font-semibold">
                     {formatSumDecimal(String(g._sum.totalDebt ?? 0))}
