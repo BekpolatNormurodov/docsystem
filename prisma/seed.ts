@@ -12,7 +12,8 @@ async function main() {
     create: { username, passwordHash: await hashPassword(password) },
   });
   for (const f of FIRMS_SEED) {
-    await prisma.firm.upsert({ where: { code: f.code }, update: {}, create: f });
+    // update (not {}) so re-seeding backfills rekvizit onto firms that were created bare.
+    await prisma.firm.upsert({ where: { code: f.code }, update: f, create: f });
   }
   console.log('seeded admin + firms');
 }
