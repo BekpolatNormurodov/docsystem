@@ -106,8 +106,8 @@ describe('runExportJob', () => {
     const directory = await unzipper.Open.file(zipPath);
     expect(directory.files).toHaveLength(2);
     expect(directory.files.map((f) => f.path).sort()).toEqual([
-      '09.07.26/AAA BBB 111/FIRMA/2244 AAA BBB.docx',
-      '09.07.26/CCC DDD 222/FIRMA/2245 CCC DDD.docx',
+      '09.07.26/AAA BBB 111/AAA BBB FIRMA 09.07.2026.docx',
+      '09.07.26/CCC DDD 222/CCC DDD FIRMA 09.07.2026.docx',
     ]);
   });
 });

@@ -7,7 +7,7 @@ import archiver from 'archiver';
 import { prisma } from './db';
 import { getSettings } from './settings';
 import { buildArizaDocx } from './ariza-docx';
-import { arizaZipPath } from './export-paths';
+import { arizaZipPath, uniqueZipPath } from './export-paths';
 import { loanToAriza, type ArizaFirm } from '@/core/ariza';
 import { buildLoanWhere, type LoanFilters } from '@/core/loan-filters';
 
@@ -60,6 +60,7 @@ export async function runExportJob(jobId: number, filters: ExportFilters): Promi
 
     let processed = 0;
     let skip = 0;
+    const usedNames = new Set<string>(); // dedupe same-named arizas (same client+firm+date)
     for (;;) {
       const loans = await prisma.loan.findMany({ where, skip, take: PAGE_SIZE, orderBy: { id: 'asc' } });
       if (loans.length === 0) break;
@@ -77,12 +78,14 @@ export async function runExportJob(jobId: number, filters: ExportFilters): Promi
         };
         const props = loanToAriza(loan, firm, settings, snapshot.reportDate);
         const buf = await buildArizaDocx(props);
-        const name = arizaZipPath(
-          snapshot.reportDate,
-          loan.clientName ?? '',
-          loan.pinfl ?? '',
-          firmRow?.shortName ?? loan.branchCode ?? '',
-          loan.ldId ?? '',
+        const name = uniqueZipPath(
+          arizaZipPath(
+            snapshot.reportDate,
+            loan.clientName ?? '',
+            loan.pinfl ?? '',
+            firmRow?.shortName ?? loan.branchCode ?? '',
+          ),
+          usedNames,
         );
         archive.append(buf, { name });
 
