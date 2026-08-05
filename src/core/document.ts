@@ -8,7 +8,10 @@ export interface DocContract {
 }
 
 /** Date as "DD.MM.YYYY" using UTC (date-only values are stored at UTC midnight). */
-export function dmy(date: Date): string {
+export function dmy(date: Date | null | undefined): string {
+  // Tolerant of a missing date: some loans have no contract date (date_to_cr blank), and a null
+  // here previously crashed the ariza render/export with "Cannot read properties of null".
+  if (!date || Number.isNaN(date.getTime())) return '';
   const d = String(date.getUTCDate()).padStart(2, '0');
   const m = String(date.getUTCMonth() + 1).padStart(2, '0');
   return `${d}.${m}.${date.getUTCFullYear()}`;

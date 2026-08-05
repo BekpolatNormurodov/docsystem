@@ -28,10 +28,21 @@ export async function POST(req: NextRequest) {
   // loan inserts. If an import for this date is already running, reject; otherwise replace.
   const existing = await prisma.snapshot.findUnique({ where: { reportDate } });
   if (existing?.status === 'IMPORTING') {
-    return NextResponse.json(
-      { error: 'Bu sana uchun import allaqachon ketyapti. Tugashini kuting yoki boshqa sana tanlang.' },
-      { status: 409 },
-    );
+    // Only block if an import job for this snapshot is genuinely still progressing. A job orphaned
+    // by a server restart leaves the snapshot stuck IMPORTING forever; treat a stale one (no job
+    // update in 90s) as dead and allow replacing it, so a date never gets permanently locked.
+    const liveJob = await prisma.job.findFirst({
+      where: { snapshotId: existing.id, type: 'IMPORT', status: 'RUNNING' },
+      orderBy: { id: 'desc' },
+      select: { updatedAt: true },
+    });
+    const stillRunning = liveJob && Date.now() - liveJob.updatedAt.getTime() < 90_000;
+    if (stillRunning) {
+      return NextResponse.json(
+        { error: 'Bu sana uchun import hozir ketyapti. Tugashini kuting yoki boshqa sana tanlang.' },
+        { status: 409 },
+      );
+    }
   }
   if (existing) {
     // Replace semantics: a finished (READY/FAILED) snapshot for this date is dropped (loans cascade).
