@@ -151,12 +151,15 @@ CSS (`.cert-sheet` etc.) comes with `globals.css`.
 
 ## 6. Flows
 
-1. **Import.** Admin uploads `.xlsx` → the file is saved, a `Snapshot` (IMPORTING) + `Job` (IMPORT)
-   are created, the API returns immediately. A background task streams sheet 1 with `exceljs`,
-   maps the curated columns, computes `totalDebt`, batch-inserts (~1000/tx) into `Loan`, updates
-   `Job.progress` and `Snapshot.processedRows`. On finish → `Snapshot.status = READY`. UI polls the
-   `Job`. `reportDate` is taken from `date_rep` (all rows equal); a mismatched/duplicate date is
-   surfaced (re-upload replaces the snapshot).
+1. **Import.** Admin picks the `.xlsx` → the app peeks the first data row and the filename to
+   **auto-detect the snapshot date** (from `date_rep`, and the `09.07`-style date in the filename as a
+   fallback) and pre-fills a **date field** in the import form. The admin **confirms or changes** this
+   date (it is the snapshot's key — always selectable, never silently forced). On start, the file is
+   saved, a `Snapshot` (IMPORTING) + `Job` (IMPORT) are created, the API returns immediately. A
+   background task streams sheet 1 with `exceljs`, maps the curated columns, computes `totalDebt`,
+   batch-inserts (~1000/tx) into `Loan`, updates `Job.progress` and `Snapshot.processedRows`. On
+   finish → `Snapshot.status = READY`. UI polls the `Job`. The chosen date is `Snapshot.reportDate`
+   (unique); if a snapshot for that date already exists, the UI warns and re-import **replaces** it.
 2. **Calendar.** Loaded snapshot dates shown on a month calendar (reuse spravka `Calendar`). Click a
    date → snapshot view.
 3. **Snapshot (portfolio) view.** Server-side paginated + searchable table (by `pinfl`, name, firm),
@@ -179,7 +182,8 @@ CSS (`.cert-sheet` etc.) comes with `globals.css`.
 
 ## 7. Pages
 
-`/login` · `/` (calendar + upload) · `/import` (upload + progress) · `/s/[date]` (portfolio table +
+`/login` · `/` (calendar + upload) · `/import` (upload + **date field auto-filled from the file,
+editable** + progress) · `/s/[date]` (portfolio table +
 stats) · `/s/[date]/p/[pinfl]` (person + ariza preview) · `/export` (filter + job progress +
 download) · `/firms` (rekvizit CRUD) · `/settings` (default court, contract type, chamber signer).
 
@@ -210,3 +214,5 @@ Each phase ends with the dev server running so the user can see it.
 - Court name = single global Settings default, editable; not auto-derived per debtor (MVP).
 - Ariza number/date = blank by default (auto-number is a future toggle).
 - Contract type default = «ONLAYN».
+- Import snapshot date = **selectable** in the import form, auto-filled from the file (`date_rep` /
+  filename) and editable by the admin before importing.
