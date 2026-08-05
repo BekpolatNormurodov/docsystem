@@ -1,0 +1,29 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Admin {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
+
+model Firm {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique // branch code, e.g. "12842"
+  shortName   String // "BRIGHT FUTURE FINANCING"
+  legalName   String? // full legal Latin name for the ariza
+  address     String?
+  bankAccount String? // X/R
+  mfo         String?
+  stir        String?
+  postIndex   String?
+  phone       String?
+  updatedAt   DateTime @updatedAt
+}
