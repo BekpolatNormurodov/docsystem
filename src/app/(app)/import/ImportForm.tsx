@@ -84,7 +84,6 @@ export function ImportForm() {
     setPhase('uploading');
     setError(null);
     setProgress(0);
-    setTotal(0);
 
     try {
       const form = new FormData();
@@ -107,7 +106,8 @@ export function ImportForm() {
   }
 
   const busy = phase === 'uploading' || phase === 'running';
-  const pct = total > 0 ? Math.min(100, Math.round((progress / total) * 100)) : 0;
+  // Capped at 99% mid-stream because `total` is an estimate; the DONE state shows completion.
+  const pct = total > 0 ? Math.min(99, Math.round((progress / total) * 100)) : 0;
 
   return (
     <div className="card max-w-xl space-y-5 p-6">
@@ -157,19 +157,31 @@ export function ImportForm() {
         disabled={!file || !date || busy}
         className="btn-primary w-full justify-center disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {phase === 'uploading' ? 'Yuklanmoqda...' : 'Yuklash'}
+        {phase === 'uploading' ? 'Fayl yuklanmoqda…' : phase === 'running' ? 'Saqlanmoqda…' : 'Yuklash'}
       </button>
+
+      {phase === 'uploading' && (
+        <p className="text-xs text-muted">
+          Fayl serverga yuklanmoqda{file ? ` (${fileSize(file.size)})` : ''}… bir oz kuting.
+        </p>
+      )}
 
       {phase === 'running' && (
         <div>
+          {/* `total` is an estimate from file size, so we cap the bar at 99% until the stream truly
+              finishes (DONE), then it snaps to 100% — never a false 100% mid-import. */}
           <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
             <div
               className="h-full rounded-full bg-brand-600 transition-all"
               style={{ width: `${pct}%` }}
             />
           </div>
-          <p className="mt-2 text-xs text-muted">
-            Bajarilyapti… {progress}{total > 0 ? `/${total}` : ''}
+          <p className="mt-2 text-sm font-medium">
+            Ma'lumotlar saqlanyapti (orqa fonda)… {pct}%
+          </p>
+          <p className="mt-1 text-[11px] text-muted">
+            {progress.toLocaleString('ru-RU')} qator saqlandi. Bir necha daqiqa oladi —
+            sahifani yopsangiz ham import serverda davom etadi.
           </p>
         </div>
       )}
