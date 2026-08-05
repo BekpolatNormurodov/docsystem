@@ -25,8 +25,20 @@ export async function POST(req: NextRequest) {
   const snapshot = await prisma.snapshot.findUnique({ where: { reportDate } });
   if (!snapshot) return NextResponse.json({ error: 'Bu sana uchun snapshot topilmadi' }, { status: 404 });
 
-  const where = buildLoanWhere(snapshot.id, { q, branches, minDebt, page: 1 } satisfies LoanFilters);
-  const total = await prisma.loan.count({ where });
+  // minDebt is a CLIENT-total filter: the export produces one ariza per loan of the matching clients.
+  const where = buildLoanWhere(snapshot.id, { q, branches, page: 1 } satisfies LoanFilters);
+  let total: number;
+  if (minDebt) {
+    const groups = await prisma.loan.groupBy({
+      by: ['pinfl'],
+      where,
+      having: { totalDebt: { _sum: { gte: minDebt } } },
+      _count: true,
+    });
+    total = groups.reduce((sum, g) => sum + g._count, 0);
+  } else {
+    total = await prisma.loan.count({ where });
+  }
 
   const job = await prisma.job.create({
     data: {

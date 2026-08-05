@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { Prisma } from '@prisma/client';
 import { requireAdmin } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { PageHeader, EmptyState } from '@/ui';
@@ -59,22 +58,30 @@ export default async function HujjatlarDatePage({
   const minDebt = typeof searchParams.minDebt === 'string' && searchParams.minDebt ? Number(searchParams.minDebt) : undefined;
   const page = Math.max(1, Number(searchParams.page) || 1);
 
-  const where = buildLoanWhere(snapshot.id, { q, branches, minDebt, page: 1 });
+  // Base where (firm + search). minDebt filters by the CLIENT's TOTAL debt via `having` — matching
+  // the sum shown on each card, not a single loan.
+  const where = buildLoanWhere(snapshot.id, { q, branches, page: 1 });
+  const having = minDebt !== undefined ? { totalDebt: { _sum: { gte: minDebt } } } : undefined;
 
-  const [firms, allGroups, clients, matchLoans] = await Promise.all([
+  const [firms, allGroups, clients, clientTotals] = await Promise.all([
     prisma.firm.findMany({ select: { code: true, shortName: true } }),
     prisma.loan.groupBy({ by: ['branchCode'], where: { snapshotId: snapshot.id }, _count: true }),
     prisma.loan.groupBy({
       by: ['pinfl', 'clientName'],
       where,
+      having,
       _sum: { totalDebt: true },
       _count: true,
       orderBy: { _sum: { totalDebt: 'desc' } },
       skip: (page - 1) * PAGE,
       take: PAGE,
     }),
-    prisma.loan.count({ where }),
+    prisma.loan.groupBy({ by: ['pinfl'], where, having, _count: true }),
   ]);
+
+  const clientCount = clientTotals.length;
+  const matchLoans = clientTotals.reduce((sum, g) => sum + g._count, 0);
+  const totalPages = Math.max(1, Math.ceil(clientCount / PAGE));
 
   const nameByCode = new Map(firms.map((f) => [f.code, f.shortName]));
   const firmChips = allGroups
@@ -108,14 +115,6 @@ export default async function HujjatlarDatePage({
     return `/hujjatlar/${date}?${sp.toString()}`;
   };
 
-  // Exact distinct-client total via one COUNT(DISTINCT) — cheap in the DB, powers numbered pages.
-  const conds: Prisma.Sql[] = [Prisma.sql`snapshotId = ${snapshot.id}`];
-  if (branches.length) conds.push(Prisma.sql`branchCode IN (${Prisma.join(branches)})`);
-  if (minDebt !== undefined) conds.push(Prisma.sql`totalDebt >= ${minDebt}`);
-  if (q) conds.push(Prisma.sql`(pinfl LIKE ${`%${q}%`} OR clientName LIKE ${`%${q}%`} OR ldId LIKE ${`%${q}%`})`);
-  const countRows = await prisma.$queryRaw<{ n: bigint }[]>`SELECT COUNT(DISTINCT pinfl) AS n FROM Loan WHERE ${Prisma.join(conds, ' AND ')}`;
-  const totalClients = Number(countRows[0]?.n ?? 0);
-  const totalPages = Math.max(1, Math.ceil(totalClients / PAGE));
   const pretty = date.split('-').reverse().join('.');
 
   return (
@@ -125,10 +124,16 @@ export default async function HujjatlarDatePage({
       </Link>
       <PageHeader
         title={`Hujjatlar — ${pretty}`}
-        subtitle={`${matchLoans.toLocaleString('ru-RU')} ta ariza — firmalarni tanlang yoki filtrlab ZIP oling`}
+        subtitle={`${clientCount.toLocaleString('ru-RU')} mijoz · ${matchLoans.toLocaleString('ru-RU')} shartnoma — firmalarni tanlang yoki filtrlab ZIP oling`}
       />
 
-      <FilterExportBar date={date} firms={firmChips} initial={{ q, branches, minDebt: minDebt !== undefined ? String(minDebt) : '' }} />
+      <FilterExportBar
+        date={date}
+        firms={firmChips}
+        initial={{ q, branches, minDebt: minDebt !== undefined ? String(minDebt) : '' }}
+        matchClients={clientCount}
+        matchContracts={matchLoans}
+      />
 
       {clients.length === 0 ? (
         <EmptyState title="Mijoz topilmadi" hint="Filtr yoki qidiruvni oʻzgartirib koʻring." />
@@ -152,8 +157,8 @@ export default async function HujjatlarDatePage({
                   ))}
                 </div>
                 <div className="mt-auto flex items-end justify-between border-t border-line pt-2">
-                  <span className="text-xs text-muted">{c._count} ta kredit</span>
-                  <span className="text-sm font-semibold">{formatSumDecimal(String(c._sum.totalDebt ?? 0))}</span>
+                  <span className="text-xs text-muted">{c._count} ta shartnoma</span>
+                  <span className="text-sm font-semibold">{formatSumDecimal(String(c._sum.totalDebt ?? 0))} soʻm</span>
                 </div>
               </Link>
             );
@@ -186,7 +191,7 @@ export default async function HujjatlarDatePage({
         </nav>
       )}
       <p className="mt-3 text-center text-xs text-muted">
-        {totalClients.toLocaleString('ru-RU')} mijoz · {totalPages.toLocaleString('ru-RU')} sahifa
+        {clientCount.toLocaleString('ru-RU')} mijoz · {totalPages.toLocaleString('ru-RU')} sahifa
       </p>
     </div>
   );

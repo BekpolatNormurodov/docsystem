@@ -37,13 +37,23 @@ export async function runExportJob(jobId: number, filters: ExportFilters): Promi
   try {
     const snapshot = await prisma.snapshot.findUniqueOrThrow({ where: { id: filters.snapshotId } });
     const settings = await getSettings();
+    // minDebt filters by the CLIENT's TOTAL debt (the sum shown on the card), not a single loan.
+    // Resolve the matching clients once, then skip other clients' loans while streaming.
     const where = buildLoanWhere(filters.snapshotId, {
       q: filters.q,
       branch: filters.branch,
       branches: filters.branches,
-      minDebt: filters.minDebt,
       page: 1,
     } satisfies LoanFilters);
+    let allowedPinfls: Set<string> | null = null;
+    if (filters.minDebt) {
+      const groups = await prisma.loan.groupBy({
+        by: ['pinfl'],
+        where,
+        having: { totalDebt: { _sum: { gte: filters.minDebt } } },
+      });
+      allowedPinfls = new Set(groups.map((g) => g.pinfl).filter((p): p is string => !!p));
+    }
 
     const firmRows = await prisma.firm.findMany();
     const firmsByCode = new Map(firmRows.map((f) => [f.code, f]));
@@ -67,6 +77,7 @@ export async function runExportJob(jobId: number, filters: ExportFilters): Promi
       skip += loans.length;
 
       for (const loan of loans) {
+        if (allowedPinfls && (!loan.pinfl || !allowedPinfls.has(loan.pinfl))) continue;
         const firmRow = loan.branchCode ? firmsByCode.get(loan.branchCode) : undefined;
         const firm: ArizaFirm = {
           shortName: firmRow?.shortName ?? loan.branchCode ?? '',
