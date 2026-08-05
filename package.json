@@ -13,8 +13,10 @@
   "dependencies": {
     "@prisma/client": "^5.22.0",
     "bcryptjs": "^2.4.3",
+    "exceljs": "^4.4.0",
     "iconsax-react": "^0.0.8",
     "jose": "^5.9.6",
+    "jszip": "^3.10.1",
     "nanoid": "^5.0.9",
     "next": "14.2.18",
     "react": "^18.3.1",
