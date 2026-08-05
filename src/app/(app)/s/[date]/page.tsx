@@ -92,7 +92,14 @@ export default async function SnapshotBrowsePage({
             {loans.map((loan) => (
               <ClickableRow key={loan.id} href={`${base}/p/${loan.pinfl ?? ''}`}>
                 <td className="px-4 py-3">{loan.pinfl || '—'}</td>
-                <td className="px-4 py-3">{loan.clientName || '—'}</td>
+                <td className="px-4 py-3">
+                  {loan.clientName || '—'}
+                  {loan.excluded && (
+                    <span className="badge border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-300 text-[10px] ml-2">
+                      istisno
+                    </span>
+                  )}
+                </td>
                 <td className="px-4 py-3">{firmByCode.get(loan.branchCode ?? '') ?? loan.branchCode ?? '—'}</td>
                 <td className="px-4 py-3">{loan.ldId || '—'}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{formatSumDecimal(String(loan.totalDebt))}</td>
