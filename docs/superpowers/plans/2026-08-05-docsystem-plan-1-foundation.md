@@ -123,12 +123,14 @@ export default function Home() { return <main style={{ padding: 24 }}>Docsystem<
 - [ ] **Step 6: Write `.env.example`**
 
 ```
-DATABASE_URL="mysql://docsystem:docsystem@localhost:3307/docsystem"
+DATABASE_URL="mysql://USER:PASSWORD@localhost:3306/docsystem"
 SESSION_SECRET="change-me-32-bytes-minimum-secret-string"
 DOCSYSTEM_ADMIN_USERNAME="admin"
 DOCSYSTEM_ADMIN_PASSWORD="admin"
 ```
-Copy to `.env` locally (git-ignored). **Never commit `.env`.**
+Also create a local `.env` (git-ignored) with the real dev connection string the controller provides.
+**Never commit `.env`.** Local dev connects to an already-running MySQL 8 on `localhost:3306` — no
+Docker needed.
 
 - [ ] **Step 7: Install and build**
 
@@ -322,11 +324,14 @@ export const prisma = g.prisma ?? new PrismaClient();
 if (process.env.NODE_ENV !== 'production') g.prisma = prisma;
 ```
 
-- [ ] **Step 4: Bring up DB and push schema**
+- [ ] **Step 4: Ensure the DB exists and push schema**
 
-Run: `docker compose up -d mysql`
+Local dev uses an already-running MySQL 8 (connection string in `.env` `DATABASE_URL`, provided by
+the controller). Create the `docsystem` database if it does not exist, then push:
 Run: `npx prisma db push`
-Expected: "Your database is now in sync with your Prisma schema."
+Expected: "Your database is now in sync with your Prisma schema." (Prisma creates the database if it
+has permission; otherwise create it once with your MySQL client.) The `docker-compose.yml` mysql
+service is the **production** DB — local dev does not need Docker.
 
 - [ ] **Step 5: Write `src/lib/db.test.ts`**
 
