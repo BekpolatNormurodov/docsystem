@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   if (!snapshot) return NextResponse.json({ error: 'Bu sana uchun snapshot topilmadi' }, { status: 404 });
 
   // minDebt is a CLIENT-total filter: the export produces one ariza per loan of the matching clients.
-  const where = buildLoanWhere(snapshot.id, { q, branches, page: 1 } satisfies LoanFilters);
+  const where = { ...buildLoanWhere(snapshot.id, { q, branches, page: 1 } satisfies LoanFilters), excluded: false };
   let total: number;
   if (minDebt) {
     const groups = await prisma.loan.groupBy({

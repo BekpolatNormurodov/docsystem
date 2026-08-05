@@ -60,7 +60,9 @@ export default async function HujjatlarDatePage({
 
   // Base where (firm + search). minDebt filters by the CLIENT's TOTAL debt via `having` — matching
   // the sum shown on each card, not a single loan.
-  const where = buildLoanWhere(snapshot.id, { q, branches, page: 1 });
+  // Excluded (problem/carried-over) clients never get an ariza — this page feeds Hujjatlar/export
+  // only, so they're filtered out here even though they still show up in Mijozlar/Portfel.
+  const where = { ...buildLoanWhere(snapshot.id, { q, branches, page: 1 }), excluded: false };
   const having = minDebt !== undefined ? { totalDebt: { _sum: { gte: minDebt } } } : undefined;
 
   const [firms, allGroups, clients, clientTotals] = await Promise.all([
@@ -93,7 +95,7 @@ export default async function HujjatlarDatePage({
   const pinfls = clients.map((c) => c.pinfl).filter(Boolean) as string[];
   const pairs = pinfls.length
     ? await prisma.loan.findMany({
-        where: { snapshotId: snapshot.id, pinfl: { in: pinfls }, ...(branches.length ? { branchCode: { in: branches } } : {}) },
+        where: { snapshotId: snapshot.id, pinfl: { in: pinfls }, excluded: false, ...(branches.length ? { branchCode: { in: branches } } : {}) },
         select: { pinfl: true, branchCode: true },
         distinct: ['pinfl', 'branchCode'],
       })

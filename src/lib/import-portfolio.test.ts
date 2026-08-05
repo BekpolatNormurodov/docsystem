@@ -39,6 +39,7 @@ describe('importPortfolio', () => {
       0,
     );
     expect(result.totalDebt).toBe(expectedTotal);
+    expect(result.excludedCount).toBe(0);
     expect(progressCalls.length).toBeGreaterThan(0);
     expect(progressCalls.at(-1)).toBe(3);
 
@@ -67,5 +68,28 @@ describe('importPortfolio', () => {
     const updatedSnapshot = await prisma.snapshot.findUniqueOrThrow({ where: { id: snapshot.id } });
     expect(updatedSnapshot.processedRows).toBe(3);
     expect(Number(updatedSnapshot.totalDebt)).toBe(expectedTotal);
+  });
+
+  it('marks loans whose pinfl is in excludedPinfls as excluded', async () => {
+    fixturePath = path.join(os.tmpdir(), `portfolio-fixture-excl-${Date.now()}.xlsx`);
+    await makeFixture(fixturePath);
+
+    const snapshot = await prisma.snapshot.create({
+      data: { reportDate: new Date('2026-08-03'), sourceFileName: 'fixture.xlsx' },
+    });
+    snapshotId = snapshot.id;
+
+    const excludedPinfls = new Set(['10000000000002']);
+    const result = await importPortfolio(fixturePath, snapshot.id, undefined, excludedPinfls);
+
+    expect(result.excludedCount).toBe(1);
+
+    const loans = await prisma.loan.findMany({
+      where: { snapshotId: snapshot.id },
+      orderBy: { pinfl: 'asc' },
+    });
+    expect(loans.find((l) => l.pinfl === '10000000000001')?.excluded).toBe(false);
+    expect(loans.find((l) => l.pinfl === '10000000000002')?.excluded).toBe(true);
+    expect(loans.find((l) => l.pinfl === '10000000000003')?.excluded).toBe(false);
   });
 });

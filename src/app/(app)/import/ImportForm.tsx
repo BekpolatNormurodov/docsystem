@@ -25,7 +25,9 @@ interface JobStatus {
  */
 export function ImportForm() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const excludeInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [excludeFile, setExcludeFile] = useState<File | null>(null);
   const [date, setDate] = useState('');
   const [phase, setPhase] = useState<Phase>('idle');
   const [progress, setProgress] = useState(0);
@@ -79,8 +81,15 @@ export function ImportForm() {
     }, 1000);
   }
 
+  function onExcludeFileChosen(picked: FileList | null) {
+    const f = picked?.[0];
+    if (!f) return;
+    setExcludeFile(f);
+    setError(null);
+  }
+
   async function onUpload() {
-    if (!file || !date) return;
+    if (!file || !excludeFile || !date) return;
     setPhase('uploading');
     setError(null);
     setProgress(0);
@@ -88,6 +97,7 @@ export function ImportForm() {
     try {
       const form = new FormData();
       form.append('file', file);
+      form.append('exclude', excludeFile);
       form.append('date', date);
       const res = await fetch('/api/import', { method: 'POST', body: form });
       if (!res.ok) {
@@ -143,6 +153,38 @@ export function ImportForm() {
         )}
       </div>
 
+      <div>
+        <span className="field-label">Muammoli / istisno roʻyxati (.xlsx)</span>
+        <input
+          ref={excludeInputRef}
+          type="file"
+          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          className="sr-only"
+          disabled={busy}
+          onChange={(e) => onExcludeFileChosen(e.target.files)}
+        />
+        <button
+          type="button"
+          onClick={() => excludeInputRef.current?.click()}
+          disabled={busy}
+          className="btn-ghost w-full justify-center py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Ico.add size={16} /> Fayl tanlash
+        </button>
+
+        {excludeFile && (
+          <div className="mt-3 flex items-center gap-2 rounded-lg border border-line p-2">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded bg-surface-2 text-[10px] font-bold uppercase text-muted">
+              xlsx
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-xs font-medium">{excludeFile.name}</span>
+              <span className="block text-[11px] text-muted">{fileSize(excludeFile.size)}</span>
+            </span>
+          </div>
+        )}
+      </div>
+
       <DateField
         label="Hisobot sanasi"
         value={date}
@@ -154,7 +196,7 @@ export function ImportForm() {
       <button
         type="button"
         onClick={onUpload}
-        disabled={!file || !date || busy}
+        disabled={!file || !excludeFile || !date || busy}
         className="btn-primary w-full justify-center disabled:cursor-not-allowed disabled:opacity-50"
       >
         {phase === 'uploading' ? 'Fayl yuklanmoqda…' : phase === 'running' ? 'Saqlanmoqda…' : 'Yuklash'}

@@ -8,6 +8,7 @@ const BATCH_SIZE = 1000;
 export interface ImportResult {
   rows: number;
   totalDebt: number;
+  excludedCount: number;
 }
 
 /**
@@ -19,6 +20,7 @@ export async function importPortfolio(
   filePath: string,
   snapshotId: number,
   onProgress?: (n: number) => void,
+  excludedPinfls?: Set<string>,
 ): Promise<ImportResult> {
   const workbook = new Excel.stream.xlsx.WorkbookReader(filePath, {
     worksheets: 'emit',
@@ -28,6 +30,7 @@ export async function importPortfolio(
 
   let rows = 0;
   let totalDebt = 0;
+  let excludedCount = 0;
   let batch: LoanInput[] = [];
   let foundWorksheet = false;
 
@@ -38,6 +41,7 @@ export async function importPortfolio(
         ...l,
         raw: l.raw as Prisma.InputJsonValue,
         snapshotId,
+        excluded: !!(excludedPinfls && l.pinfl && excludedPinfls.has(l.pinfl)),
       })),
     });
     batch = [];
@@ -64,6 +68,7 @@ export async function importPortfolio(
 
       const loan = mapRowToLoan(header, values);
       totalDebt += loan.totalDebt;
+      if (excludedPinfls && loan.pinfl && excludedPinfls.has(loan.pinfl)) excludedCount += 1;
       batch.push(loan);
       rows += 1;
 
@@ -85,5 +90,5 @@ export async function importPortfolio(
     data: { processedRows: rows, totalDebt },
   });
 
-  return { rows, totalDebt };
+  return { rows, totalDebt, excludedCount };
 }

@@ -14,9 +14,11 @@ export async function POST(req: NextRequest) {
 
   const form = await req.formData();
   const file = form.get('file') as File | null;
+  const excludeFile = form.get('exclude') as File | null;
   const date = String(form.get('date') ?? '');
 
   if (!file) return NextResponse.json({ error: 'file majburiy' }, { status: 400 });
+  if (!excludeFile) return NextResponse.json({ error: 'exclude majburiy' }, { status: 400 });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return NextResponse.json({ error: 'date notoʻgʻri (YYYY-MM-DD)' }, { status: 400 });
   }
@@ -56,6 +58,8 @@ export async function POST(req: NextRequest) {
   await fs.mkdir(UPLOADS_DIR, { recursive: true });
   const filePath = path.join(UPLOADS_DIR, `${snapshot.id}.xlsx`);
   await fs.writeFile(filePath, Buffer.from(await file.arrayBuffer()));
+  const excludePath = path.join(UPLOADS_DIR, `${snapshot.id}-exclude.xlsx`);
+  await fs.writeFile(excludePath, Buffer.from(await excludeFile.arrayBuffer()));
 
   // Seed an estimated row total (~820 bytes/row in these portfolios) so the client can show a real
   // percentage while streaming — the exact count is only known when the stream finishes.
@@ -66,7 +70,7 @@ export async function POST(req: NextRequest) {
 
   // Fire-and-forget: the server process carries this to completion; the client polls the Job.
   // The `.catch` is a final backstop — runImportJob already records failures on the rows.
-  void runImportJob(job.id, filePath, snapshot.id).catch(() => {});
+  void runImportJob(job.id, filePath, snapshot.id, excludePath).catch(() => {});
 
   return NextResponse.json({ jobId: job.id, snapshotId: snapshot.id });
 }

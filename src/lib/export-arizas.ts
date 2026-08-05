@@ -39,12 +39,15 @@ export async function runExportJob(jobId: number, filters: ExportFilters): Promi
     const settings = await getSettings();
     // minDebt filters by the CLIENT's TOTAL debt (the sum shown on the card), not a single loan.
     // Resolve the matching clients once, then skip other clients' loans while streaming.
-    const where = buildLoanWhere(filters.snapshotId, {
-      q: filters.q,
-      branch: filters.branch,
-      branches: filters.branches,
-      page: 1,
-    } satisfies LoanFilters);
+    const where = {
+      ...buildLoanWhere(filters.snapshotId, {
+        q: filters.q,
+        branch: filters.branch,
+        branches: filters.branches,
+        page: 1,
+      } satisfies LoanFilters),
+      excluded: false,
+    };
     let allowedPinfls: Set<string> | null = null;
     if (filters.minDebt) {
       const groups = await prisma.loan.groupBy({
