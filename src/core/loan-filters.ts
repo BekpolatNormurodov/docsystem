@@ -3,6 +3,8 @@ import type { Prisma } from '@prisma/client';
 export interface LoanFilters {
   q?: string;
   branch?: string;
+  /** Multi-firm selection (export). Takes precedence over the single `branch`. */
+  branches?: string[];
   minDebt?: number;
   fromDate?: string;
   page: number;
@@ -30,7 +32,8 @@ export function buildLoanWhere(snapshotId: number, f: LoanFilters): Prisma.LoanW
       { ldId: { contains: f.q } },
     ];
   }
-  if (f.branch) where.branchCode = f.branch;
+  if (f.branches && f.branches.length > 0) where.branchCode = { in: f.branches };
+  else if (f.branch) where.branchCode = f.branch;
   if (f.minDebt !== undefined) where.totalDebt = { gte: f.minDebt };
   if (f.fromDate) where.dateToCr = { gte: new Date(f.fromDate) };
   return where;

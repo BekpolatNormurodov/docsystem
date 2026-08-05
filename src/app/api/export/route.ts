@@ -12,7 +12,9 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const date = String(body?.date ?? '');
   const q = body?.q ? String(body.q) : undefined;
-  const branch = body?.branch ? String(body.branch) : undefined;
+  const branches = Array.isArray(body?.branches) && body.branches.length > 0
+    ? body.branches.map(String)
+    : undefined;
   const minDebt = body?.minDebt !== undefined && body?.minDebt !== null ? Number(body.minDebt) : undefined;
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -23,7 +25,7 @@ export async function POST(req: NextRequest) {
   const snapshot = await prisma.snapshot.findUnique({ where: { reportDate } });
   if (!snapshot) return NextResponse.json({ error: 'Bu sana uchun snapshot topilmadi' }, { status: 404 });
 
-  const where = buildLoanWhere(snapshot.id, { q, branch, minDebt, page: 1 } satisfies LoanFilters);
+  const where = buildLoanWhere(snapshot.id, { q, branches, minDebt, page: 1 } satisfies LoanFilters);
   const total = await prisma.loan.count({ where });
 
   const job = await prisma.job.create({
@@ -32,13 +34,13 @@ export async function POST(req: NextRequest) {
       status: 'PENDING',
       snapshotId: snapshot.id,
       total,
-      params: { snapshotId: snapshot.id, q, branch, minDebt },
+      params: { snapshotId: snapshot.id, q, branches, minDebt },
     },
   });
 
   // Fire-and-forget: the server process carries this to completion; the client polls the Job.
   // The `.catch` is a final backstop — runExportJob already records failures on the Job row.
-  void runExportJob(job.id, { snapshotId: snapshot.id, q, branch, minDebt }).catch(() => {});
+  void runExportJob(job.id, { snapshotId: snapshot.id, q, branches, minDebt }).catch(() => {});
 
   return NextResponse.json({ jobId: job.id, total });
 }

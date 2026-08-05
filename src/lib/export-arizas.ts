@@ -19,6 +19,7 @@ export interface ExportFilters {
   snapshotId: number;
   q?: string;
   branch?: string;
+  branches?: string[];
   minDebt?: number;
 }
 
@@ -39,6 +40,7 @@ export async function runExportJob(jobId: number, filters: ExportFilters): Promi
     const where = buildLoanWhere(filters.snapshotId, {
       q: filters.q,
       branch: filters.branch,
+      branches: filters.branches,
       minDebt: filters.minDebt,
       page: 1,
     } satisfies LoanFilters);
