@@ -12,28 +12,28 @@ import { importPortfolio } from './import-portfolio';
  * insert batch (1000 rows), not per row, so this doesn't need its own throttling on top.
  */
 export async function runImportJob(jobId: number, filePath: string, snapshotId: number): Promise<void> {
-  await prisma.job.update({ where: { id: jobId }, data: { status: 'RUNNING' } });
+  // updateMany (not update) throughout: if the Job/Snapshot was deleted mid-import (e.g. a replace
+  // for the same date), update() would throw "record not found" and — since callers fire-and-forget
+  // this — surface as an unhandledRejection that crashes the request. updateMany is a no-op on 0 rows.
+  await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING' } });
 
   try {
     const result = await importPortfolio(filePath, snapshotId, (n) => {
-      void prisma.job.update({ where: { id: jobId }, data: { progress: n, total: n } });
+      // Fire-and-forget progress write, guarded: a deleted Job here must not reject unhandled.
+      prisma.job.updateMany({ where: { id: jobId }, data: { progress: n, total: n } }).catch(() => {});
     });
 
-    await Promise.all([
-      prisma.job.update({
-        where: { id: jobId },
-        data: { status: 'DONE', progress: result.rows, total: result.rows },
-      }),
-      prisma.snapshot.update({
-        where: { id: snapshotId },
-        data: { status: 'READY', rowCount: result.rows, processedRows: result.rows, totalDebt: result.totalDebt },
-      }),
-    ]);
+    await prisma.job.updateMany({
+      where: { id: jobId },
+      data: { status: 'DONE', progress: result.rows, total: result.rows },
+    });
+    await prisma.snapshot.updateMany({
+      where: { id: snapshotId },
+      data: { status: 'READY', rowCount: result.rows, processedRows: result.rows, totalDebt: result.totalDebt },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await Promise.all([
-      prisma.job.update({ where: { id: jobId }, data: { status: 'FAILED', message } }),
-      prisma.snapshot.update({ where: { id: snapshotId }, data: { status: 'FAILED' } }),
-    ]);
+    await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'FAILED', message } }).catch(() => {});
+    await prisma.snapshot.updateMany({ where: { id: snapshotId }, data: { status: 'FAILED' } }).catch(() => {});
   }
 }

@@ -11,6 +11,9 @@ async function main() {
   if (!FILE) throw new Error('pass the xlsx path as arg 1');
   const t0 = Date.now();
   const existing = await prisma.snapshot.findUnique({ where: { reportDate: new Date(DATE) } });
+  if (existing?.status === 'IMPORTING') {
+    throw new Error(`snapshot ${existing.id} for ${DATE} is currently IMPORTING — refusing to delete an in-flight import`);
+  }
   if (existing) {
     await prisma.snapshot.delete({ where: { id: existing.id } });
     console.log('replaced existing snapshot', existing.id);
