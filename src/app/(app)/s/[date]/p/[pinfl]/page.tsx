@@ -6,6 +6,7 @@ import { loanToAriza } from '@/core/ariza';
 import { formatSumDecimal, dmy } from '@/core/document';
 import { PageHeader, StatCard } from '@/ui';
 import { ArizaPreview } from './ArizaPreview';
+import { PersonFilters } from './PersonFilters';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,14 +15,19 @@ export default async function PersonPage({
   searchParams,
 }: {
   params: { date: string; pinfl: string };
-  searchParams: Record<string, string | undefined>;
+  searchParams: Record<string, string | string[] | undefined>;
 }) {
   const snapshot = await prisma.snapshot.findUnique({
     where: { reportDate: new Date(params.date) },
   });
   if (!snapshot) notFound();
 
-  const c = (searchParams.c ?? '').trim();
+  const c = (typeof searchParams.c === 'string' ? searchParams.c : '').trim();
+  const firmSel = Array.isArray(searchParams.firm)
+    ? searchParams.firm
+    : searchParams.firm
+      ? [searchParams.firm]
+      : [];
 
   const [allLoans, firms, settings] = await Promise.all([
     prisma.loan.findMany({
@@ -33,9 +39,25 @@ export default async function PersonPage({
   ]);
   if (allLoans.length === 0) notFound();
 
-  const loans = c ? allLoans.filter((l) => (l.ldId ?? '').toLowerCase().includes(c.toLowerCase())) : allLoans;
-
   const firmByCode = new Map(firms.map((fr) => [fr.code, fr]));
+
+  // The person's own firms (for the filter chips), with a per-firm contract count.
+  const personFirmsMap = new Map<string, number>();
+  for (const l of allLoans) {
+    const k = l.branchCode ?? '';
+    if (k) personFirmsMap.set(k, (personFirmsMap.get(k) ?? 0) + 1);
+  }
+  const personFirms = [...personFirmsMap.entries()].map(([code, count]) => ({
+    code,
+    name: firmByCode.get(code)?.shortName ?? code,
+    count,
+  }));
+
+  const loans = allLoans.filter((l) => {
+    if (c && !(l.ldId ?? '').toLowerCase().includes(c.toLowerCase())) return false;
+    if (firmSel.length && !firmSel.includes(l.branchCode ?? '')) return false;
+    return true;
+  });
   const first = allLoans[0]!;
   const isExcluded = allLoans.some((l) => l.excluded);
   const grandTotal = loans.reduce((sum, l) => sum + Number(l.totalDebt), 0);
@@ -67,12 +89,7 @@ export default async function PersonPage({
         </div>
       )}
 
-      <form method="get" className="mb-4 max-w-sm">
-        <label className="block">
-          <span className="field-label">Shartnoma raqami boʻyicha qidirish</span>
-          <input name="c" defaultValue={c} placeholder="masalan: 12345" className="field-input w-full" />
-        </label>
-      </form>
+      <PersonFilters initialC={c} firms={personFirms} initialFirms={firmSel} />
 
       <div className="mb-4 grid gap-4 sm:grid-cols-3">
         <StatCard label="Jami qarz" value={`${formatSumDecimal(String(grandTotal))} soʻm`} />
@@ -107,10 +124,13 @@ export default async function PersonPage({
             const firmTotal = firmLoans.reduce((sum, l) => sum + Number(l.totalDebt), 0);
             return (
               <section key={branchCode || 'unknown'} className="card p-5">
-                <header className="mb-3 flex items-baseline justify-between gap-3">
-                  <h2 className="text-sm font-semibold">{firm?.shortName ?? branchCode ?? 'Nomaʼlum firma'}</h2>
-                  <span className="text-sm font-semibold tabular-nums">
-                    {formatSumDecimal(String(firmTotal))} soʻm
+                <header className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-surface-2 px-3 py-2">
+                  <h2 className="font-semibold">
+                    {firm?.shortName ?? branchCode ?? 'Nomaʼlum firma'}
+                    <span className="ml-2 text-xs font-normal text-muted">· {firmLoans.length} ta shartnoma</span>
+                  </h2>
+                  <span className="rounded-lg bg-brand-600/10 px-3 py-1 text-sm font-bold tabular-nums text-brand-700 dark:text-brand-300">
+                    Jami: {formatSumDecimal(String(firmTotal))} soʻm
                   </span>
                 </header>
 
