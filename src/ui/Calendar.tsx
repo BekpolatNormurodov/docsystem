@@ -15,6 +15,18 @@ export interface DayData {
   counts: Record<string, number>;
 }
 
+export interface LegendItem {
+  key: string;
+  label: string;
+  dot: string;
+}
+
+const DEFAULT_LEGEND: LegendItem[] = Object.values(CertStatus).map((s) => ({
+  key: s,
+  label: STATUS_LABELS[s],
+  dot: STATUS_DOT[s],
+}));
+
 /** Month grid. Server-rendered links — no client state, instant navigation. */
 export function Calendar({
   month,
@@ -25,6 +37,7 @@ export function Calendar({
   prevHref,
   nextHref,
   todayHref,
+  legend = DEFAULT_LEGEND,
 }: {
   /** 'YYYY-MM' */
   month: string;
@@ -36,11 +49,14 @@ export function Calendar({
   prevHref: string;
   nextHref: string;
   todayHref: string;
+  /** Overrides the default cert-workflow legend/dot-colours — e.g. for a different day-status domain. */
+  legend?: LegendItem[];
 }) {
   const [y, m] = month.split('-').map(Number);
   const cells = monthGrid(month);
   const iso = (d: number) => `${month}-${String(d).padStart(2, '0')}`;
   const showsToday = month === todayIso.slice(0, 7);
+  const legendByKey = Object.fromEntries(legend.map((l) => [l.key, l]));
 
   return (
     <div className="card overflow-hidden">
@@ -110,8 +126,8 @@ export function Calendar({
               {data && (
                 <div className="mt-1.5 space-y-1">
                   {Object.entries(data.counts).map(([st, n]) => (
-                    <div key={st} className="flex items-center gap-1.5" title={`${STATUS_LABELS[st as CertStatus]}: ${n}`}>
-                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_DOT[st] ?? 'bg-slate-400'}`} />
+                    <div key={st} className="flex items-center gap-1.5" title={`${legendByKey[st]?.label ?? st}: ${n}`}>
+                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${legendByKey[st]?.dot ?? 'bg-slate-400'}`} />
                       <span className="truncate text-[11px] text-muted tabular-nums">{n}</span>
                     </div>
                   ))}
@@ -124,10 +140,10 @@ export function Calendar({
 
       {/* Legend — colour is never the only cue (label + count) */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line px-4 py-3">
-        {Object.values(CertStatus).map((s) => (
-          <span key={s} className="flex items-center gap-1.5 text-[11px] text-muted">
-            <span className={`h-2 w-2 rounded-full ${STATUS_DOT[s]}`} />
-            {STATUS_LABELS[s]}
+        {legend.map((l) => (
+          <span key={l.key} className="flex items-center gap-1.5 text-[11px] text-muted">
+            <span className={`h-2 w-2 rounded-full ${l.dot}`} />
+            {l.label}
           </span>
         ))}
       </div>

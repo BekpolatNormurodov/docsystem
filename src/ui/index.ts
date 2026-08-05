@@ -11,6 +11,7 @@ export { FilePicker } from './FilePicker';
 export { Filters } from './Filters';
 export { Pagination } from './Pagination';
 export { Calendar, UZ_MONTHS_LAT } from './Calendar';
+export type { DayData, LegendItem } from './Calendar';
 export { BarChart, DonutChart, HBarChart } from './Charts';
 export { ClickableRow, RowAction, ViewAction } from './ClickableRow';
 export { STATUS_DOT } from './tokens';
