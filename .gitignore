@@ -7,3 +7,5 @@ exports/
 
 # TS incremental build cache
 *.tsbuildinfo
+.env.test
+.env.*
