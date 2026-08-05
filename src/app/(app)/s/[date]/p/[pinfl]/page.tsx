@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/db';
 import { getSettings } from '@/lib/settings';
-import { loanToAriza } from '@/core/ariza';
+import { loansToAriza } from '@/core/ariza';
 import { formatSumDecimal, dmy } from '@/core/document';
 import { PageHeader, StatCard } from '@/ui';
 import { ArizaPreview } from './ArizaPreview';
@@ -134,37 +134,28 @@ export default async function PersonPage({
                   </span>
                 </header>
 
-                <div className="space-y-4">
+                <ul className="mb-4 space-y-2">
                   {firmLoans.map((loan) => (
-                    <div key={loan.id} className="border-t border-line pt-4 first:border-t-0 first:pt-0">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="text-sm">
-                          <span className="font-medium">{loan.ldId || '—'}</span>
-                          {loan.dateToCr && (
-                            <span className="ml-2 text-xs text-muted">{dmy(loan.dateToCr)}</span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm font-semibold tabular-nums">
-                            {formatSumDecimal(String(loan.totalDebt))} soʻm
-                          </span>
-                          <a
-                            href={`/api/ariza/${loan.id}`}
-                            className="btn-ghost text-xs"
-                          >
-                            .docx
-                          </a>
-                        </div>
-                      </div>
-
-                      {firm && (
-                        <div className="mt-3">
-                          <ArizaPreview props={loanToAriza(loan, firm, settings, snapshot.reportDate)} />
-                        </div>
-                      )}
-                    </div>
+                    <li key={loan.id} className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-2 text-sm first:border-t-0 first:pt-0">
+                      <span>
+                        <span className="font-medium">{loan.ldId || '—'}</span>
+                        {loan.dateToCr && <span className="ml-2 text-xs text-muted">{dmy(loan.dateToCr)}</span>}
+                      </span>
+                      <span className="font-semibold tabular-nums">{formatSumDecimal(String(loan.totalDebt))} soʻm</span>
+                    </li>
                   ))}
-                </div>
+                </ul>
+
+                {firm && (
+                  <div>
+                    <div className="mb-2 flex justify-end">
+                      <a href={`/api/ariza/${firmLoans[0]!.id}`} className="btn-primary text-xs">
+                        .docx — birlashtirilgan ariza
+                      </a>
+                    </div>
+                    <ArizaPreview props={loansToAriza(firmLoans, firm, settings, snapshot.reportDate)} />
+                  </div>
+                )}
               </section>
             );
           })}

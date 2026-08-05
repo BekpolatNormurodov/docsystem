@@ -28,17 +28,18 @@ export async function POST(req: NextRequest) {
 
   // minDebt is a CLIENT-total filter: the export produces one ariza per loan of the matching clients.
   const where = { ...buildLoanWhere(snapshot.id, { q, branches, page: 1 } satisfies LoanFilters), excluded: onlyExcluded };
+  // One ariza per (client × firm), so the total is the number of distinct (pinfl, branchCode) groups.
+  const arizaGroups = await prisma.loan.groupBy({ by: ['pinfl', 'branchCode'], where });
   let total: number;
   if (minDebt) {
-    const groups = await prisma.loan.groupBy({
-      by: ['pinfl'],
-      where,
-      having: { totalDebt: { _sum: { gte: minDebt } } },
-      _count: true,
-    });
-    total = groups.reduce((sum, g) => sum + g._count, 0);
+    const allowed = new Set(
+      (await prisma.loan.groupBy({ by: ['pinfl'], where, having: { totalDebt: { _sum: { gte: minDebt } } } }))
+        .map((g) => g.pinfl)
+        .filter((p): p is string => !!p),
+    );
+    total = arizaGroups.filter((g) => g.pinfl && allowed.has(g.pinfl)).length;
   } else {
-    total = await prisma.loan.count({ where });
+    total = arizaGroups.length;
   }
 
   const job = await prisma.job.create({

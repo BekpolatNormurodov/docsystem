@@ -8,7 +8,7 @@ import { prisma } from './db';
 import { getSettings } from './settings';
 import { buildArizaDocx } from './ariza-docx';
 import { arizaZipPath, uniqueZipPath } from './export-paths';
-import { loanToAriza, type ArizaFirm } from '@/core/ariza';
+import { loansToAriza, type ArizaFirm } from '@/core/ariza';
 import { buildLoanWhere, type LoanFilters } from '@/core/loan-filters';
 
 const EXPORTS_DIR = path.join(process.cwd(), 'exports');
@@ -73,44 +73,61 @@ export async function runExportJob(jobId: number, filters: ExportFilters): Promi
     });
     archive.pipe(output);
 
+    // One ariza per (client × firm): stream ordered so a client's loans at one firm are contiguous,
+    // then flush each group into a single combined petition (contracts listed, debt summed).
     let processed = 0;
     let skip = 0;
-    const usedNames = new Set<string>(); // dedupe same-named arizas (same client+firm+date)
+    const usedNames = new Set<string>();
+    let currentKey: string | null = null;
+    let group: Awaited<ReturnType<typeof prisma.loan.findMany>> = [];
+
+    const flush = async () => {
+      if (group.length === 0) return;
+      const g0 = group[0]!;
+      const firmRow = g0.branchCode ? firmsByCode.get(g0.branchCode) : undefined;
+      const firm: ArizaFirm = {
+        shortName: firmRow?.shortName ?? g0.branchCode ?? '',
+        legalName: firmRow?.legalName ?? null,
+        address: firmRow?.address ?? null,
+        bankAccount: firmRow?.bankAccount ?? null,
+        mfo: firmRow?.mfo ?? null,
+        stir: firmRow?.stir ?? null,
+      };
+      const props = loansToAriza(group, firm, settings, snapshot.reportDate);
+      const buf = await buildArizaDocx(props);
+      const name = uniqueZipPath(
+        arizaZipPath(snapshot.reportDate, g0.clientName ?? '', g0.pinfl ?? '', firmRow?.shortName ?? g0.branchCode ?? ''),
+        usedNames,
+      );
+      archive.append(buf, { name });
+      processed += 1;
+      if (processed % PROGRESS_THROTTLE === 0) {
+        await prisma.job.updateMany({ where: { id: jobId }, data: { progress: processed } }).catch(() => {});
+      }
+      group = [];
+    };
+
     for (;;) {
-      const loans = await prisma.loan.findMany({ where, skip, take: PAGE_SIZE, orderBy: { id: 'asc' } });
+      const loans = await prisma.loan.findMany({
+        where,
+        skip,
+        take: PAGE_SIZE,
+        orderBy: [{ pinfl: 'asc' }, { branchCode: 'asc' }, { id: 'asc' }],
+      });
       if (loans.length === 0) break;
       skip += loans.length;
 
       for (const loan of loans) {
         if (allowedPinfls && (!loan.pinfl || !allowedPinfls.has(loan.pinfl))) continue;
-        const firmRow = loan.branchCode ? firmsByCode.get(loan.branchCode) : undefined;
-        const firm: ArizaFirm = {
-          shortName: firmRow?.shortName ?? loan.branchCode ?? '',
-          legalName: firmRow?.legalName ?? null,
-          address: firmRow?.address ?? null,
-          bankAccount: firmRow?.bankAccount ?? null,
-          mfo: firmRow?.mfo ?? null,
-          stir: firmRow?.stir ?? null,
-        };
-        const props = loanToAriza(loan, firm, settings, snapshot.reportDate);
-        const buf = await buildArizaDocx(props);
-        const name = uniqueZipPath(
-          arizaZipPath(
-            snapshot.reportDate,
-            loan.clientName ?? '',
-            loan.pinfl ?? '',
-            firmRow?.shortName ?? loan.branchCode ?? '',
-          ),
-          usedNames,
-        );
-        archive.append(buf, { name });
-
-        processed += 1;
-        if (processed % PROGRESS_THROTTLE === 0) {
-          await prisma.job.updateMany({ where: { id: jobId }, data: { progress: processed } }).catch(() => {});
+        const key = `${loan.pinfl}|${loan.branchCode}`;
+        if (key !== currentKey) {
+          await flush();
+          currentKey = key;
         }
+        group.push(loan);
       }
     }
+    await flush();
 
     await archive.finalize();
     await closed;

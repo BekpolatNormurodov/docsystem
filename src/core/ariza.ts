@@ -31,13 +31,26 @@ export interface ArizaFirm {
 
 export type LoanArizaProps = Omit<CourtArizaDocumentProps, 'edit' | 'qrDataUrl'>;
 
-/** Maps a Loan + Firm + Settings row into the props `CourtArizaDocument` renders. */
-export function loanToAriza(
-  loan: ArizaLoan,
+const num = (v: unknown): number => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+/** Sum a money field across loans, rounded to 2 decimals (avoids float artifacts). */
+const sum2 = (loans: ArizaLoan[], pick: (l: ArizaLoan) => unknown): string =>
+  String(Math.round(loans.reduce((s, l) => s + num(pick(l)), 0) * 100) / 100);
+
+/**
+ * Maps a client's loans AT ONE FIRM into a single ariza: all contracts are listed together and the
+ * debt (loan amount + the four components + total) is SUMMED across them — one court petition per
+ * (client × firm), not per contract.
+ */
+export function loansToAriza(
+  loans: ArizaLoan[],
   firm: ArizaFirm,
   settings: Settings,
   reportDate: Date,
 ): LoanArizaProps {
+  const first = loans[0]!;
   const arizaFirm: CertFirm = {
     name: firm.shortName,
     arizaName: firm.legalName || firm.shortName,
@@ -51,24 +64,29 @@ export function loanToAriza(
     number: '',
     issueDate: reportDate,
     courtName: settings.courtName,
-    personFullName: loan.clientName ?? '',
-    personPinfl: loan.pinfl ?? '',
-    personAddress: loan.postAddress ?? '',
-    personPhone: loan.phone ?? '',
-    contracts: [{ number: String(loan.ldId ?? ''), date: loan.dateToCr as Date }],
+    personFullName: first.clientName ?? '',
+    personPinfl: first.pinfl ?? '',
+    personAddress: first.postAddress ?? '',
+    personPhone: first.phone ?? '',
+    contracts: loans.map((l) => ({ number: String(l.ldId ?? ''), date: l.dateToCr as Date })),
     contractType: settings.contractType,
-    interestRate: String(loan.rate),
-    loanAmount: String(loan.summKr),
+    interestRate: String(first.rate),
+    loanAmount: sum2(loans, (l) => l.summKr),
     asOfDate: reportDate,
-    debtPrincipal: String(loan.debtPrincipal),
-    debtTermInterest: String(loan.debtTermInterest),
-    debtOverduePrincipal: String(loan.debtOverduePrincipal),
-    debtOverdueInterest: String(loan.debtOverdueInterest),
-    debtTotal: String(loan.totalDebt),
+    debtPrincipal: sum2(loans, (l) => l.debtPrincipal),
+    debtTermInterest: sum2(loans, (l) => l.debtTermInterest),
+    debtOverduePrincipal: sum2(loans, (l) => l.debtOverduePrincipal),
+    debtOverdueInterest: sum2(loans, (l) => l.debtOverdueInterest),
+    debtTotal: sum2(loans, (l) => l.totalDebt),
     chamberSignerPosition: settings.signerPosition,
     chamberSignerName: settings.signerName,
     chamberExecutorName: settings.executorName,
     chamberExecutorPhone: settings.executorPhone,
     firm: arizaFirm,
   };
+}
+
+/** Single-loan convenience (one contract, its own debt). */
+export function loanToAriza(loan: ArizaLoan, firm: ArizaFirm, settings: Settings, reportDate: Date): LoanArizaProps {
+  return loansToAriza([loan], firm, settings, reportDate);
 }

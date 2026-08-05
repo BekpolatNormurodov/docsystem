@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAdmin } from '@/lib/auth';
 import { getSettings } from '@/lib/settings';
-import { loanToAriza } from '@/core/ariza';
+import { loansToAriza } from '@/core/ariza';
 import { buildArizaDocx } from '@/lib/ariza-docx';
 
 export const runtime = 'nodejs';
@@ -18,10 +18,15 @@ export async function GET(_req: Request, { params }: { params: { loanId: string 
   const loan = await prisma.loan.findUnique({ where: { id: Number(params.loanId) } });
   if (!loan) return NextResponse.json({ error: 'Loan not found' }, { status: 404 });
 
-  const [firm, snapshot, settings] = await Promise.all([
+  const [firm, snapshot, settings, groupLoans] = await Promise.all([
     loan.branchCode ? prisma.firm.findUnique({ where: { code: loan.branchCode } }) : null,
     prisma.snapshot.findUnique({ where: { id: loan.snapshotId } }),
     getSettings(),
+    // All of this client's loans at the same firm — one combined ariza.
+    prisma.loan.findMany({
+      where: { snapshotId: loan.snapshotId, pinfl: loan.pinfl, branchCode: loan.branchCode },
+      orderBy: { id: 'asc' },
+    }),
   ]);
 
   // A firm-less loan (no matching Firm row) still renders, with the branch code as its name.
@@ -35,10 +40,10 @@ export async function GET(_req: Request, { params }: { params: { loanId: string 
   };
 
   const reportDate = snapshot?.reportDate ?? new Date();
-  const props = loanToAriza(loan, arizaFirm, settings, reportDate);
+  const props = loansToAriza(groupLoans.length ? groupLoans : [loan], arizaFirm, settings, reportDate);
   const buffer = await buildArizaDocx({ ...props });
 
-  const filename = asciiSafe(`${loan.ldId ?? loan.id} ${loan.clientName ?? ''}`.trim());
+  const filename = asciiSafe(`${loan.clientName ?? ''} ${arizaFirm.shortName}`.trim());
 
   return new NextResponse(new Uint8Array(buffer), {
     status: 200,
