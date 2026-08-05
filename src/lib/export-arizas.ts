@@ -21,6 +21,8 @@ export interface ExportFilters {
   branch?: string;
   branches?: string[];
   minDebt?: number;
+  /** When true, export ONLY the excluded (problem/carried-over) clients instead of excluding them. */
+  onlyExcluded?: boolean;
 }
 
 /**
@@ -46,7 +48,7 @@ export async function runExportJob(jobId: number, filters: ExportFilters): Promi
         branches: filters.branches,
         page: 1,
       } satisfies LoanFilters),
-      excluded: false,
+      excluded: !!filters.onlyExcluded,
     };
     let allowedPinfls: Set<string> | null = null;
     if (filters.minDebt) {

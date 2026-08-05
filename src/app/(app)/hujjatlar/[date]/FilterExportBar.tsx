@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Filter, DocumentDownload, TickCircle, SearchNormal1 } from 'iconsax-react';
+import { DocumentDownload, TickCircle, SearchNormal1 } from 'iconsax-react';
 import { Modal } from '@/ui';
 
 interface FirmChip {
@@ -31,13 +31,14 @@ export function FilterExportBar({
 }: {
   date: string;
   firms: FirmChip[];
-  initial: { q: string; branches: string[]; minDebt: string };
+  initial: { q: string; branches: string[]; minDebt: string; onlyExcluded: boolean };
   matchClients: number;
   matchContracts: number;
 }) {
   const router = useRouter();
   const [q, setQ] = useState(initial.q);
   const [minDebt, setMinDebt] = useState(initial.minDebt); // digits only
+  const onlyExcluded = initial.onlyExcluded;
   // All firms checked by default; an explicit URL branch list narrows it.
   const [checked, setChecked] = useState<Set<string>>(
     () => new Set(initial.branches.length ? initial.branches : firms.map((f) => f.code)),
@@ -65,14 +66,31 @@ export function FilterExportBar({
     setChecked(allChecked ? new Set() : new Set(firms.map((f) => f.code)));
   }
 
-  function apply() {
+  function buildUrl(ex: boolean) {
     const p = new URLSearchParams();
     if (q.trim()) p.set('q', q.trim());
     if (minDebt) p.set('minDebt', minDebt);
     if (!allChecked) [...checked].forEach((c) => p.append('branch', c));
+    if (ex) p.set('ex', '1');
     p.set('page', '1');
-    router.push(`/hujjatlar/${date}?${p.toString()}`);
+    return `/hujjatlar/${date}?${p.toString()}`;
   }
+  function setMode(ex: boolean) {
+    router.push(buildUrl(ex));
+  }
+
+  // Real-time filtering: any change to search / firms / debt re-queries after a short debounce
+  // (replace, not push, so typing doesn't flood the history). No «Filtrlash» button needed.
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    const t = setTimeout(() => router.replace(buildUrl(onlyExcluded)), 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, minDebt, checked]);
 
   function poll(id: number) {
     const timer = setInterval(async () => {
@@ -107,7 +125,7 @@ export function FilterExportBar({
       const res = await fetch('/api/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, branches, q: q.trim() || undefined, minDebt: minDebt ? Number(minDebt) : undefined }),
+        body: JSON.stringify({ date, branches, q: q.trim() || undefined, minDebt: minDebt ? Number(minDebt) : undefined, onlyExcluded }),
       });
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));
@@ -132,8 +150,11 @@ export function FilterExportBar({
   }
 
   function openModal() {
-    setPhase('idle');
-    setError(null);
+    // Don't wipe a running/finished job when reopening — only reset for a fresh confirm.
+    if (phase !== 'running' && phase !== 'starting') {
+      setPhase('idle');
+      setError(null);
+    }
     setModalOpen(true);
   }
 
@@ -143,25 +164,48 @@ export function FilterExportBar({
 
   return (
     <div className="card mb-5 space-y-4 p-5">
-      {/* Firm checkboxes — all ticked by default; untick to exclude. */}
+      {/* Mode: everyone vs only the court-list (2nd-excel) clients. */}
+      <div className="inline-flex rounded-xl border border-line bg-surface-2 p-1 text-sm font-medium">
+        <button
+          type="button"
+          onClick={() => setMode(false)}
+          className={`rounded-lg px-4 py-1.5 transition ${!onlyExcluded ? 'bg-brand-600 text-white shadow' : 'text-muted hover:text-fg'}`}
+        >
+          Barchasi
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode(true)}
+          className={`rounded-lg px-4 py-1.5 transition ${onlyExcluded ? 'bg-amber-600 text-white shadow' : 'text-muted hover:text-fg'}`}
+        >
+          Sud roʻyxati
+        </button>
+      </div>
+
+      {/* Firm selection — pill checkboxes, all ticked by default. */}
       <div>
-        <label className="mb-2 flex w-fit cursor-pointer items-center gap-2 text-sm font-medium">
-          <input type="checkbox" checked={allChecked} onChange={toggleAll} className="h-4 w-4 accent-brand-600" />
-          Barcha firmalar
-        </label>
-        <div className="flex flex-wrap gap-x-5 gap-y-2 pl-1">
-          {firms.map((f) => (
-            <label key={f.code} className="flex cursor-pointer items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={checked.has(f.code)}
-                onChange={() => toggle(f.code)}
-                className="h-4 w-4 accent-brand-600"
-              />
-              {f.name}
-              <span className="text-xs text-muted">· {f.count.toLocaleString('ru-RU')}</span>
-            </label>
-          ))}
+        <div className="mb-2 flex items-center justify-between">
+          <span className="field-label mb-0">Firmalar</span>
+          <button type="button" onClick={toggleAll} className="text-xs font-medium text-brand-600 hover:underline">
+            {allChecked ? 'Hammasini olib tashlash' : 'Hammasini tanlash'}
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {firms.map((f) => {
+            const on = checked.has(f.code);
+            return (
+              <label
+                key={f.code}
+                className={`flex cursor-pointer select-none items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition ${
+                  on ? 'border-brand-500/60 bg-brand-500/10 text-fg' : 'border-line text-muted hover:bg-surface-2'
+                }`}
+              >
+                <input type="checkbox" checked={on} onChange={() => toggle(f.code)} className="h-3.5 w-3.5 accent-brand-600" />
+                <span className="font-medium">{f.name}</span>
+                <span className="opacity-60">{f.count.toLocaleString('ru-RU')}</span>
+              </label>
+            );
+          })}
         </div>
       </div>
 
@@ -173,7 +217,6 @@ export function FilterExportBar({
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && apply()}
               className="field-input w-full pl-9"
               placeholder="masalan: ABDULLAYEV yoki 3210…"
             />
@@ -192,17 +235,40 @@ export function FilterExportBar({
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted">soʻm</span>
           </div>
         </label>
-        <button type="button" onClick={apply} className="btn-ghost">
-          <Filter size={16} /> Filtrlash
-        </button>
         <button type="button" onClick={openModal} disabled={none} className="btn-primary disabled:opacity-50">
           <DocumentDownload size={16} /> ZIP yaratish
         </button>
       </div>
 
+      {/* Persistent status — the job runs server-side, so this stays even if the modal is closed. */}
+      {(phase === 'running' || phase === 'starting' || phase === 'done' || phase === 'failed') && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface-2 p-3 text-sm">
+          {(phase === 'running' || phase === 'starting') && (
+            <>
+              <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-brand-600 border-t-transparent" />
+              <span className="font-medium">
+                Eksport orqada ketyapti… {pct}% ({progress.toLocaleString('ru-RU')}/{total.toLocaleString('ru-RU')})
+              </span>
+              <span className="text-xs text-muted">Modalni yopsangiz ham davom etadi.</span>
+            </>
+          )}
+          {phase === 'done' && jobId !== null && (
+            <>
+              <span className="font-medium text-accent-700 dark:text-accent-400">
+                Tayyor — {progress.toLocaleString('ru-RU')} ta ariza.
+              </span>
+              <a href={`/api/export/${jobId}/download`} className="btn-primary py-1.5 text-xs">
+                <DocumentDownload size={14} /> ZIP yuklab olish
+              </a>
+            </>
+          )}
+          {phase === 'failed' && error && <span className="font-medium text-rose-600 dark:text-rose-300">{error}</span>}
+        </div>
+      )}
+
       <Modal
         open={modalOpen}
-        onClose={() => !busy && setModalOpen(false)}
+        onClose={() => setModalOpen(false)}
         title="Arizalarni ZIP qilish"
         description="Tanlangan filtr boʻyicha har bir shartnoma uchun .docx ariza yaratiladi."
         footer={

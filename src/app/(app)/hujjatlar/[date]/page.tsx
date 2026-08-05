@@ -57,12 +57,13 @@ export default async function HujjatlarDatePage({
   const branches = asArray(searchParams.branch);
   const minDebt = typeof searchParams.minDebt === 'string' && searchParams.minDebt ? Number(searchParams.minDebt) : undefined;
   const page = Math.max(1, Number(searchParams.page) || 1);
+  // `ex=1` flips the page to the excluded set: instead of dropping problem/carried-over clients,
+  // it shows and exports ONLY them (a separate ZIP for the excluded 1054).
+  const onlyExcluded = searchParams.ex === '1';
 
   // Base where (firm + search). minDebt filters by the CLIENT's TOTAL debt via `having` — matching
-  // the sum shown on each card, not a single loan.
-  // Excluded (problem/carried-over) clients never get an ariza — this page feeds Hujjatlar/export
-  // only, so they're filtered out here even though they still show up in Mijozlar/Portfel.
-  const where = { ...buildLoanWhere(snapshot.id, { q, branches, page: 1 }), excluded: false };
+  // the sum shown on each card, not a single loan. `excluded` selects the normal vs the excluded set.
+  const where = { ...buildLoanWhere(snapshot.id, { q, branches, page: 1 }), excluded: onlyExcluded };
   const having = minDebt !== undefined ? { totalDebt: { _sum: { gte: minDebt } } } : undefined;
 
   const [firms, allGroups, clients, clientTotals] = await Promise.all([
@@ -95,7 +96,7 @@ export default async function HujjatlarDatePage({
   const pinfls = clients.map((c) => c.pinfl).filter(Boolean) as string[];
   const pairs = pinfls.length
     ? await prisma.loan.findMany({
-        where: { snapshotId: snapshot.id, pinfl: { in: pinfls }, excluded: false, ...(branches.length ? { branchCode: { in: branches } } : {}) },
+        where: { snapshotId: snapshot.id, pinfl: { in: pinfls }, excluded: onlyExcluded, ...(branches.length ? { branchCode: { in: branches } } : {}) },
         select: { pinfl: true, branchCode: true },
         distinct: ['pinfl', 'branchCode'],
       })
@@ -112,6 +113,7 @@ export default async function HujjatlarDatePage({
     const sp = new URLSearchParams();
     if (q) sp.set('q', q);
     if (minDebt !== undefined) sp.set('minDebt', String(minDebt));
+    if (onlyExcluded) sp.set('ex', '1');
     branches.forEach((b) => sp.append('branch', b));
     sp.set('page', String(n));
     return `/hujjatlar/${date}?${sp.toString()}`;
@@ -126,13 +128,17 @@ export default async function HujjatlarDatePage({
       </Link>
       <PageHeader
         title={`Hujjatlar — ${pretty}`}
-        subtitle={`${clientCount.toLocaleString('ru-RU')} mijoz · ${matchLoans.toLocaleString('ru-RU')} shartnoma — firmalarni tanlang yoki filtrlab ZIP oling`}
+        subtitle={
+          onlyExcluded
+            ? `Faqat istisnodagilar: ${clientCount.toLocaleString('ru-RU')} mijoz · ${matchLoans.toLocaleString('ru-RU')} shartnoma`
+            : `${clientCount.toLocaleString('ru-RU')} mijoz · ${matchLoans.toLocaleString('ru-RU')} shartnoma — firmalarni tanlang yoki filtrlab ZIP oling`
+        }
       />
 
       <FilterExportBar
         date={date}
         firms={firmChips}
-        initial={{ q, branches, minDebt: minDebt !== undefined ? String(minDebt) : '' }}
+        initial={{ q, branches, minDebt: minDebt !== undefined ? String(minDebt) : '', onlyExcluded }}
         matchClients={clientCount}
         matchContracts={matchLoans}
       />

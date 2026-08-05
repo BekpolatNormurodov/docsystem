@@ -52,7 +52,7 @@ export default async function PersonPage({
     <div>
       <PageHeader
         title={first.clientName || params.pinfl}
-        subtitle={`PINFL: ${params.pinfl}`}
+        subtitle={`PINFL: ${params.pinfl} · Sana: ${params.date.split('-').reverse().join('.')}`}
         action={
           <Link href={`/s/${params.date}`} className="btn-ghost text-xs">
             ← Portfelga qaytish
@@ -61,10 +61,9 @@ export default async function PersonPage({
       />
 
       {isExcluded && (
-        <div className="mb-4">
-          <span className="badge border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-300 text-[10px]">
-            istisno
-          </span>
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
+          <span className="text-sm font-semibold text-amber-700 dark:text-amber-300">⚖ Sudga xat berilgan</span>
+          <span className="text-xs text-muted">— ushbu mijoz sud roʻyxatida (ikkinchi Excelda)</span>
         </div>
       )}
 
