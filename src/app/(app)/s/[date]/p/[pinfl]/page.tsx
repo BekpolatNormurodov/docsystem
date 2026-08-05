@@ -63,7 +63,7 @@ export default async function PersonPage({
       {isExcluded && (
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
           <span className="text-sm font-semibold text-amber-700 dark:text-amber-300">⚖ Sudga xat berilgan</span>
-          <span className="text-xs text-muted">— ushbu mijoz sud roʻyxatida (ikkinchi Excelda)</span>
+          <span className="text-xs text-muted">— sud roʻyxatiga kiritilgan mijoz</span>
         </div>
       )}
 
