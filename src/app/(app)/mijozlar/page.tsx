@@ -3,11 +3,25 @@ import { requireAdmin } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { PageHeader, EmptyState, ClickableRow } from '@/ui';
 import { formatSumDecimal } from '@/core/document';
+import { MijozlarFilters } from './MijozlarFilters';
 
 export const dynamic = 'force-dynamic';
 const PAGE = 50;
 
-const pretty = (d: string) => d.split('-').reverse().join('.');
+/** Windowed page list: 1 … (cur-1) cur (cur+1) … last, with `null` marking an ellipsis gap. */
+function pageWindow(cur: number, total: number): (number | null)[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const nums = new Set<number>([1, total, cur - 1, cur, cur + 1]);
+  const sorted = [...nums].filter((n) => n >= 1 && n <= total).sort((a, b) => a - b);
+  const out: (number | null)[] = [];
+  let prev = 0;
+  for (const n of sorted) {
+    if (n - prev > 1) out.push(null);
+    out.push(n);
+    prev = n;
+  }
+  return out;
+}
 
 export default async function MijozlarPage({
   searchParams,
@@ -54,16 +68,21 @@ export default async function MijozlarPage({
       : {}),
   };
 
-  // One row per client (pinfl), with their loan count and total debt across all firms in this snapshot.
-  const groups = await prisma.loan.groupBy({
-    by: ['pinfl', 'clientName'],
-    where,
-    _sum: { totalDebt: true },
-    _count: true,
-    orderBy: { _sum: { totalDebt: 'desc' } },
-    skip: (page - 1) * PAGE,
-    take: PAGE,
-  });
+  const [groups, allClients] = await Promise.all([
+    prisma.loan.groupBy({
+      by: ['pinfl', 'clientName'],
+      where,
+      _sum: { totalDebt: true },
+      _count: true,
+      orderBy: { _sum: { totalDebt: 'desc' } },
+      skip: (page - 1) * PAGE,
+      take: PAGE,
+    }),
+    prisma.loan.groupBy({ by: ['pinfl'], where }),
+  ]);
+
+  const totalClients = allClients.length;
+  const totalPages = Math.max(1, Math.ceil(totalClients / PAGE));
 
   const pagePinfls = groups.map((g) => g.pinfl).filter((p): p is string => Boolean(p));
   const exPinfls = new Set(
@@ -76,37 +95,22 @@ export default async function MijozlarPage({
     ).map((r) => r.pinfl),
   );
 
-  const hrefWith = (patch: Record<string, string | number>) => {
+  const hrefPage = (n: number) => {
     const p = new URLSearchParams();
     p.set('date', date);
     if (q) p.set('q', q);
-    p.set('page', String(patch.page ?? page));
+    p.set('page', String(n));
     return `/mijozlar?${p.toString()}`;
   };
 
   return (
     <div>
-      <PageHeader title="Mijozlar" subtitle="Portfeldagi mijozlar (PINFL boʻyicha) — qidiring va kartasiga kiring" />
+      <PageHeader
+        title="Mijozlar"
+        subtitle={`${totalClients.toLocaleString('ru-RU')} mijoz — qidiring va kartasiga kiring`}
+      />
 
-      <form method="get" className="mb-4 flex flex-wrap items-end gap-3">
-        <label className="block">
-          <span className="field-label">Sana</span>
-          <select name="date" defaultValue={date} className="field-input min-w-[160px]">
-            {dates.map((d) => (
-              <option key={d} value={d}>
-                {pretty(d)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block flex-1">
-          <span className="field-label">Qidiruv (PINFL, F.I.Sh, passport yoki shartnoma raqami)</span>
-          <input name="q" defaultValue={q} placeholder="masalan: 3210… yoki ABDULLAYEV" className="field-input w-full" />
-        </label>
-        <button type="submit" className="btn-primary">
-          Qidirish
-        </button>
-      </form>
+      <MijozlarFilters dates={dates} date={date} initialQ={q} />
 
       {groups.length === 0 ? (
         <EmptyState title="Mijoz topilmadi" hint="Qidiruvni oʻzgartirib koʻring." />
@@ -117,25 +121,25 @@ export default async function MijozlarPage({
               <tr>
                 <th className="px-4 py-3 font-medium">PINFL</th>
                 <th className="px-4 py-3 font-medium">F.I.Sh</th>
-                <th className="px-4 py-3 text-right font-medium">Kreditlar</th>
+                <th className="px-4 py-3 text-right font-medium">Shartnoma</th>
                 <th className="px-4 py-3 text-right font-medium">Umumiy qarz</th>
               </tr>
             </thead>
             <tbody>
               {groups.map((g) => (
                 <ClickableRow key={g.pinfl ?? Math.random()} href={`/s/${date}/p/${g.pinfl}`}>
-                  <td className="px-4 py-2.5 font-mono text-xs">{g.pinfl}</td>
-                  <td className="px-4 py-2.5 font-medium">
-                    {g.clientName}
+                  <td className="px-4 py-2.5 font-mono text-xs text-muted">{g.pinfl}</td>
+                  <td className="px-4 py-2.5">
+                    <span className="font-medium">{g.clientName}</span>
                     {g.pinfl && exPinfls.has(g.pinfl) && (
-                      <span className="badge border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-300 text-[10px] ml-2">
-                        istisno
+                      <span className="badge ml-2 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-300">
+                        sud roʻyxatida
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-2.5 text-right">{g._count}</td>
-                  <td className="px-4 py-2.5 text-right font-semibold">
-                    {formatSumDecimal(String(g._sum.totalDebt ?? 0))}
+                  <td className="px-4 py-2.5 text-right tabular-nums">{g._count}</td>
+                  <td className="px-4 py-2.5 text-right font-semibold tabular-nums">
+                    {formatSumDecimal(String(g._sum.totalDebt ?? 0))} soʻm
                   </td>
                 </ClickableRow>
               ))}
@@ -144,23 +148,31 @@ export default async function MijozlarPage({
         </div>
       )}
 
-      <div className="mt-4 flex items-center justify-between text-sm">
-        {page > 1 ? (
-          <Link href={hrefWith({ page: page - 1 })} className="btn-ghost">
-            ← Oldingi
-          </Link>
-        ) : (
-          <span />
-        )}
-        <span className="text-muted">Sahifa {page}</span>
-        {groups.length === PAGE ? (
-          <Link href={hrefWith({ page: page + 1 })} className="btn-ghost">
-            Keyingi →
-          </Link>
-        ) : (
-          <span />
-        )}
-      </div>
+      {totalPages > 1 && (
+        <nav className="mt-6 flex flex-wrap items-center justify-center gap-1.5 text-sm">
+          {pageWindow(page, totalPages).map((n, i) =>
+            n === null ? (
+              <span key={`gap-${i}`} className="px-1 text-muted">
+                …
+              </span>
+            ) : (
+              <Link
+                key={n}
+                href={hrefPage(n)}
+                aria-current={n === page ? 'page' : undefined}
+                className={`min-w-9 rounded-lg border px-3 py-1.5 text-center transition ${
+                  n === page ? 'border-brand-600 bg-brand-600 font-semibold text-white' : 'border-line hover:bg-surface-2'
+                }`}
+              >
+                {n}
+              </Link>
+            ),
+          )}
+        </nav>
+      )}
+      <p className="mt-3 text-center text-xs text-muted">
+        {totalClients.toLocaleString('ru-RU')} mijoz · {totalPages.toLocaleString('ru-RU')} sahifa
+      </p>
     </div>
   );
 }
