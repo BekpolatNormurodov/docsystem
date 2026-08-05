@@ -46,27 +46,32 @@ export default async function MijozlarPage({
   }
 
   const dates = snapshots.map((s) => s.reportDate.toISOString().slice(0, 10));
-  const date = searchParams.date && dates.includes(searchParams.date) ? searchParams.date : dates[0];
+  const latestDate = dates[0];
+  // 'all' spans every snapshot; a real date restricts to that one.
+  const date =
+    searchParams.date === 'all'
+      ? 'all'
+      : searchParams.date && dates.includes(searchParams.date)
+        ? searchParams.date
+        : latestDate;
   const q = (searchParams.q ?? '').trim();
   const page = Math.max(1, Number(searchParams.page) || 1);
 
-  const snapshot = await prisma.snapshot.findUnique({
-    where: { reportDate: new Date(`${date}T00:00:00.000Z`) },
-  });
+  const snapshot =
+    date === 'all' ? null : await prisma.snapshot.findUnique({ where: { reportDate: new Date(`${date}T00:00:00.000Z`) } });
+  const linkDate = date === 'all' ? latestDate : date;
 
-  const where = {
-    snapshotId: snapshot!.id,
-    ...(q
-      ? {
-          OR: [
-            { pinfl: { contains: q } },
-            { clientName: { contains: q } },
-            { passportSn: { contains: q } },
-            { ldId: { contains: q } },
-          ],
-        }
-      : {}),
-  };
+  const qFilter = q
+    ? {
+        OR: [
+          { pinfl: { contains: q } },
+          { clientName: { contains: q } },
+          { passportSn: { contains: q } },
+          { ldId: { contains: q } },
+        ],
+      }
+    : {};
+  const where = date === 'all' ? qFilter : { snapshotId: snapshot!.id, ...qFilter };
 
   const [groups, allClients] = await Promise.all([
     prisma.loan.groupBy({
@@ -88,7 +93,7 @@ export default async function MijozlarPage({
   const exPinfls = new Set(
     (
       await prisma.loan.findMany({
-        where: { snapshotId: snapshot!.id, pinfl: { in: pagePinfls }, excluded: true },
+        where: { pinfl: { in: pagePinfls }, excluded: true, ...(snapshot ? { snapshotId: snapshot.id } : {}) },
         select: { pinfl: true },
         distinct: ['pinfl'],
       })
@@ -127,7 +132,7 @@ export default async function MijozlarPage({
             </thead>
             <tbody>
               {groups.map((g) => (
-                <ClickableRow key={g.pinfl ?? Math.random()} href={`/s/${date}/p/${g.pinfl}`}>
+                <ClickableRow key={g.pinfl ?? Math.random()} href={`/s/${linkDate}/p/${g.pinfl}`}>
                   <td className="px-4 py-2.5 font-mono text-xs text-muted">{g.pinfl}</td>
                   <td className="px-4 py-2.5">
                     <span className="font-medium">{g.clientName}</span>

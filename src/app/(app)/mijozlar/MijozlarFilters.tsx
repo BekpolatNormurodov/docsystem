@@ -53,7 +53,7 @@ export function MijozlarFilters({ dates, date, initialQ }: { dates: string[]; da
           onClick={() => setOpen((o) => !o)}
           className="field-input flex min-w-[170px] items-center justify-between gap-2"
         >
-          <span className="font-medium">{pretty(date)}</span>
+          <span className="font-medium">{date === 'all' ? 'Hamma sana' : pretty(date)}</span>
           <ArrowDown2 size={16} className={`text-muted transition ${open ? 'rotate-180' : ''}`} />
         </button>
         {open && (
@@ -69,24 +69,37 @@ export function MijozlarFilters({ dates, date, initialQ }: { dates: string[]; da
               />
             </div>
             <div className="max-h-64 overflow-auto">
-              {filtered.length === 0 ? (
+              {'hamma sana'.includes(dq.trim().toLowerCase()) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    router.push(go('all', q));
+                  }}
+                  className={`block w-full rounded-lg px-3 py-1.5 text-left text-sm transition hover:bg-surface-2 ${
+                    date === 'all' ? 'font-semibold text-brand-600' : ''
+                  }`}
+                >
+                  Hamma sana
+                </button>
+              )}
+              {filtered.map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    router.push(go(d, q));
+                  }}
+                  className={`block w-full rounded-lg px-3 py-1.5 text-left text-sm transition hover:bg-surface-2 ${
+                    d === date ? 'font-semibold text-brand-600' : ''
+                  }`}
+                >
+                  {pretty(d)}
+                </button>
+              ))}
+              {filtered.length === 0 && !'hamma sana'.includes(dq.trim().toLowerCase()) && (
                 <div className="px-3 py-2 text-xs text-muted">Topilmadi</div>
-              ) : (
-                filtered.map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    onClick={() => {
-                      setOpen(false);
-                      router.push(go(d, q));
-                    }}
-                    className={`block w-full rounded-lg px-3 py-1.5 text-left text-sm transition hover:bg-surface-2 ${
-                      d === date ? 'font-semibold text-brand-600' : ''
-                    }`}
-                  >
-                    {pretty(d)}
-                  </button>
-                ))
               )}
             </div>
           </div>
