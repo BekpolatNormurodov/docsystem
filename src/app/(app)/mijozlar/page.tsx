@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { requireAdmin } from '@/lib/auth';
 import { prisma } from '@/lib/db';
-import { PageHeader, EmptyState } from '@/ui';
+import { PageHeader, EmptyState, ClickableRow } from '@/ui';
 import { formatSumDecimal } from '@/core/document';
 
 export const dynamic = 'force-dynamic';
@@ -105,22 +105,14 @@ export default async function MijozlarPage({
             </thead>
             <tbody>
               {groups.map((g) => (
-                <tr key={g.pinfl ?? Math.random()} className="border-b border-line/60 last:border-0 hover:bg-surface-2">
-                  <td className="px-4 py-2.5 font-mono text-xs">
-                    <Link href={`/s/${date}/p/${g.pinfl}`} className="hover:underline">
-                      {g.pinfl}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <Link href={`/s/${date}/p/${g.pinfl}`} className="font-medium hover:underline">
-                      {g.clientName}
-                    </Link>
-                  </td>
+                <ClickableRow key={g.pinfl ?? Math.random()} href={`/s/${date}/p/${g.pinfl}`}>
+                  <td className="px-4 py-2.5 font-mono text-xs">{g.pinfl}</td>
+                  <td className="px-4 py-2.5 font-medium">{g.clientName}</td>
                   <td className="px-4 py-2.5 text-right">{g._count}</td>
                   <td className="px-4 py-2.5 text-right font-semibold">
                     {formatSumDecimal(String(g._sum.totalDebt ?? 0))}
                   </td>
-                </tr>
+                </ClickableRow>
               ))}
             </tbody>
           </table>

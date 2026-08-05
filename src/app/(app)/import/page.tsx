@@ -1,7 +1,6 @@
-import Link from 'next/link';
 import { requireAdmin } from '@/lib/auth';
 import { prisma } from '@/lib/db';
-import { PageHeader } from '@/ui';
+import { PageHeader, ClickableRow } from '@/ui';
 import { formatSumDecimal } from '@/core/document';
 import { ImportForm } from './ImportForm';
 
@@ -56,15 +55,9 @@ export default async function ImportPage() {
                 const date = s.reportDate.toISOString().slice(0, 10);
                 const st = STATUS[s.status] ?? { label: s.status, cls: 'border-line text-muted' };
                 const rows = s.status === 'READY' ? s.rowCount : s.processedRows;
-                return (
-                  <tr key={date} className="border-b border-line/60 last:border-0 hover:bg-surface-2">
-                    <td className="px-4 py-2.5 font-medium">
-                      {s.status === 'READY' ? (
-                        <Link href={`/s/${date}`} className="hover:underline">{pretty(s.reportDate)}</Link>
-                      ) : (
-                        pretty(s.reportDate)
-                      )}
-                    </td>
+                const cells = (
+                  <>
+                    <td className="px-4 py-2.5 font-medium">{pretty(s.reportDate)}</td>
                     <td className="max-w-[220px] truncate px-4 py-2.5 text-xs text-muted" title={s.sourceFileName}>
                       {s.sourceFileName}
                     </td>
@@ -76,6 +69,15 @@ export default async function ImportPage() {
                       {s.status === 'READY' ? formatSumDecimal(String(s.totalDebt)) : '—'}
                     </td>
                     <td className="px-4 py-2.5 text-xs text-muted">{when(s.importedAt)}</td>
+                  </>
+                );
+                return s.status === 'READY' ? (
+                  <ClickableRow key={date} href={`/s/${date}`}>
+                    {cells}
+                  </ClickableRow>
+                ) : (
+                  <tr key={date} className="border-t border-line">
+                    {cells}
                   </tr>
                 );
               })}
