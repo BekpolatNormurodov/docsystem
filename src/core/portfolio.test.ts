@@ -30,6 +30,12 @@ describe('mapRowToLoan', () => {
     expect(l.raw.post_address).toBe('Some address');
     expect(Object.keys(l.raw)).toHaveLength(header.length);
   });
+  it('converts Excel serial date numbers (exceljs streaming) to real dates', () => {
+    const h = ['ld_id', 'date_to_cr'];
+    const l = mapRowToLoan(h, ['61717', 46204]); // 46204 = an Excel serial in 2026, not 1970
+    expect(l.dateToCr).toBeInstanceOf(Date);
+    expect(l.dateToCr!.getUTCFullYear()).toBe(2026);
+  });
   it('fills missing trailing cells with null (survives JSON, never undefined)', () => {
     const l = mapRowToLoan(header, ['123', 'AAA BBB']); // short values array, rest missing
     expect(Object.keys(l.raw)).toHaveLength(header.length);

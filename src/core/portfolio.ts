@@ -47,6 +47,15 @@ function str(v: unknown): string | null {
 function toDate(v: unknown): Date | null {
   if (v === '' || v === null || v === undefined) return null;
   if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
+  // exceljs streaming (WorkbookReader) returns date-formatted cells as raw Excel serial NUMBERS,
+  // not Date objects. Convert: Excel serial → Unix ms = (serial - 25569) * 86400000
+  // (25569 = days from Excel's 1899-12-30 epoch to the Unix 1970-01-01 epoch). Without this,
+  // `new Date(46204)` gave 1970-01-01 for every contract date.
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v) || v <= 0) return null;
+    const d = new Date(Math.round((v - 25569) * 86400 * 1000));
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
   const d = new Date(v as string);
   return Number.isNaN(d.getTime()) ? null : d;
 }
