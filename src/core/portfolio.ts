@@ -58,9 +58,12 @@ export function computeTotalDebt(r: Record<string, unknown>): number {
 }
 
 export function mapRowToLoan(header: string[], values: unknown[]): LoanInput {
+  // Coerce undefined → null so JSON serialization keeps EVERY column (JSON.stringify drops
+  // undefined-valued keys, which silently shrank a stored row from 106 columns to ~81). The user
+  // requires the full row preserved, so every header column must survive as null when empty.
   const raw: Record<string, unknown> = {};
   header.forEach((h, i) => {
-    raw[h] = values[i];
+    raw[h] = values[i] ?? null;
   });
 
   return {

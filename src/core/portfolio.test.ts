@@ -30,6 +30,14 @@ describe('mapRowToLoan', () => {
     expect(l.raw.post_address).toBe('Some address');
     expect(Object.keys(l.raw)).toHaveLength(header.length);
   });
+  it('fills missing trailing cells with null (survives JSON, never undefined)', () => {
+    const l = mapRowToLoan(header, ['123', 'AAA BBB']); // short values array, rest missing
+    expect(Object.keys(l.raw)).toHaveLength(header.length);
+    expect(l.raw.post_address).toBeNull();
+    expect(Object.values(l.raw).every((v) => v !== undefined)).toBe(true);
+    // JSON round-trip keeps every column
+    expect(Object.keys(JSON.parse(JSON.stringify(l.raw)))).toHaveLength(header.length);
+  });
 });
 
 describe('parseDateParts', () => {
