@@ -1,0 +1,56 @@
+import { describe, it, expect } from 'vitest';
+import { prisma } from './db';
+
+describe('Snapshot/Loan/Job schema', () => {
+  it('creates, reads back, and deletes a Snapshot with a Loan and a Job', async () => {
+    const snapshot = await prisma.snapshot.create({
+      data: {
+        reportDate: new Date('2026-08-01'),
+        sourceFileName: 'test-portfolio.xlsx',
+      },
+    });
+
+    const loan = await prisma.loan.create({
+      data: {
+        snapshotId: snapshot.id,
+        pinfl: '12345678901234',
+        clientName: 'Test Client',
+        debtPrincipal: 100,
+        debtTermInterest: 10,
+        debtOverduePrincipal: 5,
+        debtOverdueInterest: 1,
+        totalDebt: 116,
+        raw: { a: 1 },
+      },
+    });
+
+    const job = await prisma.job.create({
+      data: {
+        type: 'IMPORT',
+        snapshotId: snapshot.id,
+      },
+    });
+
+    const foundSnapshot = await prisma.snapshot.findUniqueOrThrow({
+      where: { id: snapshot.id },
+      include: { loans: true },
+    });
+    expect(foundSnapshot.sourceFileName).toBe('test-portfolio.xlsx');
+    expect(foundSnapshot.status).toBe('IMPORTING');
+    expect(foundSnapshot.loans).toHaveLength(1);
+
+    const foundLoan = await prisma.loan.findUniqueOrThrow({ where: { id: loan.id } });
+    expect(foundLoan.pinfl).toBe('12345678901234');
+    expect(foundLoan.clientName).toBe('Test Client');
+    expect(Number(foundLoan.totalDebt)).toBe(116);
+    expect(foundLoan.raw).toEqual({ a: 1 });
+
+    const foundJob = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
+    expect(foundJob.type).toBe('IMPORT');
+    expect(foundJob.status).toBe('PENDING');
+    expect(foundJob.snapshotId).toBe(snapshot.id);
+
+    await prisma.job.delete({ where: { id: job.id } });
+    await prisma.snapshot.delete({ where: { id: snapshot.id } }); // cascades Loan
+  });
+});

@@ -27,3 +27,63 @@ model Firm {
   phone       String?
   updatedAt   DateTime @updatedAt
 }
+
+model Snapshot {
+  id             Int      @id @default(autoincrement())
+  reportDate     DateTime @unique @db.Date
+  sourceFileName String
+  status         String   @default("IMPORTING") // IMPORTING | READY | FAILED
+  rowCount       Int      @default(0)
+  processedRows  Int      @default(0)
+  totalDebt      Decimal  @default(0) @db.Decimal(30, 2)
+  importedAt     DateTime @default(now())
+  loans          Loan[]
+}
+
+model Loan {
+  id                   Int      @id @default(autoincrement())
+  snapshotId           Int
+  snapshot             Snapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  pinfl                String?
+  passportSn           String?
+  clientName           String?
+  phone                String?
+  postAddress          String?  @db.Text
+  regionName           String?
+  branchCode           String?
+  ldId                 String?
+  account              String?
+  summKr               Decimal? @db.Decimal(20, 2)
+  rate                 Decimal? @db.Decimal(6, 2)
+  dateToCr             DateTime? @db.Date
+  dateClose            DateTime? @db.Date
+  klassName            String?
+  statusName           String?
+  termType             String?
+  debtPrincipal        Decimal  @default(0) @db.Decimal(20, 2) // summ_ost_ze
+  debtTermInterest     Decimal  @default(0) @db.Decimal(20, 2) // sumproc_eqv
+  debtOverduePrincipal Decimal  @default(0) @db.Decimal(20, 2) // summ_ostpr_ze
+  debtOverdueInterest  Decimal  @default(0) @db.Decimal(20, 2) // sumnachpr_eqv
+  totalDebt            Decimal  @default(0) @db.Decimal(20, 2)
+  raw                  Json     // the complete sheet row, header->value (full client detail)
+
+  @@index([snapshotId])
+  @@index([snapshotId, pinfl])
+  @@index([snapshotId, branchCode])
+  @@index([snapshotId, clientName])
+  @@index([snapshotId, totalDebt])
+}
+
+model Job {
+  id         Int      @id @default(autoincrement())
+  type       String   // IMPORT | EXPORT
+  status     String   @default("PENDING") // PENDING | RUNNING | DONE | FAILED
+  progress   Int      @default(0)
+  total      Int      @default(0)
+  message    String?  @db.Text
+  resultPath String?
+  params     Json?
+  snapshotId Int?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
