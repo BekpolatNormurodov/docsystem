@@ -29,7 +29,6 @@ export function ImportForm() {
   const [date, setDate] = useState('');
   const [phase, setPhase] = useState<Phase>('idle');
   const [progress, setProgress] = useState(0);
-  const [total, setTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   async function onFileChosen(picked: FileList | null) {
@@ -64,7 +63,6 @@ export function ImportForm() {
         if (!res.ok) return;
         const job: JobStatus = await res.json();
         setProgress(job.progress);
-        setTotal(job.total);
         if (job.status === 'DONE') {
           clearInterval(timer);
           setPhase('done');
@@ -84,7 +82,6 @@ export function ImportForm() {
     setPhase('uploading');
     setError(null);
     setProgress(0);
-    setTotal(0);
 
     try {
       const form = new FormData();
@@ -107,7 +104,6 @@ export function ImportForm() {
   }
 
   const busy = phase === 'uploading' || phase === 'running';
-  const pct = total > 0 ? Math.min(100, Math.round((progress / total) * 100)) : 0;
 
   return (
     <div className="card max-w-xl space-y-5 p-6">
@@ -157,19 +153,28 @@ export function ImportForm() {
         disabled={!file || !date || busy}
         className="btn-primary w-full justify-center disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {phase === 'uploading' ? 'Yuklanmoqda...' : 'Yuklash'}
+        {phase === 'uploading' ? 'Fayl yuklanmoqda…' : phase === 'running' ? 'Saqlanmoqda…' : 'Yuklash'}
       </button>
+
+      {phase === 'uploading' && (
+        <p className="text-xs text-muted">
+          Fayl serverga yuklanmoqda{file ? ` (${fileSize(file.size)})` : ''}… bir oz kuting.
+        </p>
+      )}
 
       {phase === 'running' && (
         <div>
+          {/* Total is unknown mid-stream (the sheet is read row-by-row), so this is an indeterminate
+              bar, not a percentage — showing a growing row count is the honest signal. */}
           <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
-            <div
-              className="h-full rounded-full bg-brand-600 transition-all"
-              style={{ width: `${pct}%` }}
-            />
+            <div className="h-full w-1/3 animate-[pulse_1.2s_ease-in-out_infinite] rounded-full bg-brand-600" />
           </div>
-          <p className="mt-2 text-xs text-muted">
-            Bajarilyapti… {progress}{total > 0 ? `/${total}` : ''}
+          <p className="mt-2 text-sm font-medium">
+            Ma'lumotlar saqlanyapti (orqa fonda)… {progress.toLocaleString('ru-RU')} qator
+          </p>
+          <p className="mt-1 text-[11px] text-muted">
+            106 MB fayl 128 mingga yaqin qatorni oʻz ichiga oladi — bu bir necha daqiqa oladi.
+            Sahifani yopsangiz ham import serverda davom etadi.
           </p>
         </div>
       )}
