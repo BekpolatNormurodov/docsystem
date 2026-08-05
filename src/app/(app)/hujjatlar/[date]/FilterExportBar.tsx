@@ -235,10 +235,27 @@ export function FilterExportBar({
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted">soʻm</span>
           </div>
         </label>
-        <button type="button" onClick={openModal} disabled={none} className="btn-primary disabled:opacity-50">
+        <button
+          type="button"
+          onClick={openModal}
+          disabled={none || !onlyExcluded}
+          title={!onlyExcluded ? 'ZIP faqat «Sud roʻyxati» rejimida' : undefined}
+          className="btn-primary disabled:cursor-not-allowed disabled:opacity-50"
+        >
           <DocumentDownload size={16} /> ZIP yaratish
         </button>
       </div>
+
+      {!onlyExcluded && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+          <span className="text-amber-700 dark:text-amber-300">
+            ⚖ Ariza (ZIP) faqat <b>sud roʻyxatidagi</b> mijozlar uchun yaratiladi.
+          </span>
+          <button type="button" onClick={() => setMode(true)} className="btn-primary py-1.5 text-xs">
+            Sud roʻyxatiga oʻtish
+          </button>
+        </div>
+      )}
 
       {/* Persistent status — the job runs server-side, so this stays even if the modal is closed. */}
       {(phase === 'running' || phase === 'starting' || phase === 'done' || phase === 'failed') && (

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { Prisma } from '@prisma/client';
 import { requireAdmin } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { PageHeader, EmptyState, ClickableRow } from '@/ui';
@@ -33,7 +34,7 @@ export default async function MijozlarPage({
   const snapshots = await prisma.snapshot.findMany({
     where: { status: 'READY' },
     orderBy: { reportDate: 'desc' },
-    select: { reportDate: true },
+    select: { id: true, reportDate: true },
   });
 
   if (snapshots.length === 0) {
@@ -71,29 +72,52 @@ export default async function MijozlarPage({
         ],
       }
     : {};
-  const where = date === 'all' ? qFilter : { snapshotId: snapshot!.id, ...qFilter };
 
-  const [groups, allClients] = await Promise.all([
-    prisma.loan.groupBy({
-      by: ['pinfl', 'clientName'],
-      where,
-      _sum: { totalDebt: true },
-      _count: true,
-      orderBy: { _sum: { totalDebt: 'desc' } },
-      skip: (page - 1) * PAGE,
-      take: PAGE,
-    }),
-    prisma.loan.groupBy({ by: ['pinfl'], where }),
-  ]);
+  type Group = { pinfl: string | null; clientName: string | null; _count: number; _sum: { totalDebt: unknown } };
+  let groups: Group[];
+  let totalClients: number;
 
-  const totalClients = allClients.length;
+  if (date === 'all') {
+    // One row per client from their LATEST snapshot — avoids double-counting a re-uploaded portfolio.
+    const idsSql = Prisma.join(snapshots.map((s) => s.id));
+    const qCond = q
+      ? Prisma.sql`AND (l.pinfl LIKE ${`%${q}%`} OR l.clientName LIKE ${`%${q}%`} OR l.passportSn LIKE ${`%${q}%`} OR l.ldId LIKE ${`%${q}%`})`
+      : Prisma.empty;
+    const join = Prisma.sql`JOIN (SELECT pinfl, MAX(snapshotId) AS sid FROM Loan WHERE snapshotId IN (${idsSql}) GROUP BY pinfl) m ON l.pinfl = m.pinfl AND l.snapshotId = m.sid`;
+    const [rows, cnt] = await Promise.all([
+      prisma.$queryRaw<{ pinfl: string; clientName: string | null; cnt: bigint; debt: string }[]>`
+        SELECT l.pinfl AS pinfl, l.clientName AS clientName, COUNT(*) AS cnt, SUM(l.totalDebt) AS debt
+        FROM Loan l ${join} WHERE 1=1 ${qCond}
+        GROUP BY l.pinfl, l.clientName ORDER BY debt DESC LIMIT ${PAGE} OFFSET ${(page - 1) * PAGE}`,
+      prisma.$queryRaw<{ n: bigint }[]>`
+        SELECT COUNT(*) AS n FROM (SELECT l.pinfl FROM Loan l ${join} WHERE 1=1 ${qCond} GROUP BY l.pinfl) t`,
+    ]);
+    groups = rows.map((r) => ({ pinfl: r.pinfl, clientName: r.clientName, _count: Number(r.cnt), _sum: { totalDebt: r.debt } }));
+    totalClients = Number(cnt[0]?.n ?? 0);
+  } else {
+    const where = { snapshotId: snapshot!.id, ...qFilter };
+    const [g, all] = await Promise.all([
+      prisma.loan.groupBy({
+        by: ['pinfl', 'clientName'],
+        where,
+        _sum: { totalDebt: true },
+        _count: true,
+        orderBy: { _sum: { totalDebt: 'desc' } },
+        skip: (page - 1) * PAGE,
+        take: PAGE,
+      }),
+      prisma.loan.groupBy({ by: ['pinfl'], where }),
+    ]);
+    groups = g.map((x) => ({ pinfl: x.pinfl, clientName: x.clientName, _count: x._count, _sum: { totalDebt: x._sum.totalDebt } }));
+    totalClients = all.length;
+  }
   const totalPages = Math.max(1, Math.ceil(totalClients / PAGE));
 
   const pagePinfls = groups.map((g) => g.pinfl).filter((p): p is string => Boolean(p));
   const exPinfls = new Set(
     (
       await prisma.loan.findMany({
-        where: { pinfl: { in: pagePinfls }, excluded: true, ...(snapshot ? { snapshotId: snapshot.id } : {}) },
+        where: { pinfl: { in: pagePinfls }, excluded: true, ...(snapshot ? { snapshotId: snapshot.id } : { snapshot: { status: 'READY' } }) },
         select: { pinfl: true },
         distinct: ['pinfl'],
       })
