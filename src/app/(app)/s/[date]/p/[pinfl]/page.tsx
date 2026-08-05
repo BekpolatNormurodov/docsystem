@@ -11,15 +11,19 @@ export const dynamic = 'force-dynamic';
 
 export default async function PersonPage({
   params,
+  searchParams,
 }: {
   params: { date: string; pinfl: string };
+  searchParams: Record<string, string | undefined>;
 }) {
   const snapshot = await prisma.snapshot.findUnique({
     where: { reportDate: new Date(params.date) },
   });
   if (!snapshot) notFound();
 
-  const [loans, firms, settings] = await Promise.all([
+  const c = (searchParams.c ?? '').trim();
+
+  const [allLoans, firms, settings] = await Promise.all([
     prisma.loan.findMany({
       where: { snapshotId: snapshot.id, pinfl: params.pinfl },
       orderBy: { totalDebt: 'desc' },
@@ -27,10 +31,13 @@ export default async function PersonPage({
     prisma.firm.findMany(),
     getSettings(),
   ]);
-  if (loans.length === 0) notFound();
+  if (allLoans.length === 0) notFound();
+
+  const loans = c ? allLoans.filter((l) => (l.ldId ?? '').toLowerCase().includes(c.toLowerCase())) : allLoans;
 
   const firmByCode = new Map(firms.map((fr) => [fr.code, fr]));
-  const first = loans[0]!;
+  const first = allLoans[0]!;
+  const isExcluded = allLoans.some((l) => l.excluded);
   const grandTotal = loans.reduce((sum, l) => sum + Number(l.totalDebt), 0);
 
   // Group loans by firm, preserving each firm's first appearance order.
@@ -52,6 +59,21 @@ export default async function PersonPage({
           </Link>
         }
       />
+
+      {isExcluded && (
+        <div className="mb-4">
+          <span className="badge border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-300 text-[10px]">
+            istisno
+          </span>
+        </div>
+      )}
+
+      <form method="get" className="mb-4 max-w-sm">
+        <label className="block">
+          <span className="field-label">Shartnoma raqami boʻyicha qidirish</span>
+          <input name="c" defaultValue={c} placeholder="masalan: 12345" className="field-input w-full" />
+        </label>
+      </form>
 
       <div className="mb-4 grid gap-4 sm:grid-cols-3">
         <StatCard label="Jami qarz" value={`${formatSumDecimal(String(grandTotal))} soʻm`} />
@@ -75,6 +97,10 @@ export default async function PersonPage({
           </div>
         </dl>
       </div>
+
+      {loans.length === 0 && (
+        <div className="card mb-4 p-5 text-sm text-muted">Shartnoma raqami boʻyicha kredit topilmadi.</div>
+      )}
 
       <div className="space-y-6">
           {[...byFirm.entries()].map(([branchCode, firmLoans]) => {
