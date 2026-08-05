@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Trash } from 'iconsax-react';
+import { Modal } from '@/ui';
 import { formatSumDecimal } from '@/core/document';
 
 export interface HistoryRow {
@@ -26,6 +27,7 @@ const BADGE: Record<string, string> = {
 export function ImportHistory({ rows }: { rows: HistoryRow[] }) {
   const router = useRouter();
   const [deleting, setDeleting] = useState<number | null>(null);
+  const [confirm, setConfirm] = useState<HistoryRow | null>(null);
 
   // While anything is importing, refresh the server data every 2s so the % and status update live.
   const anyImporting = rows.some((r) => r.status === 'IMPORTING');
@@ -35,11 +37,13 @@ export function ImportHistory({ rows }: { rows: HistoryRow[] }) {
     return () => clearInterval(t);
   }, [anyImporting, router]);
 
-  async function remove(r: HistoryRow) {
-    if (!window.confirm(`${r.pretty} — oʻchirilsinmi?\nUshbu sananing barcha mijoz/kreditlari va yuklangan fayllar oʻchadi.`)) return;
+  async function doDelete() {
+    if (!confirm) return;
+    const r = confirm;
     setDeleting(r.id);
     try {
       await fetch(`/api/snapshots/${r.id}`, { method: 'DELETE' });
+      setConfirm(null);
       router.refresh();
     } finally {
       setDeleting(null);
@@ -91,7 +95,7 @@ export function ImportHistory({ rows }: { rows: HistoryRow[] }) {
                     disabled={deleting === r.id}
                     onClick={(e) => {
                       e.stopPropagation();
-                      remove(r);
+                      setConfirm(r);
                     }}
                     className="rounded-lg border border-line p-1.5 text-muted transition hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-600 disabled:opacity-40 dark:hover:text-rose-300"
                   >
@@ -103,6 +107,29 @@ export function ImportHistory({ rows }: { rows: HistoryRow[] }) {
           })}
         </tbody>
       </table>
+
+      <Modal
+        open={!!confirm}
+        onClose={() => deleting === null && setConfirm(null)}
+        title="Importni oʻchirish"
+        description={confirm ? `${confirm.pretty} — ushbu sananing barcha mijoz/kreditlari va yuklangan fayllar butunlay oʻchadi.` : ''}
+        footer={
+          <>
+            <button type="button" onClick={() => setConfirm(null)} disabled={deleting !== null} className="btn-ghost">
+              Bekor
+            </button>
+            <button type="button" onClick={doDelete} disabled={deleting !== null} className="btn-danger">
+              <Trash size={16} /> {deleting !== null ? 'Oʻchirilyapti…' : 'Oʻchirish'}
+            </button>
+          </>
+        }
+      >
+        {confirm && (
+          <p className="text-sm text-muted">
+            Fayl: {confirm.fileName} · {confirm.rows.toLocaleString('ru-RU')} qator
+          </p>
+        )}
+      </Modal>
     </div>
   );
 }
