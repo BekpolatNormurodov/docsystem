@@ -1,3 +1,5 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAdmin } from '@/lib/auth';
@@ -17,4 +19,19 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
     message: job.message,
     resultPath: job.resultPath,
   });
+}
+
+/** Removes a finished export: deletes the ZIP file (best effort) and the Job row. */
+export async function DELETE(_req: NextRequest, { params }: { params: { jobId: string } }) {
+  await requireAdmin();
+
+  const job = await prisma.job.findUnique({ where: { id: Number(params.jobId) } });
+  if (!job) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
+
+  if (job.resultPath) {
+    await fs.rm(path.join(process.cwd(), job.resultPath), { force: true }).catch(() => {});
+  }
+  await prisma.job.delete({ where: { id: job.id } });
+
+  return NextResponse.json({ ok: true });
 }

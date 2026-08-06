@@ -8,16 +8,28 @@ import { CHAMBER_EMBLEM_DATA_URL } from '@/ui/chamber-emblem.data';
 import type { CourtArizaDocumentProps } from '@/ui/CourtArizaDocument';
 
 const FONT = 'Times New Roman';
+/** Thin black border on every side — the parties block is a bordered 2-column form table. */
+const THIN = { style: BorderStyle.SINGLE, size: 4, color: '000000' } as const;
+const CELL_BORDER = { top: THIN, bottom: THIN, left: THIN, right: THIN };
+// Every edge NONE — including the inside borders between cells — so no gridlines print anywhere.
 const NO_BORDER = {
   top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
   bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
   left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
   right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+  insideHorizontal: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+  insideVertical: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
 };
 
-/** «14.04.2026-yildagi 22548-sonli, …» — the ariza lists contracts inline in Latin. */
+/** «14.04.2026-yildagi 22548-sonli, …» — the ariza lists contracts inline in Latin. When a contract
+ * has no date, the «-yildagi» prefix is dropped so it never prints a dangling «-yildagi 185-sonli». */
 function contractsText(contracts: CourtArizaDocumentProps['contracts']): string {
-  return contracts.map((c) => `${dmy(c.date)}-yildagi ${c.number}-sonli`).join(', ');
+  return contracts
+    .map((c) => {
+      const d = dmy(c.date);
+      return d ? `${d}-yildagi ${c.number}-sonli` : `${c.number}-sonli`;
+    })
+    .join(', ');
 }
 
 /** A justified body paragraph, first-line indented 709 twips (1.25cm), matching CourtArizaDocument. */
@@ -30,7 +42,7 @@ function bodyPara(runs: TextRun[]): Paragraph {
   });
 }
 
-function run(text: string, opts: { bold?: boolean; size?: number } = {}): TextRun {
+function run(text: string, opts: { bold?: boolean; size?: number; italics?: boolean } = {}): TextRun {
   return new TextRun({ text, font: FONT, size: 28, ...opts });
 }
 
@@ -70,7 +82,7 @@ export async function buildArizaDocx(props: CourtArizaDocumentProps): Promise<Bu
                   new ImageRun({
                     type: 'png',
                     data: emblemBuffer,
-                    transformation: { width: 159, height: 56 }, // ~ 70.9mm x 25.1mm at 96dpi ratio
+                    transformation: { width: 196, height: 69 }, // larger, keeps the ~2.84:1 ratio
                   }),
                 ],
               }),
@@ -96,36 +108,87 @@ export async function buildArizaDocx(props: CourtArizaDocumentProps): Promise<Bu
     ],
   });
 
+  // Parties form table: left = right-aligned label cell, right = party details cell (both bordered).
+  // Tight horizontal padding so the label sits close to its value (no empty "katakcha" gap).
+  const CELL_MARGINS = { top: 120, bottom: 120, left: 90, right: 90 };
+  const labelCell = (text: string) =>
+    new TableCell({
+      width: { size: 40, type: WidthType.PERCENTAGE },
+      borders: CELL_BORDER,
+      margins: CELL_MARGINS,
+      verticalAlign: VerticalAlign.TOP, // top-aligned so the label lines up with the party's name
+      children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: text ? [run(text, { size: 22 })] : [] })],
+    });
+  // Narrow empty spacer cell between the label and the value column.
+  const spacerCell = () =>
+    new TableCell({ width: { size: 5, type: WidthType.PERCENTAGE }, borders: CELL_BORDER, margins: CELL_MARGINS, children: [new Paragraph({ children: [] })] });
+  const valueCell = (paras: Paragraph[]) =>
+    new TableCell({ width: { size: 55, type: WidthType.PERCENTAGE }, borders: CELL_BORDER, margins: CELL_MARGINS, children: paras });
+  const line = (text: string, opts?: { bold?: boolean; size?: number; italics?: boolean }) =>
+    new Paragraph({ spacing: { after: 40, line: 264, lineRule: 'auto' }, children: [run(text, opts)] });
+
+  const partyTable = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    columnWidths: [3800, 475, 5225],
+    rows: [
+      new TableRow({ children: [labelCell(''), spacerCell(), valueCell([line(props.courtName, { bold: true })])] }),
+      new TableRow({
+        children: [
+          labelCell('Arizachi:'),
+          spacerCell(),
+          valueCell([
+            line(CHAMBER.applicantName, { bold: true }),
+            ...CHAMBER.applicantAddress.map((l) => line(l, { italics: true, size: 24 })),
+            line(`STIR ${CHAMBER.applicantStir}.`, { size: 24 }),
+            line(''), // trailing blank line — bottom breathing room
+          ]),
+        ],
+      }),
+      new TableRow({
+        children: [
+          labelCell(CHAMBER.collectorLabel.join(' ')),
+          spacerCell(),
+          valueCell([
+            line(firmName, { bold: true, size: 24 }),
+            ...(collectorRekvizit ? [line(collectorRekvizit, { italics: true, size: 24 })] : []),
+            line(''), // trailing blank line — bottom breathing room
+          ]),
+        ],
+      }),
+      new TableRow({
+        children: [
+          labelCell('Qarzdor:'),
+          spacerCell(),
+          valueCell([
+            line(props.personFullName, { bold: true }),
+            line(props.personAddress, { italics: true, size: 24 }),
+            line(`JShShIR: ${props.personPinfl}`, { size: 24 }),
+            line(`Tel:  ${props.personPhone}`, { size: 20 }),
+            line(''), // trailing blank line — bottom breathing room
+          ]),
+        ],
+      }),
+    ],
+  });
+
   const children: (Paragraph | Table)[] = [
     headerTable,
 
-    // Date / number
-    new Paragraph({ spacing: { before: 240 }, children: [run(arizaHeaderDate(props.issueDate), { size: 24 })] }),
-    ...(props.number ? [new Paragraph({ children: [run(`№ ${props.number}`, { size: 24 })] })] : []),
-
-    // Court addressee
+    // Letterhead separator — the horizontal rule under the emblem/contacts, as on the printed blank.
     new Paragraph({
-      spacing: { before: 280 },
-      children: [run(props.courtName, { bold: true })],
+      spacing: { before: 40, after: 80 },
+      border: { bottom: { style: BorderStyle.SINGLE, size: 8, color: '000000', space: 1 } },
+      children: [],
     }),
 
-    // Arizachi
-    new Paragraph({ spacing: { before: 280 }, children: [run('Arizachi:')] }),
-    new Paragraph({ children: [run(CHAMBER.applicantName, { bold: true })] }),
-    ...CHAMBER.applicantAddress.map((line) => new Paragraph({ children: [run(line)] })),
-    new Paragraph({ children: [run(`STIR ${CHAMBER.applicantStir}.`)] }),
+    // Date / number — the register number is a manual fill-in blank, as on the printed blank.
+    new Paragraph({ spacing: { before: 120 }, children: [run(arizaHeaderDate(props.issueDate), { size: 24 })] }),
+    new Paragraph({ children: [run(props.number ? `№ ${props.number}` : '№_____________', { size: 24 })] }),
+    // One blank line between the header block and the parties form.
+    new Paragraph({ children: [] }),
 
-    // Undiruvchi
-    new Paragraph({ spacing: { before: 240 }, children: [run(CHAMBER.collectorLabel.join(' '))] }),
-    new Paragraph({ children: [run(firmName, { bold: true, size: 24 })] }),
-    ...(collectorRekvizit ? [new Paragraph({ children: [run(collectorRekvizit, { size: 24 })] })] : []),
-
-    // Qarzdor
-    new Paragraph({ spacing: { before: 240 }, children: [run('Qarzdor:')] }),
-    new Paragraph({ children: [run(props.personFullName, { bold: true })] }),
-    new Paragraph({ children: [run(props.personAddress)] }),
-    new Paragraph({ children: [run(`JShShIR: ${props.personPinfl}`)] }),
-    new Paragraph({ children: [run(`Tel:  ${props.personPhone}`, { size: 20 })] }),
+    // Parties block — a bordered 2-column form table: right-aligned label | party details.
+    partyTable,
 
     // Title
     new Paragraph({
@@ -164,15 +227,17 @@ export async function buildArizaDocx(props: CourtArizaDocumentProps): Promise<Bu
       `Shunga koʻra, qarzdor oʻz majburiyatlarini bajarmasligi natijasida ${props.asOfText || uzLongDateLatin(props.asOfDate)} holatiga koʻra mikro `
       + 'moliya tashkiloti oldidagi qarzdorligi quyidagicha:',
     )]),
-    bodyPara([run(`Asosiy qarz qoldigʻi -  ${formatSumDecimal(props.debtPrincipal)} soʻm;`)]),
-    bodyPara([run(`Muddatli foizlar qarzdorligi -  ${formatSumDecimal(props.debtTermInterest)} soʻm;`)]),
-    bodyPara([run(`Muddati oʻtgan qarz qarzdorligi -  ${formatSumDecimal(props.debtOverduePrincipal)} soʻm;`)]),
-    bodyPara([run(`Muddati oʻtgan foizlar qarzdorligi -  ${formatSumDecimal(props.debtOverdueInterest)} soʻm;`)]),
-    bodyPara([
-      run('Jami qarzdorligi  '),
-      run(`${formatSumDecimal(props.debtTotal)} soʻm`, { bold: true }),
-      run('ni tashkil etadi.'),
-    ]),
+    // Total on its own line, set apart with spacing above/below.
+    new Paragraph({
+      alignment: AlignmentType.JUSTIFIED,
+      indent: { firstLine: 709 },
+      spacing: { before: 160, after: 200 },
+      children: [
+        run('Jami qarzdorligi  '),
+        run(`${formatSumDecimal(props.debtTotal)} soʻm`, { bold: true }),
+        run('ni tashkil etadi.'),
+      ],
+    }),
     bodyPara([run(
       'Shuningdek, qarzdor tomonidan yuqorida koʻrsatib oʻtilgan kredit qarzi toʻlovlarini oʻz vaqtida '
       + 'amalga oshirilmaganligi sababli, bankning moliyaviy xolatiga jiddiy taʼsir qilmoqda.',

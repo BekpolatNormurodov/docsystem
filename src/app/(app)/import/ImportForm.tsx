@@ -17,15 +17,112 @@ interface JobStatus {
   message: string | null;
 }
 
+type Accent = 'brand' | 'amber';
+
+const ACCENT: Record<Accent, { ring: string; icon: string; badge: string }> = {
+  brand: {
+    ring: 'hover:border-brand-500/60 hover:bg-brand-500/5',
+    icon: 'bg-brand-500/10 text-brand-600 dark:text-brand-400',
+    badge: 'bg-brand-500/10 text-brand-600 dark:text-brand-300',
+  },
+  amber: {
+    ring: 'hover:border-amber-500/60 hover:bg-amber-500/5',
+    icon: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+    badge: 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
+  },
+};
+
+/** A drag-and-drop file dropzone; shows the picked file as a card with a remove button. */
+function Dropzone({
+  label,
+  hint,
+  accent,
+  file,
+  disabled,
+  onPick,
+  onClear,
+}: {
+  label: string;
+  hint: string;
+  accent: Accent;
+  file: File | null;
+  disabled: boolean;
+  onPick: (files: FileList | null) => void;
+  onClear: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [drag, setDrag] = useState(false);
+  const a = ACCENT[accent];
+
+  return (
+    <div>
+      <span className="field-label">{label}</span>
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        className="sr-only"
+        disabled={disabled}
+        onChange={(e) => onPick(e.target.files)}
+      />
+
+      {file ? (
+        <div className={`flex items-center gap-3 rounded-xl border border-line p-3 ${disabled ? 'opacity-60' : ''}`}>
+          <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg text-[11px] font-bold uppercase ${a.badge}`}>
+            xlsx
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium">{file.name}</span>
+            <span className="block text-xs text-muted">{fileSize(file.size)}</span>
+          </span>
+          {!disabled && (
+            <button
+              type="button"
+              onClick={onClear}
+              aria-label="Olib tashlash"
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-rose-500/10 hover:text-rose-500"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      ) : (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => inputRef.current?.click()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            if (!disabled) setDrag(true);
+          }}
+          onDragLeave={() => setDrag(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDrag(false);
+            if (!disabled) onPick(e.dataTransfer.files);
+          }}
+          className={`flex w-full items-center gap-3 rounded-xl border border-dashed px-4 py-3.5 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
+            drag ? 'border-brand-500 bg-brand-500/10' : `border-line ${a.ring}`
+          }`}
+        >
+          <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${a.icon}`}>
+            <Ico.add size={18} />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-medium">Fayl tanlash yoki bu yerga tashlang</span>
+            <span className="block truncate text-xs text-muted">{hint}</span>
+          </span>
+        </button>
+      )}
+    </div>
+  );
+}
+
 /**
- * Single-file picker for the portfolio xlsx. The shared `FilePicker` in `@/ui` enforces a 10 MB
- * cap and multi-file attachment semantics meant for ariza documents — the portfolio file is a
- * single spreadsheet that regularly runs well past 100 MB, so this form uses a plain file input
- * instead of forcing that component to fit.
+ * Two-file importer (portfolio + exclusion list). A plain file input is used instead of the shared
+ * `FilePicker` (which caps at 10 MB) because the portfolio spreadsheet regularly runs past 100 MB.
  */
 export function ImportForm() {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const excludeInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [excludeFile, setExcludeFile] = useState<File | null>(null);
   const [date, setDate] = useState('');
@@ -116,91 +213,54 @@ export function ImportForm() {
   }
 
   const busy = phase === 'uploading' || phase === 'running';
+  const ready = !!file && !!excludeFile && !!date;
   // Capped at 99% mid-stream because `total` is an estimate; the DONE state shows completion.
   const pct = total > 0 ? Math.min(99, Math.round((progress / total) * 100)) : 0;
 
   return (
-    <div className="card max-w-xl space-y-5 p-6">
-      <div>
-        <span className="field-label">Portfel fayli (.xlsx)</span>
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          className="sr-only"
-          disabled={busy}
-          onChange={(e) => onFileChosen(e.target.files)}
-        />
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          disabled={busy}
-          className="btn-ghost w-full justify-center py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <Ico.add size={16} /> Fayl tanlash
-        </button>
-
-        {file && (
-          <div className="mt-3 flex items-center gap-2 rounded-lg border border-line p-2">
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded bg-surface-2 text-[10px] font-bold uppercase text-muted">
-              xlsx
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-xs font-medium">{file.name}</span>
-              <span className="block text-[11px] text-muted">{fileSize(file.size)}</span>
-            </span>
-          </div>
-        )}
-      </div>
-
-      <div>
-        <span className="field-label">Muammoli / istisno roʻyxati (.xlsx)</span>
-        <input
-          ref={excludeInputRef}
-          type="file"
-          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          className="sr-only"
-          disabled={busy}
-          onChange={(e) => onExcludeFileChosen(e.target.files)}
-        />
-        <button
-          type="button"
-          onClick={() => excludeInputRef.current?.click()}
-          disabled={busy}
-          className="btn-ghost w-full justify-center py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <Ico.add size={16} /> Fayl tanlash
-        </button>
-
-        {excludeFile && (
-          <div className="mt-3 flex items-center gap-2 rounded-lg border border-line p-2">
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded bg-surface-2 text-[10px] font-bold uppercase text-muted">
-              xlsx
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-xs font-medium">{excludeFile.name}</span>
-              <span className="block text-[11px] text-muted">{fileSize(excludeFile.size)}</span>
-            </span>
-          </div>
-        )}
-      </div>
-
-      <DateField
-        label="Hisobot sanasi"
-        value={date}
-        onChange={setDate}
+    <div className="card max-w-md space-y-4 p-6">
+      <Dropzone
+        label="Portfel fayli (.xlsx)"
+        hint="Ensay portfeli — .xlsx (100 MB dan katta boʻlishi mumkin)"
+        accent="brand"
+        file={file}
         disabled={busy}
-        hint="Fayl nomidan avtomatik aniqlanadi — kerak boʻlsa tahrirlang"
+        onPick={onFileChosen}
+        onClear={() => setFile(null)}
       />
+
+      <Dropzone
+        label="Muammoli / istisno roʻyxati — sud roʻyxati (.xlsx)"
+        hint="«Pnfl» varagʻidagi mijozlar — ularga ariza yaratiladi"
+        accent="amber"
+        file={excludeFile}
+        disabled={busy}
+        onPick={onExcludeFileChosen}
+        onClear={() => setExcludeFile(null)}
+      />
+
+      <div className="max-w-[220px]">
+        <DateField
+          label="Hisobot sanasi"
+          value={date}
+          onChange={setDate}
+          disabled={busy}
+          hint="Fayl nomidan avtomatik aniqlanadi — kerak boʻlsa tahrirlang"
+        />
+      </div>
 
       <button
         type="button"
         onClick={onUpload}
-        disabled={!file || !excludeFile || !date || busy}
-        className="btn-primary w-full justify-center disabled:cursor-not-allowed disabled:opacity-50"
+        disabled={!ready || busy}
+        className="btn-primary w-full justify-center py-2.5 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {phase === 'uploading' ? 'Fayl yuklanmoqda…' : phase === 'running' ? 'Saqlanmoqda…' : 'Yuklash'}
       </button>
+
+      {phase === 'idle' && !ready && (
+        <p className="text-center text-[11px] text-muted">Ikkala fayl va sanani tanlang.</p>
+      )}
 
       {phase === 'uploading' && (
         <p className="text-xs text-muted">
@@ -213,17 +273,12 @@ export function ImportForm() {
           {/* `total` is an estimate from file size, so we cap the bar at 99% until the stream truly
               finishes (DONE), then it snaps to 100% — never a false 100% mid-import. */}
           <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
-            <div
-              className="h-full rounded-full bg-brand-600 transition-all"
-              style={{ width: `${pct}%` }}
-            />
+            <div className="h-full rounded-full bg-brand-600 transition-all" style={{ width: `${pct}%` }} />
           </div>
-          <p className="mt-2 text-sm font-medium">
-            Ma'lumotlar saqlanyapti (orqa fonda)… {pct}%
-          </p>
+          <p className="mt-2 text-sm font-medium">Ma'lumotlar saqlanyapti (orqa fonda)… {pct}%</p>
           <p className="mt-1 text-[11px] text-muted">
-            {progress.toLocaleString('ru-RU')} qator saqlandi. Bir necha daqiqa oladi —
-            sahifani yopsangiz ham import serverda davom etadi.
+            {progress.toLocaleString('ru-RU')} qator saqlandi. Bir necha daqiqa oladi — sahifani
+            yopsangiz ham import serverda davom etadi.
           </p>
         </div>
       )}
@@ -231,7 +286,7 @@ export function ImportForm() {
       {phase === 'done' && (
         <div className="rounded-xl border border-accent-500/30 bg-accent-500/10 p-3">
           <p className="text-sm font-medium text-accent-700 dark:text-accent-400">
-            Tayyor — {progress} ta qator yuklandi
+            ✓ Tayyor — {progress.toLocaleString('ru-RU')} ta qator yuklandi
           </p>
           <Link href={`/s/${date}`} className="mt-1 inline-block text-sm font-medium underline">
             Hisobotni koʻrish

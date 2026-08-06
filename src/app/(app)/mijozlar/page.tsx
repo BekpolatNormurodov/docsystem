@@ -1,28 +1,12 @@
-import Link from 'next/link';
 import { Prisma } from '@prisma/client';
 import { requireAdmin } from '@/lib/auth';
 import { prisma } from '@/lib/db';
-import { PageHeader, EmptyState, ClickableRow } from '@/ui';
+import { PageHeader, EmptyState, ClickableRow, Pagination } from '@/ui';
 import { formatSumDecimal } from '@/core/document';
 import { MijozlarFilters } from './MijozlarFilters';
 
 export const dynamic = 'force-dynamic';
 const PAGE = 50;
-
-/** Windowed page list: 1 … (cur-1) cur (cur+1) … last, with `null` marking an ellipsis gap. */
-function pageWindow(cur: number, total: number): (number | null)[] {
-  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
-  const nums = new Set<number>([1, total, cur - 1, cur, cur + 1]);
-  const sorted = [...nums].filter((n) => n >= 1 && n <= total).sort((a, b) => a - b);
-  const out: (number | null)[] = [];
-  let prev = 0;
-  for (const n of sorted) {
-    if (n - prev > 1) out.push(null);
-    out.push(n);
-    prev = n;
-  }
-  return out;
-}
 
 export default async function MijozlarPage({
   searchParams,
@@ -48,55 +32,69 @@ export default async function MijozlarPage({
 
   const dates = snapshots.map((s) => s.reportDate.toISOString().slice(0, 10));
   const latestDate = dates[0];
-  // 'all' spans every snapshot; a real date restricts to that one.
-  const date =
-    searchParams.date === 'all'
-      ? 'all'
-      : searchParams.date && dates.includes(searchParams.date)
-        ? searchParams.date
-        : latestDate;
-  const q = (searchParams.q ?? '').trim();
+  // Default is "Hamma sana" (all snapshots); a real date restricts to that one.
+  const date = searchParams.date && dates.includes(searchParams.date) ? searchParams.date : 'all';
+  const rawQ = (searchParams.q ?? '').trim();
+  // Ignore 1-char queries: too unselective to scan 100k+ rows for, and they feel laggy.
+  const q = rawQ.length >= 2 ? rawQ : '';
+  // Digit-only queries are ID lookups (PINFL / contract): prefix-match the indexed id columns — fast.
+  // Text queries hit the name/passport columns with a substring match.
+  const digitsOnly = /^\d+$/.test(q);
   const page = Math.max(1, Number(searchParams.page) || 1);
 
+  // "Hamma sana" resolves to the newest portfolio (snapshots are full per-date dumps, ordered desc),
+  // so a single indexed snapshot groupBy serves both modes — sub-second, no cross-snapshot self-join.
   const snapshot =
-    date === 'all' ? null : await prisma.snapshot.findUnique({ where: { reportDate: new Date(`${date}T00:00:00.000Z`) } });
+    date === 'all'
+      ? await prisma.snapshot.findUnique({ where: { id: snapshots[0]!.id } })
+      : await prisma.snapshot.findUnique({ where: { reportDate: new Date(`${date}T00:00:00.000Z`) } });
   const linkDate = date === 'all' ? latestDate : date;
-
-  const qFilter = q
-    ? {
-        OR: [
-          { pinfl: { contains: q } },
-          { clientName: { contains: q } },
-          { passportSn: { contains: q } },
-          { ldId: { contains: q } },
-        ],
-      }
-    : {};
 
   type Group = { pinfl: string | null; clientName: string | null; _count: number; _sum: { totalDebt: unknown } };
   let groups: Group[];
   let totalClients: number;
 
-  if (date === 'all') {
-    // One row per client from their LATEST snapshot — avoids double-counting a re-uploaded portfolio.
-    const idsSql = Prisma.join(snapshots.map((s) => s.id));
-    const qCond = q
-      ? Prisma.sql`AND (l.pinfl LIKE ${`%${q}%`} OR l.clientName LIKE ${`%${q}%`} OR l.passportSn LIKE ${`%${q}%`} OR l.ldId LIKE ${`%${q}%`})`
-      : Prisma.empty;
-    const join = Prisma.sql`JOIN (SELECT pinfl, MAX(snapshotId) AS sid FROM Loan WHERE snapshotId IN (${idsSql}) GROUP BY pinfl) m ON l.pinfl = m.pinfl AND l.snapshotId = m.sid`;
+  // Name search uses a FULLTEXT index (MATCH … AGAINST) — ~30ms vs ~8s for a `%substring%` scan.
+  // Needs ≥3 chars (InnoDB min token size); shorter or digit queries take the indexed groupBy path.
+  const useFullText = !!q && !digitsOnly && q.length >= 3;
+
+  if (useFullText) {
+    // Each token as a required prefix term: "kaniza" → "+kaniza*", "ali val" → "+ali* +val*".
+    const boolExpr = q
+      .replace(/[+\-<>~*()"@]/g, ' ')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((w) => `+${w}*`)
+      .join(' ');
+    const sid = snapshot!.id;
+    const passLike = `${q}%`;
+    const cond = Prisma.sql`l.snapshotId = ${sid} AND (MATCH(l.clientName) AGAINST(${boolExpr} IN BOOLEAN MODE) OR l.passportSn LIKE ${passLike})`;
     const [rows, cnt] = await Promise.all([
       prisma.$queryRaw<{ pinfl: string; clientName: string | null; cnt: bigint; debt: string }[]>`
         SELECT l.pinfl AS pinfl, l.clientName AS clientName, COUNT(*) AS cnt, SUM(l.totalDebt) AS debt
-        FROM Loan l ${join} WHERE 1=1 ${qCond}
+        FROM Loan l WHERE ${cond}
         GROUP BY l.pinfl, l.clientName ORDER BY debt DESC LIMIT ${PAGE} OFFSET ${(page - 1) * PAGE}`,
-      prisma.$queryRaw<{ n: bigint }[]>`
-        SELECT COUNT(*) AS n FROM (SELECT l.pinfl FROM Loan l ${join} WHERE 1=1 ${qCond} GROUP BY l.pinfl) t`,
+      prisma.$queryRaw<{ n: bigint }[]>`SELECT COUNT(DISTINCT l.pinfl) AS n FROM Loan l WHERE ${cond}`,
     ]);
     groups = rows.map((r) => ({ pinfl: r.pinfl, clientName: r.clientName, _count: Number(r.cnt), _sum: { totalDebt: r.debt } }));
     totalClients = Number(cnt[0]?.n ?? 0);
   } else {
-    const where = { snapshotId: snapshot!.id, ...qFilter };
-    const [g, all] = await Promise.all([
+    const sid = snapshot!.id;
+    const qFilter = q
+      ? digitsOnly
+        ? { OR: [{ pinfl: { startsWith: q } }, { ldId: { startsWith: q } }] }
+        : { OR: [{ clientName: { contains: q } }, { passportSn: { contains: q } }] }
+      : {};
+    const where = { snapshotId: sid, ...qFilter };
+    // Count distinct clients cheaply — COUNT(DISTINCT) never transfers the ~51k pinfl rows a
+    // groupBy would. The WHERE mirrors qFilter for each query shape.
+    const cond = !q
+      ? Prisma.sql`snapshotId = ${sid}`
+      : digitsOnly
+        ? Prisma.sql`snapshotId = ${sid} AND (pinfl LIKE ${`${q}%`} OR ldId LIKE ${`${q}%`})`
+        : Prisma.sql`snapshotId = ${sid} AND (clientName LIKE ${`%${q}%`} OR passportSn LIKE ${`%${q}%`})`;
+    const [g, cnt] = await Promise.all([
       prisma.loan.groupBy({
         by: ['pinfl', 'clientName'],
         where,
@@ -106,10 +104,10 @@ export default async function MijozlarPage({
         skip: (page - 1) * PAGE,
         take: PAGE,
       }),
-      prisma.loan.groupBy({ by: ['pinfl'], where }),
+      prisma.$queryRaw<{ n: bigint }[]>`SELECT COUNT(DISTINCT pinfl) AS n FROM Loan WHERE ${cond}`,
     ]);
     groups = g.map((x) => ({ pinfl: x.pinfl, clientName: x.clientName, _count: x._count, _sum: { totalDebt: x._sum.totalDebt } }));
-    totalClients = all.length;
+    totalClients = Number(cnt[0]?.n ?? 0);
   }
   const totalPages = Math.max(1, Math.ceil(totalClients / PAGE));
 
@@ -177,31 +175,7 @@ export default async function MijozlarPage({
         </div>
       )}
 
-      {totalPages > 1 && (
-        <nav className="mt-6 flex flex-wrap items-center justify-center gap-1.5 text-sm">
-          {pageWindow(page, totalPages).map((n, i) =>
-            n === null ? (
-              <span key={`gap-${i}`} className="px-1 text-muted">
-                …
-              </span>
-            ) : (
-              <Link
-                key={n}
-                href={hrefPage(n)}
-                aria-current={n === page ? 'page' : undefined}
-                className={`min-w-9 rounded-lg border px-3 py-1.5 text-center transition ${
-                  n === page ? 'border-brand-600 bg-brand-600 font-semibold text-white' : 'border-line hover:bg-surface-2'
-                }`}
-              >
-                {n}
-              </Link>
-            ),
-          )}
-        </nav>
-      )}
-      <p className="mt-3 text-center text-xs text-muted">
-        {totalClients.toLocaleString('ru-RU')} mijoz · {totalPages.toLocaleString('ru-RU')} sahifa
-      </p>
+      <Pagination page={page} pages={totalPages} total={totalClients} perPage={PAGE} hrefFor={hrefPage} unit="mijoz" />
     </div>
   );
 }

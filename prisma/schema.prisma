@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextIndex"]
 }
 
 datasource db {
@@ -20,11 +21,15 @@ model Firm {
   shortName   String // "BRIGHT FUTURE FINANCING"
   legalName   String? // full legal Latin name for the ariza
   address     String?
+  region      String? // billing «Viloyat» dropdown ko'rinadigan matni, masalan "Тошкент шаҳар"
+  district    String? // billing «Tuman» dropdown matni, masalan "Олмазор тумани"
+  addressLine String? // ko'cha/uy, masalan "Gurushariq MFY, Sag'bon kochasi 30-berk 7/1"
   bankAccount String? // X/R
   mfo         String?
   stir        String?
   postIndex   String?
   phone       String?
+  invoices    InvoiceRecord[]
   updatedAt   DateTime @updatedAt
 }
 
@@ -75,6 +80,13 @@ model Loan {
   @@index([snapshotId, clientName])
   @@index([snapshotId, totalDebt])
   @@index([snapshotId, excluded])
+  // Cross-snapshot lookups: the "Hamma sana" MAX(snapshotId) join and prefix search on id fields.
+  // (pinfl, snapshotId) lets the latest-per-client derived table resolve from the index alone.
+  @@index([pinfl, snapshotId])
+  @@index([ldId])
+  @@index([passportSn])
+  // Fast name search: MATCH(clientName) AGAINST(… IN BOOLEAN MODE) — ~30ms vs ~8s for %substring%.
+  @@fulltext([clientName])
 }
 
 model Setting {
@@ -94,4 +106,21 @@ model Job {
   snapshotId Int?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+}
+
+model InvoiceRecord {
+  id          Int      @id @default(autoincrement())
+  invoiceNo   String   @unique
+  firmId      Int
+  firm        Firm     @relation(fields: [firmId], references: [id])
+  paymentType String
+  amount      Decimal  @db.Decimal(20, 2)
+  courtType   String
+  courtRegion String
+  court       String
+  pdfPath     String?
+  status      String   @default("CREATED") // CREATED | FAILED
+  createdAt   DateTime @default(now())
+
+  @@index([firmId])
 }

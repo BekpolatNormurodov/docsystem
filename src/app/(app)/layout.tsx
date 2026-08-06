@@ -5,10 +5,9 @@ import type { NavItem } from '@/ui/AppShell';
 export const dynamic = 'force-dynamic';
 
 const NAV: NavItem[] = [
-  { href: '/', label: 'Kalendar', icon: 'calendar' },
+  { href: '/hujjatlar', label: 'Hujjatlar', icon: 'files' },
   { href: '/import', label: 'Import', icon: 'file-plus' },
   { href: '/mijozlar', label: 'Mijozlar', icon: 'users' },
-  { href: '/hujjatlar', label: 'Hujjatlar', icon: 'files' },
   { href: '/firms', label: 'Firmalar', icon: 'building' },
   { href: '/settings', label: 'Sozlamalar', icon: 'archive' },
 ];
