@@ -1,7 +1,7 @@
 import type { Firm } from '@prisma/client';
 
 export const COURT_DEFAULTS = {
-  courtType: 'Фуқаролик ишлари бўйича',
+  courtType: 'Фуқаролик ишлари бўйича суд',
   courtRegion: 'Тошкент шаҳар',
   court: 'Фуқаролик ишлари бўйича Учтепа туманлараро суди',
 } as const;

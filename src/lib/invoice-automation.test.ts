@@ -1,20 +1,27 @@
-import { describe, it, expect, vi } from 'vitest';
-import { fillInvoiceForm, type FillablePage } from './invoice-automation';
+import { describe, it, expect } from 'vitest';
+import { fillInvoiceForm } from './invoice-automation';
 import type { InvoiceFormData } from '@/core/invoice-fields';
 
-function makePage() {
-  const calls: string[] = [];
-  const locator = (id: string) => ({
-    click: vi.fn(async () => { calls.push(`click:${id}`); }),
-    fill: vi.fn(async (v: string) => { calls.push(`fill:${id}=${v}`); }),
-    selectByText: vi.fn(async (t: string) => { calls.push(`select:${id}=${t}`); }),
+/**
+ * A recording Proxy that stands in for a Playwright Page/Locator. Every method call is
+ * logged with its stringified args; locator-returning methods return the proxy again so
+ * arbitrary chaining works (`page.locator(..).nth(0).click()`), while click/fill/waitFor
+ * resolve. This lets us assert exactly which selectors/roles the driver touches — in
+ * particular that it NEVER references the «Yaratish» submit or the captcha honeypot.
+ */
+function makeRecorder() {
+  const log: string[] = [];
+  const proxy: any = new Proxy(function () {}, {
+    get(_t, prop) {
+      if (typeof prop !== 'string' || prop === 'then') return undefined;
+      return (...args: any[]) => {
+        log.push(`${prop}(${args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(',')})`);
+        if (prop === 'click' || prop === 'fill' || prop === 'waitFor') return Promise.resolve();
+        return proxy;
+      };
+    },
   });
-  const page: FillablePage = {
-    getByPlaceholder: (t: string) => locator(`ph:${t}`),
-    getByText: (t: string) => locator(`text:${t}`),
-    getByRole: (r: string, o?: { name?: string }) => locator(`role:${r}:${o?.name ?? ''}`),
-  } as any;
-  return { page, calls };
+  return { page: proxy, log };
 }
 
 const data: InvoiceFormData = {
@@ -26,18 +33,27 @@ const data: InvoiceFormData = {
 };
 
 describe('fillInvoiceForm', () => {
-  it('fills org name, stir and amount', async () => {
-    const { page, calls } = makePage();
+  it('fills org name, STIR, address and amount via formcontrolname selectors', async () => {
+    const { page, log } = makeRecorder();
     await fillInvoiceForm(page, data);
-    expect(calls).toContain('fill:ph:Tashkilot nomi=bright future');
-    expect(calls).toContain('fill:ph:STIR=311976765');
-    expect(calls.some((c) => c.includes('20600'))).toBe(true);
+    const joined = log.join('\n');
+    expect(joined).toContain('input[formcontrolname="organizationName"]');
+    expect(joined).toContain('fill(bright future)');
+    expect(joined).toContain('input[formcontrolname="INN"]');
+    expect(joined).toContain('input[formcontrolname="paymentAmount"]');
+    // Address street is the modal's sole textbox; addressLine is filled somewhere.
+    expect(joined).toContain("fill(Sag'bon 7/1)");
+    expect(joined).toContain('fill(20600)');
+    // Court cascade + payment type option picks happen.
+    expect(joined).toContain('mat-select[formcontrolname="courtType"]');
   });
 
-  it('NEVER touches the captcha or submit', async () => {
-    const { page, calls } = makePage();
+  it('NEVER touches the captcha honeypot or the Yaratish submit button', async () => {
+    const { page, log } = makeRecorder();
     await fillInvoiceForm(page, data);
-    expect(calls.some((c) => /Robot emasman/i.test(c))).toBe(false);
-    expect(calls.some((c) => /Yaratish/i.test(c))).toBe(false);
+    const joined = log.join('\n');
+    expect(/Yaratish/i.test(joined)).toBe(false);
+    expect(/captcha/i.test(joined)).toBe(false);
+    expect(/Robot emasman/i.test(joined)).toBe(false);
   });
 });

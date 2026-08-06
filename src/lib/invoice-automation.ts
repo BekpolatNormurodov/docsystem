@@ -1,50 +1,52 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type { Locator, Page } from 'playwright';
 import { prisma } from '@/lib/db';
 import { buildInvoiceForm, type InvoiceFormData } from '@/core/invoice-fields';
 
 const BILLING_CREATE = 'https://billing.sud.uz/create-receipt';
 const STORAGE_DIR = path.join(process.cwd(), 'storage', 'invoices');
 
-/** Minimal yuza — test mock qila oladigan Page abstraksiyasi (Playwright Page shu shaklga mos). */
-export interface FillableLocator {
-  click(): Promise<void>;
-  fill(value: string): Promise<void>;
-}
-export interface FillablePage {
-  getByPlaceholder(text: string): FillableLocator;
-  getByText(text: string, opts?: { exact?: boolean }): FillableLocator;
-  getByRole(role: string, opts?: { name?: string }): FillableLocator;
-}
-
-/** MUI dropdown: control'ni bosib ochadi, keyin variant matnini bosadi. */
-async function pickDropdown(page: FillablePage, controlPlaceholder: string, optionText: string) {
-  await page.getByPlaceholder(controlPlaceholder).click();
-  await page.getByText(optionText, { exact: false }).click();
+/**
+ * Angular Material mat-select: combobox'ni bosib ochadi, so'ng cdk overlay'dagi
+ * variant matnini (role="option", to'liq moslik) bosadi. Options body'ga qo'shilgani
+ * uchun option'ni `page` dan qidiramiz, control'ni esa berilgan locator bo'yicha.
+ */
+async function selectOption(page: Page, control: Locator, optionText: string) {
+  await control.click();
+  await page.getByRole('option', { name: optionText, exact: true }).click();
 }
 
 /**
  * Billing «create-receipt» formasini to'ldiradi — «Yuridik shaxs» yo'nalishi.
- * MUHIM: captcha («Robot emasman») va «Yaratish» ga TEGMAYDI — foydalanuvchi bosadi.
+ * Sayt Angular Material — barqaror `formcontrolname` selektorlari ishlatiladi
+ * (jonli DOM'dan tasdiqlangan). Manzil «address» maydoni yashirin: uni o'rab turgan
+ * mat-form-field bosilsa modal ochiladi (Viloyat/Tuman mat-select'lari + «street»).
+ * MUHIM: captcha honeypot maydoni va «Yaratish» tugmasiga TEGMAYDI — foydalanuvchi bosadi.
  */
-export async function fillInvoiceForm(page: FillablePage, d: InvoiceFormData): Promise<void> {
+export async function fillInvoiceForm(page: Page, d: InvoiceFormData): Promise<void> {
   await page.getByText('Yuridik shaxs', { exact: false }).click();
-  await page.getByPlaceholder('Tashkilot nomi').fill(d.orgName);
-  await page.getByPlaceholder('STIR').fill(d.stir);
+  await page.locator('input[formcontrolname="organizationName"]').fill(d.orgName);
+  await page.locator('input[formcontrolname="INN"]').fill(d.stir);
 
-  // Manzil modal: ochish → viloyat/tuman dropdown → ko'cha → Saqlash
-  await page.getByPlaceholder('Tashkilot manzili').click();
-  await pickDropdown(page, 'Viloyat', d.region);
-  await pickDropdown(page, 'Tuman', d.district);
-  await page.getByPlaceholder('Manzil').fill(d.addressLine);
-  await page.getByRole('button', { name: 'Saqlash' }).click();
+  // Manzil modal: yashirin «address» inputining mat-form-field'ini bosib ochamiz.
+  await page.locator('mat-form-field:has(input[formcontrolname="address"])').click();
+  const dialog = page.locator('mat-dialog-container');
+  await dialog.waitFor();
+  // Modaldagi ikkita mat-select formcontrolname'siz — tartib bo'yicha: 0=Viloyat, 1=Tuman.
+  await selectOption(page, dialog.locator('mat-select').nth(0), d.region);
+  await selectOption(page, dialog.locator('mat-select').nth(1), d.district);
+  // Ko'cha — modaldagi yagona matn input (uning name="street", formcontrolname emas).
+  await dialog.getByRole('textbox').fill(d.addressLine);
+  await dialog.getByRole('button', { name: 'Saqlash' }).click();
 
-  await pickDropdown(page, 'Sud turi', d.courtType);
-  await pickDropdown(page, 'Sud hududi', d.courtRegion);
-  await pickDropdown(page, 'Sud', d.court);
-  await pickDropdown(page, "To'lov turi", d.paymentType);
-  await page.getByPlaceholder('Kvitansiya summasi').fill(String(d.amount));
-  // STOP: captcha va «Yaratish» — qo'lda.
+  // Sud kaskadi (turi → hududi → sud) + to'lov turi. «region» = Sud hududi formcontrolname.
+  await selectOption(page, page.locator('mat-select[formcontrolname="courtType"]'), d.courtType);
+  await selectOption(page, page.locator('mat-select[formcontrolname="region"]'), d.courtRegion);
+  await selectOption(page, page.locator('mat-select[formcontrolname="court"]'), d.court);
+  await selectOption(page, page.locator('mat-select[formcontrolname="paymentType"]'), d.paymentType);
+  await page.locator('input[formcontrolname="paymentAmount"]').fill(String(d.amount));
+  // STOP: captcha honeypot + «Yaratish» — qo'lda.
 }
 
 export interface TabState {
@@ -100,7 +102,7 @@ export async function startBatch(input: StartInput): Promise<{ batchId: string; 
         try {
           const page = await ctx.newPage();
           await page.goto(BILLING_CREATE, { waitUntil: 'domcontentloaded' });
-          await fillInvoiceForm(page as unknown as FillablePage, data);
+          await fillInvoiceForm(page, data);
           t.status = 'WAITING_HUMAN';
           // Foydalanuvchi captcha+Yaratish bosishini kutamiz: URL /invoice/{no} ga o'tsa — natija.
           await page.waitForURL(/\/invoice\/\d+/, { timeout: 15 * 60 * 1000 });
