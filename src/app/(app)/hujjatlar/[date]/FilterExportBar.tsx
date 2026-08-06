@@ -103,6 +103,8 @@ export function FilterExportBar({
         if (job.status === 'DONE') {
           clearInterval(timer);
           setPhase('done');
+          // Refresh so the finished ZIP appears in the persisted "Tayyor exportlar" list.
+          router.refresh();
         } else if (job.status === 'FAILED') {
           clearInterval(timer);
           setError(job.message ?? 'Eksport muvaffaqiyatsiz tugadi');
@@ -196,13 +198,33 @@ export function FilterExportBar({
             return (
               <label
                 key={f.code}
-                className={`flex cursor-pointer select-none items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition ${
-                  on ? 'border-brand-500/60 bg-brand-500/10 text-fg' : 'border-line text-muted hover:bg-surface-2'
+                className={`group flex cursor-pointer select-none items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition ${
+                  on
+                    ? 'border-brand-500 bg-brand-600 text-white shadow-sm'
+                    : 'border-line bg-surface-2 text-muted hover:border-brand-500/50 hover:text-fg'
                 }`}
               >
-                <input type="checkbox" checked={on} onChange={() => toggle(f.code)} className="h-3.5 w-3.5 accent-brand-600" />
+                <input type="checkbox" checked={on} onChange={() => toggle(f.code)} className="sr-only" />
+                {/* Custom check box — the native control looked out of place. */}
+                <span
+                  className={`grid h-4 w-4 shrink-0 place-items-center rounded-[5px] border transition ${
+                    on ? 'border-white/80 bg-white/25' : 'border-line bg-surface-1 group-hover:border-brand-500/50'
+                  }`}
+                >
+                  {on && (
+                    <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2.4}>
+                      <path d="M2.5 6.5l2.2 2.2L9.5 3.8" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </span>
                 <span className="font-medium">{f.name}</span>
-                <span className="opacity-60">{f.count.toLocaleString('ru-RU')}</span>
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
+                    on ? 'bg-white/20 text-white' : 'bg-surface-1 text-muted'
+                  }`}
+                >
+                  {f.count.toLocaleString('ru-RU')}
+                </span>
               </label>
             );
           })}
@@ -272,7 +294,7 @@ export function FilterExportBar({
           {phase === 'done' && jobId !== null && (
             <>
               <span className="font-medium text-accent-700 dark:text-accent-400">
-                Tayyor — {progress.toLocaleString('ru-RU')} ta ariza.
+                Tayyor — {progress.toLocaleString('ru-RU')} ta ariza. «Tayyor exportlar» roʻyxatiga saqlandi.
               </span>
               <a href={`/api/export/${jobId}/download`} className="btn-primary py-1.5 text-xs">
                 <DocumentDownload size={14} /> ZIP yuklab olish
@@ -340,7 +362,7 @@ export function FilterExportBar({
           )}
           {phase === 'done' && (
             <p className="font-medium text-accent-700 dark:text-accent-400">
-              Tayyor — {progress.toLocaleString('ru-RU')} ta ariza. Pastdan yuklab oling.
+              Tayyor — {progress.toLocaleString('ru-RU')} ta ariza. Pastdan yuklab oling — «Tayyor exportlar» roʻyxatida ham saqlanadi.
             </p>
           )}
           {phase === 'failed' && error && <p className="font-medium text-rose-600 dark:text-rose-300">{error}</p>}

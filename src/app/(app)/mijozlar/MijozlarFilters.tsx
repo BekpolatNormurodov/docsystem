@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { SearchNormal1, ArrowDown2 } from 'iconsax-react';
 
@@ -12,7 +12,7 @@ export function MijozlarFilters({ dates, date, initialQ }: { dates: string[]; da
   const [open, setOpen] = useState(false);
   const [dq, setDq] = useState('');
   const box = useRef<HTMLDivElement>(null);
-  const first = useRef(true);
+  const [pending, startTransition] = useTransition();
 
   function go(nextDate: string, nextQ: string) {
     const p = new URLSearchParams();
@@ -22,16 +22,16 @@ export function MijozlarFilters({ dates, date, initialQ }: { dates: string[]; da
     return `/mijozlar?${p.toString()}`;
   }
 
-  // Real-time search — debounced, replace so typing doesn't flood history.
+  // Real-time search — debounced, replace so typing doesn't flood history. Navigate only when the
+  // typed value actually differs from what the URL already reflects (initialQ). Comparing against
+  // initialQ — instead of a "skip first render" ref — is robust to the server re-render that follows
+  // each navigation, which was leaving the last keystroke unsynced.
   useEffect(() => {
-    if (first.current) {
-      first.current = false;
-      return;
-    }
-    const t = setTimeout(() => router.replace(go(date, q)), 350);
+    if (q.trim() === initialQ.trim()) return;
+    const t = setTimeout(() => startTransition(() => router.replace(go(date, q))), 250);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q]);
+  }, [q, initialQ, date]);
 
   // Close the date dropdown on outside click.
   useEffect(() => {
@@ -114,8 +114,21 @@ export function MijozlarFilters({ dates, date, initialQ }: { dates: string[]; da
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="masalan: 3210… yoki ABDULLAYEV"
-            className="field-input w-full pl-9"
+            className="field-input w-full pl-9 pr-9"
           />
+          {pending && (
+            <span className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2 border-brand-600 border-t-transparent" />
+          )}
+          {!pending && q && (
+            <button
+              type="button"
+              onClick={() => setQ('')}
+              aria-label="Tozalash"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-fg"
+            >
+              ✕
+            </button>
+          )}
         </div>
       </label>
     </div>

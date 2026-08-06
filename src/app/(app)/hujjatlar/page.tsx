@@ -20,21 +20,21 @@ export default async function HujjatlarPage() {
     select: { id: true, reportDate: true, rowCount: true, totalDebt: true },
   });
 
-  // Per snapshot: how many clients/contracts are in the court list (excluded) and their total debt.
+  // Per snapshot: court-list (excluded) clients/contracts/debt in one COUNT(DISTINCT) query each —
+  // avoids transferring the ~1054 pinfl rows a groupBy would just to take its length.
   const cards = await Promise.all(
     snapshots.map(async (s) => {
-      const [agg, exClients] = await Promise.all([
-        prisma.loan.aggregate({ where: { snapshotId: s.id, excluded: true }, _count: true, _sum: { totalDebt: true } }),
-        prisma.loan.groupBy({ by: ['pinfl'], where: { snapshotId: s.id, excluded: true } }),
-      ]);
+      const [row] = await prisma.$queryRaw<{ loans: bigint; debt: string | null; clients: bigint }[]>`
+        SELECT COUNT(*) AS loans, SUM(totalDebt) AS debt, COUNT(DISTINCT pinfl) AS clients
+        FROM Loan WHERE snapshotId = ${s.id} AND excluded = 1`;
       return {
         date: s.reportDate.toISOString().slice(0, 10),
         reportDate: s.reportDate,
         rowCount: s.rowCount,
         totalDebt: s.totalDebt,
-        exLoans: agg._count,
-        exDebt: agg._sum.totalDebt ?? 0,
-        exClients: exClients.length,
+        exLoans: Number(row?.loans ?? 0),
+        exDebt: row?.debt ?? 0,
+        exClients: Number(row?.clients ?? 0),
       };
     }),
   );

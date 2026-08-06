@@ -6,7 +6,8 @@ import type { Firm } from '@prisma/client';
 import { Modal, TextField, RowAction, Ico } from '@/ui';
 
 type FirmFields = Record<
-  'shortName' | 'legalName' | 'address' | 'bankAccount' | 'mfo' | 'stir' | 'postIndex' | 'phone',
+  | 'shortName' | 'legalName' | 'address' | 'bankAccount' | 'mfo' | 'stir' | 'postIndex' | 'phone'
+  | 'region' | 'district' | 'addressLine',
   string
 >;
 
@@ -20,6 +21,9 @@ function toFields(firm: Firm): FirmFields {
     stir: firm.stir ?? '',
     postIndex: firm.postIndex ?? '',
     phone: firm.phone ?? '',
+    region: firm.region ?? '',
+    district: firm.district ?? '',
+    addressLine: firm.addressLine ?? '',
   };
 }
 
@@ -101,6 +105,9 @@ function FirmForm({ firm, onClose }: { firm: Firm; onClose: () => void }) {
         <TextField label="Qisqa nomi" value={fields.shortName} onChange={set('shortName')} className="sm:col-span-2" />
         <TextField label="Toʻliq yuridik nomi" value={fields.legalName} onChange={set('legalName')} className="sm:col-span-2" />
         <TextField label="Manzil" value={fields.address} onChange={set('address')} className="sm:col-span-2" />
+        <TextField label="Viloyat (billing)" value={fields.region} onChange={set('region')} />
+        <TextField label="Tuman (billing)" value={fields.district} onChange={set('district')} />
+        <TextField label="Koʻcha/uy (billing manzil)" value={fields.addressLine} onChange={set('addressLine')} className="sm:col-span-2" />
         <TextField label="Hisob raqami (X/R)" value={fields.bankAccount} onChange={set('bankAccount')} />
         <TextField label="MFO" value={fields.mfo} onChange={set('mfo')} />
         <TextField label="STIR" value={fields.stir} onChange={set('stir')} />

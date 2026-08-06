@@ -1,41 +1,33 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import Link from 'next/link';
+import { Prisma } from '@prisma/client';
 import { notFound } from 'next/navigation';
 import { requireAdmin } from '@/lib/auth';
 import { prisma } from '@/lib/db';
-import { PageHeader, EmptyState } from '@/ui';
+import { PageHeader, EmptyState, Pagination } from '@/ui';
 import { formatSumDecimal } from '@/core/document';
 import { buildLoanWhere } from '@/core/loan-filters';
 import { FilterExportBar } from './FilterExportBar';
+import { ExportsList, type ReadyExport } from './ExportsList';
+
+/** Bytes → human size (KB/MB). */
+function humanSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} B`;
+}
+
+/** Date → 'DD.MM.YYYY HH:mm' (local server time). */
+function stamp(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
 
 export const dynamic = 'force-dynamic';
 const PAGE = 24;
 
 const asArray = (v: string | string[] | undefined): string[] => (!v ? [] : Array.isArray(v) ? v : [v]);
-
-/** Windowed page list: 1 … (cur-1) cur (cur+1) … last, with `null` marking an ellipsis gap. */
-function pageWindow(cur: number, total: number): (number | null)[] {
-  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
-  const nums = new Set<number>([1, total, cur - 1, cur, cur + 1]);
-  const sorted = [...nums].filter((n) => n >= 1 && n <= total).sort((a, b) => a - b);
-  const out: (number | null)[] = [];
-  let prev = 0;
-  for (const n of sorted) {
-    if (n - prev > 1) out.push(null);
-    out.push(n);
-    prev = n;
-  }
-  return out;
-}
-
-function PagerLink({ href, disabled, label }: { href: string; disabled: boolean; label: string }) {
-  const cls = 'min-w-9 rounded-lg border border-line px-3 py-1.5 text-center';
-  if (disabled) return <span className={`${cls} opacity-40`}>{label}</span>;
-  return (
-    <Link href={href} className={`${cls} transition hover:bg-surface-2`}>
-      {label}
-    </Link>
-  );
-}
 
 export default async function HujjatlarDatePage({
   params,
@@ -66,9 +58,11 @@ export default async function HujjatlarDatePage({
   const where = { ...buildLoanWhere(snapshot.id, { q, branches, page: 1 }), excluded: onlyExcluded };
   const having = minDebt !== undefined ? { totalDebt: { _sum: { gte: minDebt } } } : undefined;
 
-  const [firms, allGroups, clients, clientTotals] = await Promise.all([
+  const [firms, allGroups, clients] = await Promise.all([
     prisma.firm.findMany({ select: { code: true, shortName: true } }),
-    prisma.loan.groupBy({ by: ['branchCode'], where: { snapshotId: snapshot.id }, _count: true }),
+    // Firm chip counts respect the current mode: «Barchasi» → whole portfolio, «Sud roʻyxati» → only
+    // the court-list (excluded) contracts. So the chip numbers add up to the subtitle's total.
+    prisma.loan.groupBy({ by: ['branchCode'], where: { snapshotId: snapshot.id, excluded: onlyExcluded }, _count: true }),
     prisma.loan.groupBy({
       by: ['pinfl', 'clientName'],
       where,
@@ -79,11 +73,26 @@ export default async function HujjatlarDatePage({
       skip: (page - 1) * PAGE,
       take: PAGE,
     }),
-    prisma.loan.groupBy({ by: ['pinfl'], where, having, _count: true }),
   ]);
 
-  const clientCount = clientTotals.length;
-  const matchLoans = clientTotals.reduce((sum, g) => sum + g._count, 0);
+  // Client + loan totals. Without a minDebt (having) filter this is a single COUNT(DISTINCT)/COUNT(*)
+  // — never the ~51k-row groupBy transfer that made tab navigation drag. With minDebt, the per-client
+  // total lives in a HAVING, so keep the grouped path.
+  let clientCount: number;
+  let matchLoans: number;
+  if (having) {
+    const totals = await prisma.loan.groupBy({ by: ['pinfl'], where, having, _count: true });
+    clientCount = totals.length;
+    matchLoans = totals.reduce((sum, g) => sum + g._count, 0);
+  } else {
+    const conds = [Prisma.sql`snapshotId = ${snapshot.id}`, Prisma.sql`excluded = ${onlyExcluded}`];
+    if (branches.length) conds.push(Prisma.sql`branchCode IN (${Prisma.join(branches)})`);
+    if (q) conds.push(Prisma.sql`(pinfl LIKE ${`%${q}%`} OR clientName LIKE ${`%${q}%`} OR ldId LIKE ${`%${q}%`})`);
+    const cond = Prisma.join(conds, ' AND ');
+    const r = await prisma.$queryRaw<{ clients: bigint; loans: bigint }[]>`SELECT COUNT(DISTINCT pinfl) AS clients, COUNT(*) AS loans FROM Loan WHERE ${cond}`;
+    clientCount = Number(r[0]?.clients ?? 0);
+    matchLoans = Number(r[0]?.loans ?? 0);
+  }
   const totalPages = Math.max(1, Math.ceil(clientCount / PAGE));
 
   const nameByCode = new Map(firms.map((f) => [f.code, f.shortName]));
@@ -121,6 +130,39 @@ export default async function HujjatlarDatePage({
 
   const pretty = date.split('-').reverse().join('.');
 
+  // Persisted finished exports for this snapshot — downloadable again, no re-generation needed.
+  const exportJobs = await prisma.job.findMany({
+    where: { type: 'EXPORT', status: 'DONE', snapshotId: snapshot.id },
+    orderBy: { createdAt: 'desc' },
+  });
+  const readyExports: ReadyExport[] = exportJobs
+    .map((j): ReadyExport | null => {
+      // Drop rows whose ZIP was removed from disk so the list never offers a dead download.
+      if (!j.resultPath) return null;
+      const abs = path.join(process.cwd(), j.resultPath);
+      let size = 0;
+      try {
+        size = fs.statSync(abs).size;
+      } catch {
+        return null;
+      }
+      const p = (j.params ?? {}) as { branches?: string[]; q?: string; minDebt?: number; onlyExcluded?: boolean };
+      const firms = p.branches && p.branches.length
+        ? p.branches.map((c) => nameByCode.get(c) ?? c).join(', ')
+        : 'Hammasi';
+      return {
+        id: j.id,
+        createdLabel: stamp(j.createdAt),
+        count: j.total,
+        sizeLabel: humanSize(size),
+        mode: p.onlyExcluded ? 'Sud roʻyxati' : 'Barchasi',
+        firms,
+        q: p.q || undefined,
+        minDebt: p.minDebt ? p.minDebt.toLocaleString('ru-RU') : undefined,
+      };
+    })
+    .filter((x): x is ReadyExport => x !== null);
+
   return (
     <div>
       <Link href="/hujjatlar" className="mb-3 inline-block text-sm text-muted hover:text-fg">
@@ -142,6 +184,8 @@ export default async function HujjatlarDatePage({
         matchClients={clientCount}
         matchContracts={matchLoans}
       />
+
+      <ExportsList items={readyExports} />
 
       {clients.length === 0 ? (
         <EmptyState title="Mijoz topilmadi" hint="Filtr yoki qidiruvni oʻzgartirib koʻring." />
@@ -174,33 +218,7 @@ export default async function HujjatlarDatePage({
         </div>
       )}
 
-      {totalPages > 1 && (
-        <nav className="mt-6 flex flex-wrap items-center justify-center gap-1.5 text-sm">
-          <PagerLink href={hrefPage(1)} disabled={page <= 1} label="«" />
-          <PagerLink href={hrefPage(page - 1)} disabled={page <= 1} label="‹" />
-          {pageWindow(page, totalPages).map((n, i) =>
-            n === null ? (
-              <span key={`gap-${i}`} className="px-1 text-muted">…</span>
-            ) : (
-              <Link
-                key={n}
-                href={hrefPage(n)}
-                aria-current={n === page ? 'page' : undefined}
-                className={`min-w-9 rounded-lg border px-3 py-1.5 text-center transition ${
-                  n === page ? 'border-brand-600 bg-brand-600 font-semibold text-white' : 'border-line hover:bg-surface-2'
-                }`}
-              >
-                {n}
-              </Link>
-            ),
-          )}
-          <PagerLink href={hrefPage(page + 1)} disabled={page >= totalPages} label="›" />
-          <PagerLink href={hrefPage(totalPages)} disabled={page >= totalPages} label="»" />
-        </nav>
-      )}
-      <p className="mt-3 text-center text-xs text-muted">
-        {clientCount.toLocaleString('ru-RU')} mijoz · {totalPages.toLocaleString('ru-RU')} sahifa
-      </p>
+      <Pagination page={page} pages={totalPages} total={clientCount} perPage={PAGE} hrefFor={hrefPage} unit="mijoz" />
     </div>
   );
 }

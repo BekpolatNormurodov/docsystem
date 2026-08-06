@@ -11,12 +11,15 @@ import type { CertFirm } from './firm-types';
 function ArizaContractList({ contracts }: { contracts: DocContract[] }) {
   return (
     <>
-      {contracts.map((c, i) => (
-        <React.Fragment key={`${c.number}-${i}`}>
-          {i > 0 && ', '}
-          {dmy(c.date)}-yildagi {c.number}-sonli
-        </React.Fragment>
-      ))}
+      {contracts.map((c, i) => {
+        const d = dmy(c.date);
+        return (
+          <React.Fragment key={`${c.number}-${i}`}>
+            {i > 0 && ', '}
+            {d ? `${d}-yildagi ${c.number}-sonli` : `${c.number}-sonli`}
+          </React.Fragment>
+        );
+      })}
     </>
   );
 }
@@ -94,6 +97,16 @@ export function CourtArizaDocument(p: CourtArizaDocumentProps) {
   const para: React.CSSProperties = {
     fontSize: '14pt', textAlign: 'justify', textIndent: '1.25cm', margin: 0, lineHeight: 1.45,
   };
+  /** Parties form-table cells — thin black borders, label right-aligned/top, value left. */
+  const partyLabelTd: React.CSSProperties = {
+    border: '1px solid #000', width: '40%', padding: '8pt 6pt', textAlign: 'right', verticalAlign: 'top', fontSize: '11pt',
+  };
+  const partySpacerTd: React.CSSProperties = {
+    border: '1px solid #000', width: '5%', padding: '8pt 6pt',
+  };
+  const partyValueTd: React.CSSProperties = {
+    border: '1px solid #000', padding: '8pt 6pt', verticalAlign: 'top', lineHeight: 1.32,
+  };
   /** A money slot: an editor while writing, the grouped-and-comma'd figure otherwise. */
   const money = (field: Parameters<CourtArizaEdit['value']>[0], raw: string) =>
     (edit ? edit.value(field) : formatSumDecimal(raw));
@@ -115,12 +128,12 @@ export function CourtArizaDocument(p: CourtArizaDocumentProps) {
         the chamber's own QR — neither wanted here — are simply not drawn. The old approach printed the
         whole letterhead as one flat image, which baked «boshqarmasi» (no «hududiy») into pixels.
       */}
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10mm' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10mm', borderBottom: '1px solid #000', paddingBottom: '4pt' }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={CHAMBER_EMBLEM_DATA_URL}
           alt="Oʻzbekiston Savdo-sanoat palatasi"
-          style={{ height: '20mm', width: 'auto', display: 'block', flexShrink: 0 }}
+          style={{ height: '24mm', width: 'auto', display: 'block', flexShrink: 0 }}
         />
         <div style={{ textAlign: 'right', fontSize: '10pt', lineHeight: 1.35 }}>
           <div style={{ fontSize: '13pt', fontWeight: 700, marginBottom: '2pt' }}>{CHAMBER.branchName}</div>
@@ -131,41 +144,66 @@ export function CourtArizaDocument(p: CourtArizaDocumentProps) {
       {/* ── Date / number (left) ── */}
       <div style={{ fontSize: '12pt', lineHeight: 1.4, marginTop: '12pt' }}>
         <div>{edit ? edit.value('issueDate') : arizaHeaderDate(p.issueDate)}</div>
-        {/* The register number is issued on save; an unsaved sheet shows the peeked one. */}
-        {p.number && <div>№ {p.number}</div>}
-      </div>
-
-      {/* ── Court addressee (left, bold) ── */}
-      <div style={{ fontSize: '14pt', fontWeight: 700, lineHeight: 1.3, marginTop: '14pt' }}>
-        {edit ? edit.text('courtName') : p.courtName}
+        {/* Register number — a manual fill-in blank on the printed sheet. */}
+        <div>{p.number ? `№ ${p.number}` : '№_____________'}</div>
       </div>
 
       {/*
-        ── Arizachi / undiruvchi / qarzdor ──
-        Each is a label on its own line with the block directly under it, all left-aligned. The blank
-        floats the labels to the right, which reads as three captions adrift from their text; a clean
-        left column is the same information without the gap.
+        ── Parties block ──
+        A bordered 3-column form table (label | narrow spacer | party details), matching the blank.
+        Mirrors the docx `partyTable`.
       */}
-      <div style={{ marginTop: '14pt', fontSize: '14pt', lineHeight: 1.35 }}>
-        <div>Arizachi:</div>
-        <div style={{ fontWeight: 700 }}>{CHAMBER.applicantName}</div>
-        {CHAMBER.applicantAddress.map((line, i) => <div key={i}>{line}</div>)}
-        <div>STIR {CHAMBER.applicantStir}.</div>
-      </div>
-
-      <div style={{ marginTop: '12pt', lineHeight: 1.35 }}>
-        <div style={{ fontSize: '14pt' }}>{CHAMBER.collectorLabel.join(' ')}</div>
-        <div style={{ fontSize: '12pt', fontWeight: 700 }}>{firmName}</div>
-        {collectorRekvizit && <div style={{ fontSize: '12pt' }}>{collectorRekvizit}</div>}
-      </div>
-
-      <div style={{ marginTop: '12pt', fontSize: '14pt', lineHeight: 1.35 }}>
-        <div>Qarzdor:</div>
-        <div style={{ fontWeight: 700 }}>{edit ? edit.text('personFullName') : p.personFullName}</div>
-        <div>{edit ? edit.text('personAddress') : p.personAddress}</div>
-        <div>JShShIR: {p.personPinfl}</div>
-        <div style={{ fontSize: '10pt' }}>Tel:&nbsp; {edit ? edit.text('personPhone') : p.personPhone}</div>
-      </div>
+      <table
+        style={{
+          width: '100%',
+          marginTop: '10pt',
+          borderCollapse: 'collapse',
+          fontSize: '12pt',
+          lineHeight: 1.3,
+        }}
+      >
+        <tbody>
+          <tr>
+            <td style={partyLabelTd} />
+            <td style={partySpacerTd} />
+            <td style={partyValueTd}>
+              <div style={{ fontSize: '14pt', fontWeight: 700 }}>{edit ? edit.text('courtName') : p.courtName}</div>
+            </td>
+          </tr>
+          <tr>
+            <td style={partyLabelTd}>Arizachi:</td>
+            <td style={partySpacerTd} />
+            <td style={partyValueTd}>
+              <div style={{ fontSize: '14pt', fontWeight: 700 }}>{CHAMBER.applicantName}</div>
+              {CHAMBER.applicantAddress.map((line, i) => (
+                <div key={i} style={{ fontStyle: 'italic' }}>{line}</div>
+              ))}
+              <div>STIR {CHAMBER.applicantStir}.</div>
+              <div>&nbsp;</div>
+            </td>
+          </tr>
+          <tr>
+            <td style={partyLabelTd}>{CHAMBER.collectorLabel.join(' ')}</td>
+            <td style={partySpacerTd} />
+            <td style={partyValueTd}>
+              <div style={{ fontSize: '13pt', fontWeight: 700 }}>{firmName}</div>
+              {collectorRekvizit && <div style={{ fontStyle: 'italic' }}>{collectorRekvizit}</div>}
+              <div>&nbsp;</div>
+            </td>
+          </tr>
+          <tr>
+            <td style={partyLabelTd}>Qarzdor:</td>
+            <td style={partySpacerTd} />
+            <td style={partyValueTd}>
+              <div style={{ fontSize: '14pt', fontWeight: 700 }}>{edit ? edit.text('personFullName') : p.personFullName}</div>
+              <div style={{ fontStyle: 'italic' }}>{edit ? edit.text('personAddress') : p.personAddress}</div>
+              <div>JShShIR: {p.personPinfl}</div>
+              <div style={{ fontSize: '10pt' }}>Tel:&nbsp; {edit ? edit.text('personPhone') : p.personPhone}</div>
+              <div>&nbsp;</div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
 
       {/* ── Title ── */}
       <h1 style={{ fontSize: '14pt', fontWeight: 700, textAlign: 'center', letterSpacing: '0.05em', margin: '16pt 0 0' }}>
@@ -202,11 +240,9 @@ export function CourtArizaDocument(p: CourtArizaDocumentProps) {
         {edit ? edit.text('asOfText') : (p.asOfText || uzLongDateLatin(p.asOfDate))} holatiga koʻra mikro
         moliya tashkiloti oldidagi qarzdorligi quyidagicha:
       </p>
-      <p style={para}>Asosiy qarz qoldigʻi -&nbsp; {money('debtPrincipal', p.debtPrincipal)} soʻm;</p>
-      <p style={para}>Muddatli foizlar qarzdorligi -&nbsp; {money('debtTermInterest', p.debtTermInterest)} soʻm;</p>
-      <p style={para}>Muddati oʻtgan qarz qarzdorligi -&nbsp; {money('debtOverduePrincipal', p.debtOverduePrincipal)} soʻm;</p>
-      <p style={para}>Muddati oʻtgan foizlar qarzdorligi -&nbsp; {money('debtOverdueInterest', p.debtOverdueInterest)} soʻm;</p>
-      <p style={para}>Jami qarzdorligi&nbsp; <b>{money('debtTotal', p.debtTotal)} soʻm</b>ni tashkil etadi.</p>
+      <p style={{ ...para, margin: '8pt 0' }}>
+        Jami qarzdorligi&nbsp;<b>{money('debtTotal', p.debtTotal)} soʻm</b>ni tashkil etadi.
+      </p>
       <p style={para}>
         Shuningdek, qarzdor tomonidan yuqorida koʻrsatib oʻtilgan kredit qarzi toʻlovlarini oʻz vaqtida
         amalga oshirilmaganligi sababli, bankning moliyaviy xolatiga jiddiy taʼsir qilmoqda.
