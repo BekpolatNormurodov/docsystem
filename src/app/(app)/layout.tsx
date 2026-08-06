@@ -8,6 +8,7 @@ const NAV: NavItem[] = [
   { href: '/hujjatlar', label: 'Hujjatlar', icon: 'files' },
   { href: '/import', label: 'Import', icon: 'file-plus' },
   { href: '/mijozlar', label: 'Mijozlar', icon: 'users' },
+  { href: '/invoyslar', label: 'Invoice yaratish', icon: 'file-plus' },
   { href: '/firms', label: 'Firmalar', icon: 'building' },
   { href: '/settings', label: 'Sozlamalar', icon: 'archive' },
 ];
