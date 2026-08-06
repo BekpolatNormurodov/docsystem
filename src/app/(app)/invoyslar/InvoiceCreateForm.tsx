@@ -61,7 +61,7 @@ export function InvoiceCreateForm({ firms }: { firms: FirmLite[] }) {
         options={firms.map((f) => ({ value: String(f.id), label: f.shortName }))} />
 
       <div className="grid grid-cols-2 gap-4">
-        <TextField label="Soni" value={count} onChange={(v) => setCount(v.replace(/\D/g, '') || '1')} />
+        <TextField label="Soni (1–10)" value={count} onChange={(v) => setCount(String(Math.min(10, Number(v.replace(/\D/g, '')) || 1)))} />
         <TextField label="Summa (soʻm)" value={amount} onChange={(v) => setAmount(v.replace(/\D/g, ''))} />
       </div>
 
