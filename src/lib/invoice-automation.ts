@@ -27,7 +27,8 @@ async function selectOption(page: Page, control: Locator, optionText: string) {
 export async function fillInvoiceForm(page: Page, d: InvoiceFormData): Promise<void> {
   await page.getByText('Yuridik shaxs', { exact: false }).click();
   await page.locator('input[formcontrolname="organizationName"]').fill(d.orgName);
-  await page.locator('input[formcontrolname="INN"]').fill(d.stir);
+  // STIR maydoni <input type="number"> — probel/format bo'lmasligi shart, faqat raqam.
+  await page.locator('input[formcontrolname="INN"]').fill(d.stir.replace(/\D/g, ''));
 
   // Manzil modal: yashirin «address» inputining mat-form-field'ini bosib ochamiz.
   await page.locator('mat-form-field:has(input[formcontrolname="address"])').click();
@@ -110,7 +111,7 @@ export async function startBatch(input: StartInput): Promise<{ batchId: string; 
           const m = page.url().match(/\/invoice\/(\d+)/);
           const invoiceNo = m?.[1] ?? '';
           t.invoiceNo = invoiceNo;
-          const pdfPath = await capturePdf(page, invoiceNo);
+          const pdfPath = await capturePdf(ctx, page, invoiceNo);
           await saveRecord(id, invoiceNo, pdfPath);
           t.status = 'CAPTURED';
         } catch (e) {
@@ -125,16 +126,46 @@ export async function startBatch(input: StartInput): Promise<{ batchId: string; 
   return { batchId: id, tabs: input.count };
 }
 
-/** Invoice sahifasidagi «...-kvitansiya.pdf» havolasini bosib PDF'ni STORAGE_DIR'ga yuklaydi. */
-async function capturePdf(page: any, invoiceNo: string): Promise<string | null> {
+/**
+ * Invoice sahifasidagi «...-kvitansiya.pdf» havolasini bosib PDF'ni STORAGE_DIR'ga saqlaydi.
+ * Billing PDF'ni ba'zan to'g'ridan-to'g'ri download hodisasi bilan, ba'zan yangi tabda blob:
+ * URL sifatida ochadi — ikkala holni ham ushlaymiz. Topolmasa null (raqam baribir saqlanadi).
+ */
+async function capturePdf(ctx: any, page: any, invoiceNo: string): Promise<string | null> {
+  const rel = path.join('storage', 'invoices', `${invoiceNo}.pdf`);
+  const abs = path.join(process.cwd(), rel);
   try {
-    const [download] = await Promise.all([
-      page.waitForEvent('download', { timeout: 60_000 }),
-      page.getByText('kvitansiya.pdf', { exact: false }).click(),
-    ]);
-    const rel = path.join('storage', 'invoices', `${invoiceNo}.pdf`);
-    await download.saveAs(path.join(process.cwd(), rel));
-    return rel;
+    const link = page.getByText('kvitansiya.pdf', { exact: false }).first();
+    await link.waitFor({ timeout: 30_000 });
+
+    // Bosishdan oldin ikkala kutgichni tayyorlaymiz: download hodisasi va yangi tab (popup).
+    const downloadP = page.waitForEvent('download', { timeout: 15_000 }).catch(() => null);
+    const popupP = ctx.waitForEvent('page', { timeout: 15_000 }).catch(() => null);
+    await link.click();
+
+    const download = await downloadP;
+    if (download) {
+      await download.saveAs(abs);
+      return rel;
+    }
+
+    // Yangi tabda blob: PDF ochilgan bo'lsa — o'sha sahifa ichida blob'ni o'qib, base64 saqlaymiz.
+    const popup = await popupP;
+    if (popup) {
+      await popup.waitForLoadState('domcontentloaded').catch(() => {});
+      const b64: string = await popup.evaluate(`(async function () {
+        const r = await fetch(location.href);
+        const buf = await r.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        let s = '';
+        for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+        return btoa(s);
+      })()`);
+      fs.writeFileSync(abs, Buffer.from(b64, 'base64'));
+      await popup.close().catch(() => {});
+      return rel;
+    }
+    return null;
   } catch {
     return null;
   }
