@@ -79,6 +79,9 @@ export interface StartInput { firmId: number; count: number; paymentType: string
 export async function startBatch(input: StartInput): Promise<{ batchId: string; tabs: number }> {
   const firm = await prisma.firm.findUnique({ where: { id: input.firmId } });
   if (!firm) throw new Error('Firma topilmadi');
+  if (!firm.region || !firm.district || !firm.addressLine) {
+    throw new Error('Firma manzili toʻldirilmagan — «Firmalar» boʻlimida bu firmaga Viloyat, Tuman va koʻcha kiriting.');
+  }
   const data = buildInvoiceForm(firm, { paymentType: input.paymentType, amount: input.amount });
 
   const id = newId();
