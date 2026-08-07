@@ -9,19 +9,33 @@ import type { InvoiceFormData } from '@/core/invoice-fields';
  * resolve. This lets us assert exactly which selectors/roles the driver touches — in
  * particular that it NEVER references the «Yaratish» submit or the captcha honeypot.
  */
-function makeRecorder() {
-  const log: string[] = [];
-  const proxy: any = new Proxy(function () {}, {
-    get(_t, prop) {
-      if (typeof prop !== 'string' || prop === 'then') return undefined;
-      return (...args: any[]) => {
-        log.push(`${prop}(${args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(',')})`);
-        if (prop === 'click' || prop === 'fill' || prop === 'waitFor') return Promise.resolve();
-        return proxy;
-      };
+// Terminal (promise-returning) Playwright methods; everything else is chainable.
+const TERMINAL = new Set([
+  'click', 'fill', 'waitFor', 'press', 'goto', 'bringToFront',
+  'waitForURL', 'waitForTimeout', 'evaluate', 'saveAs', 'waitForLoadState',
+]);
+
+function node(log: string[], name: string): any {
+  const fn = (...args: any[]) => {
+    log.push(`${name}(${args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(',')})`);
+    return TERMINAL.has(name) ? Promise.resolve('') : proxy;
+  };
+  const proxy: any = new Proxy(fn, {
+    get(t, prop) {
+      if (prop === 'then') return undefined;
+      if (typeof prop === 'symbol') return Reflect.get(t, prop);
+      return node(log, String(prop));
+    },
+    apply(_t, _this, args) {
+      return fn(...args);
     },
   });
-  return { page: proxy, log };
+  return proxy;
+}
+
+function makeRecorder() {
+  const log: string[] = [];
+  return { page: node(log, 'page'), log };
 }
 
 const data: InvoiceFormData = {
