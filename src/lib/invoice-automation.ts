@@ -101,18 +101,58 @@ export async function startBatch(input: StartInput): Promise<{ batchId: string; 
       return;
     }
     const ctx = await browser.newContext({ acceptDownloads: true });
-    await Promise.all(
+
+    // 1) Hamma tabni ochamiz (foydalanuvchi barchasini ko'radi).
+    const pages = await Promise.all(
       tabs.map(async (t) => {
         try {
           const page = await ctx.newPage();
           await page.goto(BILLING_CREATE, { waitUntil: 'domcontentloaded' });
+          return page;
+        } catch (e) {
+          t.status = 'FAILED';
+          t.message = e instanceof Error ? e.message : 'Sahifa ochilmadi';
+          return null;
+        }
+      }),
+    );
+
+    // 2) KETMA-KET to'ldiramiz — har tabni oldinga chiqarib (fon-tab throttling'iga yo'l qo'ymaslik),
+    //    va har birini 3 martagacha urinib ko'ramiz; qotsa sahifani yangilab qaytadan.
+    for (let i = 0; i < tabs.length; i++) {
+      const t = tabs[i];
+      const page = pages[i];
+      if (!page || t.status === 'FAILED') continue;
+      let filled = false;
+      for (let attempt = 1; attempt <= 3 && !filled; attempt++) {
+        try {
+          await page.bringToFront();
+          if (attempt > 1) {
+            await page.goto(BILLING_CREATE, { waitUntil: 'domcontentloaded' });
+            await page.waitForTimeout(800);
+          }
           await fillInvoiceForm(page, data);
+          filled = true;
           t.status = 'WAITING_HUMAN';
-          // Foydalanuvchi captcha+Yaratish bosishini kutamiz: URL /invoice/{no} ga o'tsa — natija.
+        } catch (e) {
+          if (attempt === 3) {
+            t.status = 'FAILED';
+            t.message = `To'ldirishda xatolik (3 urinish): ${e instanceof Error ? e.message.split('\n')[0] : e}`;
+          }
+        }
+      }
+    }
+
+    // 3) To'ldirilgan tablarni parallel kuzatamiz: foydalanuvchi captcha+Yaratish bosgach
+    //    URL /invoice/{no} ga o'tadi → raqam + PDF olamiz.
+    await Promise.all(
+      tabs.map(async (t, i) => {
+        const page = pages[i];
+        if (!page || t.status !== 'WAITING_HUMAN') return;
+        try {
           await page.waitForURL(/\/invoice\/\d+/, { timeout: 15 * 60 * 1000 });
           t.status = 'SUBMITTED';
-          const m = page.url().match(/\/invoice\/(\d+)/);
-          const invoiceNo = m?.[1] ?? '';
+          const invoiceNo = (page.url().match(/\/invoice\/(\d+)/) ?? [])[1] ?? '';
           t.invoiceNo = invoiceNo;
           const pdfPath = await capturePdf(ctx, page, invoiceNo);
           await saveRecord(id, invoiceNo, pdfPath);
