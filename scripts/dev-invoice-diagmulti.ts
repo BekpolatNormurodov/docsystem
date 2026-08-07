@@ -13,18 +13,20 @@ const log = (m: string) => console.log(`+${((Date.now() - t0) / 1000).toFixed(1)
 
 async function sel(page: Page, control: Locator, text: string, label: string) {
   const opt = page.getByRole('option', { name: text, exact: true });
-  for (let a = 1; a <= 3; a++) {
+  const panelOpen = () =>
+    page.locator('[role="listbox"], .mat-mdc-select-panel').first().isVisible().catch(() => false);
+  for (let a = 1; a <= 4; a++) {
     try {
-      await control.click();
-      await opt.waitFor({ state: 'visible', timeout: 12_000 });
+      if (!(await panelOpen())) await control.click();
+      await opt.waitFor({ state: 'visible', timeout: 15_000 });
       await opt.click({ timeout: 8_000 });
-      await page.waitForTimeout(600);
+      await page.waitForTimeout(700);
       log(`    ${label} OK (attempt ${a})`);
       return;
     } catch (e) {
       log(`    ${label} attempt ${a} FAIL: ${e instanceof Error ? e.message.split('\n')[0] : e}`);
-      if (a === 3) throw e;
-      await page.waitForTimeout(900);
+      if (a === 4) throw e;
+      await page.waitForTimeout(800);
     }
   }
 }

@@ -13,21 +13,24 @@ const STORAGE_DIR = path.join(process.cwd(), 'storage', 'invoices');
  * uchun option'ni `page` dan qidiramiz, control'ni esa berilgan locator bo'yicha.
  */
 async function selectOption(page: Page, control: Locator, optionText: string) {
-  // Kaskadli ro'yxatlar (Tuman viloyatdan keyin, Sud hududdan keyin) async yuklanadi.
-  // Aynan kerakli option ko'rinishini kutamiz (bo'sh/eski paneldagi poyga oldini oladi),
-  // bosgach kaskad keyingi ro'yxatni yuklab ulgurishi uchun biroz kutamiz. Escape ISHLATMAYMIZ —
-  // u modaldagi manzil dialogini yopib yuborardi. Topilmasa panelni qayta ochib urinamiz (3x).
+  // Kaskadli ro'yxatlar (Tuman viloyatdan keyin, Sud hududdan keyin) async yuklanadi —
+  // ayniqsa Sud ro'yxati uzun va sekin keladi. Aynan kerakli option ko'rinishini kutamiz.
+  // MUHIM: agar panel allaqachon ochiq bo'lsa, control'ni QAYTA BOSMAYMIZ — aks holda ochiq
+  // panelni yopib yuborib, ochil-yopil qotish hosil bo'lardi. Escape ham ISHLATMAYMIZ
+  // (u manzil modalini yopardi). Panel ochiq turganicha option yuklanishini kutamiz.
   const opt = page.getByRole('option', { name: optionText, exact: true });
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  const panelOpen = () =>
+    page.locator('[role="listbox"], .mat-mdc-select-panel').first().isVisible().catch(() => false);
+  for (let attempt = 1; attempt <= 4; attempt++) {
     try {
-      await control.click();
-      await opt.waitFor({ state: 'visible', timeout: 12_000 });
+      if (!(await panelOpen())) await control.click();
+      await opt.waitFor({ state: 'visible', timeout: 15_000 });
       await opt.click({ timeout: 8_000 });
-      await page.waitForTimeout(600);
+      await page.waitForTimeout(700); // kaskad keyingi ro'yxatni yuklab ulgurishi uchun
       return;
     } catch (e) {
-      if (attempt === 3) throw e;
-      await page.waitForTimeout(900);
+      if (attempt === 4) throw e;
+      await page.waitForTimeout(800);
     }
   }
 }
