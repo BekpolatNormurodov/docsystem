@@ -13,18 +13,21 @@ const STORAGE_DIR = path.join(process.cwd(), 'storage', 'invoices');
  * uchun option'ni `page` dan qidiramiz, control'ni esa berilgan locator bo'yicha.
  */
 async function selectOption(page: Page, control: Locator, optionText: string) {
-  // Kaskadli ro'yxatlar (Tuman viloyatdan keyin, Sud hududdan keyin) async yuklanadi —
-  // panelni ochib, option'lar chiqishini kutamiz, topilmasa yopib qayta urinamiz (3x).
+  // Kaskadli ro'yxatlar (Tuman viloyatdan keyin, Sud hududdan keyin) async yuklanadi.
+  // Aynan kerakli option ko'rinishini kutamiz (bo'sh/eski paneldagi poyga oldini oladi),
+  // bosgach kaskad keyingi ro'yxatni yuklab ulgurishi uchun biroz kutamiz. Escape ISHLATMAYMIZ —
+  // u modaldagi manzil dialogini yopib yuborardi. Topilmasa panelni qayta ochib urinamiz (3x).
+  const opt = page.getByRole('option', { name: optionText, exact: true });
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       await control.click();
-      await page.locator('mat-option, [role="option"]').first().waitFor({ state: 'visible', timeout: 10_000 });
-      await page.getByRole('option', { name: optionText, exact: true }).click({ timeout: 8_000 });
+      await opt.waitFor({ state: 'visible', timeout: 12_000 });
+      await opt.click({ timeout: 8_000 });
+      await page.waitForTimeout(600);
       return;
     } catch (e) {
-      await page.keyboard.press('Escape').catch(() => {});
-      await page.waitForTimeout(500);
       if (attempt === 3) throw e;
+      await page.waitForTimeout(900);
     }
   }
 }
