@@ -9,3 +9,6 @@ exports/
 *.tsbuildinfo
 .env.test
 .env.*
+
+# Generated invoice PDFs
+storage/
