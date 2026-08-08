@@ -10,13 +10,13 @@ const STORAGE_DIR = path.join(process.cwd(), 'storage', 'invoices');
 /** Har bir qadam uchun bitta urinish vaqt-limiti (ms). */
 const STEP_TIMEOUT = 12_000;
 /** Urinishlar orasidagi kutish (ms). */
-const RETRY_GAP = 600;
+const RETRY_GAP = 800;
 
 /**
- * Har bir form qadamini 3 martagacha urinib bajaradi — bitta urinish STEP_TIMEOUT dan
- * oshsa (qotsa) qayta uriladi, uchtasi ham bo'lmasa aniq (qaysi qadam) xato tashlaydi.
+ * Har bir form qadamini 5 martagacha urinib bajaradi — bitta urinish STEP_TIMEOUT dan
+ * oshsa (qotsa) qayta uriladi, beshtasi ham bo'lmasa aniq (qaysi qadam) xato tashlaydi.
  */
-async function withRetry(page: Page, label: string, fn: () => Promise<void>, attempts = 3): Promise<void> {
+async function withRetry(page: Page, label: string, fn: () => Promise<void>, attempts = 5): Promise<void> {
   let last: unknown;
   for (let i = 1; i <= attempts; i++) {
     try {
