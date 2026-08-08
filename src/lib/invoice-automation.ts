@@ -7,12 +7,36 @@ import { buildInvoiceForm, type InvoiceFormData } from '@/core/invoice-fields';
 const BILLING_CREATE = 'https://billing.sud.uz/create-receipt';
 const STORAGE_DIR = path.join(process.cwd(), 'storage', 'invoices');
 
+/** Har bir qadam uchun bitta urinish vaqt-limiti (ms). */
+const STEP_TIMEOUT = 12_000;
+/** Urinishlar orasidagi kutish (ms). */
+const RETRY_GAP = 600;
+
+/**
+ * Har bir form qadamini 3 martagacha urinib bajaradi — bitta urinish STEP_TIMEOUT dan
+ * oshsa (qotsa) qayta uriladi, uchtasi ham bo'lmasa aniq (qaysi qadam) xato tashlaydi.
+ */
+async function withRetry(page: Page, label: string, fn: () => Promise<void>, attempts = 3): Promise<void> {
+  let last: unknown;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      await fn();
+      return;
+    } catch (e) {
+      last = e;
+      if (i < attempts) await page.waitForTimeout(RETRY_GAP);
+    }
+  }
+  const msg = last instanceof Error ? last.message.split('\n')[0] : String(last);
+  throw new Error(`«${label}» ${attempts} urinishda bajarilmadi: ${msg}`);
+}
+
 /**
  * Angular Material mat-select: combobox'ni bosib ochadi, so'ng cdk overlay'dagi
  * variant matnini (role="option", to'liq moslik) bosadi. Options body'ga qo'shilgani
  * uchun option'ni `page` dan qidiramiz, control'ni esa berilgan locator bo'yicha.
  */
-async function selectOption(page: Page, control: Locator, optionText: string) {
+async function selectOption(page: Page, control: Locator, optionText: string, label: string) {
   // Kaskadli ro'yxatlar (Tuman viloyatdan keyin, Sud hududdan keyin) async yuklanadi —
   // ayniqsa Sud ro'yxati uzun va sekin keladi. Aynan kerakli option ko'rinishini kutamiz.
   // MUHIM: agar panel allaqachon ochiq bo'lsa, control'ni QAYTA BOSMAYMIZ — aks holda ochiq
@@ -21,18 +45,12 @@ async function selectOption(page: Page, control: Locator, optionText: string) {
   const opt = page.getByRole('option', { name: optionText, exact: true });
   const panelOpen = () =>
     page.locator('[role="listbox"], .mat-mdc-select-panel').first().isVisible().catch(() => false);
-  for (let attempt = 1; attempt <= 4; attempt++) {
-    try {
-      if (!(await panelOpen())) await control.click();
-      await opt.waitFor({ state: 'visible', timeout: 15_000 });
-      await opt.click({ timeout: 8_000 });
-      await page.waitForTimeout(700); // kaskad keyingi ro'yxatni yuklab ulgurishi uchun
-      return;
-    } catch (e) {
-      if (attempt === 4) throw e;
-      await page.waitForTimeout(800);
-    }
-  }
+  await withRetry(page, label, async () => {
+    if (!(await panelOpen())) await control.click({ timeout: STEP_TIMEOUT });
+    await opt.waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+    await opt.click({ timeout: STEP_TIMEOUT });
+    await page.waitForTimeout(700); // kaskad keyingi ro'yxatni yuklab ulgurishi uchun
+  });
 }
 
 /**
@@ -43,28 +61,28 @@ async function selectOption(page: Page, control: Locator, optionText: string) {
  * MUHIM: captcha honeypot maydoni va «Yaratish» tugmasiga TEGMAYDI — foydalanuvchi bosadi.
  */
 export async function fillInvoiceForm(page: Page, d: InvoiceFormData): Promise<void> {
-  await page.getByText('Yuridik shaxs', { exact: false }).click();
-  await page.locator('input[formcontrolname="organizationName"]').fill(d.orgName);
+  await withRetry(page, 'Yuridik shaxs', () => page.getByText('Yuridik shaxs', { exact: false }).click({ timeout: STEP_TIMEOUT }));
+  await withRetry(page, 'Tashkilot nomi', () => page.locator('input[formcontrolname="organizationName"]').fill(d.orgName, { timeout: STEP_TIMEOUT }));
   // STIR maydoni <input type="number"> — probel/format bo'lmasligi shart, faqat raqam.
-  await page.locator('input[formcontrolname="INN"]').fill(d.stir.replace(/\D/g, ''));
+  await withRetry(page, 'STIR', () => page.locator('input[formcontrolname="INN"]').fill(d.stir.replace(/\D/g, ''), { timeout: STEP_TIMEOUT }));
 
   // Manzil modal: yashirin «address» inputining mat-form-field'ini bosib ochamiz.
-  await page.locator('mat-form-field:has(input[formcontrolname="address"])').click();
+  await withRetry(page, 'Manzil oynasini ochish', () => page.locator('mat-form-field:has(input[formcontrolname="address"])').click({ timeout: STEP_TIMEOUT }));
   const dialog = page.locator('mat-dialog-container');
-  await dialog.waitFor();
+  await dialog.waitFor({ timeout: STEP_TIMEOUT });
   // Modaldagi ikkita mat-select formcontrolname'siz — tartib bo'yicha: 0=Viloyat, 1=Tuman.
-  await selectOption(page, dialog.locator('mat-select').nth(0), d.region);
-  await selectOption(page, dialog.locator('mat-select').nth(1), d.district);
+  await selectOption(page, dialog.locator('mat-select').nth(0), d.region, 'Viloyat');
+  await selectOption(page, dialog.locator('mat-select').nth(1), d.district, 'Tuman');
   // Ko'cha — modaldagi yagona matn input (uning name="street", formcontrolname emas).
-  await dialog.getByRole('textbox').fill(d.addressLine);
-  await dialog.getByRole('button', { name: 'Saqlash' }).click();
+  await withRetry(page, 'Koʻcha', () => dialog.getByRole('textbox').fill(d.addressLine, { timeout: STEP_TIMEOUT }));
+  await withRetry(page, 'Manzilni saqlash', () => dialog.getByRole('button', { name: 'Saqlash' }).click({ timeout: STEP_TIMEOUT }));
 
   // Sud kaskadi (turi → hududi → sud) + to'lov turi. «region» = Sud hududi formcontrolname.
-  await selectOption(page, page.locator('mat-select[formcontrolname="courtType"]'), d.courtType);
-  await selectOption(page, page.locator('mat-select[formcontrolname="region"]'), d.courtRegion);
-  await selectOption(page, page.locator('mat-select[formcontrolname="court"]'), d.court);
-  await selectOption(page, page.locator('mat-select[formcontrolname="paymentType"]'), d.paymentType);
-  await page.locator('input[formcontrolname="paymentAmount"]').fill(String(d.amount));
+  await selectOption(page, page.locator('mat-select[formcontrolname="courtType"]'), d.courtType, 'Sud turi');
+  await selectOption(page, page.locator('mat-select[formcontrolname="region"]'), d.courtRegion, 'Sud hududi');
+  await selectOption(page, page.locator('mat-select[formcontrolname="court"]'), d.court, 'Sud');
+  await selectOption(page, page.locator('mat-select[formcontrolname="paymentType"]'), d.paymentType, "Toʻlov turi");
+  await withRetry(page, 'Summa', () => page.locator('input[formcontrolname="paymentAmount"]').fill(String(d.amount), { timeout: STEP_TIMEOUT }));
   // STOP: captcha honeypot + «Yaratish» — qo'lda.
 }
 

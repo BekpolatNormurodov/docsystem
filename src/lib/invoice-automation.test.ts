@@ -52,12 +52,12 @@ describe('fillInvoiceForm', () => {
     await fillInvoiceForm(page, data);
     const joined = log.join('\n');
     expect(joined).toContain('input[formcontrolname="organizationName"]');
-    expect(joined).toContain('fill(bright future)');
+    expect(joined).toContain('bright future');
     expect(joined).toContain('input[formcontrolname="INN"]');
     expect(joined).toContain('input[formcontrolname="paymentAmount"]');
     // Address street is the modal's sole textbox; addressLine is filled somewhere.
-    expect(joined).toContain("fill(Sag'bon 7/1)");
-    expect(joined).toContain('fill(20600)');
+    expect(joined).toContain("Sag'bon 7/1");
+    expect(joined).toContain('20600');
     // Court cascade + payment type option picks happen.
     expect(joined).toContain('mat-select[formcontrolname="courtType"]');
   });
