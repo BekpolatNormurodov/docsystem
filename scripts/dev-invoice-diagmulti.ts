@@ -7,7 +7,7 @@ import { chromium, type Page, type Locator } from 'playwright';
 import { prisma } from '../src/lib/db';
 import { buildInvoiceForm, type InvoiceFormData } from '../src/core/invoice-fields';
 
-const TABS = 2;
+const TABS = Number(process.env.TABS || 1);
 const t0 = Date.now();
 const log = (m: string) => console.log(`+${((Date.now() - t0) / 1000).toFixed(1)}s ${m}`);
 
