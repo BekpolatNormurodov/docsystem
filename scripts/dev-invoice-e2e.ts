@@ -46,7 +46,16 @@ async function main() {
   const abs = path.join(process.cwd(), rel);
   fs.mkdirSync(path.dirname(abs), { recursive: true });
   let pdfPath: string | null = null;
+  // 1) REST — raqam bo'yicha to'g'ridan-to'g'ri PDF (captcha'siz — hujjat allaqachon bor).
   try {
+    const resp = await page.request.get(`https://billing.sud.uz/api/invoice/asDocument?invoice=${invoiceNo}`, { timeout: 30_000 });
+    if (resp.ok() && (resp.headers()['content-type'] || '').includes('pdf')) {
+      const buf = await resp.body();
+      if (buf.length > 0) { fs.writeFileSync(abs, buf); pdfPath = rel; console.log('PDF via REST asDocument, bytes=', buf.length); }
+    }
+  } catch (e) { console.log('REST pdf note:', e instanceof Error ? e.message.split('\n')[0] : e); }
+
+  if (!pdfPath) try {
     const link = page.getByText('kvitansiya.pdf', { exact: false }).first();
     await link.waitFor({ timeout: 30_000 });
     const downloadP = page.waitForEvent('download', { timeout: 15_000 }).catch(() => null);
