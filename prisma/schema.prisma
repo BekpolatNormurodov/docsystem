@@ -30,6 +30,9 @@ model Firm {
   postIndex   String?
   phone       String?
   invoices    InvoiceRecord[]
+  arizaCases  ArizaCase[]
+  documents   FirmDocument[]
+  batches     InvoiceBatch[]
   updatedAt   DateTime @updatedAt
 }
 
@@ -55,6 +58,7 @@ model Loan {
   clientName           String?
   phone                String?
   postAddress          String?  @db.Text
+  postAddressUz        String?  @db.Text // clean Uzbek Latin address (region + district + tail)
   regionName           String?
   branchCode           String?
   ldId                 String?
@@ -87,6 +91,16 @@ model Loan {
   @@index([passportSn])
   // Fast name search: MATCH(clientName) AGAINST(… IN BOOLEAN MODE) — ~30ms vs ~8s for %substring%.
   @@fulltext([clientName])
+  // Covering index for the Mijozlar per-client groupBy (pinfl, clientName, SUM totalDebt): lets the
+  // aggregate run index-only, WITHOUT reading each row's fat `raw` JSON blob — ~11s → ~0.9s.
+  @@index([snapshotId, pinfl, clientName, totalDebt], map: "Loan_cover_mijoz")
+  // Covering index for the Hujjatlar [date] page: the per-client groupBy (pinfl, clientName, SUM
+  // totalDebt) AND the COUNT(DISTINCT pinfl) card total, both filtered by `excluded` (Barchasi vs Sud
+  // roʻyxati). Index-only, no fat `raw` read — ~15s → ~1s.
+  @@index([snapshotId, excluded, pinfl, clientName, totalDebt], map: "Loan_cover_excluded")
+  // Covering index for the [date] firm chips groupBy(branchCode) WHERE snapshotId AND excluded —
+  // ~22s → ~0.15s.
+  @@index([snapshotId, excluded, branchCode], map: "Loan_cover_branch")
 }
 
 model Setting {
@@ -123,4 +137,224 @@ model InvoiceRecord {
   createdAt   DateTime @default(now())
 
   @@index([firmId])
+}
+
+enum ExtProvider {
+  HIPPO
+  CABINET
+}
+
+enum ExtSessionStatus {
+  ACTIVE // token valid, usable for data pulls
+  EXPIRED // token past expiry / rejected — needs E-IMZO re-auth
+  REVOKED // manually invalidated
+}
+
+// A persisted session/token for an external e-gov integration (xat.hippo.uz and
+// cabinet.sud.uz/Adolat). Keyed by (provider, account) so each firm/key has its
+// own. Lets the system keep pulling data with the stored token until it expires;
+// when EXPIRED the UI prompts the user to re-confirm via E-IMZO. See
+// src/lib/session-store.ts.
+model ExternalSession {
+  id           Int              @id @default(autoincrement())
+  provider     ExtProvider
+  account      String // key/org identity, e.g. STIR or "BRIGHT" or key CN
+  accessToken  String           @db.Text // hippo bearer JWT / cabinet X-AUTH-TOKEN
+  refreshToken String?          @db.Text
+  tokenId      String? // cabinet/oneid token_id
+  expiresAt    DateTime? // known for hippo (7d); null => verify via API
+  status       ExtSessionStatus @default(ACTIVE)
+  keyCn        String?
+  org          String?
+  meta         Json? // entity_id, pin, username, key info, etc.
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  lastUsedAt   DateTime         @default(now())
+
+  @@unique([provider, account])
+  @@index([provider, status])
+}
+
+enum FeeInvoiceStatus {
+  NOT_PAID // invoice generated, awaiting payment
+  IN_PROCESS // payment initiated / being confirmed ("jarayonida")
+  PAID // confirmed paid — ready to attach to the claim
+}
+
+// A cabinet.sud.uz state-fee (davlat boji) invoice tracked through its payment
+// lifecycle in our DB, tied to a draft claim. status flows NOT_PAID -> IN_PROCESS
+// -> PAID; the claim can only be submitted once its fee invoice is PAID. See
+// src/lib/cabinet/invoice.ts.
+model CourtFeeInvoice {
+  id            Int              @id @default(autoincrement())
+  account       String // org STIR that owns the session/claim, e.g. 311976765
+  draftId       String? // cabinet draft/case id this fee belongs to
+  receiptNumber String? // davlat-boji receipt/invoice number (e.g. 262196086404)
+  instance      String? // FIRST | APPEAL | CASSATION
+  claimType     String? // CIVIL | ECONOMIC | ADMINISTRATIVE
+  claimKind     String? // SUIT | MATERIAL
+  claimAmount   Decimal?         @db.Decimal(20, 2) // da'vo summasi
+  amountPost    Decimal?         @db.Decimal(20, 2) // POST fee
+  amountVcc     Decimal?         @db.Decimal(20, 2) // VCC fee
+  amountState   Decimal?         @db.Decimal(20, 2) // STATE duty
+  amountTotal   Decimal?         @db.Decimal(20, 2)
+  status        FeeInvoiceStatus @default(NOT_PAID)
+  meta          Json? // raw calc/generate/find responses
+  createdAt     DateTime         @default(now())
+  paidAt        DateTime?
+  updatedAt     DateTime         @updatedAt
+
+  @@unique([account, receiptNumber])
+  @@index([account, status])
+  @@index([draftId])
+}
+
+// ===== Konveyer pipeline (talabnoma -> sud -> MIB) =====
+
+enum CaseStage {
+  IMPORTED
+  TALABNOMA_SENT
+  ARIZA_GENERATED
+  PRINTED
+  CHAMBER_SENT
+  CHAMBER_RETURNED
+  SIGNED_SCANNED
+  INVOICE_CREATED
+  INVOICE_PAID
+  COURT_SUBMITTED
+  COURT_ACCEPTED
+  COURT_RETURNED
+  MIB_SUBMITTED
+  CLOSED
+}
+
+// One debtor (pinfl) x firm x cycle moving through the pipeline. Counts on the
+// Konveyer dashboard aggregate ArizaCase.stage per firm and overall.
+model ArizaCase {
+  id            Int       @id @default(autoincrement())
+  firmId        Int
+  firm          Firm      @relation(fields: [firmId], references: [id])
+  snapshotId    Int?
+  pinfl         String?
+  clientName    String?
+  kod           String? // client code from the source Excel, e.g. 60123092
+  stage         CaseStage @default(IMPORTED)
+  stageEnteredAt DateTime @default(now())
+  // Parallel track: talabnoma (hippo) runs independently of the ariza→palata
+  // stage track; both converge at Sud. Set when the talabnoma is sent.
+  talabnomaAt   DateTime?
+  slaDays       Int       @default(3) // working-day budget for the current stage
+  dueAt         DateTime? // deadline for the current stage; past due => "osilgan"
+  invoiceNo     String? // davlat-boji invoice number
+  receiptNumber String? // kvitansiya raqami (262...)
+  batchId       Int?
+  batch         InvoiceBatch? @relation(fields: [batchId], references: [id])
+  courtCaseId   String? // cabinet.sud.uz draft/case id
+  mibRef        String? // MIB ijro reference
+  totalDebt     Decimal   @default(0) @db.Decimal(20, 2)
+  meta          Json?
+  documents     CaseDocument[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([firmId, stage])
+  @@index([snapshotId])
+  @@index([stage, dueAt])
+  @@index([pinfl])
+  @@index([batchId])
+}
+
+enum FirmDocKind {
+  GUVOHNOMA
+  ISHONCHNOMA
+  SHARTNOMA
+  OFERTA
+  BOSHQA
+}
+
+// Per-firm static PDF library attached into each client's court packet.
+model FirmDocument {
+  id        Int         @id @default(autoincrement())
+  firmId    Int
+  firm      Firm        @relation(fields: [firmId], references: [id])
+  kind      FirmDocKind
+  label     String?
+  filePath  String
+  sortOrder Int         @default(0)
+  createdAt DateTime    @default(now())
+
+  @@index([firmId, kind])
+}
+
+enum BatchStatus {
+  DRAFT
+  GENERATING
+  DONE
+  FAILED
+}
+
+// A run of "generate N boji invoices for this firm" that yields a buxgalteriya
+// farmoyishi (numbered postal-fee directive) and links each invoice to a case.
+model InvoiceBatch {
+  id             Int         @id @default(autoincrement())
+  firmId         Int
+  firm           Firm        @relation(fields: [firmId], references: [id])
+  court          String? // e.g. "Uchtepa tumanlararo sudi"
+  requestedCount Int
+  createdCount   Int         @default(0)
+  status         BatchStatus @default(DRAFT)
+  farmoyishPath  String?
+  cases          ArizaCase[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@index([firmId, status])
+}
+
+// A real court/letter status for a portfolio client, pulled from cabinet.sud.uz
+// (Adolat) or xat.hippo and matched back to our client by name (pinfl). One row
+// per (source, external case/letter ref). Powers the per-firm real-status board.
+model ClientCaseStatus {
+  id          Int       @id @default(autoincrement())
+  branchCode  String // firm code, e.g. 12842
+  pinfl       String? // matched portfolio client PINFL (null if unmatched)
+  clientName  String
+  source      String // CABINET | HIPPO
+  category    String? // civil | economic | administrative | conflict | talabnoma
+  caseNumber  String? // cabinet case_number
+  claimId     String? // cabinet claim_id / case_id
+  claimKind   String? // DECREE | SUIT | MATERIAL
+  instance    String?
+  status      String // CREATED|PENDING|IN_PROCESS|DECIDED|FINISHED|DECLINED|...
+  statusLabel String?
+  caseResult  String?
+  courtId     String?
+  hearingDate DateTime?
+  registryDt  DateTime?
+  matchedBy   String // NAME | CLAIM_ID | CUSTOM_ID | PINFL | UNMATCHED
+  docPath     String?
+  detail      Json? // full get-one-case-by-id payload
+  defAddress  String? // defendant address (from detail)
+  defPassport String? // defendant passport serial+number (from detail)
+  judge       String? // chairman/responsible judge (from detail)
+  snapshotId  Int?
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([source, caseNumber])
+  @@index([branchCode, source, status])
+  @@index([pinfl])
+}
+
+// A file uploaded/attached to a case (e.g. the signed scanned ariza, a receipt).
+model CaseDocument {
+  id         Int       @id @default(autoincrement())
+  caseId     Int
+  case       ArizaCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  kind       String // TALABNOMA | ARIZA | SIGNED_ARIZA | INVOICE | GUVOHNOMA | ISHONCHNOMA | SHARTNOMA | OFERTA | BOSHQA
+  fileName   String
+  filePath   String
+  size       Int       @default(0)
+  uploadedAt DateTime  @default(now())
+
+  @@index([caseId])
 }

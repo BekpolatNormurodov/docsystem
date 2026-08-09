@@ -6,6 +6,7 @@ import type { Settings } from '@/lib/settings';
 export interface ArizaLoan {
   clientName: string | null;
   postAddress: string | null;
+  postAddressUz: string | null;
   pinfl: string | null;
   phone: string | null;
   ldId: string | null;
@@ -66,11 +67,13 @@ export function loansToAriza(
     courtName: settings.courtName,
     personFullName: first.clientName ?? '',
     personPinfl: first.pinfl ?? '',
-    personAddress: first.postAddress ?? '',
+    personAddress: first.postAddressUz || first.postAddress || '',
     personPhone: first.phone ?? '',
     contracts: loans.map((l) => ({ number: String(l.ldId ?? ''), date: l.dateToCr as Date })),
     contractType: settings.contractType,
-    interestRate: String(first.rate),
+    // Guard like the money fields — a null rate must never print the literal
+    // "null"/"undefined" into a filed court petition ("yillik null%").
+    interestRate: first.rate == null ? '' : String(first.rate),
     loanAmount: sum2(loans, (l) => l.summKr),
     asOfDate: reportDate,
     debtPrincipal: sum2(loans, (l) => l.debtPrincipal),

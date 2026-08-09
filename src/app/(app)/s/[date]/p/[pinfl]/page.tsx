@@ -109,7 +109,7 @@ export default async function PersonPage({
           </div>
           <div className="sm:col-span-2">
             <dt className="text-xs text-muted">Manzil</dt>
-            <dd className="mt-0.5 font-medium">{first.postAddress || '—'}</dd>
+            <dd className="mt-0.5 font-medium">{first.postAddressUz || first.postAddress || '—'}</dd>
           </div>
         </dl>
       </div>

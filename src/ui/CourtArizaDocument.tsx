@@ -97,15 +97,15 @@ export function CourtArizaDocument(p: CourtArizaDocumentProps) {
   const para: React.CSSProperties = {
     fontSize: '14pt', textAlign: 'justify', textIndent: '1.25cm', margin: 0, lineHeight: 1.45,
   };
-  /** Parties form-table cells — thin black borders, label right-aligned/top, value left. */
+  /** Parties form-table cells — borderless, label right-aligned/top, value left. */
   const partyLabelTd: React.CSSProperties = {
-    border: '1px solid #000', width: '40%', padding: '8pt 6pt', textAlign: 'right', verticalAlign: 'top', fontSize: '11pt',
+    width: '40%', padding: '8pt 6pt', textAlign: 'right', verticalAlign: 'top', fontSize: '11pt',
   };
   const partySpacerTd: React.CSSProperties = {
-    border: '1px solid #000', width: '5%', padding: '8pt 6pt',
+    width: '5%', padding: '8pt 6pt',
   };
   const partyValueTd: React.CSSProperties = {
-    border: '1px solid #000', padding: '8pt 6pt', verticalAlign: 'top', lineHeight: 1.32,
+    padding: '8pt 6pt', verticalAlign: 'top', lineHeight: 1.32,
   };
   /** A money slot: an editor while writing, the grouped-and-comma'd figure otherwise. */
   const money = (field: Parameters<CourtArizaEdit['value']>[0], raw: string) =>
@@ -128,7 +128,7 @@ export function CourtArizaDocument(p: CourtArizaDocumentProps) {
         the chamber's own QR — neither wanted here — are simply not drawn. The old approach printed the
         whole letterhead as one flat image, which baked «boshqarmasi» (no «hududiy») into pixels.
       */}
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10mm', borderBottom: '1px solid #000', paddingBottom: '4pt' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10mm', paddingBottom: '4pt' }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={CHAMBER_EMBLEM_DATA_URL}
@@ -167,18 +167,18 @@ export function CourtArizaDocument(p: CourtArizaDocumentProps) {
             <td style={partyLabelTd} />
             <td style={partySpacerTd} />
             <td style={partyValueTd}>
-              <div style={{ fontSize: '14pt', fontWeight: 700 }}>{edit ? edit.text('courtName') : p.courtName}</div>
+              <div style={{ fontSize: '14pt', fontWeight: 700, fontStyle: 'italic' }}>{edit ? edit.text('courtName') : p.courtName}</div>
             </td>
           </tr>
           <tr>
             <td style={partyLabelTd}>Arizachi:</td>
             <td style={partySpacerTd} />
             <td style={partyValueTd}>
-              <div style={{ fontSize: '14pt', fontWeight: 700 }}>{CHAMBER.applicantName}</div>
+              <div style={{ fontSize: '14pt', fontWeight: 700, fontStyle: 'italic' }}>{CHAMBER.applicantName}</div>
               {CHAMBER.applicantAddress.map((line, i) => (
                 <div key={i} style={{ fontStyle: 'italic' }}>{line}</div>
               ))}
-              <div>STIR {CHAMBER.applicantStir}.</div>
+              <div style={{ fontStyle: 'italic' }}>STIR {CHAMBER.applicantStir}.</div>
               <div>&nbsp;</div>
             </td>
           </tr>
@@ -186,7 +186,7 @@ export function CourtArizaDocument(p: CourtArizaDocumentProps) {
             <td style={partyLabelTd}>{CHAMBER.collectorLabel.join(' ')}</td>
             <td style={partySpacerTd} />
             <td style={partyValueTd}>
-              <div style={{ fontSize: '13pt', fontWeight: 700 }}>{firmName}</div>
+              <div style={{ fontSize: '13pt', fontWeight: 700, fontStyle: 'italic' }}>{firmName}</div>
               {collectorRekvizit && <div style={{ fontStyle: 'italic' }}>{collectorRekvizit}</div>}
               <div>&nbsp;</div>
             </td>
@@ -195,10 +195,10 @@ export function CourtArizaDocument(p: CourtArizaDocumentProps) {
             <td style={partyLabelTd}>Qarzdor:</td>
             <td style={partySpacerTd} />
             <td style={partyValueTd}>
-              <div style={{ fontSize: '14pt', fontWeight: 700 }}>{edit ? edit.text('personFullName') : p.personFullName}</div>
+              <div style={{ fontSize: '14pt', fontWeight: 700, fontStyle: 'italic' }}>{edit ? edit.text('personFullName') : p.personFullName}</div>
               <div style={{ fontStyle: 'italic' }}>{edit ? edit.text('personAddress') : p.personAddress}</div>
-              <div>JShShIR: {p.personPinfl}</div>
-              <div style={{ fontSize: '10pt' }}>Tel:&nbsp; {edit ? edit.text('personPhone') : p.personPhone}</div>
+              <div style={{ fontStyle: 'italic' }}>JShShIR: {p.personPinfl}</div>
+              <div style={{ fontStyle: 'italic' }}>Tel:&nbsp; {edit ? edit.text('personPhone') : p.personPhone}</div>
               <div>&nbsp;</div>
             </td>
           </tr>

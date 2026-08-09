@@ -5,6 +5,7 @@ import type { Settings } from '@/lib/settings';
 const loan = {
   clientName: 'Aliyeva Alifa',
   postAddress: 'Toshkent sh., Chilonzor',
+  postAddressUz: 'Toshkent shahri, Chilonzor tumani',
   pinfl: '12345678901234',
   phone: '+998901234567',
   ldId: '22548',
@@ -44,7 +45,7 @@ describe('loanToAriza', () => {
     const p = loanToAriza(loan, firm, settings, reportDate);
 
     expect(p.personFullName).toBe('Aliyeva Alifa');
-    expect(p.personAddress).toBe('Toshkent sh., Chilonzor');
+    expect(p.personAddress).toBe('Toshkent shahri, Chilonzor tumani'); // prefers the clean Uzbek Latin address
     expect(p.personPinfl).toBe('12345678901234');
     expect(p.personPhone).toBe('+998901234567');
     expect(p.contracts).toEqual([{ number: '22548', date: loan.dateToCr }]);
@@ -76,5 +77,15 @@ describe('loanToAriza', () => {
   it('falls back to shortName when firm has no legalName', () => {
     const p = loanToAriza(loan, { ...firm, legalName: null }, settings, reportDate);
     expect(p.firm.arizaName).toBe('BRIGHT FUTURE FINANCING');
+  });
+
+  it('never prints the literal "null" for a missing rate', () => {
+    const p = loanToAriza({ ...loan, rate: null }, firm, settings, reportDate);
+    expect(p.interestRate).toBe(''); // blank → "yillik % ..." not "yillik null%"
+  });
+
+  it('keeps a null contract date as null (ariza drops the -yildagi prefix)', () => {
+    const p = loanToAriza({ ...loan, dateToCr: null }, firm, settings, reportDate);
+    expect(p.contracts).toEqual([{ number: '22548', date: null }]);
   });
 });

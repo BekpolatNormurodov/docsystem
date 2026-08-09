@@ -1,11 +1,14 @@
 // Pure helpers for mapping portfolio import rows to Loan fields (no DB, no I/O).
 
+import { normalizeAddress } from './address';
+
 export interface LoanInput {
   pinfl: string | null;
   passportSn: string | null;
   clientName: string | null;
   phone: string | null;
   postAddress: string | null;
+  postAddressUz: string | null;
   regionName: string | null;
   branchCode: string | null;
   ldId: string | null;
@@ -81,6 +84,7 @@ export function mapRowToLoan(header: string[], values: unknown[]): LoanInput {
     clientName: str(raw.client_name),
     phone: str(raw.phone_mobile),
     postAddress: str(raw.post_address),
+    postAddressUz: normalizeAddress(str(raw.name), str(raw.distr_name), str(raw.post_address)) || null,
     regionName: str(raw.name),
     branchCode: str(raw.branch),
     ldId: str(raw.ld_id),

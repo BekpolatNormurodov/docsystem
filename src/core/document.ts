@@ -23,8 +23,10 @@ export const UZ_MONTHS = [
   'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь',
 ] as const;
 
-/** Long date exactly as the .docx writes it: "2026 йил 26 июнь". */
-export function uzLongDate(date: Date): string {
+/** Long date exactly as the .docx writes it: "2026 йил 26 июнь". Tolerant of a
+ *  missing/invalid date (returns '') so it never emits "NaN йил NaN undefined". */
+export function uzLongDate(date: Date | null | undefined): string {
+  if (!date || Number.isNaN(date.getTime())) return '';
   return `${date.getUTCFullYear()} йил ${date.getUTCDate()} ${UZ_MONTHS[date.getUTCMonth()]}`;
 }
 
@@ -78,7 +80,8 @@ export const UZ_MONTHS_LATIN = [
 ] as const;
 
 /** Long date as the ariza writes it: "2026 yil 15 iyul". Latin sibling of {@link uzLongDate}. */
-export function uzLongDateLatin(date: Date): string {
+export function uzLongDateLatin(date: Date | null | undefined): string {
+  if (!date || Number.isNaN(date.getTime())) return '';
   return `${date.getUTCFullYear()} yil ${date.getUTCDate()} ${UZ_MONTHS_LATIN[date.getUTCMonth()]}`;
 }
 
@@ -102,9 +105,11 @@ export function uzLongDateLatinToIso(text: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** The ariza header date: «"15"  iyul 2026-yil» (two spaces, as the blank has it). */
-export function arizaHeaderDate(date: Date): string {
-  return `"${date.getUTCDate()}"  ${UZ_MONTHS_LATIN[date.getUTCMonth()]} ${date.getUTCFullYear()}-yil`;
+/** The ariza header date as a fill-in blank: «"___"  ______________ 2026-yil» — only the year is
+ * printed; the day (inside the quotes) and month (long underline) are left blank to write by hand. */
+export function arizaHeaderDate(date: Date | null | undefined): string {
+  const y = !date || Number.isNaN(date.getTime()) ? '' : date.getUTCFullYear();
+  return `"____"  ________________ ${y}-yil`;
 }
 
 /* ── Decimal money (the ariza carries tiyin: "24 318 882,63" — space thousands, comma decimal) ── */

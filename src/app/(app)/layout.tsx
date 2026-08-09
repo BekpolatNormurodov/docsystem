@@ -5,6 +5,7 @@ import type { NavItem } from '@/ui/AppShell';
 export const dynamic = 'force-dynamic';
 
 const NAV: NavItem[] = [
+  { href: '/konveyer', label: 'Hisobot', icon: 'dashboard' },
   { href: '/hujjatlar', label: 'Hujjatlar', icon: 'files' },
   { href: '/import', label: 'Import', icon: 'file-plus' },
   { href: '/mijozlar', label: 'Mijozlar', icon: 'users' },
