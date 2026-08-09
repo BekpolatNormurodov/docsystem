@@ -1,11 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import { prisma } from './db';
 
+const REPORT_DATE = new Date('2026-08-01');
+
 describe('Snapshot/Loan/Job schema', () => {
   it('creates, reads back, and deletes a Snapshot with a Loan and a Job', async () => {
+    // Self-heal: a prior interrupted run (e.g. a timeout before the final delete)
+    // can leave this unique-reportDate snapshot behind and wedge every future run.
+    const orphans = await prisma.snapshot.findMany({ where: { reportDate: REPORT_DATE }, select: { id: true } });
+    if (orphans.length) {
+      const ids = orphans.map((o) => o.id);
+      await prisma.job.deleteMany({ where: { snapshotId: { in: ids } } });
+      await prisma.snapshot.deleteMany({ where: { id: { in: ids } } }); // cascades Loan
+    }
+
     const snapshot = await prisma.snapshot.create({
       data: {
-        reportDate: new Date('2026-08-01'),
+        reportDate: REPORT_DATE,
         sourceFileName: 'test-portfolio.xlsx',
       },
     });
