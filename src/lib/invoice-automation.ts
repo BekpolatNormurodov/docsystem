@@ -205,19 +205,37 @@ export async function startBatch(input: StartInput): Promise<{ batchId: string; 
   return { batchId: id, tabs: input.count };
 }
 
+/** Billing'ning mavjud-invoice PDF endpointi (raqam bo'yicha, captcha'siz — hujjat allaqachon bor). */
+const pdfApiUrl = (invoiceNo: string) => `https://billing.sud.uz/api/invoice/asDocument?invoice=${invoiceNo}`;
+
 /**
- * Invoice sahifasidagi «...-kvitansiya.pdf» havolasini bosib PDF'ni STORAGE_DIR'ga saqlaydi.
- * Billing PDF'ni ba'zan to'g'ridan-to'g'ri download hodisasi bilan, ba'zan yangi tabda blob:
- * URL sifatida ochadi — ikkala holni ham ushlaymiz. Topolmasa null (raqam baribir saqlanadi).
+ * Yaratilgan invoice PDF'ini saqlaydi. BIRINCHI navbatda REST endpoint orqali — raqam bo'yicha
+ * to'g'ridan-to'g'ri `application/pdf` (invoice allaqachon yaratilgan, bu shunchaki mavjud
+ * hujjatni olish). Ishlamasa — sahifadagi havolani bosib (download hodisasi yoki blob-tab)
+ * zaxira usul. Topolmasa null (raqam baribir saqlanadi).
  */
 async function capturePdf(ctx: any, page: any, invoiceNo: string): Promise<string | null> {
   const rel = path.join('storage', 'invoices', `${invoiceNo}.pdf`);
   const abs = path.join(process.cwd(), rel);
+
+  // 1) REST — eng ishonchli. Brauzer konteksti orqali (bir xil origin/cookie).
+  try {
+    const resp = await page.request.get(pdfApiUrl(invoiceNo), { timeout: 30_000 });
+    if (resp.ok() && (resp.headers()['content-type'] || '').includes('pdf')) {
+      const buf = await resp.body();
+      if (buf.length > 0) {
+        fs.writeFileSync(abs, buf);
+        return rel;
+      }
+    }
+  } catch {
+    // REST ishlamadi — quyidagi zaxira usulga o'tamiz.
+  }
+
+  // 2) Zaxira: sahifadagi «...-kvitansiya.pdf» havolasini bosish (download yoki blob-tab).
   try {
     const link = page.getByText('kvitansiya.pdf', { exact: false }).first();
-    await link.waitFor({ timeout: 30_000 });
-
-    // Bosishdan oldin ikkala kutgichni tayyorlaymiz: download hodisasi va yangi tab (popup).
+    await link.waitFor({ timeout: 20_000 });
     const downloadP = page.waitForEvent('download', { timeout: 15_000 }).catch(() => null);
     const popupP = ctx.waitForEvent('page', { timeout: 15_000 }).catch(() => null);
     await link.click();
@@ -227,8 +245,6 @@ async function capturePdf(ctx: any, page: any, invoiceNo: string): Promise<strin
       await download.saveAs(abs);
       return rel;
     }
-
-    // Yangi tabda blob: PDF ochilgan bo'lsa — o'sha sahifa ichida blob'ni o'qib, base64 saqlaymiz.
     const popup = await popupP;
     if (popup) {
       await popup.waitForLoadState('domcontentloaded').catch(() => {});
