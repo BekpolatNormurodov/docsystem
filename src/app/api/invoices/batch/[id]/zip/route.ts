@@ -2,27 +2,54 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { NextRequest, NextResponse } from 'next/server';
 import JSZip from 'jszip';
+import ExcelJS from 'exceljs';
 import { requireAdmin } from '@/lib/auth';
-import { getRestBatch, getRestBatchPdfs } from '@/lib/invoice-rest';
+import { getRestBatch, getRestBatchPdfs, getRestBatchReport, type ReportRow } from '@/lib/invoice-rest';
 
 export const runtime = 'nodejs';
 
-// GET — batchdagi barcha muvaffaqiyatli invoice PDF'larini bitta ZIP qilib beradi.
+const COLUMNS: { key: keyof ReportRow; header: string; width: number }[] = [
+  { key: 'tr', header: 'T/R', width: 6 },
+  { key: 'invoiceNo', header: 'Invoice raqam', width: 20 },
+  { key: 'firmName', header: 'Tashkilot nomi', width: 32 },
+  { key: 'stir', header: 'STIR', width: 14 },
+  { key: 'amount', header: 'Summa', width: 14 },
+  { key: 'pdf', header: 'PDF fayl', width: 24 },
+  { key: 'status', header: 'Holat', width: 30 },
+];
+
+async function buildReportXlsx(rows: ReportRow[]): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Kvitansiyalar');
+  ws.addRow(COLUMNS.map((c) => c.header));
+  ws.getRow(1).font = { bold: true };
+  COLUMNS.forEach((c, i) => { ws.getColumn(i + 1).width = c.width; });
+  for (const r of rows) ws.addRow(COLUMNS.map((c) => r[c.key]));
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}
+
+// GET — batchning barcha PDF'lari + Excel hisoboti bitta ZIP bo'lib yuklanadi.
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   await requireAdmin();
   const b = await getRestBatch(params.id);
   if (!b) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
 
-  const pdfs = await getRestBatchPdfs(params.id);
-  if (pdfs.length === 0) return NextResponse.json({ error: 'Yuklangan PDF yoʻq' }, { status: 404 });
+  const [pdfs, report] = await Promise.all([getRestBatchPdfs(params.id), getRestBatchReport(params.id)]);
+  if (pdfs.length === 0 && !report) return NextResponse.json({ error: 'Yuklangan maʼlumot yoʻq' }, { status: 404 });
 
   const zip = new JSZip();
+  // 1) PDF'lar.
   for (const { invoiceNo } of pdfs) {
     try {
       const buf = await fs.readFile(path.join(process.cwd(), 'storage', 'invoices', `${invoiceNo}.pdf`));
       zip.file(`${invoiceNo}.pdf`, buf);
     } catch { /* fayl topilmasa o'tkazamiz */ }
   }
+  // 2) Excel hisobot (barcha kvitansiyalar — OK va xato).
+  if (report && report.rows.length > 0) {
+    zip.file('Hisobot.xlsx', await buildReportXlsx(report.rows));
+  }
+
   const out = await zip.generateAsync({ type: 'nodebuffer' });
   return new NextResponse(new Uint8Array(out), {
     headers: {

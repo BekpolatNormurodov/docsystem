@@ -209,6 +209,44 @@ export async function getRestBatchPdfs(id: string): Promise<{ invoiceNo: string 
   return rows.map((r) => ({ invoiceNo: r.invoiceNo }));
 }
 
+export interface ReportRow {
+  tr: number; invoiceNo: string; firmName: string; stir: string;
+  amount: number; pdf: string; status: string;
+}
+/** Excel hisobot uchun barcha qatorlar (OK + xato) — xotira yoki bazadan. */
+export async function getRestBatchReport(id: string): Promise<{ firmName: string; rows: ReportRow[] } | null> {
+  const b = batches.get(id);
+  if (b) {
+    const firm = await prisma.firm.findUnique({ where: { id: b.firmId } });
+    const name = firm?.shortName?.trim() || firm?.legalName?.trim() || '';
+    const stir = (firm?.stir ?? '').replace(/\D/g, '');
+    const rows: ReportRow[] = b.items.map((it, i) => ({
+      tr: i + 1,
+      invoiceNo: it.invoiceNo || '-',
+      firmName: name,
+      stir,
+      amount: 2060000,
+      pdf: it.status === 'OK' && it.invoiceNo ? `${it.invoiceNo}.pdf` : '-',
+      status: it.status === 'OK' ? 'Muvaffaqiyatli' : it.status === 'FAILED' ? `Xatolik: ${it.message ?? ''}` : 'Kutilmoqda',
+    }));
+    return { firmName: name, rows };
+  }
+  // Xotirada yo'q — bazadan (faqat saqlangan yozuvlar).
+  const recs = await prisma.invoiceRecord.findMany({
+    where: { restBatchId: id }, orderBy: { id: 'asc' },
+    include: { firm: { select: { shortName: true, legalName: true, stir: true } } },
+  });
+  if (recs.length === 0) return null;
+  const name = recs[0].firm.shortName?.trim() || recs[0].firm.legalName?.trim() || '';
+  const rows: ReportRow[] = recs.map((r, i) => ({
+    tr: i + 1, invoiceNo: r.invoiceNo, firmName: r.firm.shortName?.trim() || name,
+    stir: (r.firm.stir ?? '').replace(/\D/g, ''), amount: Number(r.amount),
+    pdf: r.pdfPath ? `${r.invoiceNo}.pdf` : '-',
+    status: r.status === 'FAILED' ? 'Xatolik' : 'Muvaffaqiyatli',
+  }));
+  return { firmName: name, rows };
+}
+
 async function saveRecord(batchId: string, firmId: number, payload: RestPayload, invoiceNo: string, pdfPath: string | null) {
   await prisma.invoiceRecord.upsert({
     where: { invoiceNo },

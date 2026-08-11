@@ -112,10 +112,10 @@ export function InvoiceCreateForm({ firms }: { firms: FirmLite[] }) {
             <div className="h-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
           </div>
 
-          {done && batchId && progress.ok > 0 && (
+          {done && batchId && progress.total > 0 && (
             <a href={`/api/invoices/batch/${batchId}/zip`}
               className="btn-primary flex w-full justify-center py-2.5">
-              ⬇ ZIP yuklab olish ({progress.ok} ta)
+              ⬇ ZIP yuklab olish ({progress.ok} PDF + Excel hisobot)
             </a>
           )}
 
