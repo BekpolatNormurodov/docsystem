@@ -8,7 +8,9 @@ export const runtime = 'nodejs';
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   await requireAdmin();
-  const rec = await prisma.invoiceRecord.findUnique({ where: { id: Number(params.id) } });
+  const id = Number(params.id);
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
+  const rec = await prisma.invoiceRecord.findUnique({ where: { id } });
   if (!rec || !rec.pdfPath) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
   const abs = path.join(process.cwd(), rec.pdfPath);
   if (!fs.existsSync(abs)) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });

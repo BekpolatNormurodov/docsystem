@@ -23,7 +23,7 @@ export default async function InvoyslarPage() {
 
   return (
     <div>
-      <PageHeader title="Invoice yaratish" subtitle="Firma tanlang, sonini kiriting — forma avtomat toʻldiriladi, «Robot emasman» va «Yaratish» ni oʻzingiz bosasiz" />
+      <PageHeader title="Invoice yaratish" subtitle="Firma tanlang, sonini kiriting (1–100) — kvitansiyalar avtomat yaratiladi, fonda ishlaydi, tugagach ZIP boʻlib yuklanadi" />
       <InvoiceCreateForm firms={firms} />
       <InvoiceList rows={rows} />
     </div>
