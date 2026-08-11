@@ -6,6 +6,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Firm } from '@prisma/client';
 import { prisma } from '@/lib/db';
+import { getBojiAmount } from './konveyer-buxgalter';
+import { dueForStage } from './konveyer-sla';
 
 const CAPTCHA_API = 'https://recaptcha.sud.uz/api/v1/captcha';
 const INVOICE_API = 'https://billing.sud.uz/api/invoice/captcha/create';
@@ -83,12 +85,15 @@ export function buildFirmAddress(firm: Pick<Firm, 'region' | 'district' | 'addre
   return [firm.region, firm.district, firm.addressLine].map((s) => s?.trim()).filter(Boolean).join(', ');
 }
 
-export function buildRestPayload(firm: Firm): RestPayload {
+/** Pochta paketining standart summasi (/invoyslar). Boji qadami getBojiAmount() beradi. */
+export const POSTAL_AMOUNT_DEFAULT = 2060000;
+
+export function buildRestPayload(firm: Firm, opts: { amount?: number } = {}): RestPayload {
   const name = firm.shortName?.trim() || firm.legalName?.trim() || '';
   const tin = (firm.stir ?? '').replace(/\D/g, '');
   const address = buildFirmAddress(firm);
   return {
-    amount: 2060000,
+    amount: opts.amount ?? POSTAL_AMOUNT_DEFAULT,
     captchaToken: '',
     courtId: '525',
     courtType: 'CITIZEN',
@@ -269,9 +274,53 @@ async function persistBatch(b: Batch): Promise<void> {
   } catch { /* baza yozuvi ixtiyoriy — progress xotirada davom etadi */ }
 }
 
+function makeBatch(firmId: number, total: number): Batch {
+  const id = newId();
+  const batch: Batch = {
+    id, firmId, total, done: 0, ok: 0, failed: 0, current: 0, phase: 'RUNNING', pauseLeftMs: 0,
+    items: Array.from({ length: total }, (_, i) => ({ index: i, status: 'PENDING' as ItemStatus })),
+  };
+  batches.set(id, batch);
+  return batch;
+}
+
+/**
+ * Umumiy fon runner: item'larni guruhlarga bo'lib (har guruhda CONCURRENCY ta
+ * parallel — tez), guruhlar orasida katta tanaffus bilan (IP blok himoyasi —
+ * «15 ta, 15s pauza») ishlaydi. Progress'ni yangilaydi va bazaga sinxronlaydi.
+ */
+async function runBatchLoop(batch: Batch, processOne: (idx: number) => Promise<void>): Promise<void> {
+  for (let start = 0; start < batch.total; start += BATCH_SIZE) {
+    batch.phase = 'RUNNING';
+    const end = Math.min(start + BATCH_SIZE, batch.total);
+    let pointer = start;
+    const worker = async () => {
+      while (pointer < end) {
+        const idx = pointer++;
+        batch.current = idx + 1;
+        await processOne(idx);
+        await persistBatch(batch);
+        if (pointer < end) await sleep(DELAY_BETWEEN_REQUESTS);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, end - start) }, () => worker()));
+
+    if (end < batch.total) {
+      batch.phase = 'PAUSING';
+      await persistBatch(batch);
+      const until = Date.now() + BATCH_PAUSE_MS;
+      while (Date.now() < until) { batch.pauseLeftMs = until - Date.now(); await sleep(500); }
+      batch.pauseLeftMs = 0;
+    }
+  }
+  batch.phase = 'DONE';
+  batch.current = batch.total;
+  await persistBatch(batch);
+}
+
 export interface StartRestInput { firmId: number; count: number; }
 
-/** Fon paket jarayonini boshlaydi. Darhol batchId qaytaradi, ishni orqada davom ettiradi. */
+/** Firma bo'yicha ommaviy pochta paketi (/invoyslar) — case'ga bog'lanmaydi. */
 export async function startRestBatch(input: StartRestInput): Promise<{ batchId: string; total: number }> {
   const firm = await prisma.firm.findUnique({ where: { id: input.firmId } });
   if (!firm) throw new Error('Firma topilmadi');
@@ -283,63 +332,114 @@ export async function startRestBatch(input: StartRestInput): Promise<{ batchId: 
   }
 
   const total = Math.max(1, Math.min(MAX_COUNT, Math.floor(input.count) || 1));
-  const id = newId();
-  const batch: Batch = {
-    id, firmId: input.firmId, total, done: 0, ok: 0, failed: 0, current: 0,
-    phase: 'RUNNING', pauseLeftMs: 0,
-    items: Array.from({ length: total }, (_, i) => ({ index: i, status: 'PENDING' as ItemStatus })),
-  };
-  batches.set(id, batch);
+  const batch = makeBatch(input.firmId, total);
   try {
-    await prisma.invoiceRestBatch.create({ data: { id, firmId: input.firmId, total, phase: 'RUNNING' } });
+    await prisma.invoiceRestBatch.create({ data: { id: batch.id, firmId: input.firmId, total, phase: 'RUNNING' } });
   } catch { /* baza yozuvi ixtiyoriy */ }
 
-  // Bitta kvitansiyani to'liq ishlaydi (token → yaratish → PDF → saqlash).
-  async function processOne(idx: number): Promise<void> {
+  const processOne = async (idx: number): Promise<void> => {
     const item = batch.items[idx];
     try {
       const token = await getCaptchaToken();
       const invoiceNo = await createInvoiceRest(token, payload);
       let pdfPath: string | null = null;
       try { pdfPath = await downloadInvoicePdf(invoiceNo); } catch { /* raqam saqlanadi, PDF ixtiyoriy */ }
-      await saveRecord(id, input.firmId, payload, invoiceNo, pdfPath);
+      await saveRecord(batch.id, input.firmId, payload, invoiceNo, pdfPath);
       item.status = 'OK'; item.invoiceNo = invoiceNo; batch.ok += 1;
     } catch (e) {
       item.status = 'FAILED'; item.message = e instanceof Error ? e.message : 'Xatolik'; batch.failed += 1;
     }
     batch.done += 1;
+  };
+
+  void runBatchLoop(batch, processOne);
+  return { batchId: batch.id, total };
+}
+
+export interface StartCasesInput { firmId: number; snapshotId?: number; count: number; }
+
+/**
+ * Konveyer BOJ qadami: firmaning imzodan o'tgan (SIGNED_SCANNED, kvitansiyasiz)
+ * eng eski N ta case'iga HAQIQIY billing boji kvitansiyasi yaratadi va har birini
+ * o'sha case'ga bog'laydi (InvoiceRecord.caseId + ArizaCase.receiptNumber/stage).
+ * Farmoyish uchun InvoiceBatch ham yaratiladi. Jonli progress — InvoiceRestBatch.
+ */
+export async function startRestBatchForCases(
+  input: StartCasesInput,
+): Promise<{ restBatchId: string | null; invoiceBatchId: number | null; total: number }> {
+  const firm = await prisma.firm.findUnique({ where: { id: input.firmId } });
+  if (!firm) throw new Error('Firma topilmadi');
+
+  const count = Math.max(1, Math.min(MAX_COUNT, Math.floor(input.count) || 1));
+  const picked = await prisma.arizaCase.findMany({
+    where: {
+      firmId: input.firmId, stage: 'SIGNED_SCANNED', receiptNumber: null,
+      ...(input.snapshotId ? { snapshotId: input.snapshotId } : {}),
+    },
+    orderBy: { id: 'asc' }, take: count, select: { id: true },
+  });
+  if (picked.length === 0) return { restBatchId: null, invoiceBatchId: null, total: 0 };
+
+  const amount = await getBojiAmount();
+  const payload = buildRestPayload(firm, { amount });
+  if (!payload.juridicalEntity.name) throw new Error('Firma nomi yo‘q');
+  if (!payload.juridicalEntity.tin) throw new Error('Firma STIR raqami yo‘q');
+  if (!payload.juridicalEntity.address) {
+    throw new Error('Firma manzili toʻldirilmagan — «Firmalar» boʻlimida Viloyat, Tuman va koʻcha kiriting.');
   }
 
-  void (async () => {
-    // Guruhlarga bo'lamiz: har guruh ichida CONCURRENCY ta parallel (tez), guruhlar
-    // orasida esa katta tanaffus (IP blok bo'lmasligi uchun) — «15 ta, 15s pauza».
-    for (let start = 0; start < total; start += BATCH_SIZE) {
-      batch.phase = 'RUNNING';
-      const end = Math.min(start + BATCH_SIZE, total);
-      let pointer = start;
-      const worker = async () => {
-        while (pointer < end) {
-          const idx = pointer++;
-          batch.current = idx + 1;
-          await processOne(idx);
-          await persistBatch(batch);
-          if (pointer < end) await sleep(DELAY_BETWEEN_REQUESTS);
-        }
-      };
-      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, end - start) }, () => worker()));
+  // Farmoyish (buxgalteriya) uchun InvoiceBatch — mavjud tarix/farmoyish UI ishlashi uchun.
+  const invBatch = await prisma.invoiceBatch.create({
+    data: { firmId: input.firmId, requestedCount: picked.length, createdCount: 0, status: 'GENERATING' },
+    select: { id: true },
+  });
 
-      if (end < total) {
-        batch.phase = 'PAUSING';
-        await persistBatch(batch);
-        const until = Date.now() + BATCH_PAUSE_MS;
-        while (Date.now() < until) { batch.pauseLeftMs = until - Date.now(); await sleep(500); }
-        batch.pauseLeftMs = 0;
-      }
+  const total = picked.length;
+  const batch = makeBatch(input.firmId, total);
+  try {
+    await prisma.invoiceRestBatch.create({ data: { id: batch.id, firmId: input.firmId, total, phase: 'RUNNING' } });
+  } catch { /* baza yozuvi ixtiyoriy */ }
+
+  const now = new Date();
+  const dueAt = await dueForStage('INVOICE_CREATED', now);
+
+  const processOne = async (idx: number): Promise<void> => {
+    const item = batch.items[idx];
+    const caseId = picked[idx].id;
+    try {
+      const token = await getCaptchaToken();
+      const invoiceNo = await createInvoiceRest(token, payload);
+      let pdfPath: string | null = null;
+      try { pdfPath = await downloadInvoicePdf(invoiceNo); } catch { /* raqam saqlanadi, PDF ixtiyoriy */ }
+      await prisma.$transaction(async (tx) => {
+        await tx.invoiceRecord.upsert({
+          where: { invoiceNo },
+          update: { pdfPath: pdfPath ?? undefined, restBatchId: batch.id, caseId },
+          create: {
+            invoiceNo, firmId: input.firmId, restBatchId: batch.id, caseId,
+            paymentType: 'Давлат божи', amount, courtType: payload.courtType, courtRegion: '',
+            court: payload.courtId, pdfPath: pdfPath ?? undefined, status: 'CREATED',
+          },
+        });
+        // receiptNumber:null guard — parallel batch ikki marta belgilamasligi uchun.
+        await tx.arizaCase.updateMany({
+          where: { id: caseId, receiptNumber: null },
+          data: { receiptNumber: invoiceNo, invoiceNo, batchId: invBatch.id, stage: 'INVOICE_CREATED', stageEnteredAt: now, dueAt },
+        });
+      });
+      item.status = 'OK'; item.invoiceNo = invoiceNo; batch.ok += 1;
+    } catch (e) {
+      item.status = 'FAILED'; item.message = e instanceof Error ? e.message : 'Xatolik'; batch.failed += 1;
     }
-    batch.phase = 'DONE';
-    batch.current = total;
-    await persistBatch(batch);
+    batch.done += 1;
+  };
+
+  void (async () => {
+    await runBatchLoop(batch, processOne);
+    try {
+      await prisma.invoiceBatch.update({ where: { id: invBatch.id }, data: { createdCount: batch.ok, status: 'DONE' } });
+    } catch { /* farmoyish batch yangilanmasa ham progress bazada bor */ }
   })();
 
-  return { batchId: id, total };
+  return { restBatchId: batch.id, invoiceBatchId: invBatch.id, total };
 }

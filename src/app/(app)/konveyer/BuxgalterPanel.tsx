@@ -10,19 +10,41 @@ interface Batch { id: number; firmName: string; count: number; paid: number; cre
 const n = (x: number) => x.toLocaleString('ru-RU');
 const dt = (iso: string) => { const d = new Date(iso); const p = (x: number) => String(x).padStart(2, '0'); return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 
-function FirmRow({ f, snapshotId, onDone }: { f: FirmProg; snapshotId?: number; onDone: () => void }) {
+interface RowProg { done: number; total: number; ok: number; failed: number; phase: string; pauseLeftMs: number }
+
+function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: number; onDone: () => void; amount: number }) {
   const [count, setCount] = useState<number>(Math.min(100, f.remaining || 0));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
   const [batchId, setBatchId] = useState<number | null>(null);
+  const [prog, setProg] = useState<RowProg | null>(null);
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const pct = f.total > 0 ? Math.round((f.withInvoice / f.total) * 100) : 0;
   // Re-clamp when remaining shrinks after a refetch (the row isn't remounted).
   useEffect(() => { setCount((c) => Math.min(c, f.remaining) || Math.min(100, f.remaining)); }, [f.remaining]);
+  useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
+
+  // Fon REST jarayonini kuzatadi: jonli sanoq/progress, tugagach yakunlaydi.
+  const poll = (restBatchId: string) => {
+    if (timer.current) clearInterval(timer.current);
+    timer.current = setInterval(async () => {
+      const res = await fetch(`/api/invoices/batch/${restBatchId}`);
+      if (!res.ok) return;
+      const p: RowProg = await res.json();
+      setProg(p);
+      if (p.phase === 'DONE' && timer.current) {
+        clearInterval(timer.current);
+        setBusy(false); setOk(true);
+        setMsg(`${n(p.ok)} ta yaratildi${p.failed ? ` · ${n(p.failed)} xato` : ''}`);
+        onDone();
+      }
+    }, 1500);
+  };
 
   const create = async () => {
     if (!count || count > f.remaining) { setOk(false); setMsg(`1–${n(f.remaining)} oraligʻida son kiriting`); return; }
-    setBusy(true); setMsg(null);
+    setBusy(true); setMsg(null); setProg(null); setBatchId(null);
     try {
       const res = await fetch('/konveyer/invoice-batch', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -30,12 +52,10 @@ function FirmRow({ f, snapshotId, onDone }: { f: FirmProg; snapshotId?: number; 
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? 'Xato');
-      setOk(true);
-      setMsg(`${n(data.created)} ta invoice yaratildi`);
-      setBatchId(data.batchId ?? null);
-      onDone();
-    } catch (e: any) { setOk(false); setMsg(e?.message ?? 'Xato'); }
-    finally { setBusy(false); }
+      setBatchId(data.invoiceBatchId ?? null);
+      if (data.restBatchId) poll(data.restBatchId);
+      else { setBusy(false); setOk(true); setMsg('Yaratildi'); onDone(); }
+    } catch (e: any) { setOk(false); setBusy(false); setMsg(e?.message ?? 'Xato'); }
   };
 
   const done = f.remaining === 0;
@@ -65,11 +85,20 @@ function FirmRow({ f, snapshotId, onDone }: { f: FirmProg; snapshotId?: number; 
               <button key={v} onClick={() => setCount(v)} aria-pressed={count === v} className={`rounded border px-1.5 py-0.5 text-[10px] font-medium tabular-nums transition-colors ${count === v ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-line text-muted hover:border-amber-500/40'}`}>{v}</button>
             ))}
             <button onClick={() => setCount(f.remaining)} className="rounded border border-line px-1.5 py-0.5 text-[10px] font-medium text-muted hover:border-amber-500/40">Hammasi</button>
-            <span className="ml-1 text-[10px] tabular-nums text-muted">= <span className="font-medium text-fg">{n(count * 20600)}</span></span>
+            <span className="ml-1 text-[10px] tabular-nums text-muted">= <span className="font-medium text-fg">{n(count * amount)}</span></span>
             <button onClick={create} disabled={busy || !count} aria-busy={busy} className="ml-auto inline-flex items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-amber-600 disabled:opacity-50">
-              {busy ? <><span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" /> …</> : 'Yarat'}
+              {busy ? <><span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" /> {prog ? `${n(prog.done)}/${n(prog.total)}` : '…'}</> : 'Yarat'}
             </button>
           </div>
+          {busy && prog && (
+            <div className="mt-1 flex items-center gap-2 text-[11px] tabular-nums text-muted">
+              <div className="h-1 flex-1 overflow-hidden rounded-full bg-surface-2">
+                <div className="h-full rounded-full bg-amber-500 transition-all" style={{ width: `${prog.total ? Math.round((prog.done / prog.total) * 100) : 0}%` }} />
+              </div>
+              <span><span className="text-emerald-600 dark:text-emerald-400">✓{n(prog.ok)}</span>{prog.failed ? <span className="text-rose-500"> ✗{n(prog.failed)}</span> : null}</span>
+              <span>{prog.phase === 'PAUSING' ? `⏸ ${Math.ceil(prog.pauseLeftMs / 1000)}s` : 'ishlayapti'}</span>
+            </div>
+          )}
           {msg && (
             ok ? (
               <div role="status" className="mt-1 flex items-center gap-2 text-[11px] text-emerald-600 dark:text-emerald-400">
@@ -144,7 +173,7 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
           <div className="mt-4 grid grid-cols-1 gap-2.5 lg:grid-cols-2">
             {firms === null
               ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)
-              : firms.map((f) => <FirmRow key={f.firmId} f={f} snapshotId={snapshotId} onDone={onDone} />)}
+              : firms.map((f) => <FirmRow key={f.firmId} f={f} snapshotId={snapshotId} onDone={onDone} amount={amount} />)}
           </div>
           )}
 

@@ -102,6 +102,11 @@ model Loan {
   // Covering index for the [date] firm chips groupBy(branchCode) WHERE snapshotId AND excluded —
   // ~22s → ~0.15s.
   @@index([snapshotId, excluded, branchCode], map: "Loan_cover_branch")
+  // Covering index for the Portfel /s/[date] "Firmalar boʻyicha qarz" chart:
+  // groupBy(branchCode) SUM(totalDebt) WHERE snapshotId. Without it that sum
+  // full-scans 159k rows off-index (~34s); with it the scan is index-only (~ms).
+  // NOTE: needs `npm run db:push` to take effect.
+  @@index([snapshotId, branchCode, totalDebt], map: "Loan_cover_firm_debt")
 }
 
 model Setting {
@@ -141,8 +146,14 @@ model InvoiceRecord {
   restBatchId String?
   restBatch   InvoiceRestBatch? @relation(fields: [restBatchId], references: [id])
 
+  // Qaysi konveyer case'iga (mijoz: pinfl+firma) tegishli — BOJ qadamida yaratilganda.
+  // Firma bo'yicha ommaviy /invoyslar paketi uchun null.
+  caseId      Int?
+  case        ArizaCase? @relation(fields: [caseId], references: [id])
+
   @@index([firmId])
   @@index([restBatchId])
+  @@index([caseId])
 }
 
 // «Firma uchun N ta kvitansiya avtomat yarat» REST paketining bitta ishga tushishi.
@@ -278,9 +289,15 @@ model ArizaCase {
   totalDebt     Decimal   @default(0) @db.Decimal(20, 2)
   meta          Json?
   documents     CaseDocument[]
+  invoiceRecords InvoiceRecord[]
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  // One case per (snapshot, person, firm) — DB-enforced idempotency for
+  // syncCasesFromSnapshot (pairs with createMany skipDuplicates). NULL pinfls are
+  // distinct in MySQL, so identity-less rows are unaffected.
+  // NOTE: needs `npm run db:push` to take effect (dedupe any existing rows first).
+  @@unique([snapshotId, pinfl, firmId])
   @@index([firmId, stage])
   @@index([snapshotId])
   @@index([stage, dueAt])
