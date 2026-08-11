@@ -8,7 +8,7 @@ interface FirmLite { id: number; shortName: string; stir: string | null; region:
 interface BatchItem { index: number; status: 'PENDING' | 'OK' | 'FAILED'; invoiceNo?: string; message?: string; }
 interface Progress {
   total: number; done: number; ok: number; failed: number; current: number;
-  phase: 'RUNNING' | 'PAUSING' | 'DONE'; pauseLeftMs: number; items: BatchItem[];
+  phase: 'RUNNING' | 'PAUSING' | 'DONE' | 'BLOCKED'; pauseLeftMs: number; items: BatchItem[]; error?: string;
 }
 
 // Faol paketning batchId'si — reload/navigatsiyada progressni tiklash uchun.
@@ -39,7 +39,11 @@ export function InvoiceCreateForm({ firms }: { firms: FirmLite[] }) {
       if (!res.ok) return;
       const data: Progress = await res.json();
       setProgress(data);
-      if (data.phase === 'DONE' && timer.current) { clearInterval(timer.current); setBusy(false); router.refresh(); }
+      if ((data.phase === 'DONE' || data.phase === 'BLOCKED') && timer.current) {
+        clearInterval(timer.current); setBusy(false);
+        if (data.phase === 'BLOCKED') setError(data.error ?? 'IP bloklandi yoki tarmoq ishlamayapti');
+        else router.refresh();
+      }
     }, 1500);
   }
 
@@ -78,6 +82,8 @@ export function InvoiceCreateForm({ firms }: { firms: FirmLite[] }) {
 
   const pct = progress ? Math.round((progress.done / progress.total) * 100) : 0;
   const done = progress?.phase === 'DONE';
+  const blocked = progress?.phase === 'BLOCKED';
+  const terminal = done || blocked;
 
   return (
     <div className="card max-w-lg space-y-4 p-6">
@@ -104,15 +110,15 @@ export function InvoiceCreateForm({ firms }: { firms: FirmLite[] }) {
         <div className="space-y-3 border-t border-line pt-3">
           <div className="flex items-center justify-between text-sm font-medium">
             <span>{progress.done} / {progress.total} · <span className="text-emerald-600">✓{progress.ok}</span> <span className="text-rose-500">✗{progress.failed}</span></span>
-            <span className="text-muted">
-              {done ? '✓ Tugadi' : progress.phase === 'PAUSING' ? `⏸ Pauza ${Math.ceil(progress.pauseLeftMs / 1000)}s` : `Ishlayapti #${progress.current}…`}
+            <span className={blocked ? 'text-rose-500' : 'text-muted'}>
+              {blocked ? '⚠ To‘xtadi (IP/tarmoq)' : done ? '✓ Tugadi' : progress.phase === 'PAUSING' ? `⏸ Pauza ${Math.ceil(progress.pauseLeftMs / 1000)}s` : `Ishlayapti #${progress.current}…`}
             </span>
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-surface-2">
-            <div className="h-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
+            <div className={`h-full transition-all ${blocked ? 'bg-rose-500' : 'bg-emerald-500'}`} style={{ width: `${pct}%` }} />
           </div>
 
-          {done && batchId && progress.total > 0 && (
+          {terminal && batchId && progress.ok > 0 && (
             <a href={`/api/invoices/batch/${batchId}/zip`}
               className="btn-primary flex w-full justify-center py-2.5">
               ⬇ ZIP yuklab olish ({progress.ok} PDF + Excel hisobot)

@@ -10,7 +10,7 @@ interface Batch { id: number; firmName: string; count: number; paid: number; cre
 const n = (x: number) => x.toLocaleString('ru-RU');
 const dt = (iso: string) => { const d = new Date(iso); const p = (x: number) => String(x).padStart(2, '0'); return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 
-interface RowProg { done: number; total: number; ok: number; failed: number; phase: string; pauseLeftMs: number }
+interface RowProg { done: number; total: number; ok: number; failed: number; phase: string; pauseLeftMs: number; error?: string }
 
 function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: number; onDone: () => void; amount: number }) {
   const [count, setCount] = useState<number>(Math.min(100, f.remaining || 0));
@@ -33,10 +33,16 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
       if (!res.ok) return;
       const p: RowProg = await res.json();
       setProg(p);
-      if (p.phase === 'DONE' && timer.current) {
+      if ((p.phase === 'DONE' || p.phase === 'BLOCKED') && timer.current) {
         clearInterval(timer.current);
-        setBusy(false); setOk(true);
-        setMsg(`${n(p.ok)} ta yaratildi${p.failed ? ` · ${n(p.failed)} xato` : ''}`);
+        setBusy(false);
+        if (p.phase === 'BLOCKED') {
+          setOk(false);
+          setMsg(p.error ?? 'IP bloklandi yoki tarmoq ishlamayapti');
+        } else {
+          setOk(true);
+          setMsg(`${n(p.ok)} ta yaratildi${p.failed ? ` · ${n(p.failed)} xato` : ''}`);
+        }
         onDone();
       }
     }, 1500);

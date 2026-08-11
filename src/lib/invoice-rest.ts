@@ -25,6 +25,8 @@ const CONCURRENCY = 3;                  // guruh ichida bir vaqtda nechta kvitan
 const BATCH_SIZE = 15;                  // har 15 ta kvitansiyadan keyin katta tanaffus
 const BATCH_PAUSE_MS = 15_000;          // katta tanaffus vaqti (15 soniya) — IP blok bo'lmasligi uchun
 const MAX_CAPTCHA_RETRY = 5;            // challenge kelsa skip qilib qayta analyze urinishlari
+const MAX_ITEM_ATTEMPTS = 3;           // bitta kvitansiya uchun tashqi qayta urinish; 3 tada ham bo'lmasa → IP blok/tarmoq
+const ITEM_RETRY_BACKOFF = 2500;       // urinishlar orasidagi kutish (o'sib boradi)
 const MAX_COUNT = 100;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -170,11 +172,12 @@ export interface BatchProgress {
   ok: number;
   failed: number;
   current: number;             // 1-based, ishlanayotgan invoice tartibi
-  phase: 'RUNNING' | 'PAUSING' | 'DONE';
+  phase: 'RUNNING' | 'PAUSING' | 'DONE' | 'BLOCKED';
   pauseLeftMs: number;
   items: BatchItem[];
+  error?: string;              // BLOCKED bo'lganda: IP blok/tarmoq xabari
 }
-interface Batch extends BatchProgress { id: string; firmId: number; }
+interface Batch extends BatchProgress { id: string; firmId: number; aborted?: boolean }
 
 const g = globalThis as unknown as { __invoiceRestBatches?: Map<string, Batch> };
 const batches = g.__invoiceRestBatches ?? new Map<string, Batch>();
@@ -186,7 +189,7 @@ function newId(): string { seq += 1; return `r${Date.now().toString(36)}_${seq}`
 export async function getRestBatch(id: string): Promise<BatchProgress | null> {
   const b = batches.get(id);
   if (b) {
-    const { firmId: _f, id: _i, ...progress } = b;
+    const { firmId: _f, id: _i, aborted: _a, ...progress } = b;
     return progress;
   }
   // Xotirada yo'q (server qayta ishga tushgan) — bazadan tiklaymiz.
@@ -198,9 +201,11 @@ export async function getRestBatch(id: string): Promise<BatchProgress | null> {
   const items: BatchItem[] = row.records.map((r, i) => ({
     index: i, status: r.status === 'FAILED' ? 'FAILED' : 'OK', invoiceNo: r.invoiceNo,
   }));
+  const phase = (row.phase as BatchProgress['phase']) ?? 'DONE';
   return {
     total: row.total, done: row.ok + row.failed, ok: row.ok, failed: row.failed,
-    current: row.total, phase: (row.phase as BatchProgress['phase']) ?? 'DONE', pauseLeftMs: 0, items,
+    current: row.total, phase, pauseLeftMs: 0, items,
+    ...(phase === 'BLOCKED' ? { error: 'IP bloklandi yoki tarmoq ishlamayapti — 3 marta urinildi, natija yoʻq.' } : {}),
   };
 }
 
@@ -285,25 +290,50 @@ function makeBatch(firmId: number, total: number): Batch {
 }
 
 /**
- * Umumiy fon runner: item'larni guruhlarga bo'lib (har guruhda CONCURRENCY ta
- * parallel — tez), guruhlar orasida katta tanaffus bilan (IP blok himoyasi —
- * «15 ta, 15s pauza») ishlaydi. Progress'ni yangilaydi va bazaga sinxronlaydi.
+ * Umumiy fon runner. `attemptOne(idx)` bitta kvitansiyani yaratib invoiceNo
+ * qaytaradi (xatoda throw qiladi). Runner har item'ni MAX_ITEM_ATTEMPTS marta
+ * urinadi — transient xatolar yutiladi, so'ralgan son to'liq chiqadi (100=100).
+ * Agar bitta item 3 tada ham bo'lmasa → bu IP blok/tarmoq: paket to'xtaydi
+ * (BLOCKED), aniq xato beriladi (jimgina kam berilmaydi).
+ * Guruhlarga bo'lib (har guruhda CONCURRENCY parallel), guruhlar orasida katta
+ * tanaffus bilan (IP himoyasi — «15 ta, 15s pauza») ishlaydi.
  */
-async function runBatchLoop(batch: Batch, processOne: (idx: number) => Promise<void>): Promise<void> {
-  for (let start = 0; start < batch.total; start += BATCH_SIZE) {
+async function runBatchLoop(batch: Batch, attemptOne: (idx: number) => Promise<string>): Promise<void> {
+  // Bitta slot: 3 martagacha urinadi. Muvaffaqiyat → false; 3 ta ham bo'lmasa → true (abort).
+  const processWithRetry = async (idx: number): Promise<boolean> => {
+    const item = batch.items[idx];
+    for (let attempt = 1; attempt <= MAX_ITEM_ATTEMPTS; attempt++) {
+      try {
+        const invoiceNo = await attemptOne(idx);
+        item.status = 'OK'; item.invoiceNo = invoiceNo; item.message = undefined;
+        batch.ok += 1; batch.done += 1;
+        return false;
+      } catch (e) {
+        item.message = e instanceof Error ? e.message : String(e);
+        if (attempt < MAX_ITEM_ATTEMPTS) await sleep(ITEM_RETRY_BACKOFF * attempt);
+      }
+    }
+    item.status = 'FAILED'; batch.failed += 1; batch.done += 1;
+    batch.error = `IP bloklandi yoki tarmoq ishlamayapti — 3 marta urinildi, natija yoʻq.${item.message ? ` (${item.message})` : ''}`;
+    return true; // hard fail → butun paketni to'xtatamiz
+  };
+
+  for (let start = 0; start < batch.total && !batch.aborted; start += BATCH_SIZE) {
     batch.phase = 'RUNNING';
     const end = Math.min(start + BATCH_SIZE, batch.total);
     let pointer = start;
     const worker = async () => {
-      while (pointer < end) {
+      while (pointer < end && !batch.aborted) {
         const idx = pointer++;
         batch.current = idx + 1;
-        await processOne(idx);
+        const hardFail = await processWithRetry(idx);
         await persistBatch(batch);
-        if (pointer < end) await sleep(DELAY_BETWEEN_REQUESTS);
+        if (hardFail) { batch.aborted = true; return; }
+        if (pointer < end && !batch.aborted) await sleep(DELAY_BETWEEN_REQUESTS);
       }
     };
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, end - start) }, () => worker()));
+    if (batch.aborted) break;
 
     if (end < batch.total) {
       batch.phase = 'PAUSING';
@@ -313,7 +343,7 @@ async function runBatchLoop(batch: Batch, processOne: (idx: number) => Promise<v
       batch.pauseLeftMs = 0;
     }
   }
-  batch.phase = 'DONE';
+  batch.phase = batch.aborted ? 'BLOCKED' : 'DONE';
   batch.current = batch.total;
   await persistBatch(batch);
 }
@@ -337,22 +367,16 @@ export async function startRestBatch(input: StartRestInput): Promise<{ batchId: 
     await prisma.invoiceRestBatch.create({ data: { id: batch.id, firmId: input.firmId, total, phase: 'RUNNING' } });
   } catch { /* baza yozuvi ixtiyoriy */ }
 
-  const processOne = async (idx: number): Promise<void> => {
-    const item = batch.items[idx];
-    try {
-      const token = await getCaptchaToken();
-      const invoiceNo = await createInvoiceRest(token, payload);
-      let pdfPath: string | null = null;
-      try { pdfPath = await downloadInvoicePdf(invoiceNo); } catch { /* raqam saqlanadi, PDF ixtiyoriy */ }
-      await saveRecord(batch.id, input.firmId, payload, invoiceNo, pdfPath);
-      item.status = 'OK'; item.invoiceNo = invoiceNo; batch.ok += 1;
-    } catch (e) {
-      item.status = 'FAILED'; item.message = e instanceof Error ? e.message : 'Xatolik'; batch.failed += 1;
-    }
-    batch.done += 1;
+  const attemptOne = async (): Promise<string> => {
+    const token = await getCaptchaToken();
+    const invoiceNo = await createInvoiceRest(token, payload);
+    let pdfPath: string | null = null;
+    try { pdfPath = await downloadInvoicePdf(invoiceNo); } catch { /* raqam saqlanadi, PDF ixtiyoriy */ }
+    await saveRecord(batch.id, input.firmId, payload, invoiceNo, pdfPath);
+    return invoiceNo;
   };
 
-  void runBatchLoop(batch, processOne);
+  void runBatchLoop(batch, attemptOne);
   return { batchId: batch.id, total };
 }
 
@@ -403,43 +427,39 @@ export async function startRestBatchForCases(
   const now = new Date();
   const dueAt = await dueForStage('INVOICE_CREATED', now);
 
-  const processOne = async (idx: number): Promise<void> => {
-    const item = batch.items[idx];
+  const attemptOne = async (idx: number): Promise<string> => {
     const caseId = picked[idx].id;
-    try {
-      const token = await getCaptchaToken();
-      const invoiceNo = await createInvoiceRest(token, payload);
-      let pdfPath: string | null = null;
-      try { pdfPath = await downloadInvoicePdf(invoiceNo); } catch { /* raqam saqlanadi, PDF ixtiyoriy */ }
-      await prisma.$transaction(async (tx) => {
-        await tx.invoiceRecord.upsert({
-          where: { invoiceNo },
-          update: { pdfPath: pdfPath ?? undefined, restBatchId: batch.id, caseId },
-          create: {
-            invoiceNo, firmId: input.firmId, restBatchId: batch.id, caseId,
-            paymentType: 'Давлат божи', amount, courtType: payload.courtType, courtRegion: '',
-            court: payload.courtId, pdfPath: pdfPath ?? undefined, status: 'CREATED',
-          },
-        });
-        // receiptNumber:null guard — parallel batch ikki marta belgilamasligi uchun.
-        await tx.arizaCase.updateMany({
-          where: { id: caseId, receiptNumber: null },
-          data: { receiptNumber: invoiceNo, invoiceNo, batchId: invBatch.id, stage: 'INVOICE_CREATED', stageEnteredAt: now, dueAt },
-        });
+    const token = await getCaptchaToken();
+    const invoiceNo = await createInvoiceRest(token, payload);
+    let pdfPath: string | null = null;
+    try { pdfPath = await downloadInvoicePdf(invoiceNo); } catch { /* raqam saqlanadi, PDF ixtiyoriy */ }
+    await prisma.$transaction(async (tx) => {
+      await tx.invoiceRecord.upsert({
+        where: { invoiceNo },
+        update: { pdfPath: pdfPath ?? undefined, restBatchId: batch.id, caseId },
+        create: {
+          invoiceNo, firmId: input.firmId, restBatchId: batch.id, caseId,
+          paymentType: 'Давлат божи', amount, courtType: payload.courtType, courtRegion: '',
+          court: payload.courtId, pdfPath: pdfPath ?? undefined, status: 'CREATED',
+        },
       });
-      item.status = 'OK'; item.invoiceNo = invoiceNo; batch.ok += 1;
-    } catch (e) {
-      item.status = 'FAILED'; item.message = e instanceof Error ? e.message : 'Xatolik'; batch.failed += 1;
-    }
-    batch.done += 1;
+      // receiptNumber:null guard — parallel batch ikki marta belgilamasligi uchun.
+      await tx.arizaCase.updateMany({
+        where: { id: caseId, receiptNumber: null },
+        data: { receiptNumber: invoiceNo, invoiceNo, batchId: invBatch.id, stage: 'INVOICE_CREATED', stageEnteredAt: now, dueAt },
+      });
+    });
+    return invoiceNo;
   };
 
-  void (async () => {
-    await runBatchLoop(batch, processOne);
+  void runBatchLoop(batch, attemptOne).then(async () => {
     try {
-      await prisma.invoiceBatch.update({ where: { id: invBatch.id }, data: { createdCount: batch.ok, status: 'DONE' } });
+      await prisma.invoiceBatch.update({
+        where: { id: invBatch.id },
+        data: { createdCount: batch.ok, status: batch.aborted ? 'FAILED' : 'DONE' },
+      });
     } catch { /* farmoyish batch yangilanmasa ham progress bazada bor */ }
-  })();
+  });
 
   return { restBatchId: batch.id, invoiceBatchId: invBatch.id, total };
 }
