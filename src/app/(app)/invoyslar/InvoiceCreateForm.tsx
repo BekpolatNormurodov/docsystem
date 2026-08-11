@@ -11,6 +11,9 @@ interface Progress {
   phase: 'RUNNING' | 'PAUSING' | 'DONE'; pauseLeftMs: number; items: BatchItem[];
 }
 
+// Faol paketning batchId'si — reload/navigatsiyada progressni tiklash uchun.
+const LS_KEY = 'invoice_active_batch';
+
 export function InvoiceCreateForm({ firms }: { firms: FirmLite[] }) {
   const router = useRouter();
   const [firmId, setFirmId] = useState(firms[0] ? String(firms[0].id) : '');
@@ -24,11 +27,15 @@ export function InvoiceCreateForm({ firms }: { firms: FirmLite[] }) {
   const firm = firms.find((f) => String(f.id) === firmId);
   const addr = [firm?.region, firm?.district, firm?.addressLine].filter(Boolean).join(', ');
 
-  useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
-
   function poll(id: string) {
+    if (timer.current) clearInterval(timer.current);
     timer.current = setInterval(async () => {
       const res = await fetch(`/api/invoices/batch/${id}`);
+      if (res.status === 404) { // paket topilmadi — eskirgan holatni tozalaymiz
+        if (timer.current) clearInterval(timer.current);
+        localStorage.removeItem(LS_KEY); setBusy(false); setProgress(null); setBatchId(null);
+        return;
+      }
       if (!res.ok) return;
       const data: Progress = await res.json();
       setProgress(data);
@@ -36,8 +43,26 @@ export function InvoiceCreateForm({ firms }: { firms: FirmLite[] }) {
     }, 1500);
   }
 
+  // Mount'da: faol paket bo'lsa (localStorage) tiklaymiz — reload/chiqib-kirishga chidamli.
+  // getRestBatch bazaga fallback qiladi, shuning uchun server qayta ishga tushsa ham tiklanadi.
+  useEffect(() => {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem(LS_KEY) : null;
+    if (saved) {
+      (async () => {
+        const res = await fetch(`/api/invoices/batch/${saved}`);
+        if (!res.ok) { localStorage.removeItem(LS_KEY); return; }
+        const data: Progress = await res.json();
+        setBatchId(saved); setProgress(data);
+        if (data.phase !== 'DONE') { setBusy(true); poll(saved); }
+      })();
+    }
+    return () => { if (timer.current) clearInterval(timer.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function onStart() {
     setBusy(true); setError(null); setProgress(null); setBatchId(null);
+    localStorage.removeItem(LS_KEY);
     try {
       const res = await fetch('/api/invoices/start', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -46,6 +71,7 @@ export function InvoiceCreateForm({ firms }: { firms: FirmLite[] }) {
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? 'Xatolik'); setBusy(false); return; }
       setBatchId(data.batchId);
+      localStorage.setItem(LS_KEY, data.batchId);
       poll(data.batchId);
     } catch { setError('Ulanishda xatolik'); setBusy(false); }
   }
