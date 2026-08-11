@@ -177,7 +177,7 @@ export interface BatchProgress {
   items: BatchItem[];
   error?: string;              // BLOCKED bo'lganda: IP blok/tarmoq xabari
 }
-interface Batch extends BatchProgress { id: string; firmId: number; aborted?: boolean }
+interface Batch extends BatchProgress { id: string; firmId: number; amount: number; aborted?: boolean }
 
 const g = globalThis as unknown as { __invoiceRestBatches?: Map<string, Batch> };
 const batches = g.__invoiceRestBatches ?? new Map<string, Batch>();
@@ -235,7 +235,7 @@ export async function getRestBatchReport(id: string): Promise<{ firmName: string
       invoiceNo: it.invoiceNo || '-',
       firmName: name,
       stir,
-      amount: 2060000,
+      amount: b.amount,
       pdf: it.status === 'OK' && it.invoiceNo ? `${it.invoiceNo}.pdf` : '-',
       status: it.status === 'OK' ? 'Muvaffaqiyatli' : it.status === 'FAILED' ? `Xatolik: ${it.message ?? ''}` : 'Kutilmoqda',
     }));
@@ -279,10 +279,10 @@ async function persistBatch(b: Batch): Promise<void> {
   } catch { /* baza yozuvi ixtiyoriy — progress xotirada davom etadi */ }
 }
 
-function makeBatch(firmId: number, total: number): Batch {
+function makeBatch(firmId: number, total: number, amount: number): Batch {
   const id = newId();
   const batch: Batch = {
-    id, firmId, total, done: 0, ok: 0, failed: 0, current: 0, phase: 'RUNNING', pauseLeftMs: 0,
+    id, firmId, amount, total, done: 0, ok: 0, failed: 0, current: 0, phase: 'RUNNING', pauseLeftMs: 0,
     items: Array.from({ length: total }, (_, i) => ({ index: i, status: 'PENDING' as ItemStatus })),
   };
   batches.set(id, batch);
@@ -350,11 +350,12 @@ async function runBatchLoop(batch: Batch, attemptOne: (idx: number) => Promise<s
 
 export interface StartRestInput { firmId: number; count: number; }
 
-/** Firma bo'yicha ommaviy pochta paketi (/invoyslar) — case'ga bog'lanmaydi. */
+/** Firma bo'yicha ommaviy paket (/invoyslar) — case'ga bog'lanmaydi. Summa: boji (getBojiAmount). */
 export async function startRestBatch(input: StartRestInput): Promise<{ batchId: string; total: number }> {
   const firm = await prisma.firm.findUnique({ where: { id: input.firmId } });
   if (!firm) throw new Error('Firma topilmadi');
-  const payload = buildRestPayload(firm);
+  const amount = await getBojiAmount();
+  const payload = buildRestPayload(firm, { amount });
   if (!payload.juridicalEntity.name) throw new Error('Firma nomi yo‘q');
   if (!payload.juridicalEntity.tin) throw new Error('Firma STIR raqami yo‘q');
   if (!payload.juridicalEntity.address) {
@@ -362,7 +363,7 @@ export async function startRestBatch(input: StartRestInput): Promise<{ batchId: 
   }
 
   const total = Math.max(1, Math.min(MAX_COUNT, Math.floor(input.count) || 1));
-  const batch = makeBatch(input.firmId, total);
+  const batch = makeBatch(input.firmId, total, amount);
   try {
     await prisma.invoiceRestBatch.create({ data: { id: batch.id, firmId: input.firmId, total, phase: 'RUNNING' } });
   } catch { /* baza yozuvi ixtiyoriy */ }
@@ -419,7 +420,7 @@ export async function startRestBatchForCases(
   });
 
   const total = picked.length;
-  const batch = makeBatch(input.firmId, total);
+  const batch = makeBatch(input.firmId, total, amount);
   try {
     await prisma.invoiceRestBatch.create({ data: { id: batch.id, firmId: input.firmId, total, phase: 'RUNNING' } });
   } catch { /* baza yozuvi ixtiyoriy */ }

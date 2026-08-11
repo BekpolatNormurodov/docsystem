@@ -14,7 +14,7 @@ interface Progress {
 // Faol paketning batchId'si — reload/navigatsiyada progressni tiklash uchun.
 const LS_KEY = 'invoice_active_batch';
 
-export function InvoiceCreateForm({ firms }: { firms: FirmLite[] }) {
+export function InvoiceCreateForm({ firms, bojiAmount }: { firms: FirmLite[]; bojiAmount: number }) {
   const router = useRouter();
   const [firmId, setFirmId] = useState(firms[0] ? String(firms[0].id) : '');
   const [count, setCount] = useState('15');
@@ -96,7 +96,7 @@ export function InvoiceCreateForm({ firms }: { firms: FirmLite[] }) {
       <div className="rounded-xl border border-line bg-surface-2 p-3 text-xs text-muted">
         <div>STIR: {firm?.stir || '—'}</div>
         <div>Manzil: {addr || <span className="text-rose-500">toʻldirilmagan</span>}</div>
-        <div className="mt-1">Summa: 2 060 000 soʻm · avto (captcha kerak emas)</div>
+        <div className="mt-1">Summa: {bojiAmount.toLocaleString('ru-RU')} soʻm · avto (captcha kerak emas)</div>
       </div>
 
       <button type="button" onClick={onStart} disabled={busy || !firmId}
