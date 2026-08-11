@@ -6,7 +6,7 @@ export const runtime = 'nodejs';
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   await requireAdmin();
-  const b = getRestBatch(params.id);
+  const b = await getRestBatch(params.id);
   if (!b) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
   return NextResponse.json(b);
 }

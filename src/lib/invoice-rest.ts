@@ -18,10 +18,11 @@ const STORAGE_DIR = path.join(process.cwd(), 'storage', 'invoices');
 // SOZLAMALAR (more_invoice.js dagidek — IP blok bo'lmasligi uchun)
 // -------------------------------------------------------------
 const MAX_RETRIES = 4;                 // har bir so'rov uchun maksimal qayta urinish
-const DELAY_BETWEEN_REQUESTS = 2500;   // oddiy so'rovlar orasidagi pauza
-const BATCH_SIZE = 15;                 // har 15 ta kvitansiyadan keyin katta tanaffus
-const BATCH_PAUSE_MS = 15_000;         // katta tanaffus vaqti (15 soniya)
-const MAX_CAPTCHA_RETRY = 5;           // challenge kelsa skip qilib qayta analyze urinishlari
+const DELAY_BETWEEN_REQUESTS = 700;    // guruh ichida ketma-ket so'rovlar orasidagi qisqa pauza
+const CONCURRENCY = 3;                  // guruh ichida bir vaqtda nechta kvitansiya (tezlash)
+const BATCH_SIZE = 15;                  // har 15 ta kvitansiyadan keyin katta tanaffus
+const BATCH_PAUSE_MS = 15_000;          // katta tanaffus vaqti (15 soniya) — IP blok bo'lmasligi uchun
+const MAX_CAPTCHA_RETRY = 5;            // challenge kelsa skip qilib qayta analyze urinishlari
 const MAX_COUNT = 100;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -177,30 +178,57 @@ g.__invoiceRestBatches = batches;
 let seq = 0;
 function newId(): string { seq += 1; return `r${Date.now().toString(36)}_${seq}`; }
 
-export function getRestBatch(id: string): BatchProgress | null {
+export async function getRestBatch(id: string): Promise<BatchProgress | null> {
   const b = batches.get(id);
-  if (!b) return null;
-  const { firmId: _f, id: _i, ...progress } = b;
-  return progress;
+  if (b) {
+    const { firmId: _f, id: _i, ...progress } = b;
+    return progress;
+  }
+  // Xotirada yo'q (server qayta ishga tushgan) — bazadan tiklaymiz.
+  const row = await prisma.invoiceRestBatch.findUnique({
+    where: { id },
+    include: { records: { select: { invoiceNo: true, pdfPath: true, status: true } } },
+  });
+  if (!row) return null;
+  const items: BatchItem[] = row.records.map((r, i) => ({
+    index: i, status: r.status === 'FAILED' ? 'FAILED' : 'OK', invoiceNo: r.invoiceNo,
+  }));
+  return {
+    total: row.total, done: row.ok + row.failed, ok: row.ok, failed: row.failed,
+    current: row.total, phase: (row.phase as BatchProgress['phase']) ?? 'DONE', pauseLeftMs: 0, items,
+  };
 }
 
-/** batchdagi muvaffaqiyatli invoicelar (ZIP uchun). */
-export function getRestBatchPdfs(id: string): { invoiceNo: string }[] {
+/** batchdagi muvaffaqiyatli (PDF'li) invoicelar (ZIP uchun) — xotira yoki bazadan. */
+export async function getRestBatchPdfs(id: string): Promise<{ invoiceNo: string }[]> {
   const b = batches.get(id);
-  if (!b) return [];
-  return b.items.filter((it) => it.status === 'OK' && it.invoiceNo).map((it) => ({ invoiceNo: it.invoiceNo! }));
+  if (b) return b.items.filter((it) => it.status === 'OK' && it.invoiceNo).map((it) => ({ invoiceNo: it.invoiceNo! }));
+  const rows = await prisma.invoiceRecord.findMany({
+    where: { restBatchId: id, pdfPath: { not: null } }, select: { invoiceNo: true },
+  });
+  return rows.map((r) => ({ invoiceNo: r.invoiceNo }));
 }
 
-async function saveRecord(firmId: number, payload: RestPayload, invoiceNo: string, pdfPath: string | null) {
+async function saveRecord(batchId: string, firmId: number, payload: RestPayload, invoiceNo: string, pdfPath: string | null) {
   await prisma.invoiceRecord.upsert({
     where: { invoiceNo },
-    update: { pdfPath: pdfPath ?? undefined },
+    update: { pdfPath: pdfPath ?? undefined, restBatchId: batchId },
     create: {
-      invoiceNo, firmId, paymentType: 'Почта харажатлари', amount: payload.amount,
+      invoiceNo, firmId, restBatchId: batchId, paymentType: 'Почта харажатлари', amount: payload.amount,
       courtType: payload.courtType, courtRegion: '', court: payload.courtId,
       pdfPath: pdfPath ?? undefined, status: 'CREATED',
     },
   });
+}
+
+/** In-memory progress'ni bazaga sinxronlaydi (xato bo'lsa jarayonni to'xtatmaydi). */
+async function persistBatch(b: Batch): Promise<void> {
+  try {
+    await prisma.invoiceRestBatch.update({
+      where: { id: b.id },
+      data: { ok: b.ok, failed: b.failed, phase: b.phase },
+    });
+  } catch { /* baza yozuvi ixtiyoriy — progress xotirada davom etadi */ }
 }
 
 export interface StartRestInput { firmId: number; count: number; }
@@ -224,37 +252,55 @@ export async function startRestBatch(input: StartRestInput): Promise<{ batchId: 
     items: Array.from({ length: total }, (_, i) => ({ index: i, status: 'PENDING' as ItemStatus })),
   };
   batches.set(id, batch);
+  try {
+    await prisma.invoiceRestBatch.create({ data: { id, firmId: input.firmId, total, phase: 'RUNNING' } });
+  } catch { /* baza yozuvi ixtiyoriy */ }
+
+  // Bitta kvitansiyani to'liq ishlaydi (token → yaratish → PDF → saqlash).
+  async function processOne(idx: number): Promise<void> {
+    const item = batch.items[idx];
+    try {
+      const token = await getCaptchaToken();
+      const invoiceNo = await createInvoiceRest(token, payload);
+      let pdfPath: string | null = null;
+      try { pdfPath = await downloadInvoicePdf(invoiceNo); } catch { /* raqam saqlanadi, PDF ixtiyoriy */ }
+      await saveRecord(id, input.firmId, payload, invoiceNo, pdfPath);
+      item.status = 'OK'; item.invoiceNo = invoiceNo; batch.ok += 1;
+    } catch (e) {
+      item.status = 'FAILED'; item.message = e instanceof Error ? e.message : 'Xatolik'; batch.failed += 1;
+    }
+    batch.done += 1;
+  }
 
   void (async () => {
-    for (let i = 1; i <= total; i++) {
-      batch.current = i;
+    // Guruhlarga bo'lamiz: har guruh ichida CONCURRENCY ta parallel (tez), guruhlar
+    // orasida esa katta tanaffus (IP blok bo'lmasligi uchun) — «15 ta, 15s pauza».
+    for (let start = 0; start < total; start += BATCH_SIZE) {
       batch.phase = 'RUNNING';
-      const item = batch.items[i - 1];
-      try {
-        const token = await getCaptchaToken();
-        const invoiceNo = await createInvoiceRest(token, payload);
-        let pdfPath: string | null = null;
-        try { pdfPath = await downloadInvoicePdf(invoiceNo); } catch { /* raqam saqlanadi, PDF ixtiyoriy */ }
-        await saveRecord(input.firmId, payload, invoiceNo, pdfPath);
-        item.status = 'OK'; item.invoiceNo = invoiceNo; batch.ok += 1;
-      } catch (e) {
-        item.status = 'FAILED'; item.message = e instanceof Error ? e.message : 'Xatolik'; batch.failed += 1;
-      }
-      batch.done += 1;
+      const end = Math.min(start + BATCH_SIZE, total);
+      let pointer = start;
+      const worker = async () => {
+        while (pointer < end) {
+          const idx = pointer++;
+          batch.current = idx + 1;
+          await processOne(idx);
+          await persistBatch(batch);
+          if (pointer < end) await sleep(DELAY_BETWEEN_REQUESTS);
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, end - start) }, () => worker()));
 
-      if (i === total) break;
-      // Har BATCH_SIZE tadan keyin katta tanaffus, aks holda oddiy pauza.
-      if (i % BATCH_SIZE === 0) {
+      if (end < total) {
         batch.phase = 'PAUSING';
+        await persistBatch(batch);
         const until = Date.now() + BATCH_PAUSE_MS;
         while (Date.now() < until) { batch.pauseLeftMs = until - Date.now(); await sleep(500); }
         batch.pauseLeftMs = 0;
-      } else {
-        await sleep(DELAY_BETWEEN_REQUESTS);
       }
     }
     batch.phase = 'DONE';
     batch.current = total;
+    await persistBatch(batch);
   })();
 
   return { batchId: id, total };

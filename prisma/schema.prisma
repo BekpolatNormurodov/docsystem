@@ -33,6 +33,7 @@ model Firm {
   arizaCases  ArizaCase[]
   documents   FirmDocument[]
   batches     InvoiceBatch[]
+  restBatches InvoiceRestBatch[]
   updatedAt   DateTime @updatedAt
 }
 
@@ -135,6 +136,29 @@ model InvoiceRecord {
   pdfPath     String?
   status      String   @default("CREATED") // CREATED | FAILED
   createdAt   DateTime @default(now())
+
+  // Qaysi REST paketda yaratilganini bog'laydi (ixtiyoriy — eski yozuvlar null).
+  restBatchId String?
+  restBatch   InvoiceRestBatch? @relation(fields: [restBatchId], references: [id])
+
+  @@index([firmId])
+  @@index([restBatchId])
+}
+
+// «Firma uchun N ta kvitansiya avtomat yarat» REST paketining bitta ishga tushishi.
+// Jarayon fonda ishlaydi; bu yozuv progress + natijani bazada saqlaydi (server
+// qayta ishga tushsa ham tarix/ZIP yo'qolmaydi).
+model InvoiceRestBatch {
+  id        String          @id
+  firmId    Int
+  firm      Firm            @relation(fields: [firmId], references: [id])
+  total     Int
+  ok        Int             @default(0)
+  failed    Int             @default(0)
+  phase     String          @default("RUNNING") // RUNNING | PAUSING | DONE
+  records   InvoiceRecord[]
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
 
   @@index([firmId])
 }

@@ -10,10 +10,10 @@ export const runtime = 'nodejs';
 // GET — batchdagi barcha muvaffaqiyatli invoice PDF'larini bitta ZIP qilib beradi.
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   await requireAdmin();
-  const b = getRestBatch(params.id);
+  const b = await getRestBatch(params.id);
   if (!b) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
 
-  const pdfs = getRestBatchPdfs(params.id);
+  const pdfs = await getRestBatchPdfs(params.id);
   if (pdfs.length === 0) return NextResponse.json({ error: 'Yuklangan PDF yoʻq' }, { status: 404 });
 
   const zip = new JSZip();
