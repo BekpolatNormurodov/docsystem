@@ -3,7 +3,10 @@ import { ofertaFields } from './oferta-pdf';
 
 const D = (s: string) => new Date(s + 'T00:00:00Z');
 const loan = { ldId: '16455', summKr: 2_000_000, rate: 54, dateToCr: D('2026-04-13'), dateClose: D('2032-04-05') };
-const firm = { legalName: '«BRIGHT FUTURE FINANCING MIKROMOLIYA TASHKILOTI» MCHJ', shortName: 'BRIGHT', address: 'Toshkent', stir: '311 976 765', bankAccount: '20216000207212842001', mfo: '01183' };
+// `code` drives the per-firm oferta реквизит lookup (OFERTA_REQV) — BRIGHT = 12842. Without it the
+// reqvizit falls back to `address` ('Toshkent'), which is exactly the wrong template constant the
+// per-firm map exists to replace.
+const firm = { code: '12842', legalName: '«BRIGHT FUTURE FINANCING MIKROMOLIYA TASHKILOTI» MCHJ', shortName: 'BRIGHT', address: 'Toshkent', stir: '311 976 765', bankAccount: '20216000207212842001', mfo: '01183' };
 const digits = (s: string) => s.replace(/\D/g, ''); // strip nbsp groups, comma, «сўм» — keep the number
 
 describe('ofertaFields — per-loan oferta values', () => {
@@ -54,10 +57,11 @@ describe('ofertaFields — per-loan oferta values', () => {
     // Реквизит is the reference legal address + contact (shared across the affiliated MMTs).
     expect(f.firm_reqvizit).toContain('Гуручарик МФЙ');
     expect(f.firm_reqvizit).toContain('Контакт: 71-231-97-01');
-    // Account masked «first5…last3».
-    expect(f.ewallet_acc).toBe(' (14801…001)');
-    // No account in the row → empty (no dangling parens).
-    expect(ofertaFields(loan, firm, 'X', 'p', 0).ewallet_acc).toBe('');
+    // Электрон ҳамён is a FIXED reference constant — the real ofertas print «(22616…200)» for every
+    // client (a validated template value, NOT the portfolio account), so it's the same regardless of
+    // whether the row carries an account.
+    expect(f.ewallet_acc).toBe(' (22616…200)');
+    expect(ofertaFields(loan, firm, 'X', 'p', 0).ewallet_acc).toBe(' (22616…200)');
   });
 
   it('falls back to a 12-month term when a date is missing (no crash)', () => {
