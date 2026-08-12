@@ -3,7 +3,8 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import type { Firm } from '@prisma/client';
-import { Modal, TextField, RowAction, Ico } from '@/ui';
+import { Modal, TextField, Select, RowAction, Ico } from '@/ui';
+import { BILLING_REGIONS, BILLING_VILOYATS } from '@/core/billing-regions-data';
 
 type FirmFields = Record<
   | 'shortName' | 'legalName' | 'address' | 'bankAccount' | 'mfo' | 'stir' | 'postIndex' | 'phone'
@@ -63,6 +64,16 @@ function FirmForm({ firm, onClose }: { firm: Firm; onClose: () => void }) {
     return (v: string) => setFields((f) => ({ ...f, [key]: v }));
   }
 
+  // Viloyat o'zgarsa — tuman shu viloyatga tegishli bo'lmasa tozalanadi (kaskad).
+  function setRegion(v: string) {
+    setFields((f) => {
+      const tumans = BILLING_REGIONS[v] ?? [];
+      return { ...f, region: v, district: tumans.includes(f.district) ? f.district : '' };
+    });
+  }
+
+  const tumanOptions = (BILLING_REGIONS[fields.region] ?? []).map((t) => ({ value: t, label: t }));
+
   async function onSave() {
     setSaving(true);
     setError(null);
@@ -105,8 +116,20 @@ function FirmForm({ firm, onClose }: { firm: Firm; onClose: () => void }) {
         <TextField label="Qisqa nomi" value={fields.shortName} onChange={set('shortName')} className="sm:col-span-2" />
         <TextField label="Toʻliq yuridik nomi" value={fields.legalName} onChange={set('legalName')} className="sm:col-span-2" />
         <TextField label="Manzil" value={fields.address} onChange={set('address')} className="sm:col-span-2" />
-        <TextField label="Viloyat (billing)" value={fields.region} onChange={set('region')} />
-        <TextField label="Tuman (billing)" value={fields.district} onChange={set('district')} />
+        <Select
+          label="Viloyat (billing)"
+          value={fields.region}
+          onChange={setRegion}
+          placeholder="Viloyatni tanlang"
+          options={BILLING_VILOYATS.map((v) => ({ value: v, label: v }))}
+        />
+        <Select
+          label="Tuman (billing)"
+          value={fields.district}
+          onChange={set('district')}
+          placeholder={fields.region ? 'Tumanni tanlang' : 'Avval viloyatni tanlang'}
+          options={tumanOptions}
+        />
         <TextField label="Koʻcha/uy (billing manzil)" value={fields.addressLine} onChange={set('addressLine')} className="sm:col-span-2" />
         <TextField label="Hisob raqami (X/R)" value={fields.bankAccount} onChange={set('bankAccount')} />
         <TextField label="MFO" value={fields.mfo} onChange={set('mfo')} />
