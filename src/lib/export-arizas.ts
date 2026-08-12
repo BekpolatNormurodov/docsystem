@@ -79,6 +79,7 @@ export async function runExportJob(jobId: number, filters: ExportFilters): Promi
     let skip = 0;
     const usedNames = new Set<string>();
     let currentKey: string | null = null;
+    let noPinflSeq = 0; // identity-less loans must never merge (see the key build below)
     let group: Awaited<ReturnType<typeof prisma.loan.findMany>> = [];
 
     const flush = async () => {
@@ -94,6 +95,10 @@ export async function runExportJob(jobId: number, filters: ExportFilters): Promi
         stir: firmRow?.stir ?? null,
       };
       const props = loansToAriza(group, firm, settings, snapshot.reportDate);
+      // Debt gate — never emit a «0 soʻm» petition for a paid-off / zero-debt group
+      // (mirrors the single-ariza route and the packet builder). The optional minDebt
+      // filter above is a user threshold; this is the hard floor that always applies.
+      if (Number(props.debtTotal) <= 0) { group = []; return; }
       const buf = await buildArizaDocx(props);
       const name = uniqueZipPath(
         arizaZipPath(snapshot.reportDate, g0.clientName ?? '', g0.pinfl ?? '', firmRow?.shortName ?? g0.branchCode ?? ''),
@@ -119,7 +124,10 @@ export async function runExportJob(jobId: number, filters: ExportFilters): Promi
 
       for (const loan of loans) {
         if (allowedPinfls && (!loan.pinfl || !allowedPinfls.has(loan.pinfl))) continue;
-        const key = `${loan.pinfl}|${loan.branchCode}`;
+        // A null/blank PINFL must NOT group — else two different identity-less debtors
+        // at the same branch collapse into one petition (debts summed, one name).
+        const hasPinfl = loan.pinfl != null && String(loan.pinfl).trim() !== '';
+        const key = hasPinfl ? `${loan.pinfl}|${loan.branchCode}` : `__nopinfl_${noPinflSeq++}__`;
         if (key !== currentKey) {
           await flush();
           currentKey = key;

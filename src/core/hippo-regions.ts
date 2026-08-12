@@ -71,24 +71,30 @@ const AREA_OVERRIDES: Record<string, number> = {
   '4|ШАРОФРАШИДОВ': 48,    // Ш.Рашидов тумани
 };
 
-export function resolveAreaId(regionId: number, districtName: string): number {
-  if (!regionId) return 0;
+// How the area id was arrived at — so a GUESSED match (fuzzy/edit-distance) is no
+// longer indistinguishable from an exact one and can be surfaced for human review.
+export type AreaConfidence = 'none' | 'override' | 'exact' | 'exact-multi' | 'fuzzy';
+
+/** Resolve the area id AND report how confident the match is. `resolveAreaId` returns
+ *  only the id (unchanged behaviour); callers wanting to flag guesses use this. */
+export function resolveAreaMatch(regionId: number, districtName: string): { id: number; confidence: AreaConfidence } {
+  if (!regionId) return { id: 0, confidence: 'none' };
   const { core, shahar } = areaKey(districtName);
-  if (!core) return 0;
+  if (!core) return { id: 0, confidence: 'none' };
   const ov = AREA_OVERRIDES[`${regionId}|${core}`];
-  if (ov) return ov;
+  if (ov) return { id: ov, confidence: 'override' };
   const list = AREA_INDEX.get(regionId) ?? [];
   const exact = list.filter((x) => x.core === core);
-  if (exact.length === 1) return exact[0].area.id;
+  if (exact.length === 1) return { id: exact[0].area.id, confidence: 'exact' };
   if (exact.length > 1) {
     const byFlag = exact.find((x) => x.shahar === shahar);
-    return (byFlag ?? exact[0]).area.id;
+    return { id: (byFlag ?? exact[0]).area.id, confidence: 'exact-multi' };
   }
   // startsWith / contains fallback (handles minor spelling drift)
   const partial = list.filter((x) => x.core.startsWith(core) || core.startsWith(x.core) || x.core.includes(core) || core.includes(x.core));
   if (partial.length) {
     const byFlag = partial.find((x) => x.shahar === shahar);
-    return (byFlag ?? partial[0]).area.id;
+    return { id: (byFlag ?? partial[0]).area.id, confidence: 'fuzzy' };
   }
   // Bounded edit-distance nearest match within the region — catches Cyrillic
   // spelling drift (КУМКУРГОН↔Кумкурган, ТЕРМИЗ↔Термез, ЯНГИЙУЛ↔Янгиюл).
@@ -99,7 +105,11 @@ export function resolveAreaId(regionId: number, districtName: string): number {
     .map((x) => ({ id: x.area.id, d: editDistance(core, x.core), sameFlag: x.shahar === shahar }))
     .filter((x) => x.d <= maxAllowed)
     .sort((a, b) => a.d - b.d || Number(b.sameFlag) - Number(a.sameFlag));
-  return scored.length ? scored[0].id : 0;
+  return scored.length ? { id: scored[0].id, confidence: 'fuzzy' } : { id: 0, confidence: 'none' };
+}
+
+export function resolveAreaId(regionId: number, districtName: string): number {
+  return resolveAreaMatch(regionId, districtName).id;
 }
 
 function editDistance(a: string, b: string): number {
@@ -116,9 +126,15 @@ function editDistance(a: string, b: string): number {
   return prev[n];
 }
 
-export function resolveHippoRegionArea(regionName: string, districtName: string): { regionId: number; areaId: number } {
+export function resolveHippoRegionArea(regionName: string, districtName: string): { regionId: number; areaId: number; areaConfidence: AreaConfidence } {
   const regionId = resolveRegionId(regionName);
-  return { regionId, areaId: resolveAreaId(regionId, districtName) };
+  const { id: areaId, confidence: areaConfidence } = resolveAreaMatch(regionId, districtName);
+  // A fuzzy/edit-distance guess can route a talabnoma to the WRONG district court —
+  // leave an audit line so the operator can spot-check these before filing.
+  if (areaConfidence === 'fuzzy') {
+    console.warn(`resolveHippoRegionArea: FUZZY area match — "${districtName}" → "${areaName(areaId)}" (id ${areaId}); verify the court district.`);
+  }
+  return { regionId, areaId, areaConfidence };
 }
 
 const REGION_BY_ID = new Map(HIPPO_REGIONS.map((r) => [r.id, r.name]));

@@ -10,11 +10,12 @@ export const runtime = 'nodejs';
 export async function GET(req: NextRequest) {
   await requireAdmin();
   const caseId = Number(req.nextUrl.searchParams.get('caseId'));
-  if (!caseId) return NextResponse.json({ error: 'caseId kerak' }, { status: 400 });
+  // Integer guard: Infinity/floats are truthy and would 500 on Prisma's Int column.
+  if (!Number.isInteger(caseId) || caseId <= 0) return NextResponse.json({ error: 'caseId kerak' }, { status: 400 });
 
   const ac = await prisma.arizaCase.findUnique({
     where: { id: caseId },
-    select: { clientName: true, documents: { select: { kind: true, fileName: true, filePath: true } } },
+    select: { clientName: true, documents: { select: { id: true, kind: true, fileName: true, filePath: true } } },
   });
   if (!ac) return NextResponse.json({ error: 'Case topilmadi' }, { status: 404 });
   if (ac.documents.length === 0) return NextResponse.json({ error: 'Yuklangan hujjat yo‘q' }, { status: 404 });
@@ -23,7 +24,9 @@ export async function GET(req: NextRequest) {
   for (const d of ac.documents) {
     try {
       const buf = await fs.readFile(d.filePath);
-      zip.file(`${d.kind}__${d.fileName}`, buf);
+      // Prefix the unique doc id so two same-kind/same-name docs don't collide and
+      // silently drop one from the packet.
+      zip.file(`${d.id}_${d.kind}__${d.fileName}`, buf);
     } catch { /* skip missing file */ }
   }
   const out = await zip.generateAsync({ type: 'nodebuffer' });

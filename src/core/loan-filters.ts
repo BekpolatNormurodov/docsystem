@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 
 export interface LoanFilters {
   q?: string;
@@ -12,11 +12,17 @@ export interface LoanFilters {
 
 /** Parses a query-string-shaped record (e.g. Next's searchParams) into typed loan filters. */
 export function parseLoanFilters(sp: Record<string, string | undefined>): LoanFilters {
-  const page = Number(sp.page) || 1;
+  // Clamp to a positive integer — a negative/fractional page would make Prisma's
+  // skip invalid and crash the listing.
+  const rawPage = Math.floor(Number(sp.page));
+  const page = Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1;
+  // Only pass a finite, non-negative minDebt — an unparseable value must not reach
+  // Prisma as NaN (PrismaClientValidationError → page crash).
+  const md = sp.minDebt != null && sp.minDebt !== '' ? Number(sp.minDebt) : NaN;
   return {
     q: sp.q || undefined,
     branch: sp.branch || undefined,
-    minDebt: sp.minDebt ? Number(sp.minDebt) : undefined,
+    minDebt: Number.isFinite(md) && md >= 0 ? md : undefined,
     fromDate: sp.fromDate || undefined,
     page,
   };
@@ -34,9 +40,25 @@ export function buildLoanWhere(snapshotId: number, f: LoanFilters): Prisma.LoanW
   }
   if (f.branches && f.branches.length > 0) where.branchCode = { in: f.branches };
   else if (f.branch) where.branchCode = f.branch;
-  if (f.minDebt !== undefined) where.totalDebt = { gte: f.minDebt };
-  if (f.fromDate) where.dateToCr = { gte: new Date(f.fromDate) };
+  if (f.minDebt !== undefined && Number.isFinite(f.minDebt)) where.totalDebt = { gte: f.minDebt };
+  if (f.fromDate) {
+    const d = new Date(f.fromDate); // ignore an unparseable fromDate rather than crash Prisma
+    if (!Number.isNaN(d.getTime())) where.dateToCr = { gte: d };
+  }
   return where;
+}
+
+/** The same predicate as buildLoanWhere, as a raw SQL fragment — for a
+ *  COUNT(DISTINCT pinfl) that must NOT transfer ~51k rows to Node just to count
+ *  people. Keep in lockstep with buildLoanWhere above. */
+export function loanWhereSql(snapshotId: number, f: Omit<LoanFilters, 'page'>): Prisma.Sql {
+  const parts: Prisma.Sql[] = [Prisma.sql`snapshotId = ${snapshotId}`];
+  if (f.q) { const like = `%${f.q}%`; parts.push(Prisma.sql`(pinfl LIKE ${like} OR clientName LIKE ${like} OR ldId LIKE ${like})`); }
+  if (f.branches && f.branches.length > 0) parts.push(Prisma.sql`branchCode IN (${Prisma.join(f.branches)})`);
+  else if (f.branch) parts.push(Prisma.sql`branchCode = ${f.branch}`);
+  if (f.minDebt !== undefined && Number.isFinite(f.minDebt)) parts.push(Prisma.sql`totalDebt >= ${f.minDebt}`);
+  if (f.fromDate) { const d = new Date(f.fromDate); if (!Number.isNaN(d.getTime())) parts.push(Prisma.sql`dateToCr >= ${d}`); }
+  return Prisma.join(parts, ' AND ');
 }
 
 /** Builds a page href from a base path, the current filters, and a patch (e.g. changing page). */

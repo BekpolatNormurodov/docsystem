@@ -187,7 +187,9 @@ export const createRegistryExternal = (s: HippoSession, payload: CreateRegistryP
 const isNum = (v: any) => v != null && v !== '' && !isNaN(Number(v));
 // Vo(): light value normalize — dates -> YYYY-MM-DD, strip currency symbols.
 const normVal = (v: any) => {
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  // Format from LOCAL components — toISOString() is UTC and can shift the calendar
+  // day by one for cells ExcelJS returns with a non-zero offset (wrong date on the talabnoma).
+  if (v instanceof Date) return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
   const t = String(v ?? '');
   return /\d/.test(t) ? t.replace(/[$€£¥₽₩]/g, '').trim() : t;
 };

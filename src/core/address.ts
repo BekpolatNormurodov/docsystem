@@ -21,6 +21,7 @@ const REGION: Record<string, string> = {
   'НАВОИЙСКАЯ ОБЛАСТЬ': 'Navoiy viloyati',
   'ТАШКЕНТСКАЯ ОБЛАСТЬ': 'Toshkent viloyati',
   'КАШКАДАРЬИННСКАЯ ОБЛАСТЬ': 'Qashqadaryo viloyati',
+  'КАШКАДАРЬИНСКАЯ ОБЛАСТЬ': 'Qashqadaryo viloyati', // single-Н spelling (other data sources)
   'АНДИЖАНСКАЯ ОБЛАСТЬ': 'Andijon viloyati',
   'ФЕРГАНСКАЯ ОБЛАСТЬ': `Farg${OK}ona viloyati`,
   'СУРХАНДАРЬИНСКАЯ ОБЛАСТЬ': 'Surxondaryo viloyati',
@@ -115,8 +116,11 @@ export function cleanTail(post: string | null | undefined): string {
     // Drop country/region/city segments — they're authoritative from the structured fields. Covers the
     // no-RAYON cases (e.g. Karakalpakstan "RESPUBLIKA UZBEKISTAN, KARAKALPAKSTAN, GOROD NUKUS") and a
     // trailing city-repeat like "NAVOI SH." / "GOROD NAVOIY" (the shahri is already in the district).
-    // `\bSH\b` matches the "SH." abbreviation but not the locality type "SHFY" (no word boundary in SH+FY).
-    if (/\b(RESPUBLIKA|UZBEKISTAN|KARAKALPAKSTAN|OBLAST|GOROD|RAYON|RAION|SHAHRI|SHAHAR|SH)\b/.test(seg.toUpperCase())) continue;
+    const segU = seg.toUpperCase();
+    if (/\b(RESPUBLIKA|UZBEKISTAN|KARAKALPAKSTAN|OBLAST|GOROD|RAYON|RAION|SHAHRI|SHAHAR)\b/.test(segU)) continue;
+    // "SH"/"SH." only as a TRAILING city-repeat marker (e.g. "NAVOI SH.") — not a
+    // leading street initial like "SH. RUSTAVELI KUCHASI" (Shota Rustaveli st.).
+    if (/\bSH\.?$/.test(segU.trim())) continue;
     const toks = seg.split(/\s+/).filter(Boolean);
     const parts: string[] = [];
     for (let i = 0; i < toks.length; i++) {

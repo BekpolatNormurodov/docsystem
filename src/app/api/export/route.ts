@@ -23,6 +23,11 @@ export async function POST(req: NextRequest) {
   }
 
   const reportDate = new Date(`${date}T00:00:00.000Z`);
+  // Shape alone isn't enough: 2026-13-45 is an Invalid Date (→ Prisma 500) and
+  // 2026-02-30 rolls to Mar 1 (→ wrong snapshot). Reject both before the query.
+  if (Number.isNaN(reportDate.getTime()) || reportDate.toISOString().slice(0, 10) !== date) {
+    return NextResponse.json({ error: 'date notoʻgʻri (YYYY-MM-DD)' }, { status: 400 });
+  }
   const snapshot = await prisma.snapshot.findUnique({ where: { reportDate } });
   if (!snapshot) return NextResponse.json({ error: 'Bu sana uchun snapshot topilmadi' }, { status: 404 });
 

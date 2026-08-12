@@ -1,7 +1,8 @@
 // Konveyer pipeline aggregation: stage funnel + deadline stats per firm and
 // overall. The Konveyer dashboard reads these. Pure DB reads — no external calls.
+import { cache } from 'react';
 import { prisma } from './db';
-import type { CaseStage } from '@prisma/client';
+import { Prisma, type CaseStage } from '@prisma/client';
 import { dueForStage } from './konveyer-sla';
 
 // Ordered pipeline stages with Uzbek labels and a semantic color ramp key
@@ -59,8 +60,10 @@ export interface SnapshotOption {
   cases: number;
 }
 
-/** Snapshots that have konveyer cases, newest first, for the dashboard dropdown. */
-export async function konveyerSnapshots(): Promise<SnapshotOption[]> {
+/** Snapshots that have konveyer cases, newest first, for the dashboard dropdown.
+ *  Wrapped in React cache() so the layout's sidebar picker and the page that renders under it
+ *  share a single query per request instead of each firing their own. */
+export const konveyerSnapshots = cache(async (): Promise<SnapshotOption[]> => {
   const grouped = await prisma.arizaCase.groupBy({ by: ['snapshotId'], _count: { _all: true } });
   const ids = grouped.map((g) => g.snapshotId).filter((x): x is number => x != null);
   if (ids.length === 0) return [];
@@ -74,7 +77,25 @@ export async function konveyerSnapshots(): Promise<SnapshotOption[]> {
     .filter((g) => g.snapshotId != null)
     .map((g) => ({ id: g.snapshotId as number, label: byId.get(g.snapshotId as number) ? fmt(byId.get(g.snapshotId as number)!) : `#${g.snapshotId}`, cases: g._count._all }))
     .sort((a, b) => b.id - a.id);
-}
+});
+
+export interface StageBadges { phase: Record<string, number>; talabnoma: number; total: number }
+
+/** Lightweight per-phase case counts for the sidebar stepper badges — one groupBy + two counts,
+ *  far cheaper than the full konveyerSummary. Cached so the layout shares one hit per request. */
+export const konveyerStageBadges = cache(async (snapshotId?: number): Promise<StageBadges> => {
+  const scope = snapshotId ? { snapshotId } : {};
+  const [byStage, talabnoma, total] = await Promise.all([
+    prisma.arizaCase.groupBy({ by: ['stage'], where: scope, _count: { _all: true } }),
+    prisma.arizaCase.count({ where: { ...scope, talabnomaAt: { not: null } } }),
+    prisma.arizaCase.count({ where: scope }),
+  ]);
+  const byStageMap: Record<string, number> = {};
+  for (const g of byStage) byStageMap[g.stage] = g._count._all;
+  const phase: Record<string, number> = {};
+  for (const p of PHASES) phase[p.key] = p.stages.reduce((s, st) => s + (byStageMap[st] ?? 0), 0);
+  return { phase, talabnoma, total };
+});
 
 const TERMINAL: CaseStage[] = ['CLOSED'];
 
@@ -219,7 +240,16 @@ export async function konveyerSummary(snapshotId?: number): Promise<KonveyerSumm
 // (PINFL) counted ONCE, at their FURTHEST stage, so the steps partition the
 // 1054 persons and always sum to the total (everyone eventually flows to MIB).
 // Talabnoma is a PARALLEL branch (talabnomaAt) — reported alongside, NOT summed.
-const STAGE_RANK: Record<CaseStage, number> = Object.fromEntries(STAGES.map((s, i) => [s.key, i])) as Record<CaseStage, number>;
+// "Furthest stage" progression order. Mirrors the STAGES display order EXCEPT a court
+// ACCEPTANCE outranks a court RETURN (rejection): a person holding both must be shown as
+// «Sud qabul qildi», not «Sud qaytardi». konveyerPersons' SQL rankCase uses this SAME
+// array, so the JS and SQL primary-case picks stay in lockstep.
+export const STAGE_PROGRESSION: CaseStage[] = [
+  'IMPORTED', 'ARIZA_GENERATED', 'PRINTED', 'CHAMBER_SENT', 'CHAMBER_RETURNED', 'SIGNED_SCANNED',
+  'INVOICE_CREATED', 'INVOICE_PAID', 'COURT_SUBMITTED', 'COURT_RETURNED', 'COURT_ACCEPTED',
+  'MIB_SUBMITTED', 'CLOSED',
+];
+const STAGE_RANK: Record<CaseStage, number> = Object.fromEntries(STAGE_PROGRESSION.map((k, i) => [k, i])) as Record<CaseStage, number>;
 // Legacy/parallel-track stages not in the main STAGES list rank at IMPORTED level
 // (talabnoma is parallel; a case sitting there hasn't progressed the main track).
 const rankOf = (stage: CaseStage): number => STAGE_RANK[stage] ?? 0;
@@ -282,8 +312,17 @@ export async function konveyerFunnel(snapshotId?: number): Promise<KonveyerFunne
   return { total: prim.size, phases, talabnomaSent: talTotal, firms: firmsOut };
 }
 
+// Advancement transitions that must NOT follow the STAGES display order (which
+// also lists alternative court OUTCOMES). An accepted case goes to execution
+// (MIB), never to the "sud qaytardi" reject bucket that sits next to it.
+const NEXT_OVERRIDE: Partial<Record<CaseStage, CaseStage | null>> = {
+  COURT_ACCEPTED: 'MIB_SUBMITTED',
+  COURT_RETURNED: null, // rejected — no automatic forward step; operator decides
+};
+
 /** The stage that follows `stage` in the pipeline, or null at the end. */
 export function nextStage(stage: CaseStage): CaseStage | null {
+  if (stage in NEXT_OVERRIDE) return NEXT_OVERRIDE[stage] ?? null;
   const i = STAGES.findIndex((s) => s.key === stage);
   return i >= 0 && i < STAGES.length - 1 ? STAGES[i + 1].key : null;
 }
@@ -399,6 +438,90 @@ export async function konveyerCases(opts: {
   };
 }
 
+// ── MIB (ijro) enforcement pool ───────────────────────────────────────────
+// The cases the court ruled in OUR favor — COURT_ACCEPTED ("sud qabul qildi",
+// ready to hand to the bailiff) plus MIB_SUBMITTED (already in enforcement).
+// This is the pool the MIB monitoring pull runs over: for each, two MIB APIs
+// (qarzdorlik so'rovi + ijro monitoringi) are queried. The real APIs aren't
+// wired yet — the panel runs a clearly-labelled SIMULATION over this real pool.
+const MIB_ELIGIBLE_STAGES: CaseStage[] = ['COURT_ACCEPTED', 'MIB_SUBMITTED'];
+const MIB_CASE_CAP = 500; // cases[] payload cap; the counts/sum below stay full
+
+export interface MibCaseRow {
+  id: number;
+  firmId: number;
+  firmName: string;
+  clientName: string | null;
+  pinfl: string | null;
+  kod: string | null;
+  stage: CaseStage; // COURT_ACCEPTED | MIB_SUBMITTED
+  stageLabel: string;
+  totalDebt: string;
+  mibRef: string | null;
+}
+export interface MibPullData {
+  total: number;
+  accepted: number; // COURT_ACCEPTED — sud foydaga hal qildi, MIB'ga tayyor
+  atMib: number; // MIB_SUBMITTED — allaqachon ijroda
+  totalDebt: string;
+  byFirm: { firmId: number; firmName: string; count: number }[];
+  cases: MibCaseRow[];
+  capped: boolean; // cases[] kesildi (statistika to'liq); UI buni ko'rsatadi
+}
+
+/** Aggregate the MIB enforcement pool for a firm/snapshot: split by accepted vs
+ *  already-at-MIB, per-firm counts, summed debt, and the case list (capped) the
+ *  simulation streams over. Scoped like the rest of Boshqaruv. */
+export async function mibEligibleCases(opts: { firmId?: number; snapshotId?: number }): Promise<MibPullData> {
+  const where = {
+    stage: { in: MIB_ELIGIBLE_STAGES },
+    ...(opts.firmId ? { firmId: opts.firmId } : {}),
+    ...(opts.snapshotId ? { snapshotId: opts.snapshotId } : {}),
+  };
+  const [grouped, rows, firms] = await Promise.all([
+    prisma.arizaCase.groupBy({ by: ['firmId', 'stage'], where, _count: { _all: true }, _sum: { totalDebt: true } }),
+    prisma.arizaCase.findMany({
+      where,
+      orderBy: [{ totalDebt: 'desc' }, { id: 'asc' }],
+      take: MIB_CASE_CAP + 1, // +1 sentinel so we know the list was truncated
+      select: { id: true, firmId: true, clientName: true, pinfl: true, kod: true, stage: true, totalDebt: true, mibRef: true },
+    }),
+    prisma.firm.findMany({ select: { id: true, shortName: true } }),
+  ]);
+
+  const nameOf = new Map(firms.map((f) => [f.id, f.shortName]));
+  let accepted = 0;
+  let atMib = 0;
+  let totalDebtNum = 0;
+  const firmCount = new Map<number, number>();
+  for (const g of grouped) {
+    const c = g._count._all;
+    if (g.stage === 'COURT_ACCEPTED') accepted += c;
+    else if (g.stage === 'MIB_SUBMITTED') atMib += c;
+    totalDebtNum += Number(g._sum.totalDebt ?? 0);
+    firmCount.set(g.firmId, (firmCount.get(g.firmId) ?? 0) + c);
+  }
+  const byFirm = [...firmCount.entries()]
+    .map(([firmId, count]) => ({ firmId, firmName: nameOf.get(firmId) ?? `#${firmId}`, count }))
+    .sort((a, b) => b.count - a.count);
+
+  const capped = rows.length > MIB_CASE_CAP;
+  const cases: MibCaseRow[] = (capped ? rows.slice(0, MIB_CASE_CAP) : rows).map((r) => ({
+    id: r.id,
+    firmId: r.firmId,
+    firmName: nameOf.get(r.firmId) ?? '',
+    clientName: r.clientName,
+    pinfl: r.pinfl,
+    kod: r.kod,
+    stage: r.stage,
+    stageLabel: STAGE_LABEL[r.stage],
+    totalDebt: String(r.totalDebt),
+    mibRef: r.mibRef,
+  }));
+
+  return { total: accepted + atMib, accepted, atMib, totalDebt: String(totalDebtNum), byFirm, cases, capped };
+}
+
 export interface PersonCase {
   caseId: number;
   firmId: number;
@@ -423,12 +546,17 @@ export interface PersonRow {
 }
 
 /** People (grouped by PINFL) moving through the pipeline — one card per person,
- *  even when they have cases in 2-3 firms. Paged, searchable, stage-filtered. */
+ *  even when they have cases in 2-3 firms. Paged, searchable, stage-filtered.
+ *
+ *  Pagination happens in the DB: a window-function CTE picks each person's PRIMARY
+ *  case (furthest stage, tie → lower firmId), applies the filters, and returns only
+ *  ONE PAGE of PINFLs. We then load the full cases for just those people. So the
+ *  request materializes ~pageSize people, never the whole ArizaCase table. */
 export async function konveyerPersons(opts: {
   firmId?: number;
   snapshotId?: number;
   stages?: CaseStage[];
-  talabnoma?: boolean; // parallel talabnoma track (talabnomaAt set)
+  talabnoma?: boolean;
   q?: string;
   page?: number;
   pageSize?: number;
@@ -437,11 +565,75 @@ export async function konveyerPersons(opts: {
   const pageSize = Math.min(50, Math.max(1, opts.pageSize ?? 5));
   const q = opts.q?.trim().toLowerCase();
 
-  // Load every case in scope, group into persons, then filter on the SAME
-  // primary rule the funnel uses (furthest stage, tie → lower firmId) so the
-  // list count matches the rail/firm-card numbers exactly.
+  // This is a per-snapshot view. With no snapshot specified, pin to the latest READY
+  // one — otherwise a person's cases would load across EVERY snapshot (each sync
+  // writes an ArizaCase per pinfl+firm+snapshot), N×-inflating totalDebt and
+  // duplicating per-firm rows on the dashboard.
+  let snapshotId = opts.snapshotId;
+  if (snapshotId == null) {
+    const latest = await prisma.snapshot.findFirst({ where: { status: 'READY' }, orderBy: { reportDate: 'desc' }, select: { id: true } });
+    snapshotId = latest?.id;
+  }
+
+  // SQL fragments mirroring rankOf()/normStage(): stage → rank index, and the
+  // legacy-stage normalization (non-main → IMPORTED).
+  const mainKeys = STAGES.map((s) => s.key);
+  // Same progression as the JS rankOf() (ACCEPTED > RETURNED) so the SQL primary-case
+  // pick matches konveyerFunnel exactly.
+  const rankCase = Prisma.sql`CASE stage ${Prisma.join(STAGE_PROGRESSION.map((k, i) => Prisma.sql`WHEN ${k} THEN ${i}`), ' ')} ELSE 0 END`;
+  const normCase = Prisma.sql`CASE WHEN stage IN (${Prisma.join(mainKeys)}) THEN stage ELSE ${'IMPORTED'} END`;
+  const snapCond = snapshotId ? Prisma.sql`AND snapshotId = ${snapshotId}` : Prisma.empty;
+
+  const conds: Prisma.Sql[] = [];
+  if (opts.firmId) conds.push(Prisma.sql`primFirmId = ${opts.firmId}`);
+  if (opts.stages && opts.stages.length) conds.push(Prisma.sql`primStage IN (${Prisma.join(opts.stages)})`);
+  if (opts.talabnoma) conds.push(Prisma.sql`hasTal = 1`);
+  if (q) { const like = `%${q}%`; conds.push(Prisma.sql`(LOWER(clientName) LIKE ${like} OR LOWER(kod) LIKE ${like} OR pinfl LIKE ${like})`); }
+  const whereSql = conds.length ? Prisma.sql`WHERE ${Prisma.join(conds, ` AND `)}` : Prisma.empty;
+
+  // Shared CTE: one row per person with the primary-case fields + the search fields
+  // (clientName/kod taken from the earliest case, matching the legacy behavior).
+  const cte = Prisma.sql`
+    WITH scoped AS (
+      SELECT id, pinfl, clientName, kod, firmId, stage, talabnomaAt,
+             ${rankCase} AS rnk, ${normCase} AS ns
+      FROM ArizaCase WHERE pinfl IS NOT NULL ${snapCond}
+    ),
+    ranked AS (
+      SELECT id, pinfl, clientName, kod, firmId, stage, talabnomaAt, ns,
+             ROW_NUMBER() OVER (PARTITION BY pinfl ORDER BY rnk DESC, firmId ASC) AS rnStage,
+             ROW_NUMBER() OVER (PARTITION BY pinfl ORDER BY id ASC) AS rnFirst
+      FROM scoped
+    ),
+    person AS (
+      SELECT pinfl,
+             MAX(CASE WHEN rnStage = 1 THEN firmId END) AS primFirmId,
+             MAX(CASE WHEN rnStage = 1 THEN ns END) AS primStage,
+             MAX(CASE WHEN rnFirst = 1 THEN clientName END) AS clientName,
+             MAX(CASE WHEN rnFirst = 1 THEN kod END) AS kod,
+             MAX(talabnomaAt IS NOT NULL OR stage = 'TALABNOMA_SENT') AS hasTal
+      FROM ranked GROUP BY pinfl
+    )`;
+
+  // One CTE pass: COUNT(*) OVER() returns the full filtered total alongside the page.
+  const pageRows = await prisma.$queryRaw<{ pinfl: string; total: bigint }[]>`
+    ${cte} SELECT pinfl, COUNT(*) OVER() AS total FROM person ${whereSql} ORDER BY pinfl LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
+  let total = pageRows.length ? Number(pageRows[0].total) : 0;
+  // Empty page (offset past the end) → COUNT(*) OVER() has no row to carry the
+  // total, so fetch it directly for correct pagination metadata.
+  if (pageRows.length === 0) {
+    const c = await prisma.$queryRaw<{ n: bigint }[]>`${cte} SELECT COUNT(*) AS n FROM person ${whereSql}`;
+    total = Number(c[0]?.n ?? 0);
+  }
+  const pinfls = pageRows.map((r) => r.pinfl);
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  if (pinfls.length === 0) return { persons: [], total, page, pageSize, pages };
+
+  // Load full cases ONLY for this page's people, then build the rows (same
+  // aggregation as before). orderBy id so the display/search name is stable.
   const rows = await prisma.arizaCase.findMany({
-    where: { pinfl: { not: null }, ...(opts.snapshotId ? { snapshotId: opts.snapshotId } : {}) },
+    where: { pinfl: { in: pinfls }, ...(snapshotId ? { snapshotId } : {}) },
+    orderBy: { id: 'asc' },
     select: { id: true, pinfl: true, clientName: true, kod: true, firmId: true, stage: true, dueAt: true, totalDebt: true, receiptNumber: true, talabnomaAt: true, firm: { select: { shortName: true } } },
   });
 
@@ -460,43 +652,16 @@ export async function konveyerPersons(opts: {
     if (p) p.cases.push(pc);
     else byPinfl.set(r.pinfl, { pinfl: r.pinfl, clientName: r.clientName, kod: r.kod, cases: [pc], firmCount: 0, totalDebt: '0', minDaysLeft: null, hasInvoice: false });
   }
-
-  // Derive per-person fields + the primary case (furthest stage, tie → lower firmId).
-  interface Scored { p: PersonRow; primStage: CaseStage; primFirmId: number; hasTal: boolean }
-  const scored: Scored[] = [];
   for (const p of byPinfl.values()) {
     p.firmCount = new Set(p.cases.map((c) => c.firmId)).size;
     p.totalDebt = String(p.cases.reduce((s, c) => s + Number(c.totalDebt), 0));
     const days = p.cases.map((c) => c.daysLeft).filter((d): d is number => d != null);
     p.minDaysLeft = days.length ? Math.min(...days) : null;
     p.hasInvoice = p.cases.some((c) => !!c.receiptNumber);
-    let best = p.cases[0];
-    for (const c of p.cases) {
-      const cr = rankOf(c.stage), br = rankOf(best.stage);
-      if (cr > br || (cr === br && c.firmId < best.firmId)) best = c;
-    }
-    // Normalize so the phase filter (which uses main stages) matches the funnel's
-    // bucket; hasTal also honours the legacy TALABNOMA_SENT stage.
-    scored.push({ p, primStage: normStage(best.stage), primFirmId: best.firmId, hasTal: p.cases.some((c) => c.talabnomaSent || c.stage === 'TALABNOMA_SENT') });
   }
-
-  let filtered = scored;
-  if (opts.firmId) filtered = filtered.filter((s) => s.primFirmId === opts.firmId);
-  if (opts.stages && opts.stages.length) filtered = filtered.filter((s) => opts.stages!.includes(s.primStage));
-  if (opts.talabnoma) filtered = filtered.filter((s) => s.hasTal);
-  if (q) filtered = filtered.filter((s) => (s.p.clientName?.toLowerCase().includes(q)) || (s.p.kod?.toLowerCase().includes(q)) || s.p.pinfl.toLowerCase().includes(q));
-  filtered.sort((a, b) => a.p.pinfl.localeCompare(b.p.pinfl));
-
-  const total = filtered.length;
-  const persons = filtered.slice((page - 1) * pageSize, page * pageSize).map((s) => s.p);
-  return { persons, total, page, pageSize, pages: Math.max(1, Math.ceil(total / pageSize)) };
-}
-
-/** Add `days` calendar days (simple SLA clock; working-day math can refine later). */
-function addDays(d: Date, days: number): Date {
-  const r = new Date(d);
-  r.setDate(r.getDate() + days);
-  return r;
+  // Preserve the DB page order (by pinfl).
+  const persons = pinfls.map((pf) => byPinfl.get(pf)).filter((p): p is PersonRow => !!p);
+  return { persons, total, page, pageSize, pages };
 }
 
 export interface SyncResult {
@@ -545,11 +710,14 @@ export async function syncCasesFromSnapshot(snapshotId?: number): Promise<SyncRe
   const have = new Set(existing.map((e) => `${e.pinfl}::${e.firmId}`));
 
   const now = new Date();
-  const due = addDays(now, 3);
+  // IMPORTED is the PREP phase, whose SLA is 0 (no timer). Hardcoding a 3-CALENDAR-day
+  // dueAt made fresh imports falsely count as overdue («osilgan») on day 4 and inflated
+  // the KPI. Derive the deadline from the SLA config instead → null while PREP stays 0.
+  const due = await dueForStage('IMPORTED', now);
   const unmatched = new Set<string>();
   const rows: {
     firmId: number; snapshotId: number; pinfl: string; clientName: string;
-    kod: string; stage: 'IMPORTED'; slaDays: number; dueAt: Date; totalDebt: number;
+    kod: string; stage: 'IMPORTED'; slaDays: number; dueAt: Date | null; totalDebt: number;
   }[] = [];
 
   let skipped = 0;
@@ -559,11 +727,16 @@ export async function syncCasesFromSnapshot(snapshotId?: number): Promise<SyncRe
     if (have.has(`${c.pinfl}::${firmId}`)) { skipped++; continue; }
     rows.push({
       firmId, snapshotId: snap.id, pinfl: c.pinfl, clientName: c.name,
-      kod: c.code, stage: 'IMPORTED', slaDays: 3, dueAt: due, totalDebt: c.debt,
+      kod: c.code, stage: 'IMPORTED', slaDays: 0, dueAt: due, totalDebt: c.debt,
     });
   }
 
-  if (rows.length) await prisma.arizaCase.createMany({ data: rows });
+  // skipDuplicates + the @@unique([snapshotId, pinfl, firmId]) constraint make the
+  // DB (not the in-memory `have` set) the source of truth, so a concurrent/double
+  // sync can't insert duplicate cases for the same person+firm+snapshot.
+  // Report the DB's actual insert count, not rows.length — skipDuplicates may drop
+  // a concurrent-race row, and reporting rows.length would overstate what was created.
+  const createdRes = rows.length ? await prisma.arizaCase.createMany({ data: rows, skipDuplicates: true }) : { count: 0 };
 
-  return { snapshotId: snap.id, created: rows.length, skipped, unmatchedFirms: [...unmatched] };
+  return { snapshotId: snap.id, created: createdRes.count, skipped, unmatchedFirms: [...unmatched] };
 }

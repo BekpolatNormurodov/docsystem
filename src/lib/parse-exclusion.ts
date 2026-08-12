@@ -18,13 +18,24 @@ export async function parseExclusionPinfls(filePath: string): Promise<Set<string
 
   worksheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return; // header
-    const value = row.getCell(1).value;
-    if (value === null || value === undefined) return;
-    const str = String(value).trim();
+    const str = cellStr(row.getCell(1)).trim();
     if (str) pinfls.add(str);
   });
 
   return pinfls;
+}
+
+/** Read an exceljs cell as text, unwrapping rich-text/formula/hyperlink objects.
+ *  Plain String(cell.value) yields "[object Object]" for those, which would drop
+ *  a real PINFL from the exclusion set and get an excluded client sued. */
+function cellStr(cell: Excel.Cell): string {
+  const v = cell.value as any;
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (Array.isArray(v.richText)) return v.richText.map((r: any) => r.text ?? '').join('');
+  if (v.text != null) return String(v.text);     // hyperlink cell
+  if (v.result != null) return String(v.result); // formula cell
+  return cell.text ?? '';                          // last resort (Date, etc.)
 }
 
 function pickWorksheet(workbook: Excel.Workbook): Excel.Worksheet | undefined {

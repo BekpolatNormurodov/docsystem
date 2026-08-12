@@ -5,7 +5,24 @@ import { prisma } from './db';
 import type { CaseStage } from '@prisma/client';
 import { dueForStage } from './konveyer-sla';
 
-export const BOJI_AMOUNT = 20600;
+// Davlat-boji amount (soʻm). Editable in Sozlamalar and stored as a Setting; this
+// is only the fallback default when nothing is saved.
+export const BOJI_AMOUNT_DEFAULT = 20600;
+const BOJI_KEY = 'boji_amount';
+
+/** Current davlat-boji amount — the saved Setting, or the default. */
+export async function getBojiAmount(): Promise<number> {
+  const row = await prisma.setting.findUnique({ where: { key: BOJI_KEY } });
+  const n = row ? Number(row.value) : NaN;
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : BOJI_AMOUNT_DEFAULT;
+}
+
+/** Save the davlat-boji amount (soʻm). Clamped to a sane non-negative integer. */
+export async function setBojiAmount(amount: number): Promise<void> {
+  const clean = Math.max(0, Math.min(100_000_000, Math.round(Number(amount) || 0)));
+  await prisma.setting.upsert({ where: { key: BOJI_KEY }, create: { key: BOJI_KEY, value: String(clean) }, update: { value: String(clean) } });
+}
+
 // Postal fee (farmoyish «Почта харажати») — a semantically DISTINCT fee that
 // happens to equal the boji today. Kept separate so changing one never silently
 // moves the other.

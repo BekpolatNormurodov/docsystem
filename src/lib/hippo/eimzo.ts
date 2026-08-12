@@ -113,13 +113,26 @@ export async function pickKey(selector?: string): Promise<CertKey> {
     if (!k) throw new Error('No BRIGHT key found in DSKEYS');
     return k;
   }
+  const sDigits = selector.replace(/\D/g, '');
+  // A STIR/INN selector (7+ digits) matches the certificate's OWN tin (OID 1.2.860.3.16.1.1) —
+  // NEVER an array index. Firm connect passes the firm's bare-digit STIR, so this MUST run BEFORE
+  // the numeric-index branch, or "311976765" is read as keys[311976765] and every connect fails.
+  if (sDigits.length >= 7) {
+    const byTin = keys.find((k) => (k.info.tin || '').replace(/\D/g, '') === sDigits);
+    if (byTin) return byTin;
+    throw new Error(`No key with STIR "${selector}"`);
+  }
   if (/^\d+$/.test(selector)) {
     const k = keys[Number(selector)];
     if (!k) throw new Error(`No key at index ${selector}`);
     return k;
   }
   const s = selector.toLowerCase();
-  const k = keys.find((k) => (k.info.cn || '').toLowerCase().includes(s) || k.name.toLowerCase().includes(s));
+  const k = keys.find((k) =>
+    (k.info.cn || '').toLowerCase().includes(s) ||
+    (k.info.org || '').toLowerCase().includes(s) ||
+    k.name.toLowerCase().includes(s),
+  );
   if (!k) throw new Error(`No key matching "${selector}"`);
   return k;
 }

@@ -12,7 +12,9 @@ export const runtime = 'nodejs';
 export async function GET(req: NextRequest) {
   await requireAdmin();
   const caseId = Number(req.nextUrl.searchParams.get('caseId'));
-  if (!caseId) return NextResponse.json({ error: 'caseId kerak' }, { status: 400 });
+  // Integer guard: a float/Infinity caseId is truthy and would hit Prisma's Int
+  // column ABOVE the try below → uncaught 500 instead of a clean 400.
+  if (!Number.isInteger(caseId) || caseId <= 0) return NextResponse.json({ error: 'caseId kerak' }, { status: 400 });
 
   const ac = await prisma.arizaCase.findUnique({
     where: { id: caseId },
@@ -43,6 +45,8 @@ export async function GET(req: NextRequest) {
   let buffer: Awaited<ReturnType<typeof buildArizaDocx>>;
   try {
     const props = loansToAriza(groupLoans, arizaFirm, settings, reportDate);
+    // A ≤ 0 demand is a void petition («0 soʻm undirish») — refuse to generate it.
+    if (Number(props.debtTotal) <= 0) return NextResponse.json({ error: 'Qarzdorlik 0 — ariza yaratilmaydi' }, { status: 422 });
     buffer = await buildArizaDocx({ ...props });
   } catch (e) {
     console.error('gen-ariza failed', e);

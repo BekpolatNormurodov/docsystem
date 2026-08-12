@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { Dropdown } from './Dropdown';
 import { AdvanceControls, type Transition } from './AdvanceControls';
 import { CaseList } from './CaseList';
-import { PalataPanel } from './PalataPanel';
+import { PalataScanPanel } from './PalataScanPanel';
 import { PacketBulk } from './PacketBulk';
 import { BuxgalterPanel } from './BuxgalterPanel';
 import { HippoStatusPanel } from './HippoStatusPanel';
@@ -141,7 +141,7 @@ export function Explorer({ phases, stages, firms, funnel, snapshotId }: {
       </div>
 
       {phaseKey === 'BOJ' && <BuxgalterPanel snapshotId={snapshotId} firmId={firmId ?? undefined} />}
-      {phaseKey === 'SIGN' && <PalataPanel />}
+      {phaseKey === 'SIGN' && <PalataScanPanel />}
       {phaseKey === 'TALABNOMA' && <HippoStatusPanel firmId={firmId ?? undefined} />}
 
       {/* per-firm statistics for the chosen station (all-firms mode) */}

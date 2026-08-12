@@ -9,7 +9,9 @@ export const runtime = 'nodejs';
 export async function GET(_req: NextRequest, { params }: { params: { jobId: string } }) {
   await requireAdmin();
 
-  const job = await prisma.job.findUnique({ where: { id: Number(params.jobId) } });
+  const id = Number(params.jobId);
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
+  const job = await prisma.job.findUnique({ where: { id } });
   if (!job) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
 
   return NextResponse.json({
@@ -25,7 +27,9 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
 export async function DELETE(_req: NextRequest, { params }: { params: { jobId: string } }) {
   await requireAdmin();
 
-  const job = await prisma.job.findUnique({ where: { id: Number(params.jobId) } });
+  const id = Number(params.jobId);
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
+  const job = await prisma.job.findUnique({ where: { id } });
   if (!job) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
 
   if (job.resultPath) {

@@ -9,7 +9,14 @@ export const runtime = 'nodejs';
 export async function POST(req: NextRequest) {
   await requireAdmin();
   const body = await req.json().catch(() => ({}));
-  const snapshotId = body?.snapshotId ? Number(body.snapshotId) : undefined;
+  // A malformed snapshotId must 400, not silently coerce to NaN (falsy) and sync
+  // the LATEST snapshot instead of the requested one.
+  let snapshotId: number | undefined;
+  if (body?.snapshotId != null && body.snapshotId !== '') {
+    const n = Number(body.snapshotId);
+    if (!Number.isInteger(n) || n <= 0) return NextResponse.json({ error: 'snapshotId notoʻgʻri' }, { status: 400 });
+    snapshotId = n;
+  }
   try {
     const result = await syncCasesFromSnapshot(snapshotId);
     return NextResponse.json(result);

@@ -48,9 +48,29 @@ export interface CabinetSession {
   raw: { code: string; state: string; callbackUrl?: string };
 }
 
+// Hard per-call timeout. Without it a slow/unreachable egov or cabinet endpoint hangs the whole
+// connect forever (the E-IMZO dialog is step 3, so steps 1-2 stalling means no dialog ever shows —
+// the UI just spins). Turn that into a clear "which host didn't answer" error instead. Keeps the
+// caller's redirect mode: jfetch needs 'manual' to read the 307 token_id; step 6 needs follow.
+const ONEID_TIMEOUT_MS = 30_000;
+
+async function fetchT(url: string, init: RequestInit = {}): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ONEID_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } catch (e) {
+    const host = (() => { try { return new URL(url).host; } catch { return url; } })();
+    if ((e as { name?: string })?.name === 'AbortError') throw new Error(`${host} javob bermadi (${ONEID_TIMEOUT_MS / 1000}s timeout)`);
+    throw new Error(`${host} ulanib boʻlmadi: ${(e as Error).message}`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function jfetch(jar: CookieJar, url: string, init: RequestInit = {}) {
   const cookie = jar.header(url);
-  const res = await fetch(url, {
+  const res = await fetchT(url, {
     ...init,
     redirect: 'manual',
     headers: { accept: 'application/json', ...(cookie ? { cookie } : {}), ...(init.headers || {}) },
@@ -76,15 +96,17 @@ export async function loginToCabinet(
   if (!tokenId) throw new Error(`token_id not minted (http ${authRes.status}, location=${loc})`);
 
   // 2. challenge
-  const chJson: any = await (await jfetch(jar, `${ONEID.api}${ENDPOINTS.challenge}`)).json();
+  const chRes = await jfetch(jar, `${ONEID.api}${ENDPOINTS.challenge}`);
+  const chJson: any = await chRes.json().catch(() => ({})); // degraded gateway may return HTML, not JSON
   const challenge = chJson?.challenge;
-  if (!challenge) throw new Error(`no challenge: ${JSON.stringify(chJson)}`);
+  if (!challenge) throw new Error(`no challenge (http ${chRes.status}): ${JSON.stringify(chJson).slice(0, 200)}`);
 
   // 3. sign the challenge (native password dialog pops up here). detached "no".
   const key = await pickKey(selector);
   const { keyId } = await Eimzo.loadKey(key.disk, key.path, key.name, key.alias);
   const { pkcs7_64 } = await Eimzo.createPkcs7(keyId, challenge, 'no');
-  if (process.env.DEBUG) console.error(`[dbg] key=${key.info.cn} tin=${key.info.tin} pinfl=${key.info.pinfl} | challenge=${challenge} | pkcs len=${pkcs7_64?.length}`);
+  // Don't log the signer's STIR/JShShIR (PII) — only the CN + signature length.
+  if (process.env.DEBUG) console.error(`[dbg] key=${key.info.cn} | challenge set | pkcs len=${pkcs7_64?.length}`);
 
   // 4. login with pkcs7
   const loginJson: any = await (await jfetch(jar, `${ONEID.api}${ENDPOINTS.login}`, {
@@ -112,8 +134,8 @@ export async function loginToCabinet(
   const code = genJson?.code, gstate = genJson?.state ?? state, callbackUrl = genJson?.callbackUrl;
   if (!code) throw new Error(`sso generate failed: ${JSON.stringify(genJson).slice(0, 200)}`);
 
-  // 6. exchange code for the cabinet session token
-  const valRes = await fetch(`${CABINET.base_url}${ENDPOINTS.validateCode}`, {
+  // 6. exchange code for the cabinet session token (fetchT = same timeout guard, default redirect)
+  const valRes = await fetchT(`${CABINET.base_url}${ENDPOINTS.validateCode}`, {
     method: 'POST',
     headers: { accept: 'application/json', 'Content-Type': 'application/json' },
     body: JSON.stringify({ code }),

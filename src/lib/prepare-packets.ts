@@ -1,0 +1,446 @@
+// Background "Tayyorlash": generate the FULL court packet (Talabnoma xlsx+pdf,
+// Ariza, Grafik, Invoice, firm docs, uploads) for EVERY case in scope and stream
+// them into one ZIP (a folder per person) at exports/{jobId}.zip. Fire-and-forget
+// from the route — progress/state live on the Job row, so the operator presses
+// «Tayyorlash» once instead of generating case-by-case.
+import fs from 'node:fs';
+import fsp from 'node:fs/promises';
+import path from 'node:path';
+import { once } from 'node:events';
+import archiver from 'archiver';
+import type { Browser } from 'playwright';
+import type { CaseStage } from '@prisma/client';
+import { prisma } from './db';
+import { buildCasePacket, buildCaseOfertas, markPacketGenerated, firmLibraryFiles } from './konveyer-packet';
+import { renderOfertaPdf } from './oferta-pdf';
+import { loadTalabnomaRowsForScope, type TalabnomaScope } from './hippo/talabnoma-bulk';
+import { renderTalabnomaPdf } from './hippo/talabnoma-pdf';
+import { talabnomaExcelBuffer } from './hippo/talabnoma-excel';
+
+const EXPORTS_DIR = path.join(process.cwd(), 'exports');
+
+export interface PacketJobOpts {
+  snapshotId?: number;
+  firmId?: number;
+  stages?: CaseStage[];
+  talabnomaPdf?: boolean; // include the (slow) rendered talabnoma PDF
+}
+
+/** Runs a bulk packet job to completion. Never throws — failures are recorded on
+ *  the Job row so the fire-and-forget caller needs no catch. */
+export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<void> {
+  await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING' } });
+  const withPdf = opts.talabnomaPdf !== false;
+  let browser: Browser | null = null;
+  let output: fs.WriteStream | null = null;
+  try {
+    const rows = await prisma.arizaCase.findMany({
+      where: {
+        ...(opts.snapshotId ? { snapshotId: opts.snapshotId } : {}),
+        ...(opts.firmId ? { firmId: opts.firmId } : {}),
+        ...(opts.stages && opts.stages.length ? { stage: { in: opts.stages } } : {}),
+      },
+      select: { id: true },
+      orderBy: { id: 'asc' },
+    });
+    const caseIds = rows.map((r) => r.id);
+
+    await fsp.mkdir(EXPORTS_DIR, { recursive: true });
+    const zipPath = path.join(EXPORTS_DIR, `${jobId}.zip`);
+    output = fs.createWriteStream(zipPath);
+    const out = output; // non-null local
+    // store: true → no DEFLATE. Every payload here (chromium PDFs, xlsx, docx) is already
+    // compressed, so deflating them again is pure CPU waste that competes with the parallel
+    // renders for cores. Storing keeps the ZIP ~the same size and frees CPU for rendering.
+    const archive = archiver('zip', { store: true });
+    // A fatal destination error (ENOSPC/EBUSY) is captured out-of-band so the append
+    // loop can abort at the next iteration instead of feeding a dead sink (which would
+    // make archiver buffer every remaining entry in memory → OOM, leaving Job stuck RUNNING).
+    let streamErr: Error | null = null;
+    const closed = new Promise<void>((resolve, reject) => {
+      out.on('close', resolve);
+      out.on('error', (e) => { streamErr = e; reject(e); });
+      archive.on('error', (e) => { streamErr = e; reject(e); });
+    });
+    // A stream error can reject `closed` on a teardown path that never awaits it (an early throw
+    // jumps past `await closed`) → an unhandledRejection that crashes the process. A no-op handler
+    // makes the rejection always-handled; the real `await closed` still surfaces it on the happy path.
+    closed.catch(() => {});
+    archive.pipe(out);
+
+    // Chromium is only needed for the OPTIONAL talabnoma PDF — a launch failure must
+    // NOT discard the whole batch; the other documents need no browser.
+    if (withPdf) {
+      try { const { chromium } = await import('playwright'); browser = await chromium.launch({ headless: true }); }
+      catch (e) { console.error('prepare-packets: chromium launch failed — continuing without PDF', e); browser = null; }
+    }
+
+    const usedFolders = new Set<string>();
+    const toMark: { id: number; talabnomaMade: boolean; arizaMade: boolean }[] = [];
+    // Firm library docs are identical for every client of a firm, so collect the
+    // firms seen and add each firm's docs ONCE (to `_FIRMA/<firm>/`) after the loop —
+    // instead of duplicating multi-MB scans into all thousands of client folders.
+    const firmsSeen = new Map<number, string>();
+    let done = 0;
+    // Chromium PDF rendering (talabnoma + per-loan oferta) dominates the wall clock, so
+    // BUILD cases in concurrent batches — up to CONCURRENCY buildCasePacket calls in
+    // flight, each holding at most one chromium page → ≤CONCURRENCY pages open at once.
+    // The ZIP APPEND stays single-threaded per batch (archiver is not concurrency-safe and
+    // the entry order must be deterministic). ~CONCURRENCY× faster with flat memory.
+    const CONCURRENCY = 5;
+    for (let i = 0; i < caseIds.length; i += CONCURRENCY) {
+      if (streamErr) throw streamErr; // sink died (disk full/locked) → abort before spawning more work
+      const batch = caseIds.slice(i, i + CONCURRENCY);
+      // Only a per-CASE failure (bad data, doc build) is swallowed here; a sink error is not.
+      const packets = await Promise.all(
+        batch.map((id) =>
+          buildCasePacket(id, { browser: browser ?? undefined, talabnomaPdf: withPdf, includeFirmDocs: false })
+            .catch(() => null), // skip a failed case, keep the rest of the batch
+        ),
+      );
+      for (let k = 0; k < packets.length; k++) {
+        if (streamErr) throw streamErr;
+        const id = batch[k];
+        const p = packets[k];
+        if (p && p.files.length) {
+          let folder = p.folder;
+          for (let j = 2; usedFolders.has(folder); j++) folder = `${p.folder} (${j})`;
+          usedFolders.add(folder);
+          for (const f of p.files) archive.append(f.buf, { name: `${folder}/${f.name}` });
+          if (p.firmId != null && !firmsSeen.has(p.firmId)) firmsSeen.set(p.firmId, p.firmName || `firma-${p.firmId}`);
+          // Backpressure → memory stays flat at any scale. Outside the per-case catch so a
+          // sink error rejecting here propagates to the outer catch (clean FAILED), not swallowed.
+          if (out.writableNeedDrain) await once(out, 'drain');
+          toMark.push({ id, talabnomaMade: p.talabnomaMade, arizaMade: p.arizaMade });
+        }
+        done += 1;
+      }
+      await prisma.job.updateMany({ where: { id: jobId }, data: { progress: done } }).catch(() => {});
+    }
+
+    // Firm library docs — once per firm at the ZIP root (`_FIRMA/<firm>/`), so a firm's
+    // guvohnoma/ishonchnoma/shartnoma/oferta isn't copied into every client folder.
+    for (const [fid, fname] of firmsSeen) {
+      if (streamErr) throw streamErr;
+      const libFiles = await firmLibraryFiles(fid).catch(() => []);
+      const dir = `_FIRMA/${fname.replace(/[^\p{L}\p{N}._ ()-]+/gu, '_').trim().slice(0, 60) || `firma-${fid}`}`;
+      for (const f of libFiles) archive.append(f.buf, { name: `${dir}/${f.name}` });
+      if (out.writableNeedDrain) await once(out, 'drain');
+    }
+
+    await archive.finalize();
+    await closed;
+
+    // ZIP is on disk — now advance the cases (idempotent guards make a retry safe).
+    for (const m of toMark) await markPacketGenerated(m.id, m.talabnomaMade, m.arizaMade).catch(() => {});
+
+    await prisma.job.updateMany({
+      where: { id: jobId },
+      data: { status: 'DONE', progress: done, total: done, resultPath: `exports/${jobId}.zip` },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'FAILED', message } }).catch(() => {});
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+    if (output && !output.closed) output.destroy(); // never leak the write-stream FD on a mid-run throw
+  }
+}
+
+// Keep apostrophes (straight + Uzbek ʻ and curly) so client folders read exactly like the
+// operator's own — «ABDUGʼANIYEV … OʼGʼLI», not «ABDUG_ANIYEV … O_G_LI». All are valid on Windows.
+const safeName = (s: string, n = 70) => (s || 'hujjat').replace(/[^\p{L}\p{N}._ ()'ʻ‘’-]+/gu, '_').trim().slice(0, n) || 'hujjat';
+
+/** Background «Oferta» job over an EXPLICIT loan-id list (loan-level, not case-level) —
+ *  used to render the ofertas for a hand-picked set of clients (e.g. a court list built off
+ *  loans, which may include people with no arizaCase). One oferta per loan, grouped by client
+ *  folder, one shared browser. Same streaming/backpressure guarantees as the other jobs. */
+export async function runOfertaJobByLoans(jobId: number, loanIds: number[], insurancePct = 0): Promise<void> {
+  await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING' } });
+  let browser: Browser | null = null;
+  let output: fs.WriteStream | null = null;
+  try {
+    const loans = await prisma.loan.findMany({ where: { id: { in: loanIds } }, orderBy: [{ clientName: 'asc' }, { id: 'asc' }] });
+    const codes = [...new Set(loans.map((l) => l.branchCode).filter((c): c is string => !!c))];
+    const firms = await prisma.firm.findMany({ where: { code: { in: codes } } });
+    const firmByCode = new Map(firms.map((f) => [f.code, f]));
+
+    await fsp.mkdir(EXPORTS_DIR, { recursive: true });
+    const zipPath = path.join(EXPORTS_DIR, `${jobId}.zip`);
+    output = fs.createWriteStream(zipPath);
+    const out = output;
+    const archive = archiver('zip', { store: true });
+    let streamErr: Error | null = null;
+    const closed = new Promise<void>((resolve, reject) => {
+      out.on('close', resolve);
+      out.on('error', (e) => { streamErr = e; reject(e); });
+      archive.on('error', (e) => { streamErr = e; reject(e); });
+    });
+    // A stream error can reject `closed` on a teardown path that never awaits it (an early throw
+    // jumps past `await closed`) → an unhandledRejection that crashes the process. A no-op handler
+    // makes the rejection always-handled; the real `await closed` still surfaces it on the happy path.
+    closed.catch(() => {});
+    archive.pipe(out);
+
+    try { const { chromium } = await import('playwright'); browser = await chromium.launch({ headless: true }); }
+    catch (e) { throw new Error(`chromium launch failed: ${e instanceof Error ? e.message : String(e)}`); }
+
+    const usedPaths = new Set<string>();
+    let done = 0;
+    const CONCURRENCY = 5;
+    for (let i = 0; i < loans.length; i += CONCURRENCY) {
+      if (streamErr) throw streamErr;
+      const batch = loans.slice(i, i + CONCURRENCY);
+      const rendered = await Promise.all(batch.map(async (l) => {
+        if (Number(l.summKr) <= 0) return null;
+        const firm = l.branchCode ? firmByCode.get(l.branchCode) ?? null : null;
+        try {
+          const buf = await renderOfertaPdf(l as never, firm ?? {}, browser as Browser, l.clientName, l.pinfl, insurancePct);
+          // 3-level layout: «<FIRM> / <full name> <PINFL> / oferta_<ld_id>.pdf». A client with
+          // contracts in several firms appears under each firm folder (that firm's contracts only).
+          const firmShort = firm?.shortName || l.branchCode || 'firma';
+          const client = safeName(`${l.clientName || `loan-${l.id}`} ${l.pinfl ?? ''}`.trim(), 90);
+          const folder = `${safeName(firmShort, 45)}/${client}`;
+          return { folder, name: `oferta_${safeName(String(l.ldId ?? l.id), 40)}.pdf`, buf };
+        } catch { return null; }
+      }));
+      for (const r of rendered) {
+        if (streamErr) throw streamErr;
+        if (r) {
+          let full = `${r.folder}/${r.name}`;
+          if (usedPaths.has(full)) {
+            const dot = r.name.lastIndexOf('.');
+            const base = dot > 0 ? r.name.slice(0, dot) : r.name;
+            const ext = dot > 0 ? r.name.slice(dot) : '';
+            let k = 2; while (usedPaths.has(`${r.folder}/${base} (${k})${ext}`)) k++;
+            full = `${r.folder}/${base} (${k})${ext}`;
+          }
+          usedPaths.add(full);
+          archive.append(r.buf, { name: full });
+          if (out.writableNeedDrain) await once(out, 'drain');
+        }
+        done += 1;
+      }
+      await prisma.job.updateMany({ where: { id: jobId }, data: { progress: done, message: `${usedPaths.size} oferta / ${done} loan` } }).catch(() => {});
+    }
+
+    await archive.finalize();
+    await closed;
+    await prisma.job.updateMany({
+      where: { id: jobId },
+      data: { status: 'DONE', progress: done, total: done, resultPath: `exports/${jobId}.zip`, message: `${usedPaths.size} oferta` },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'FAILED', message } }).catch(() => {});
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+    if (output && !output.closed) output.destroy();
+  }
+}
+
+/** Background «Talabnoma» job: render ONLY the talabnoma letters — one PDF per client — for one
+ *  firm × one snapshot, streamed into a flat ZIP with the reyestr `_reyestr.xlsx` at the root (so
+ *  one download carries both the letters and the hippo import file). Chromium is REQUIRED (HTML→PDF),
+ *  so a launch failure fails the job. Same streaming/backpressure pattern as runOfertaJob; never
+ *  throws — the outcome is recorded on the Job row. On success it advances the talabnoma track
+ *  (talabnomaAt) for the firm's debt>0 clients — the reyestr set — matching the single-case routes. */
+export async function runTalabnomaJob(jobId: number, opts: TalabnomaScope): Promise<void> {
+  await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING' } });
+  let browser: Browser | null = null;
+  let output: fs.WriteStream | null = null;
+  try {
+    const { rows, firm, paidPinfls } = await loadTalabnomaRowsForScope(opts);
+    if (rows.length === 0) throw new Error('Talabnoma qatori yoʻq (qarzdorlik 0 yoki maʼlumot yoʻq)');
+
+    await fsp.mkdir(EXPORTS_DIR, { recursive: true });
+    const zipPath = path.join(EXPORTS_DIR, `${jobId}.zip`);
+    output = fs.createWriteStream(zipPath);
+    const out = output;
+    const archive = archiver('zip', { store: true });
+    let streamErr: Error | null = null;
+    const closed = new Promise<void>((resolve, reject) => {
+      out.on('close', resolve);
+      out.on('error', (e) => { streamErr = e; reject(e); });
+      archive.on('error', (e) => { streamErr = e; reject(e); });
+    });
+    // A stream error can reject `closed` on a teardown path that never awaits it (an early throw
+    // jumps past `await closed`) → an unhandledRejection that crashes the process. A no-op handler
+    // makes the rejection always-handled; the real `await closed` still surfaces it on the happy path.
+    closed.catch(() => {});
+    archive.pipe(out);
+
+    // Reyestr Excel first — the hippo import file the whole batch exists to produce. Its failure is
+    // FATAL: a ZIP without it is useless, so a throw here fails the job (→ FAILED, no funnel advance)
+    // rather than silently shipping a green download that is missing the import file.
+    archive.append(await talabnomaExcelBuffer(rows), { name: '_reyestr.xlsx' });
+
+    try { const { chromium } = await import('playwright'); browser = await chromium.launch({ headless: true }); }
+    catch (e) { throw new Error(`chromium launch failed: ${e instanceof Error ? e.message : String(e)}`); }
+
+    const usedNames = new Set<string>();
+    let done = 0;
+    const CONCURRENCY = 5;
+    for (let i = 0; i < rows.length; i += CONCURRENCY) {
+      if (streamErr) throw streamErr;
+      const batch = rows.slice(i, i + CONCURRENCY);
+      const rendered = await Promise.all(batch.map(async (row) => {
+        try {
+          const buf = await renderTalabnomaPdf(row, browser as Browser, firm);
+          const name = `${row.contract_id.replace(/\//g, '-')}_${safeName(row.receiver, 60)}.pdf`;
+          return { name, buf };
+        } catch { return null; }
+      }));
+      for (const r of rendered) {
+        if (streamErr) throw streamErr;
+        if (r) {
+          let name = r.name;
+          if (usedNames.has(name)) {
+            const dot = name.lastIndexOf('.');
+            const base = dot > 0 ? name.slice(0, dot) : name;
+            const ext = dot > 0 ? name.slice(dot) : '';
+            let k = 2; while (usedNames.has(`${base} (${k})${ext}`)) k++;
+            name = `${base} (${k})${ext}`;
+          }
+          usedNames.add(name);
+          archive.append(r.buf, { name });
+          if (out.writableNeedDrain) await once(out, 'drain');
+        }
+        done += 1;
+      }
+      await prisma.job.updateMany({ where: { id: jobId }, data: { progress: done, message: `${usedNames.size} talabnoma / ${done} mijoz` } }).catch(() => {});
+    }
+
+    await archive.finalize();
+    await closed;
+
+    // ZIP is on disk (reyestr included, else we'd have thrown above) → advance the talabnoma track
+    // for this firm's debt>0 clients. The gate is reyestr inclusion, NOT per-letter PDF render
+    // success: hippo sends from the reyestr we just guaranteed, so a client whose local PDF failed
+    // to render is still genuinely "talabnoma sent". Parity with the single-case gen routes;
+    // idempotent (fills nulls only, never overwrites a real earlier send date); non-fatal.
+    if (paidPinfls.length) {
+      await prisma.arizaCase.updateMany({
+        where: { snapshotId: opts.snapshotId, firmId: opts.firmId, pinfl: { in: paidPinfls }, talabnomaAt: null },
+        data: { talabnomaAt: new Date() },
+      }).catch(() => {});
+    }
+
+    await prisma.job.updateMany({
+      where: { id: jobId },
+      // progress = PDFs actually rendered, total = clients expected (rows are pre-filtered to
+      // debt>0), so made < expected == a genuine render failure the UI flags red as «yuklanmadi».
+      data: { status: 'DONE', progress: usedNames.size, total: rows.length, resultPath: `exports/${jobId}.zip`, message: `${usedNames.size} talabnoma` },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'FAILED', message } }).catch(() => {});
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+    if (output && !output.closed) output.destroy();
+  }
+}
+
+export interface OfertaJobOpts {
+  snapshotId?: number;
+  firmId?: number;
+  stages?: CaseStage[];
+  insurancePct?: number; // таъминот % of principal (0 → policy text, no invented sum)
+}
+
+/** Background «Oferta» job: render ONLY the ofertas — one PDF per loan (contract) — for
+ *  every case in scope, streamed into one ZIP grouped by client folder (a client with loans
+ *  in several firms gets all their ofertas together). Same robust streaming/backpressure
+ *  pattern as runPacketJob. Never throws — the outcome is recorded on the Job row. */
+export async function runOfertaJob(jobId: number, opts: OfertaJobOpts): Promise<void> {
+  await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING' } });
+  let browser: Browser | null = null;
+  let output: fs.WriteStream | null = null;
+  try {
+    const rows = await prisma.arizaCase.findMany({
+      where: {
+        ...(opts.snapshotId ? { snapshotId: opts.snapshotId } : {}),
+        ...(opts.firmId ? { firmId: opts.firmId } : {}),
+        ...(opts.stages && opts.stages.length ? { stage: { in: opts.stages } } : {}),
+      },
+      select: { id: true },
+      orderBy: { id: 'asc' },
+    });
+    const caseIds = rows.map((r) => r.id);
+
+    await fsp.mkdir(EXPORTS_DIR, { recursive: true });
+    const zipPath = path.join(EXPORTS_DIR, `${jobId}.zip`);
+    output = fs.createWriteStream(zipPath);
+    const out = output;
+    // store: true → payloads are already-compressed chromium PDFs; deflate would just burn
+    // CPU that the parallel renders need. Same rationale as runPacketJob.
+    const archive = archiver('zip', { store: true });
+    let streamErr: Error | null = null;
+    const closed = new Promise<void>((resolve, reject) => {
+      out.on('close', resolve);
+      out.on('error', (e) => { streamErr = e; reject(e); });
+      archive.on('error', (e) => { streamErr = e; reject(e); });
+    });
+    // A stream error can reject `closed` on a teardown path that never awaits it (an early throw
+    // jumps past `await closed`) → an unhandledRejection that crashes the process. A no-op handler
+    // makes the rejection always-handled; the real `await closed` still surfaces it on the happy path.
+    closed.catch(() => {});
+    archive.pipe(out);
+
+    // Oferta is HTML→PDF, so chromium is REQUIRED here (unlike the packet job where it's
+    // optional) — a launch failure must fail the job, not silently produce an empty ZIP.
+    try { const { chromium } = await import('playwright'); browser = await chromium.launch({ headless: true }); }
+    catch (e) { throw new Error(`chromium launch failed: ${e instanceof Error ? e.message : String(e)}`); }
+
+    const pct = opts.insurancePct ?? 0;
+    const usedPaths = new Set<string>();
+    let done = 0;
+    let ofertaCount = 0;
+    const CONCURRENCY = 5;
+    for (let i = 0; i < caseIds.length; i += CONCURRENCY) {
+      if (streamErr) throw streamErr;
+      const batch = caseIds.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(
+        batch.map((id) => buildCaseOfertas(id, browser as Browser, pct).catch(() => null)),
+      );
+      for (const r of results) {
+        if (streamErr) throw streamErr;
+        if (r && r.files.length) {
+          for (const f of r.files) {
+            // Dedupe the FULL path (folder is shared across a client's firms → co-located),
+            // so two same-named files never silently overwrite each other in the ZIP.
+            let full = `${r.folder}/${f.name}`;
+            if (usedPaths.has(full)) {
+              const dot = f.name.lastIndexOf('.');
+              const base = dot > 0 ? f.name.slice(0, dot) : f.name;
+              const ext = dot > 0 ? f.name.slice(dot) : '';
+              let k = 2;
+              while (usedPaths.has(`${r.folder}/${base} (${k})${ext}`)) k++;
+              full = `${r.folder}/${base} (${k})${ext}`;
+            }
+            usedPaths.add(full);
+            archive.append(f.buf, { name: full });
+            ofertaCount += 1;
+          }
+          if (out.writableNeedDrain) await once(out, 'drain');
+        }
+        done += 1;
+      }
+      await prisma.job.updateMany({ where: { id: jobId }, data: { progress: done, message: `${ofertaCount} oferta / ${done} case` } }).catch(() => {});
+    }
+
+    await archive.finalize();
+    await closed;
+
+    await prisma.job.updateMany({
+      where: { id: jobId },
+      data: { status: 'DONE', progress: done, total: done, resultPath: `exports/${jobId}.zip`, message: `${ofertaCount} oferta / ${done} case` },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'FAILED', message } }).catch(() => {});
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+    if (output && !output.closed) output.destroy();
+  }
+}

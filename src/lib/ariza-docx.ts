@@ -197,6 +197,18 @@ export async function buildArizaDocx(props: CourtArizaDocumentProps): Promise<Bu
       `Shunga koʻra, qarzdor oʻz majburiyatlarini bajarmasligi natijasida ${props.asOfText || uzLongDateLatin(props.asOfDate)} holatiga koʻra mikro `
       + 'moliya tashkiloti oldidagi qarzdorligi quyidagicha:',
     )]),
+    // Itemized breakdown — the four components (Asosiy qarz + the two foiz states +
+    // muddati oʻtgan qarz) the «quyidagicha:» sentence promises, then the total.
+    ...(([
+      ['Asosiy qarz qoldigʻi', props.debtPrincipal],
+      ['Muddatli foizlar qarzdorligi', props.debtTermInterest],
+      ['Muddati oʻtgan qarz qarzdorligi', props.debtOverduePrincipal],
+      ['Muddati oʻtgan foizlar qarzdorligi', props.debtOverdueInterest],
+    ] as [string, string][]).map(([label, val], i, arr) => new Paragraph({
+      indent: { left: 709 },
+      spacing: { after: 40 },
+      children: [run(`— ${label}: `), run(`${formatSumDecimal(val)} soʻm`, { bold: true }), run(i === arr.length - 1 ? '.' : ';')],
+    }))),
     // Total on its own line, set apart with spacing above/below.
     new Paragraph({
       alignment: AlignmentType.JUSTIFIED,

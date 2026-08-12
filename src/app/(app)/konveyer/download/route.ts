@@ -16,7 +16,9 @@ const MIME: Record<string, string> = {
 export async function GET(req: NextRequest) {
   await requireAdmin();
   const id = Number(req.nextUrl.searchParams.get('id'));
-  if (!id) return NextResponse.json({ error: 'id kerak' }, { status: 400 });
+  // Integer guard: Infinity ('1e999') / floats are truthy and would reach Prisma's
+  // Int column, throwing an uncaught 500 instead of a clean 400.
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'id kerak' }, { status: 400 });
   const doc = await prisma.caseDocument.findUnique({ where: { id } });
   if (!doc) return NextResponse.json({ error: 'Topilmadi' }, { status: 404 });
   let buf: Buffer;

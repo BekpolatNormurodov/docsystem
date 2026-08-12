@@ -22,10 +22,19 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
   const [msg, setMsg] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
   const [batchId, setBatchId] = useState<number | null>(null);
+  const [restId, setRestId] = useState<string | null>(null); // REST batch id — PDF (ZIP) download uchun
   const [prog, setProg] = useState<RowProg | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const LS_KEY = `konv_inv_batch_${f.firmId}`; // faol paketni reload'da tiklash uchun
   const pct = f.total > 0 ? Math.round((f.withInvoice / f.total) * 100) : 0;
+
+  // Buxgalterga: partiyaning barcha PDF'lari (har invoice alohida .pdf) + Excel hisobot bitta ZIP.
+  // Mavjud GET /api/invoices/batch/{restBatchId}/zip route'idan foydalanamiz.
+  const downloadZip = (rid: string) => {
+    const a = document.createElement('a');
+    a.href = `/api/invoices/batch/${rid}/zip`;
+    document.body.appendChild(a); a.click(); a.remove();
+  };
   // Re-clamp when remaining shrinks after a refetch (the row isn't remounted).
   useEffect(() => { setCount((c) => Math.min(c, cap) || cap); }, [f.remaining]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -47,6 +56,7 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
         } else {
           setOk(true);
           setMsg(`${n(p.ok)} ta yaratildi${p.failed ? ` · ${n(p.failed)} xato` : ''}`);
+          if (p.ok > 0) downloadZip(restBatchId); // PDF'lar (ZIP) avtomatik yuklab olinadi
         }
         onDone();
       }
@@ -67,7 +77,7 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
         if (!res.ok) { localStorage.removeItem(LS_KEY); return; }
         const p: RowProg = await res.json();
         if (!alive) return;
-        setProg(p); setBatchId(saved.i ?? null);
+        setProg(p); setBatchId(saved.i ?? null); setRestId(saved.r);
         if (p.phase === 'RUNNING' || p.phase === 'PAUSING') { setBusy(true); poll(saved.r); }
         else { localStorage.removeItem(LS_KEY); if (p.phase === 'BLOCKED') { setOk(false); setMsg(p.error ?? 'IP bloklandi yoki tarmoq ishlamayapti'); } }
       })();
@@ -78,7 +88,7 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
 
   const create = async () => {
     if (!count || count > cap) { setOk(false); setMsg(`1–${n(cap)} oraligʻida son kiriting`); return; }
-    setBusy(true); setMsg(null); setProg(null); setBatchId(null);
+    setBusy(true); setMsg(null); setProg(null); setBatchId(null); setRestId(null);
     try {
       const res = await fetch('/konveyer/invoice-batch', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -88,6 +98,7 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
       if (!res.ok) throw new Error(data?.error ?? 'Xato');
       setBatchId(data.invoiceBatchId ?? null);
       if (data.restBatchId) {
+        setRestId(data.restBatchId);
         localStorage.setItem(LS_KEY, JSON.stringify({ r: data.restBatchId, i: data.invoiceBatchId ?? null }));
         poll(data.restBatchId);
       } else { setBusy(false); setOk(true); setMsg('Yaratildi'); onDone(); }
@@ -137,8 +148,14 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
           )}
           {msg && (
             ok ? (
-              <div role="status" className="mt-1 flex items-center gap-2 text-[11px] text-emerald-600 dark:text-emerald-400">
+              <div role="status" className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-emerald-600 dark:text-emerald-400">
                 <span>{msg}</span>
+                {restId && (
+                  <a href={`/api/invoices/batch/${restId}/zip`} className="inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 font-medium text-emerald-700 hover:border-emerald-500/50 dark:text-emerald-300">
+                    <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 3v12" /><path d="m8 11 4 4 4-4" /></svg>
+                    PDF (ZIP)
+                  </a>
+                )}
                 {batchId && <a href={`/konveyer/farmoyish?batchId=${batchId}`} className="rounded border border-line px-1.5 py-0.5 font-medium text-brand-600 hover:border-brand-500/40 dark:text-brand-400">Farmoyish</a>}
               </div>
             ) : (

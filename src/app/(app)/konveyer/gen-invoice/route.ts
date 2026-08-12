@@ -11,7 +11,7 @@ export const runtime = 'nodejs';
 export async function GET(req: NextRequest) {
   await requireAdmin();
   const caseId = Number(req.nextUrl.searchParams.get('caseId'));
-  if (!caseId) return NextResponse.json({ error: 'caseId kerak' }, { status: 400 });
+  if (!Number.isInteger(caseId) || caseId <= 0) return NextResponse.json({ error: 'caseId kerak' }, { status: 400 });
 
   const ac = await prisma.arizaCase.findUnique({
     where: { id: caseId },

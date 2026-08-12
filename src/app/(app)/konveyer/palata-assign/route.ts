@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { requireAdmin } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { dueForStage } from '@/lib/konveyer-sla';
 
 export const runtime = 'nodejs';
 
@@ -41,7 +42,8 @@ export async function POST(req: NextRequest) {
   let advanced: string | null = null;
   if (STAGE_ORDER.indexOf(ac.stage) < STAGE_ORDER.indexOf('SIGNED_SCANNED')) {
     const now = new Date();
-    await prisma.arizaCase.update({ where: { id: caseId }, data: { stage: 'SIGNED_SCANNED', stageEnteredAt: now, dueAt: new Date(now.getTime() + (ac.slaDays || 3) * 86400000) } });
+    // Working-day deadline (skips weekends), consistent with advanceStage.
+    await prisma.arizaCase.update({ where: { id: caseId }, data: { stage: 'SIGNED_SCANNED', stageEnteredAt: now, dueAt: await dueForStage('SIGNED_SCANNED', now) } });
     advanced = 'SIGNED_SCANNED';
   }
   return NextResponse.json({ ok: true, advanced });

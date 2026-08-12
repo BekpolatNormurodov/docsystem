@@ -17,8 +17,13 @@ export default async function PersonPage({
   params: { date: string; pinfl: string };
   searchParams: Record<string, string | string[] | undefined>;
 }) {
+  // Validate the date segment before Prisma — malformed / impossible (2026-13-45,
+  // 2026-02-30 rollover) → clean 404, not a 500 or the wrong day's data.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(params.date)) notFound();
+  const reportDate = new Date(params.date);
+  if (Number.isNaN(reportDate.getTime()) || reportDate.toISOString().slice(0, 10) !== params.date) notFound();
   const snapshot = await prisma.snapshot.findUnique({
-    where: { reportDate: new Date(params.date) },
+    where: { reportDate },
   });
   if (!snapshot) notFound();
 

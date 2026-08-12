@@ -28,7 +28,9 @@ export async function getSettings(): Promise<Settings> {
   const result = { ...DEFAULTS };
   for (const key of Object.keys(DEFAULTS) as (keyof Settings)[]) {
     const v = byKey.get(key);
-    if (v !== undefined) result[key] = v;
+    // A cleared (blank) value must fall back to the default — never emit an empty
+    // required field (e.g. a bare "...sudiga" with no court) into a filed ariza.
+    if (v !== undefined && v.trim() !== '') result[key] = v;
   }
   return result;
 }

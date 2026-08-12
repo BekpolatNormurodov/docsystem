@@ -1,5 +1,6 @@
 import { PageHeader } from '@/ui';
 import { SlaSettings } from './SlaSettings';
+import { BojiSettings } from './BojiSettings';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +10,7 @@ export default function SettingsPage() {
       <PageHeader title="Sozlamalar" subtitle="Konveyer va hujjatlar uchun standart qiymatlar" />
       <div className="space-y-4">
         <SlaSettings />
+        <BojiSettings />
         <div className="card p-5">
           <div className="mb-1 text-sm font-semibold">Hujjat standartlari</div>
           <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm text-muted">

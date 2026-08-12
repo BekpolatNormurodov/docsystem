@@ -124,7 +124,10 @@ export function formatSumDecimal(value: string): string {
   const s = String(value).replace(/\s/g, '').replace(',', '.');
   const [int = '0', frac] = s.split('.');
   const grouped = groupThousands(int);
-  return frac && Number(frac) !== 0 ? `${grouped},${frac.replace(/\D/g, '').slice(0, 2)}` : grouped;
+  // Zero-pad the fraction to 2 digits — Prisma.Decimal drops trailing zeros, so
+  // "100.50" arrives as "100.5" and must still print ",50" tiyin, not ",5".
+  const f2 = (frac ?? '').replace(/\D/g, '').slice(0, 2).padEnd(2, '0');
+  return frac && Number(frac) !== 0 ? `${grouped},${f2}` : grouped;
 }
 
 /** Editor input: keep digits + one comma, ≤2 decimals, space-group the integer part. */

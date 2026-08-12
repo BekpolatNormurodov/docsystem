@@ -28,26 +28,61 @@ export interface LoanInput {
   raw: Record<string, unknown>;
 }
 
+/** Unwrap an exceljs streaming-reader cell value. Rich-text / formula / hyperlink
+ *  cells arrive as OBJECTS whose String() is "[object Object]" — so a debt in a
+ *  formula cell would read NaN→0 (understated on a court doc) and a rich-text name
+ *  would become literal "[object Object]". Return the underlying primitive. Mirrors
+ *  parse-exclusion.ts's cellStr (which was already hardened for the same reason). */
+function unwrapCell(v: unknown): unknown {
+  if (v !== null && typeof v === 'object') {
+    const o = v as any;
+    if (Array.isArray(o.richText)) return o.richText.map((r: any) => r?.text ?? '').join('');
+    if (o.result !== undefined && o.result !== null) return o.result; // formula → computed value
+    if (o.text !== undefined && o.text !== null && !(v instanceof Date)) return o.text; // hyperlink → text
+  }
+  return v; // primitives + Date pass through (Date handled by toDate)
+}
+
+/** Parse a cell to a finite number, tolerating locale-formatted TEXT cells
+ *  ("12 345,67", "12'345.67") so a text-typed debt column isn't silently read as
+ *  NaN→0, which would understate the debt on a court document. null if unusable. */
+function parseNum(v: unknown): number | null {
+  v = unwrapCell(v);
+  if (v === '' || v === null || v === undefined) return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  let s = String(v).trim().replace(/[\s ']/g, ''); // strip spaces/nbsp/apostrophe thousands
+  if (s === '') return null;
+  if (s.includes(',') && s.includes('.')) {
+    // both present → the LAST separator is the decimal one
+    s = s.lastIndexOf(',') > s.lastIndexOf('.') ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
+  } else if (s.includes(',')) {
+    s = s.replace(',', '.'); // Uzbek/Russian decimal comma
+  }
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
 /** Coerce a raw cell value to a finite number, defaulting to 0 for '', null, undefined, NaN. */
 function num(v: unknown): number {
-  if (v === '' || v === null || v === undefined) return 0;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
+  return parseNum(v) ?? 0;
 }
 
 /** Same as num() but returns null instead of 0 when there's no usable value (for nullable fields). */
 function numOrNull(v: unknown): number | null {
-  if (v === '' || v === null || v === undefined) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+  return parseNum(v);
 }
 
 function str(v: unknown): string | null {
+  v = unwrapCell(v);
   if (v === '' || v === null || v === undefined) return null;
-  return String(v);
+  // Trim so a whitespace-padded PINFL matches the (trimmed) exclusion set — else an
+  // intentionally-excluded problem client escapes exclusion and gets sued.
+  const s = String(v).trim();
+  return s === '' ? null : s;
 }
 
 function toDate(v: unknown): Date | null {
+  v = unwrapCell(v);
   if (v === '' || v === null || v === undefined) return null;
   if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
   // exceljs streaming (WorkbookReader) returns date-formatted cells as raw Excel serial NUMBERS,
@@ -113,10 +148,13 @@ export interface DateParts {
 
 /** Extract a DD.MM[.YY[YY]] date from a filename. Returns null when no date-like pattern is found. */
 export function parseDateParts(name: string): DateParts | null {
-  const m = name.match(/(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?/);
+  // Anchor on non-digit boundaries so a longer run (e.g. a 4-digit year) can't
+  // feed the wrong groups, and reject impossible day/month.
+  const m = name.match(/(?<!\d)(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?(?!\d)/);
   if (!m) return null;
   const day = Number(m[1]);
   const month = Number(m[2]);
+  if (day < 1 || day > 31 || month < 1 || month > 12) return null;
   let year: number | null = null;
   if (m[3]) {
     year = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);

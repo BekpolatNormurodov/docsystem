@@ -46,14 +46,24 @@ export async function POST(req: NextRequest) {
       );
     }
   }
-  if (existing) {
-    // Replace semantics: a finished (READY/FAILED) snapshot for this date is dropped (loans cascade).
-    await prisma.snapshot.delete({ where: { id: existing.id } });
+  // Wrap the replace+create: two same-date POSTs racing here would otherwise have the
+  // loser throw an uncaught P2002 (unique reportDate) or P2025 (row already deleted) → 500.
+  // Files are written only AFTER a successful create, so a failure here orphans nothing.
+  let snapshot;
+  try {
+    if (existing) {
+      // Replace semantics: a finished (READY/FAILED) snapshot for this date is dropped (loans cascade).
+      await prisma.snapshot.delete({ where: { id: existing.id } });
+    }
+    snapshot = await prisma.snapshot.create({
+      data: { reportDate, sourceFileName: file.name, status: 'IMPORTING' },
+    });
+  } catch (e) {
+    if ((e as { code?: string })?.code === 'P2002' || (e as { code?: string })?.code === 'P2025') {
+      return NextResponse.json({ error: 'Bu sana uchun import boshqa jarayonda ketyapti. Qayta urinib koʻring.' }, { status: 409 });
+    }
+    throw e;
   }
-
-  const snapshot = await prisma.snapshot.create({
-    data: { reportDate, sourceFileName: file.name, status: 'IMPORTING' },
-  });
 
   await fs.mkdir(UPLOADS_DIR, { recursive: true });
   const filePath = path.join(UPLOADS_DIR, `${snapshot.id}.xlsx`);

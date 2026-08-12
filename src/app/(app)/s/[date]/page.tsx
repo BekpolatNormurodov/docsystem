@@ -1,9 +1,11 @@
+import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/db';
-import { parseLoanFilters, buildLoanWhere, loanPageHref } from '@/core/loan-filters';
+import { parseLoanFilters, buildLoanWhere, loanWhereSql, loanPageHref } from '@/core/loan-filters';
 import { formatSumDecimal, dmy } from '@/core/document';
-import { PageHeader, StatCard, HBarChart, Table, Pagination, EmptyState, ClickableRow } from '@/ui';
+import { PageHeader, StatCard, Table, Pagination, EmptyState, ClickableRow } from '@/ui';
 import { LoanFilters } from './LoanFilters';
+import { FirmDebtChart } from './FirmDebtChart';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,15 +18,22 @@ export default async function SnapshotBrowsePage({
   params: { date: string };
   searchParams: Record<string, string | undefined>;
 }) {
+  // Validate the date segment before it reaches Prisma — a malformed /s/garbage
+  // must be a clean 404, not an Invalid-Date 500.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(params.date)) notFound();
+  // Shape alone isn't enough: /s/2024-13-45 is an Invalid Date and /s/2024-02-30
+  // rolls forward to Mar 1 — both must 404, not 500 or render the wrong day.
+  const reportDate = new Date(params.date);
+  if (Number.isNaN(reportDate.getTime()) || reportDate.toISOString().slice(0, 10) !== params.date) notFound();
   const snapshot = await prisma.snapshot.findUnique({
-    where: { reportDate: new Date(params.date) },
+    where: { reportDate },
   });
   if (!snapshot) notFound();
 
   const f = parseLoanFilters(searchParams);
   const where = buildLoanWhere(snapshot.id, f);
 
-  const [loans, total, sumAgg, byFirm, peopleGroups, firms] = await Promise.all([
+  const [loans, total, sumAgg, peopleCount, firms] = await Promise.all([
     prisma.loan.findMany({
       where,
       skip: (f.page - 1) * PER_PAGE,
@@ -33,15 +42,14 @@ export default async function SnapshotBrowsePage({
     }),
     prisma.loan.count({ where }),
     prisma.loan.aggregate({ where, _sum: { totalDebt: true } }),
-    prisma.loan.groupBy({
-      by: ['branchCode'],
-      where,
-      _sum: { totalDebt: true },
-    }),
-    // Distinct people (pinfl) matching the current filter — loans/count/sum above are per-loan.
-    prisma.loan.groupBy({ by: ['pinfl'], where }),
+    // Distinct people (pinfl) matching the filter — a scalar COUNT(DISTINCT) instead
+    // of transferring ~63k pinfl rows to Node just to read .length.
+    prisma.$queryRaw<{ n: bigint }[]>`SELECT COUNT(DISTINCT pinfl) AS n FROM Loan WHERE ${loanWhereSql(snapshot.id, f)}`,
     prisma.firm.findMany(),
   ]);
+  const peopleTotal = Number(peopleCount[0]?.n ?? 0);
+  // The per-firm debt chart (heaviest query) is NOT awaited here — it streams via
+  // <Suspense> below so the stats + table paint immediately.
 
   const firmByCode = new Map(firms.map((fr) => [fr.code, fr.shortName]));
 
@@ -55,22 +63,12 @@ export default async function SnapshotBrowsePage({
       <div className="mb-4 grid gap-4 sm:grid-cols-3">
         <StatCard label="Jami qarz" value={`${formatSumDecimal(String(sumAgg._sum.totalDebt ?? 0))} soʻm`} />
         <StatCard label="Kreditlar" value={total.toLocaleString('uz')} />
-        <StatCard label="Odamlar" value={peopleGroups.length.toLocaleString('uz')} />
+        <StatCard label="Odamlar" value={peopleTotal.toLocaleString('uz')} />
       </div>
 
-      {byFirm.length > 0 && (
-        <div className="mb-4">
-          <HBarChart
-            title="Firmalar boʻyicha qarz"
-            rows={byFirm
-              .map((g) => ({
-                label: firmByCode.get(g.branchCode ?? '') ?? g.branchCode ?? 'Nomaʼlum',
-                value: Number(g._sum.totalDebt ?? 0),
-              }))
-              .sort((a, b) => b.value - a.value)}
-          />
-        </div>
-      )}
+      <Suspense fallback={<div className="mb-4 h-40 w-full animate-pulse rounded-2xl bg-surface-2" />}>
+        <FirmDebtChart snapshotId={snapshot.id} f={f} firmByCode={firmByCode} />
+      </Suspense>
 
       <LoanFilters firms={firms.map((fr) => ({ code: fr.code, shortName: fr.shortName }))} />
 

@@ -132,8 +132,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'ZIP juda katta — kamroq tanlang' }, { status: 500 });
   }
 
-  // ZIP is in hand — now it is safe to advance the cases.
-  for (const m of toMark) await markPacketGenerated(m.id, m.talabnomaMade, m.arizaMade);
+  // ZIP is in hand — advance the cases as a best-effort step. markPacketGenerated
+  // is idempotent (talabnomaAt:null / stage:IMPORTED guards), so if a mark fails we
+  // still deliver the ZIP and a later run self-heals rather than dropping the packet.
+  try {
+    for (const m of toMark) await markPacketGenerated(m.id, m.talabnomaMade, m.arizaMade);
+  } catch (e) {
+    console.error('gen-packet marking failed (ZIP still delivered)', e);
+  }
   return new NextResponse(new Uint8Array(out), {
     headers: { ...zipHeaders(`Paketlar_${made}ta`), 'X-Generated': String(made), 'X-Dropped': String(dropped) },
   });

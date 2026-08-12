@@ -71,8 +71,12 @@ export async function syncInvoicePayment(session: CabinetSession, id: number, re
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
   const j: any = r.json;
+  // Match paid WITHOUT substring-matching "PAID" inside NOT_PAID/UNPAID — a false
+  // positive there would file a court claim on an UNPAID davlat boji.
+  const st = String(j?.status ?? j?.invoiceStatus ?? '').toUpperCase();
   const paid = r.ok && j && !j.statusCode &&
-    (j.paid === true || /PAID|PAYED|TOLANGAN|OPLAT/i.test(JSON.stringify(j?.status ?? j?.invoiceStatus ?? '')) || !!j.paidAt || !!j.paid_date);
+    (j.paid === true || !!j.paidAt || !!j.paid_date ||
+      (/(^|[^A-Z])(PAID|PAYED|TOLANGAN|OPLAT)/.test(st) && !/NOT[_ ]?PAID|UNPAID|TOLANMAGAN/.test(st)));
   const row = await prisma.courtFeeInvoice.update({
     where: { id },
     data: {

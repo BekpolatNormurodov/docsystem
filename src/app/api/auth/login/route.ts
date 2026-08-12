@@ -7,7 +7,15 @@ import { Role } from '@/core/enums';
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
-  const { username, password } = await req.json();
+  // Validate the body — invalid JSON or missing fields must be a clean 400, not a
+  // 500 (req.json() throws on non-JSON; findUnique({ username: undefined }) throws).
+  let body: unknown;
+  try { body = await req.json(); } catch { return NextResponse.json({ error: 'Notoʻgʻri soʻrov' }, { status: 400 }); }
+  const b = body as { username?: unknown; password?: unknown };
+  const username = typeof b?.username === 'string' ? b.username.trim() : '';
+  const password = typeof b?.password === 'string' ? b.password : '';
+  if (!username || !password) return NextResponse.json({ error: 'Login va parol kerak' }, { status: 400 });
+
   const admin = await prisma.admin.findUnique({ where: { username } });
   if (!admin || !(await verifyPassword(password, admin.passwordHash))) {
     return NextResponse.json({ error: 'Login yoki parol xato' }, { status: 401 });

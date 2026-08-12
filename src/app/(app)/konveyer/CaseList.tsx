@@ -29,6 +29,20 @@ interface Person {
 const sum = (v: string) => Number(v).toLocaleString('ru-RU');
 const PAGE_SIZE = 5;
 
+// Small colored initial tile — a visual anchor for scanning the list. Colour is
+// deterministic per person (from the PINFL) so a card keeps the same tile.
+const AVATAR = [
+  'bg-sky-500/15 text-sky-600 dark:text-sky-300',
+  'bg-violet-500/15 text-violet-600 dark:text-violet-300',
+  'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300',
+  'bg-amber-500/15 text-amber-600 dark:text-amber-300',
+  'bg-rose-500/15 text-rose-600 dark:text-rose-300',
+  'bg-teal-500/15 text-teal-600 dark:text-teal-300',
+  'bg-indigo-500/15 text-indigo-600 dark:text-indigo-300',
+];
+const avatarColor = (seed: string) => AVATAR[[...(seed || '0')].reduce((a, c) => a + c.charCodeAt(0), 0) % AVATAR.length];
+const initials = (name: string | null) => ((name || '—').trim().split(/\s+/).slice(0, 2).map((w) => w[0] || '').join('').toUpperCase() || '—');
+
 function DueBadge({ d }: { d: number | null }) {
   if (d === null) return <span className="text-muted/50">—</span>;
   if (d < 0) return <span className="rounded-md bg-rose-500/15 px-2 py-0.5 text-[11px] font-medium text-rose-600 dark:text-rose-300">{Math.abs(d)} kun kechikdi</span>;
@@ -36,11 +50,40 @@ function DueBadge({ d }: { d: number | null }) {
   return <span className="rounded-md bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-muted">{d} kun qoldi</span>;
 }
 
+// Case stage → pipeline phase index (0..4), for the mini progress indicator.
+const STAGE_PHASE: Record<string, number> = {
+  IMPORTED: 0, TALABNOMA_SENT: 0,
+  ARIZA_GENERATED: 1, PRINTED: 1, CHAMBER_SENT: 1, CHAMBER_RETURNED: 1, SIGNED_SCANNED: 1,
+  INVOICE_CREATED: 2, INVOICE_PAID: 2,
+  COURT_SUBMITTED: 3, COURT_ACCEPTED: 3, COURT_RETURNED: 3,
+  MIB_SUBMITTED: 4, CLOSED: 4,
+};
+const PHASE_META = [
+  { label: 'Tayyorlash', c: '#64748b' },
+  { label: 'Ariza · palata', c: '#8b5cf6' },
+  { label: 'Invoice', c: '#f59e0b' },
+  { label: 'Sud', c: '#3b82f6' },
+  { label: 'Ijro', c: '#14b8a6' },
+];
+const TRACK = 'var(--line, rgba(120,120,120,0.22))';
+function MiniSteps({ stage }: { stage: string }) {
+  const idx = STAGE_PHASE[stage] ?? 0;
+  const cur = PHASE_META[idx];
+  return (
+    <span className="inline-flex items-center gap-1" title={`Bosqich: ${cur.label} (${idx + 1}/5)`} aria-label={`Bosqich: ${cur.label}, ${idx + 1} / 5`}>
+      {PHASE_META.map((_, i) => (
+        <span key={i} className="h-1.5 rounded-full transition-all" style={{ width: i === idx ? 16 : 7, background: i <= idx ? cur.c : TRACK }} />
+      ))}
+    </span>
+  );
+}
+
 function CaseBlock({ c }: { c: PersonCase }) {
   return (
     <div className="rounded-xl border border-line bg-surface p-3">
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <span className="font-medium">{c.firmName}</span>
+        <MiniSteps stage={c.stage} />
         <span className="rounded-md bg-surface-2 px-1.5 py-0.5 text-[11px] text-muted">{c.stageLabel}</span>
         {c.daysLeft !== null && <DueBadge d={c.daysLeft} />}
         {c.receiptNumber
@@ -55,22 +98,31 @@ function CaseBlock({ c }: { c: PersonCase }) {
 
 function PersonCard({ p }: { p: Person }) {
   const [open, setOpen] = useState(false);
+  const firms = [...new Set(p.cases.map((c) => c.firmName))];
   return (
-    <div className="card overflow-hidden">
-      <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center gap-3 px-4 py-3 text-left outline-none transition-colors hover:bg-surface-2 focus-visible:bg-surface-2">
+    <div className="card overflow-hidden transition-shadow hover:shadow-sm">
+      <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center gap-3 px-3 py-2.5 text-left outline-none transition-colors hover:bg-surface-2 focus-visible:bg-surface-2">
+        {/* initial tile — visual anchor */}
+        <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl text-[13px] font-bold ${avatarColor(p.pinfl)}`} aria-hidden>{initials(p.clientName)}</span>
+
         <div className="min-w-0 flex-1">
-          <div className="truncate font-semibold leading-tight">{p.clientName || '—'}</div>
+          <div className="flex items-center gap-2">
+            <span className="truncate font-semibold leading-tight">{p.clientName || '—'}</span>
+            {p.cases.length > 1 && <span className="shrink-0 rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted">{p.cases.length} ish</span>}
+          </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
-            <span className="text-muted">PINFL {p.pinfl}</span>
-            {[...new Set(p.cases.map((c) => c.firmName))].map((fn) => (
-              <span key={fn} className="rounded bg-surface-2 px-1.5 py-0.5 font-medium text-muted">{fn}</span>
+            <span className="tabular-nums text-muted">{p.pinfl}</span>
+            {firms.map((fn) => (
+              <span key={fn} className="max-w-[10rem] truncate rounded bg-surface-2 px-1.5 py-0.5 font-medium text-muted" title={fn}>{fn}</span>
             ))}
             {!p.hasInvoice && <span className="rounded bg-rose-500/15 px-1.5 py-0.5 font-medium text-rose-600 dark:text-rose-300">invoice yo‘q</span>}
           </div>
         </div>
-        <div className="hidden shrink-0 items-center gap-3 sm:flex">
-          <DueBadge d={p.minDaysLeft} />
-          <span className="text-sm font-bold tabular-nums">{sum(p.totalDebt)}</span>
+
+        {/* debt (always visible) + due badge */}
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <span className="text-sm font-bold leading-none tabular-nums">{sum(p.totalDebt)} <span className="text-[10px] font-normal text-muted">so‘m</span></span>
+          {p.minDaysLeft !== null && <DueBadge d={p.minDaysLeft} />}
         </div>
         <svg className={`h-4 w-4 shrink-0 text-muted transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m9 6 6 6-6 6" /></svg>
       </button>

@@ -240,6 +240,12 @@ export function CourtArizaDocument(p: CourtArizaDocumentProps) {
         {edit ? edit.text('asOfText') : (p.asOfText || uzLongDateLatin(p.asOfDate))} holatiga koʻra mikro
         moliya tashkiloti oldidagi qarzdorligi quyidagicha:
       </p>
+      <div style={{ margin: '6pt 0 6pt 1.25cm' }}>
+        <p style={{ ...para, textIndent: 0, margin: '2pt 0' }}>— Asosiy qarz qoldigʻi: <b>{money('debtPrincipal', p.debtPrincipal)} soʻm</b>;</p>
+        <p style={{ ...para, textIndent: 0, margin: '2pt 0' }}>— Muddatli foizlar qarzdorligi: <b>{money('debtTermInterest', p.debtTermInterest)} soʻm</b>;</p>
+        <p style={{ ...para, textIndent: 0, margin: '2pt 0' }}>— Muddati oʻtgan qarz qarzdorligi: <b>{money('debtOverduePrincipal', p.debtOverduePrincipal)} soʻm</b>;</p>
+        <p style={{ ...para, textIndent: 0, margin: '2pt 0' }}>— Muddati oʻtgan foizlar qarzdorligi: <b>{money('debtOverdueInterest', p.debtOverdueInterest)} soʻm</b>.</p>
+      </div>
       <p style={{ ...para, margin: '8pt 0' }}>
         Jami qarzdorligi&nbsp;<b>{money('debtTotal', p.debtTotal)} soʻm</b>ni tashkil etadi.
       </p>

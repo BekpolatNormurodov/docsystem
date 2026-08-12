@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { loanToAriza } from './ariza';
+import { loanToAriza, loansToAriza } from './ariza';
 import type { Settings } from '@/lib/settings';
 
 const loan = {
@@ -87,5 +87,19 @@ describe('loanToAriza', () => {
   it('keeps a null contract date as null (ariza drops the -yildagi prefix)', () => {
     const p = loanToAriza({ ...loan, dateToCr: null }, firm, settings, reportDate);
     expect(p.contracts).toEqual([{ number: '22548', date: null }]);
+  });
+
+  it('states the rate RANGE when contracts carry different foiz, not just the first', () => {
+    const p = loansToAriza([
+      { ...loan, rate: 53 },
+      { ...loan, ldId: '2', rate: 62 },
+      { ...loan, ldId: '3', rate: 54 },
+    ], firm, settings, reportDate);
+    expect(p.interestRate).toBe('53–62'); // min–max, not "53"
+  });
+
+  it('shows the single rate when all contracts agree', () => {
+    const p = loansToAriza([{ ...loan, rate: 54 }, { ...loan, ldId: '2', rate: 54 }], firm, settings, reportDate);
+    expect(p.interestRate).toBe('54');
   });
 });

@@ -54,7 +54,15 @@ function Provider({ label, p, extra, onConnect, busy }: { label: string; p: Prov
   );
 }
 
-export function ConnectionStatus() {
+/**
+ * E-IMZO connection status for xat.hippo + adolat (cabinet.sud.uz), per firm.
+ *
+ * Two shells over the same body:
+ *  - default: a compact pill that opens the status in a Modal (header/inline use).
+ *  - `inline`: renders the grid directly on its own page (the Ulanishlar sidebar route) — no pill,
+ *    no modal, with a page heading instead of the Modal's title.
+ */
+export function ConnectionStatus({ inline = false }: { inline?: boolean }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -63,7 +71,9 @@ export function ConnectionStatus() {
   const [note, setNote] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  const [showAll, setShowAll] = useState(false);
+  // On the dedicated page (inline) show every firm by default; the compact pill/modal still
+  // starts connected-first with a "show the rest" toggle.
+  const [showAll, setShowAll] = useState(inline);
 
   const load = useCallback(async (health = false) => {
     if (health) setHealthBusy(true);
@@ -101,6 +111,60 @@ export function ConnectionStatus() {
   const rest = rows.filter((r) => r.hippo.state === 'NONE' && r.cabinet.state === 'NONE');
   const list = showAll ? rows : connected;
 
+  const body = (
+    <>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <span className="text-[11px] tabular-nums text-muted">{checkedAt ? `Ma'lumot: ${timeOnly(checkedAt)} holatiga` : ''}</span>
+        <button onClick={() => load(true)} disabled={healthBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-muted outline-none transition-colors hover:border-brand-500/40 focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50">
+          {healthBusy ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> : null}
+          Jonli tekshirish
+        </button>
+      </div>
+      {note && <div role="status" className="mb-2 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.04] px-2.5 py-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">{note}</div>}
+      {err && (
+        <div role="alert" className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-rose-500/25 bg-rose-500/[0.04] px-2.5 py-1.5 text-[11px] font-medium text-rose-500">
+          <span>{err}</span>
+          <button onClick={() => load(false)} className="shrink-0 rounded border border-line px-1.5 py-0.5 text-muted hover:border-brand-500/40">Qayta urinish</button>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="grid gap-2 sm:grid-cols-2">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-16 animate-pulse rounded-xl bg-surface-2" />)}</div>
+      ) : err && list.length === 0 ? null /* error banner above covers it — no contradictory "nothing connected" */
+      : list.length === 0 ? (
+        <div className="grid h-20 place-items-center text-center text-xs text-muted">Hali birorta firma kaliti ulanmagan.</div>
+      ) : (
+        <div className={`grid gap-2 sm:grid-cols-2 ${inline ? '' : 'max-h-[55vh] overflow-auto'}`}>
+          {list.map((r) => (
+            <div key={r.firmId} className="rounded-xl border border-line bg-surface px-3 py-2">
+              <div className="mb-1 truncate text-[13px] font-semibold" title={r.firmName}>{r.firmName}</div>
+              <Provider label="xat.hippo" p={r.hippo} extra={r.hippo.balance != null ? `${n(r.hippo.balance)} so‘m` : undefined} onConnect={() => connect(r.firmId, 'HIPPO')} busy={connecting === `${r.firmId}:HIPPO`} />
+              <Provider label="adolat" p={r.cabinet} onConnect={() => connect(r.firmId, 'CABINET')} busy={connecting === `${r.firmId}:CABINET`} />
+            </div>
+          ))}
+        </div>
+      )}
+      {!loading && rest.length > 0 && (
+        <button onClick={() => setShowAll((v) => !v)} className="mt-2 text-[11px] font-medium text-muted hover:text-brand-600">
+          {showAll ? 'Faqat ulanganlar' : `Yana ${rest.length} ta ulanmagan firma`}
+        </button>
+      )}
+      <div className="mt-2 text-[11px] text-muted">«Ula» — E-IMZO oynasi ochilib, kalit paroli so‘raladi (kalit ulangan bo‘lishi shart).</div>
+    </>
+  );
+
+  if (inline) {
+    return (
+      <div>
+        <div className="mb-4">
+          <h1 className="text-2xl font-bold tracking-tight">Ulanishlar — E-IMZO</h1>
+          <p className="mt-1 text-sm text-muted">xat.hippo va adolat (cabinet.sud.uz) — firma kaliti bilan</p>
+        </div>
+        <div className="card p-4 sm:p-5">{body}</div>
+      </div>
+    );
+  }
+
   return (
     <>
       <button
@@ -114,43 +178,7 @@ export function ConnectionStatus() {
       </button>
 
       <Modal open={open} onClose={() => setOpen(false)} size="lg" title="Ulanishlar — E-IMZO" description="xat.hippo va adolat (cabinet.sud.uz) — firma kaliti bilan">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <span className="text-[11px] tabular-nums text-muted">{checkedAt ? `Ma'lumot: ${timeOnly(checkedAt)} holatiga` : ''}</span>
-          <button onClick={() => load(true)} disabled={healthBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-muted outline-none transition-colors hover:border-brand-500/40 focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50">
-            {healthBusy ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> : null}
-            Jonli tekshirish
-          </button>
-        </div>
-        {note && <div role="status" className="mb-2 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.04] px-2.5 py-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">{note}</div>}
-        {err && (
-          <div role="alert" className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-rose-500/25 bg-rose-500/[0.04] px-2.5 py-1.5 text-[11px] font-medium text-rose-500">
-            <span>{err}</span>
-            <button onClick={() => load(false)} className="shrink-0 rounded border border-line px-1.5 py-0.5 text-muted hover:border-brand-500/40">Qayta urinish</button>
-          </div>
-        )}
-
-        {loading ? (
-          <div className="grid gap-2 sm:grid-cols-2">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-16 animate-pulse rounded-xl bg-surface-2" />)}</div>
-        ) : err && list.length === 0 ? null /* error banner above covers it — no contradictory "nothing connected" */
-        : list.length === 0 ? (
-          <div className="grid h-20 place-items-center text-center text-xs text-muted">Hali birorta firma kaliti ulanmagan.</div>
-        ) : (
-          <div className="grid max-h-[55vh] gap-2 overflow-auto sm:grid-cols-2">
-            {list.map((r) => (
-              <div key={r.firmId} className="rounded-xl border border-line bg-surface px-3 py-2">
-                <div className="mb-1 truncate text-[13px] font-semibold" title={r.firmName}>{r.firmName}</div>
-                <Provider label="xat.hippo" p={r.hippo} extra={r.hippo.balance != null ? `${n(r.hippo.balance)} so‘m` : undefined} onConnect={() => connect(r.firmId, 'HIPPO')} busy={connecting === `${r.firmId}:HIPPO`} />
-                <Provider label="adolat" p={r.cabinet} onConnect={() => connect(r.firmId, 'CABINET')} busy={connecting === `${r.firmId}:CABINET`} />
-              </div>
-            ))}
-          </div>
-        )}
-        {!loading && rest.length > 0 && (
-          <button onClick={() => setShowAll((v) => !v)} className="mt-2 text-[11px] font-medium text-muted hover:text-brand-600">
-            {showAll ? 'Faqat ulanganlar' : `Yana ${rest.length} ta ulanmagan firma`}
-          </button>
-        )}
-        <div className="mt-2 text-[11px] text-muted">«Ula» — E-IMZO oynasi ochilib, kalit paroli so‘raladi (kalit ulangan bo‘lishi shart).</div>
+        {body}
       </Modal>
     </>
   );

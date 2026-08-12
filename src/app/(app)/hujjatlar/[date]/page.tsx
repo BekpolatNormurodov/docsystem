@@ -39,16 +39,23 @@ export default async function HujjatlarDatePage({
   await requireAdmin();
   const date = params.date;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) notFound();
+  // Shape alone isn't enough: 2024-13-45 is an Invalid Date and 2024-02-30 rolls
+  // forward to Mar 1 — both must 404, not 500 or render a different day's portfolio.
+  const reportDate = new Date(`${date}T00:00:00.000Z`);
+  if (Number.isNaN(reportDate.getTime()) || reportDate.toISOString().slice(0, 10) !== date) notFound();
 
   const snapshot = await prisma.snapshot.findUnique({
-    where: { reportDate: new Date(`${date}T00:00:00.000Z`) },
+    where: { reportDate },
   });
   if (!snapshot) notFound();
 
   const q = (typeof searchParams.q === 'string' ? searchParams.q : '').trim();
   const branches = asArray(searchParams.branch);
-  const minDebt = typeof searchParams.minDebt === 'string' && searchParams.minDebt ? Number(searchParams.minDebt) : undefined;
-  const page = Math.max(1, Number(searchParams.page) || 1);
+  // Guard so a bad minDebt/page can't reach Prisma as NaN / a fractional skip and 500 the page.
+  const md = typeof searchParams.minDebt === 'string' && searchParams.minDebt ? Number(searchParams.minDebt) : NaN;
+  const minDebt = Number.isFinite(md) && md >= 0 ? md : undefined;
+  const rawPage = Math.floor(Number(searchParams.page));
+  const page = Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1;
   // `ex=1` flips the page to the excluded set: instead of dropping problem/carried-over clients,
   // it shows and exports ONLY them (a separate ZIP for the excluded 1054).
   const onlyExcluded = searchParams.ex === '1';

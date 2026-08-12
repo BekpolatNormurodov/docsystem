@@ -21,8 +21,10 @@ export async function getSlaConfig(): Promise<Record<string, number>> {
   const byKey = new Map(rows.map((r) => [r.key, Number(r.value)]));
   const out: Record<string, number> = {};
   for (const p of PHASES) {
+    // A row exists only if the admin actually set it, so a stored 0 is a deliberate
+    // "disable this phase's timer" — honor it (>= 0), don't revert to the default.
     const v = byKey.get(slaKey(p.key));
-    out[p.key] = Number.isFinite(v) && (v as number) > 0 ? (v as number) : (SLA_DEFAULTS[p.key] ?? 0);
+    out[p.key] = (v != null && Number.isFinite(v) && v >= 0) ? v : (SLA_DEFAULTS[p.key] ?? 0);
   }
   return out;
 }

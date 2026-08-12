@@ -11,7 +11,7 @@ export const runtime = 'nodejs';
 export async function GET(req: NextRequest) {
   await requireAdmin();
   const caseId = Number(req.nextUrl.searchParams.get('caseId'));
-  if (!caseId) return NextResponse.json({ error: 'caseId kerak' }, { status: 400 });
+  if (!Number.isInteger(caseId) || caseId <= 0) return NextResponse.json({ error: 'caseId kerak' }, { status: 400 });
 
   const ac = await prisma.arizaCase.findUnique({
     where: { id: caseId },
@@ -28,6 +28,11 @@ export async function GET(req: NextRequest) {
     select: { pinfl: true, branchCode: true, clientName: true, postAddress: true, postAddressUz: true, regionName: true, ldId: true, dateToCr: true, summKr: true, totalDebt: true, raw: true },
   })) as TalabnomaLoan[];
   if (loans.length === 0) return NextResponse.json({ error: 'Portfel maʼlumoti topilmadi' }, { status: 404 });
+
+  // Debt gate — no outstanding debt → nothing to demand, so no talabnoma (mirrors the
+  // ariza's own «Qarzdorlik 0» refusal so the two documents are never inconsistent).
+  const caseDebt = loans.reduce((s, l) => s + (Number((l as { totalDebt?: unknown }).totalDebt) || 0), 0);
+  if (caseDebt <= 0) return NextResponse.json({ error: 'Qarzdorlik 0 — talabnoma yaratilmaydi' }, { status: 422 });
 
   // Use the snapshot's reportDate (same as the one-click packet) so the doc date
   // and contract_id are stable no matter which button generated it.

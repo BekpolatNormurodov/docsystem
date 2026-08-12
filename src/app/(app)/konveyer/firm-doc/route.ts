@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
     });
   }
   const firmId = Number(req.nextUrl.searchParams.get('firmId'));
-  if (!firmId) return NextResponse.json({ error: 'firmId kerak' }, { status: 400 });
+  if (!Number.isInteger(firmId) || firmId <= 0) return NextResponse.json({ error: 'firmId kerak' }, { status: 400 });
   const docs = await prisma.firmDocument.findMany({ where: { firmId }, select: { id: true, kind: true, label: true } });
   return NextResponse.json({ docs });
 }
@@ -40,30 +40,42 @@ export async function POST(req: NextRequest) {
   const firmId = Number(form.get('firmId'));
   const kind = String(form.get('kind') || 'BOSHQA') as FirmDocKind;
   const file = form.get('file');
-  if (!firmId || !(file instanceof File)) return NextResponse.json({ error: 'firmId va fayl kerak' }, { status: 400 });
+  if (!Number.isInteger(firmId) || firmId <= 0 || !(file instanceof File)) return NextResponse.json({ error: 'firmId va fayl kerak' }, { status: 400 });
   if (file.size > 25 * 1024 * 1024) return NextResponse.json({ error: 'Fayl 25MB dan katta' }, { status: 413 });
   // Whitelist the enum so an unexpected kind can't 500 on prisma.create.
   const ALLOWED: FirmDocKind[] = ['GUVOHNOMA', 'ISHONCHNOMA', 'SHARTNOMA', 'OFERTA', 'BOSHQA'];
   if (!ALLOWED.includes(kind)) return NextResponse.json({ error: 'kind notoʻgʻri' }, { status: 400 });
+
+  // Validate the firm up front — a bad firmId must 404, not write a file and then
+  // 500 on the FK, orphaning it (and destroying the existing doc below).
+  const firm = await prisma.firm.findUnique({ where: { id: firmId }, select: { id: true } });
+  if (!firm) return NextResponse.json({ error: 'Firma topilmadi' }, { status: 404 });
 
   const dir = path.join(DIR, String(firmId));
   await fs.mkdir(dir, { recursive: true });
   const filePath = path.join(dir, `${kind}-${Date.now()}-${safe(file.name || 'hujjat')}`);
   await fs.writeFile(filePath, Buffer.from(await file.arrayBuffer()));
 
-  // One doc per (firm, kind): drop older ones.
-  const old = await prisma.firmDocument.findMany({ where: { firmId, kind } });
-  await Promise.all(old.map((d) => fs.rm(d.filePath, { force: true }).catch(() => {})));
-  await prisma.firmDocument.deleteMany({ where: { firmId, kind } });
-
+  // One doc per (firm, kind). Capture the ids to replace BEFORE creating the new
+  // row, then create, then delete ONLY those captured ids — never "id != mine",
+  // which lets two concurrent uploads delete each other and leave the firm with
+  // zero documents. (Worst case now: two uploads race and both survive; the next
+  // upload reconciles to one. A failed create still never destroys the existing doc.)
+  const old = await prisma.firmDocument.findMany({ where: { firmId, kind }, select: { id: true, filePath: true } });
   const doc = await prisma.firmDocument.create({ data: { firmId, kind, label: file.name || kind, filePath }, select: { id: true, kind: true, label: true } });
+  const oldIds = old.map((d) => d.id);
+  if (oldIds.length) {
+    await Promise.all(old.map((d) => fs.rm(d.filePath, { force: true }).catch(() => {})));
+    await prisma.firmDocument.deleteMany({ where: { id: { in: oldIds } } });
+  }
+
   return NextResponse.json({ doc });
 }
 
 export async function DELETE(req: NextRequest) {
   await requireAdmin();
   const id = Number(req.nextUrl.searchParams.get('id'));
-  if (!id) return NextResponse.json({ error: 'id kerak' }, { status: 400 });
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'id kerak' }, { status: 400 });
   const doc = await prisma.firmDocument.findUnique({ where: { id } });
   if (doc) { await fs.rm(doc.filePath, { force: true }).catch(() => {}); await prisma.firmDocument.delete({ where: { id } }); }
   return NextResponse.json({ ok: true });

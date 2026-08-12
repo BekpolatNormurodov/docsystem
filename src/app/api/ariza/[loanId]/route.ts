@@ -15,7 +15,11 @@ function asciiSafe(s: string): string {
 export async function GET(_req: Request, { params }: { params: { loanId: string } }) {
   await requireAdmin();
 
-  const loan = await prisma.loan.findUnique({ where: { id: Number(params.loanId) } });
+  const id = Number(params.loanId);
+  // A non-numeric/float id must be a clean 404, not a Prisma NaN-validation 500.
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'Loan not found' }, { status: 404 });
+
+  const loan = await prisma.loan.findUnique({ where: { id } });
   if (!loan) return NextResponse.json({ error: 'Loan not found' }, { status: 404 });
 
   const [firm, snapshot, settings, groupLoans] = await Promise.all([
@@ -41,6 +45,8 @@ export async function GET(_req: Request, { params }: { params: { loanId: string 
 
   const reportDate = snapshot?.reportDate ?? new Date();
   const props = loansToAriza(groupLoans.length ? groupLoans : [loan], arizaFirm, settings, reportDate);
+  // A ≤ 0 demand is a void petition («0 soʻm undirish») — refuse to generate it.
+  if (Number(props.debtTotal) <= 0) return NextResponse.json({ error: 'Qarzdorlik 0 — ariza yaratilmaydi' }, { status: 422 });
   const buffer = await buildArizaDocx({ ...props });
 
   const filename = asciiSafe(`${loan.clientName ?? ''} ${arizaFirm.shortName}`.trim());

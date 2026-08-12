@@ -18,6 +18,7 @@ function slots(stage: string, receipt: string | null, talabnomaSent: boolean) {
     { name: 'Talabnoma (PDF)', tag: 'mijoz', kind: 'TALABNOMA', ready: talabnomaSent, bulk: false, gen: true },
     { name: 'Talabnoma (Excel)', tag: 'mijoz', kind: 'TALABNOMA_XLSX', ready: talabnomaSent, bulk: false, gen: true },
     { name: 'Ariza', tag: 'mijoz', kind: 'ARIZA', ready: R >= rk('ARIZA_GENERATED'), bulk: false, gen: true },
+    { name: 'Grafik (toʻlash jadvali)', tag: 'mijoz', kind: 'GRAFIK', ready: R >= rk('ARIZA_GENERATED'), bulk: false, gen: true },
     { name: 'Invoice / kvitansiya', tag: 'mijoz', kind: 'INVOICE', ready: !!receipt, bulk: false, gen: true },
     { name: 'Imzolangan ariza (palatadan, skan)', tag: 'palata', kind: 'SIGNED_ARIZA', ready: R >= rk('SIGNED_SCANNED'), bulk: true, gen: false },
     { name: 'Guvohnoma', tag: 'firma', kind: 'GUVOHNOMA', ready: false, bulk: false, gen: false },
@@ -216,7 +217,7 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent }
       </div>
       {loading ? (
         // Shimmer while the case docs + firm library load — no "yo'q" flash.
-        [3, 1, 4].map((cnt, gi) => (
+        [5, 1, 4].map((cnt, gi) => (
           <div key={gi} className="rounded-xl border border-line bg-surface-2/30 p-2.5">
             <div className="mb-1.5 h-3 w-28 animate-pulse rounded bg-surface-2" />
             <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
@@ -251,6 +252,7 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent }
             s.kind === 'TALABNOMA' ? `/konveyer/gen-talabnoma?caseId=${caseId}`
             : s.kind === 'TALABNOMA_XLSX' ? `/konveyer/gen-talabnoma-excel?caseId=${caseId}`
             : s.kind === 'ARIZA' ? `/konveyer/gen-ariza?caseId=${caseId}`
+            : s.kind === 'GRAFIK' ? `/konveyer/gen-grafik?caseId=${caseId}`
             : s.kind === 'INVOICE' ? (receiptNumber ? `/konveyer/gen-invoice?caseId=${caseId}` : null)
             : null;
           const isAutoGen = s.gen;                         // system generates → never a manual upload

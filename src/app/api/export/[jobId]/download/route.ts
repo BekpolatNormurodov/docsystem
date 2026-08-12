@@ -9,7 +9,9 @@ export const runtime = 'nodejs';
 export async function GET(_req: NextRequest, { params }: { params: { jobId: string } }) {
   await requireAdmin();
 
-  const job = await prisma.job.findUnique({ where: { id: Number(params.jobId) } });
+  const id = Number(params.jobId);
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
+  const job = await prisma.job.findUnique({ where: { id } });
   if (!job || job.status !== 'DONE' || !job.resultPath) {
     return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
   }

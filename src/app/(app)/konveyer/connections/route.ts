@@ -9,7 +9,11 @@ export const runtime = 'nodejs';
 
 const digits = (s?: string | null) => (s ?? '').replace(/\D+/g, '');
 type State = 'ACTIVE' | 'EXPIRED' | 'NONE';
-const stateFrom = (s?: ExtSessionStatus): State => (s === 'ACTIVE' ? 'ACTIVE' : 'EXPIRED');
+// Mirror isFresh(): a session past its expiry (5-min skew) is EXPIRED even if the
+// status column still says ACTIVE (nothing re-pinged it since), so the fast view
+// doesn't show a dead token as green.
+const stateFrom = (s: ExtSessionStatus | undefined, expiresAt: Date | null): State =>
+  (s === 'ACTIVE' && (!expiresAt || expiresAt.getTime() - 300_000 > Date.now())) ? 'ACTIVE' : 'EXPIRED';
 
 interface ProvInfo { state: State; since: string | null; expiresAt: string | null; balance?: number | null; name?: string | null }
 
@@ -31,7 +35,7 @@ export async function GET(req: NextRequest) {
   for (const s of sessions) {
     const key = digits(s.account);
     const rec = byAcct.get(key) ?? {};
-    rec[s.provider] = { state: stateFrom(s.status), since: s.updatedAt.toISOString(), expiresAt: s.expiresAt ? s.expiresAt.toISOString() : null };
+    rec[s.provider] = { state: stateFrom(s.status, s.expiresAt), since: s.updatedAt.toISOString(), expiresAt: s.expiresAt ? s.expiresAt.toISOString() : null };
     byAcct.set(key, rec);
   }
   const none: ProvInfo = { state: 'NONE', since: null, expiresAt: null };

@@ -3,6 +3,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { requireAdmin } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { dueForStage } from '@/lib/konveyer-sla';
+import type { CaseStage } from '@prisma/client';
 
 export const runtime = 'nodejs';
 
@@ -63,7 +65,8 @@ async function autoAdvanceOnDoc(caseId: number, kind: string): Promise<string | 
   if (!ac) return null;
   if (STAGE_ORDER.indexOf(ac.stage) >= STAGE_ORDER.indexOf(target)) return null; // already past
   const now = new Date();
-  const due = new Date(now.getTime() + (ac.slaDays || 3) * 86400000);
+  // Working-day deadline (skips weekends), same as advanceStage — not calendar days.
+  const due = await dueForStage(target as CaseStage, now);
   await prisma.arizaCase.update({ where: { id: caseId }, data: { stage: target as any, stageEnteredAt: now, dueAt: due } });
   return target;
 }

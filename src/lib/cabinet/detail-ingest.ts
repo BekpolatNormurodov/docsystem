@@ -27,14 +27,16 @@ export async function ingestCabinetDetails(
   const cases: { caseId: string; caseNumber: string }[] = [];
   const seen = new Set<string>();
   for (const cat of CATS) for (const list of LISTS) {
-    const r = await cabinetFetch(session, `/api/cabinet/case/${cat}/${list}`);
-    if (r.status !== 200) continue;
-    for (const c of asArray(r.json)) {
-      const key = c.case_number ?? c.case_id ?? c.claim_id;
-      if (!key || seen.has(key) || !c.case_id) continue;
-      seen.add(key);
-      cases.push({ caseId: c.case_id, caseNumber: String(key) });
-    }
+    try {
+      const r = await cabinetFetch(session, `/api/cabinet/case/${cat}/${list}`);
+      if (r.status !== 200) continue;
+      for (const c of asArray(r.json)) {
+        const key = c.case_number ?? c.case_id ?? c.claim_id;
+        if (!key || seen.has(key) || !c.case_id) continue;
+        seen.add(key);
+        cases.push({ caseId: c.case_id, caseNumber: String(key) });
+      }
+    } catch { /* one flaky list endpoint must not abort the whole ingest */ }
   }
 
   const res: DetailResult = { total: cases.length, fetched: 0, withPinfl: 0, failed: 0 };
@@ -55,8 +57,10 @@ export async function ingestCabinetDetails(
       const passport = det.passport_serial || det.passport_number ? `${det.passport_serial ?? ''}${det.passport_number ?? ''}` : null;
       // link exactly to our portfolio client by that pinfl (confirm it's ours)
       let ourPinfl: string | null = null;
+      let inPortfolio = false;
       if (pinfl && snap) {
         const loan = await prisma.loan.findFirst({ where: { snapshotId: snap.id, branchCode, pinfl }, select: { pinfl: true } });
+        inPortfolio = !!loan;
         ourPinfl = loan?.pinfl ?? pinfl; // keep the real defendant pinfl even if not in portfolio
       }
       if (pinfl) res.withPinfl++;
@@ -65,7 +69,9 @@ export async function ingestCabinetDetails(
         where: { source: 'CABINET', caseNumber: c.caseNumber },
         data: {
           pinfl: ourPinfl ?? pinfl ?? undefined,
-          matchedBy: pinfl ? 'PINFL' : undefined,
+          // Claim a confirmed PINFL match ONLY when the defendant is actually in OUR
+          // portfolio — a raw cabinet pinfl not among our clients is UNMATCHED, not a match.
+          matchedBy: pinfl ? (inPortfolio ? 'PINFL' : 'UNMATCHED') : undefined,
           defAddress: address, defPassport: passport,
           judge: d.chairman ?? d.responsible_judge ?? null,
           registryDt: toDate(d.registry_dt), hearingDate: toDate(d.hearing_date),

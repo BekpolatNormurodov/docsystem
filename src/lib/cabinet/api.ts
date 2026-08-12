@@ -3,12 +3,23 @@
 import { CABINET, ENDPOINTS, SEND_TO_COURT_PREFIX } from './config';
 import type { CabinetSession } from './oneid';
 
+const TIMEOUT_MS = 30_000;
+// fetch with a hard timeout — a hung gov endpoint must not stall a pool worker
+// forever (which would deadlock the whole ingest). An abort surfaces as a throw
+// the callers already treat as a failed request.
+async function fetchT(url: string, init: RequestInit): Promise<Response> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try { return await fetch(url, { ...init, signal: ctrl.signal }); }
+  finally { clearTimeout(t); }
+}
+
 export async function cabinetFetch(session: CabinetSession, path: string, init: RequestInit = {}) {
   // ⛔ Hard guard: the final submit (PUT /api/cabinet/case/send-to-court/{id}) is
   // irreversible — refuse to ever call it from code.
   if (path.startsWith(SEND_TO_COURT_PREFIX) || /\/case\/send-to-court\//i.test(path))
     throw new Error('BLOCKED: send-to-court is the irreversible final submit — refusing to call it.');
-  const res = await fetch(`${CABINET.base_url}${path}`, {
+  const res = await fetchT(`${CABINET.base_url}${path}`, {
     ...init,
     headers: {
       accept: 'application/json',
@@ -59,7 +70,7 @@ export async function uploadFile(session: CabinetSession, file: Blob | Buffer, f
   const fd = new FormData();
   const blob = file instanceof Blob ? file : new Blob([new Uint8Array(file as Buffer)], { type: 'application/pdf' });
   fd.set('file', blob, fileName);
-  const res = await fetch(`${CABINET.base_url}${ENDPOINTS.fileUpload}`, {
+  const res = await fetchT(`${CABINET.base_url}${ENDPOINTS.fileUpload}`, {
     method: 'POST',
     headers: { 'X-AUTH-TOKEN': session.token, file_type: fileType },
     body: fd as any,

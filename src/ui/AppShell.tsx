@@ -15,6 +15,12 @@ export interface NavItem {
   badge?: number;
   /** Uppercase section heading this item is grouped under. */
   section?: string;
+  /** Pin to a block at the very bottom of the sidebar (above the user footer), ungrouped. */
+  bottom?: boolean;
+  /** When set, this item renders as a numbered step inside its section's vertical stepper. */
+  step?: number;
+  /** Small count pill shown at the end of a stepper step (e.g. "34/400" or "320"). */
+  badgeText?: string;
 }
 
 /**
@@ -42,6 +48,8 @@ export interface AppShellProps {
   user: { fullName: string; roleLabel?: string };
   logoutAction?: string;
   panel?: NavPanel;
+  /** Rendered inside the section that has stepper items, between the plain items and the stepper. */
+  stepperExtra?: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -58,12 +66,17 @@ function PanelToggle({ className, open }: { className?: string; open: boolean })
 
 const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
 
+/** True when the sidebar is collapsed to the icon rail (lg only). Lets nav-injected controls
+ *  (e.g. the snapshot-date picker) fold themselves to fit instead of vanishing. */
+export const SidebarRailContext = React.createContext(false);
+
 export function AppShell({
   appName,
   nav,
   user,
   logoutAction = '/api/auth/logout',
   panel,
+  stepperExtra,
   children,
 }: AppShellProps) {
   const pathname = usePathname();
@@ -81,8 +94,10 @@ export function AppShell({
   const isActive = (href: string) => (href === '/' ? pathname === '/' : pathname.startsWith(href));
   const current = nav.find((n) => isActive(n.href));
 
+  const topItems = nav.filter((i) => !i.bottom);
+  const bottomItems = nav.filter((i) => i.bottom);
   const sections: { label: string; items: NavItem[] }[] = [];
-  for (const item of nav) {
+  for (const item of topItems) {
     const label = item.section ?? 'Menyu';
     const g = sections.find((s) => s.label === label);
     if (g) g.items.push(item);
@@ -127,7 +142,58 @@ export function AppShell({
     );
   };
 
+  // The Boshqaruv pipeline as a vertical stepper: numbered circles joined by a rail. The current
+  // route is solid with a soft ring; every other step is a plain muted number. No "done" state —
+  // each stage has ongoing work inside, so being on a later step doesn't mean earlier ones finished.
+  const renderStepper = (items: NavItem[]) => (
+    <div className="relative">
+      <span aria-hidden className={cx('absolute left-[23px] top-4 bottom-4 w-px bg-line', rail && 'lg:hidden')} />
+      <div className="space-y-0.5">
+        {items.map((item) => {
+          const active = isActive(item.href);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              title={item.label}
+              aria-current={active ? 'page' : undefined}
+              className={cx(
+                'group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
+                rail && 'lg:justify-center lg:px-0',
+                active ? 'bg-surface-2 text-fg' : 'text-muted hover:bg-surface-2 hover:text-fg',
+              )}
+            >
+              <span
+                className={cx(
+                  'relative z-10 grid h-[22px] w-[22px] shrink-0 place-items-center rounded-full border text-[11px] font-semibold transition-all',
+                  active
+                    ? 'border-brand-600 bg-brand-600 text-white shadow-sm ring-4 ring-brand-500/10 dark:border-brand-400 dark:bg-brand-400 dark:text-slate-900'
+                    : 'border-line bg-surface text-muted group-hover:border-brand-500/40 group-hover:text-fg',
+                )}
+              >
+                {item.step}
+              </span>
+              <span className={cx('flex-1 truncate', active ? 'font-semibold' : 'font-medium', rail && 'lg:hidden')}>{item.label}</span>
+              {item.badgeText && (
+                <span
+                  className={cx(
+                    'shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none tabular-nums',
+                    active ? 'bg-brand-600/15 text-brand-700 dark:bg-brand-400/20 dark:text-brand-200' : 'bg-surface-2 text-muted',
+                    rail && 'lg:hidden',
+                  )}
+                >
+                  {item.badgeText}
+                </span>
+              )}
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+
   return (
+    <SidebarRailContext.Provider value={rail}>
     <div className="min-h-screen">
       {open && (
         <div className="fixed inset-0 z-40 bg-slate-900/25 dark:bg-slate-950/40 lg:hidden" onClick={() => setOpen(false)} aria-hidden />
@@ -137,7 +203,7 @@ export function AppShell({
         className={cx(
           'fixed inset-y-0 left-0 z-50 flex flex-col border-r border-line bg-surface px-5 py-6 transition-all duration-300 ease-in-out',
           open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
-          rail ? 'w-[290px] lg:w-[88px] lg:px-3' : 'w-[290px]',
+          rail ? 'w-[312px] lg:w-[88px] lg:px-3' : 'w-[312px]',
         )}
       >
         <div className={cx('mb-6 flex items-center gap-2.5', rail && 'lg:justify-center')}>
@@ -170,14 +236,26 @@ export function AppShell({
               )}
             </div>
           ) : (
-            sections.map((s) => (
-              <div key={s.label}>
-                <div className={cx('px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted', rail && 'lg:hidden')}>{s.label}</div>
-                <div className="space-y-1">{s.items.map(renderItem)}</div>
-              </div>
-            ))
+            sections.map((s) => {
+              const plain = s.items.filter((i) => i.step == null);
+              const steps = s.items.filter((i) => i.step != null);
+              return (
+                <div key={s.label}>
+                  <div className={cx('px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted', rail && 'lg:hidden')}>{s.label}</div>
+                  {plain.length > 0 && <div className="space-y-1">{plain.map(renderItem)}</div>}
+                  {steps.length > 0 && (
+                    <div className="mt-1">
+                      {stepperExtra && <div className="mb-2">{stepperExtra}</div>}
+                      {renderStepper(steps)}
+                    </div>
+                  )}
+                </div>
+              );
+            })
           )}
         </nav>
+
+        {bottomItems.length > 0 && <div className="mt-3 space-y-1">{bottomItems.map(renderItem)}</div>}
 
         <div className="mt-4 border-t border-line pt-4">
           <div className={cx('mb-3 flex items-center gap-2.5', rail && 'lg:justify-center')}>
@@ -198,7 +276,7 @@ export function AppShell({
         </div>
       </aside>
 
-      <div className={cx('transition-all duration-300', rail ? 'lg:pl-[88px]' : 'lg:pl-[290px]')}>
+      <div className={cx('transition-all duration-300', rail ? 'lg:pl-[88px]' : 'lg:pl-[312px]')}>
         <header className="sticky top-0 z-30 flex h-16 items-center gap-2 border-b border-line bg-bg/80 px-4 backdrop-blur-xl md:px-6">
           <button onClick={() => setOpen(true)} className="rounded-lg p-2 text-muted hover:bg-surface-2 lg:hidden" aria-label="Menyu">
             <Ico.menu />
@@ -222,5 +300,6 @@ export function AppShell({
         </main>
       </div>
     </div>
+    </SidebarRailContext.Provider>
   );
 }

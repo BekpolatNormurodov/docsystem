@@ -52,6 +52,18 @@ export function loansToAriza(
   reportDate: Date,
 ): LoanArizaProps {
   const first = loans[0]!;
+  // The contracts in one ariza can carry DIFFERENT annual rates (foiz). Stating
+  // only first.rate misstates the others, so: one value when they all agree, else
+  // the actual range "min–max" (e.g. "53–62"). Null/0 rates are ignored; if none
+  // remain the field is blank (never "null"/"NaN" in a filed petition).
+  const rates = [...new Set(loans.map((l) => num(l.rate)).filter((r) => r > 0))].sort((a, b) => a - b);
+  const interestRate = rates.length === 0 ? '' : rates.length === 1 ? String(rates[0]) : `${rates[0]}–${rates[rates.length - 1]}`;
+  // Debt breakdown (each rounded once) — the total is derived from these so the four
+  // line items always reconcile to «Jami» and the demanded amount.
+  const debtPrincipal = sum2(loans, (l) => l.debtPrincipal);
+  const debtTermInterest = sum2(loans, (l) => l.debtTermInterest);
+  const debtOverduePrincipal = sum2(loans, (l) => l.debtOverduePrincipal);
+  const debtOverdueInterest = sum2(loans, (l) => l.debtOverdueInterest);
   const arizaFirm: CertFirm = {
     name: firm.shortName,
     arizaName: firm.legalName || firm.shortName,
@@ -71,16 +83,17 @@ export function loansToAriza(
     personPhone: first.phone ?? '',
     contracts: loans.map((l) => ({ number: String(l.ldId ?? ''), date: l.dateToCr as Date })),
     contractType: settings.contractType,
-    // Guard like the money fields — a null rate must never print the literal
-    // "null"/"undefined" into a filed court petition ("yillik null%").
-    interestRate: first.rate == null ? '' : String(first.rate),
+    interestRate,
     loanAmount: sum2(loans, (l) => l.summKr),
     asOfDate: reportDate,
-    debtPrincipal: sum2(loans, (l) => l.debtPrincipal),
-    debtTermInterest: sum2(loans, (l) => l.debtTermInterest),
-    debtOverduePrincipal: sum2(loans, (l) => l.debtOverduePrincipal),
-    debtOverdueInterest: sum2(loans, (l) => l.debtOverdueInterest),
-    debtTotal: sum2(loans, (l) => l.totalDebt),
+    debtPrincipal,
+    debtTermInterest,
+    debtOverduePrincipal,
+    debtOverdueInterest,
+    // Derive the total from the ALREADY-ROUNDED components so the printed
+    // breakdown reconciles exactly to «Jami» and to the SOʻRAYMIZ demand (else
+    // independent rounding can leave line items that don't add up to the total).
+    debtTotal: String(Math.round((num(debtPrincipal) + num(debtTermInterest) + num(debtOverduePrincipal) + num(debtOverdueInterest)) * 100) / 100),
     chamberSignerPosition: settings.signerPosition,
     chamberSignerName: settings.signerName,
     chamberExecutorName: settings.executorName,

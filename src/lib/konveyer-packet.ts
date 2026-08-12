@@ -15,6 +15,8 @@ import { buildTalabnomaRows, talabnomaExcelBuffer, type TalabnomaLoan } from './
 import { renderTalabnomaPdf } from './hippo/talabnoma-pdf';
 import { dueForStage } from './konveyer-sla';
 import { buildInvoiceDocx } from './invoice-docx';
+import { buildGrafikDocx, isSchedulableLoan } from './grafik-docx';
+import { renderOfertaPdf } from './oferta-pdf';
 
 export interface PacketFile { name: string; buf: Buffer }
 export interface CasePacket {
@@ -23,16 +25,20 @@ export interface CasePacket {
   files: PacketFile[];
   talabnomaMade: boolean;   // talabnoma PDF rendered
   arizaMade: boolean;       // ariza .docx built
+  firmId: number | null;    // which firm — so a bulk job can place firm docs once per firm
+  firmName: string | null;
 }
 
-const safe = (s: string, n = 70) => (s || 'hujjat').replace(/[^\p{L}\p{N}._ ()-]+/gu, '_').trim().slice(0, n) || 'hujjat';
+// Keep apostrophes (straight + Uzbek ʻ and curly) so person folders read like «… OʼGʼLI»,
+// not «… O_G_LI». All are valid Windows filename characters.
+const safe = (s: string, n = 70) => (s || 'hujjat').replace(/[^\p{L}\p{N}._ ()'ʻ‘’-]+/gu, '_').trim().slice(0, n) || 'hujjat';
 
 /**
  * Build the packet file list for ONE case. `browser` (a shared Playwright
  * instance) is required to render the talabnoma PDF; omit `talabnomaPdf` (or the
  * browser) to skip the slow PDF step and still get Excel + ariza + firm docs.
  */
-export async function buildCasePacket(caseId: number, opts: { browser?: Browser; talabnomaPdf?: boolean } = {}): Promise<CasePacket | null> {
+export async function buildCasePacket(caseId: number, opts: { browser?: Browser; talabnomaPdf?: boolean; includeFirmDocs?: boolean } = {}): Promise<CasePacket | null> {
   const ac = await prisma.arizaCase.findUnique({
     where: { id: caseId },
     select: {
@@ -57,9 +63,22 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
   const files: PacketFile[] = [];
   const reportDate = snapshot?.reportDate ?? new Date();
 
+  // DEBT GATE — a fully-paid (or otherwise zero-debt) client×firm has NOTHING to
+  // collect, so we generate NO court documents for it (no talabnoma, no ariza, no
+  // grafik, no oferta, no invoice). `totalDebt` per loan is exactly
+  // debtPrincipal + debtTermInterest + debtOverduePrincipal + debtOverdueInterest
+  // (see core/portfolio.computeTotalDebt), so this one sum is the authoritative
+  // «Jami qarzdorlik» that both the talabnoma and the ariza would demand — gating on
+  // it keeps the two documents consistent (never a talabnoma without an ariza).
+  // Already-uploaded case docs (a signed scan, etc.) are still returned below — the
+  // gate only suppresses NEW generation; a zero-debt case with no uploads yields an
+  // empty packet (no files) and is dropped from the ZIP by the caller.
+  const caseDebt = loans.reduce((s, l) => s + (Number((l as { totalDebt?: unknown }).totalDebt) || 0), 0);
+  const hasDebt = caseDebt > 0;
+
   // 1) Talabnoma — Excel (hippo import layout) + PDF (rendered).
   let talabnomaMade = false;
-  if (loans.length) {
+  if (hasDebt && loans.length) {
     const rows = buildTalabnomaRows(loans as unknown as TalabnomaLoan[], reportDate);
     if (rows.length) {
       files.push({ name: `Talabnoma_${folder}.xlsx`, buf: await talabnomaExcelBuffer(rows) });
@@ -74,7 +93,7 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
 
   // 2) Court ariza (.docx) — combined petition for the (client × firm) group.
   let arizaMade = false;
-  if (loans.length) {
+  if (hasDebt && loans.length) {
     const arizaFirm: ArizaFirm = {
       shortName: firm?.shortName || ac.kod || 'Unknown',
       legalName: firm?.legalName ?? null,
@@ -85,27 +104,69 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
     };
     try {
       const props = loansToAriza(loans, arizaFirm, settings, reportDate);
-      files.push({ name: `Ariza_${folder}.docx`, buf: Buffer.from(await buildArizaDocx(props)) });
-      arizaMade = true;
+      // Skip a void petition: a group whose debt sums to ≤ 0 (e.g. a paid-off client
+      // still on the exclusion list) would demand «0 soʻm» — never file that.
+      if (Number(props.debtTotal) > 0) {
+        files.push({ name: `Ariza_${folder}.docx`, buf: Buffer.from(await buildArizaDocx(props)) });
+        arizaMade = true;
+      }
     } catch { /* ariza build failed — continue with the rest of the packet */ }
   }
 
+  // 2c) Kredit toʻlash grafigi (.docx) — computed annuity schedule per contract
+  // (the portfolio has no month-by-month schedule). The 5th court attachment.
+  // Only include when at least one loan is schedulable, else it would be a
+  // header-only, schedule-less document.
+  // Chronological dates required — a reversed pair would print a bogus 1-month
+  // schedule (maturity before disbursement) on a document filed with the court.
+  const grafikLoans = loans.filter(isSchedulableLoan);
+  if (hasDebt && grafikLoans.length) {
+    try {
+      files.push({ name: `Grafik_${folder}.docx`, buf: await buildGrafikDocx(grafikLoans as any, ac.clientName, firm?.shortName || ac.kod || '') });
+    } catch { /* grafik build failed — continue */ }
+  }
+
+  // 2d) Oferta (mikroqarz shartnomasi) PDF — ONE per loan. The oferta is an UNSIGNED
+  // public offer (accepted electronically), so a generated copy is legitimate. Needs
+  // the chromium browser (HTML→PDF); term/full-value come from OUR dates → consistent
+  // with the grafik. Insurance («таъминот») isn't in the portfolio → 0 until the firm
+  // supplies a %/value.
+  if (hasDebt && opts.browser) {
+    let n = 0;
+    for (const l of loans) {
+      if (Number((l as any).summKr) <= 0) continue; // no amount → no meaningful oferta
+      n += 1;
+      try {
+        const buf = await renderOfertaPdf(l as any, firm ?? {}, opts.browser, ac.clientName, ac.pinfl, 0);
+        files.push({ name: `Oferta_${(l as any).ldId ?? n}_${folder}.pdf`, buf });
+      } catch { /* skip a failed oferta, keep the rest */ }
+    }
+  }
+
   // 2b) Invoice / kvitansiya (.docx) — auto-generated once a receipt is assigned.
-  if (ac.receiptNumber) {
+  if (hasDebt && ac.receiptNumber) {
     try {
       files.push({ name: `Invoice_${ac.receiptNumber}_${folder}.docx`, buf: await buildInvoiceDocx({ clientName: ac.clientName, kod: ac.kod, receiptNumber: ac.receiptNumber, assignedAt: ac.batch?.createdAt ?? ac.stageEnteredAt, firm }) });
     } catch { /* invoice build failed — continue */ }
   }
 
-  // 3) Firm library docs (one per kind) — guvohnoma / ishonchnoma / shartnoma / oferta.
-  const firmDocs = await prisma.firmDocument.findMany({ where: { firmId: ac.firmId }, select: { kind: true, label: true, filePath: true } });
-  for (const fd of firmDocs) {
-    try {
-      const buf = await fs.readFile(fd.filePath);
-      const ext = path.extname(fd.filePath);
-      const label = fd.label || `${fd.kind}${ext}`; // label already carries the extension
-      files.push({ name: `${fd.kind}__${safe(label, 50)}`, buf });
-    } catch { /* missing file — skip */ }
+  // 3) Firm library docs (guvohnoma / ishonchnoma / shartnoma / oferta). Identical
+  // for every client of a firm, so a bulk job passes includeFirmDocs:false and adds
+  // them ONCE per firm (avoids duplicating multi-MB scans across thousands of folders).
+  // A single-case download keeps them in the folder so the packet stays self-contained.
+  // Also debt-gated: a zero-debt case files nothing, so it gets no firm docs either —
+  // the single-case download then yields an empty packet («Hujjat shakllanmadi»), and
+  // the bulk `_FIRMA/<firm>/` folder is unaffected (it's fed by the firm's debt cases).
+  if (hasDebt && opts.includeFirmDocs !== false) {
+    const firmDocs = await prisma.firmDocument.findMany({ where: { firmId: ac.firmId }, select: { kind: true, label: true, filePath: true } });
+    for (const fd of firmDocs) {
+      try {
+        const buf = await fs.readFile(fd.filePath);
+        const ext = path.extname(fd.filePath);
+        const label = fd.label || `${fd.kind}${ext}`; // label already carries the extension
+        files.push({ name: `${fd.kind}__${safe(label, 50)}`, buf });
+      } catch { /* missing file — skip */ }
+    }
   }
 
   // 4) Already-uploaded case docs (invoice / receipt / signed scan).
@@ -132,7 +193,59 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
     seen.add(f.name);
   }
 
-  return { caseId, folder, files, talabnomaMade, arizaMade };
+  return { caseId, folder, files, talabnomaMade, arizaMade, firmId: ac.firmId ?? null, firmName: firm?.shortName ?? ac.kod ?? null };
+}
+
+/** Build ONLY the ofertas for one case: one oferta PDF per loan (contract) of the
+ *  (client × firm) group. Lean sibling of buildCasePacket for the oferta-only bulk export.
+ *  Returns the client folder name + the oferta files, or null when there's nothing to make.
+ *  `browser` is required (oferta is HTML→PDF). Failures per loan are swallowed. */
+export async function buildCaseOfertas(caseId: number, browser: Browser, insurancePct = 0): Promise<{ folder: string; files: PacketFile[] } | null> {
+  const ac = await prisma.arizaCase.findUnique({
+    where: { id: caseId },
+    select: { pinfl: true, snapshotId: true, kod: true, clientName: true },
+  });
+  if (!ac?.pinfl || !ac.snapshotId) return null;
+
+  const [firm, loans] = await Promise.all([
+    ac.kod ? prisma.firm.findUnique({ where: { code: ac.kod } }) : Promise.resolve(null),
+    prisma.loan.findMany({
+      where: { snapshotId: ac.snapshotId, pinfl: ac.pinfl, ...(ac.kod ? { branchCode: ac.kod } : {}) },
+      orderBy: { id: 'asc' },
+    }),
+  ]);
+
+  const folder = safe(ac.clientName || `case-${caseId}`);
+  const firmShort = firm?.shortName || ac.kod || 'firma';
+  const files: PacketFile[] = [];
+  for (const l of loans) {
+    if (Number((l as { summKr?: unknown }).summKr) <= 0) continue; // no amount → no meaningful oferta
+    try {
+      const buf = await renderOfertaPdf(l as never, firm ?? {}, browser, ac.clientName, ac.pinfl, insurancePct);
+      files.push({ name: `Oferta_${safe(firmShort, 28)}_${(l as { ldId?: string | null }).ldId ?? l.id}.pdf`, buf });
+    } catch { /* skip a failed oferta, keep the rest */ }
+  }
+  return files.length ? { folder, files } : null;
+}
+
+/** The firm-library files for ONE firm (guvohnoma/ishonchnoma/shartnoma/oferta),
+ *  read once — used by a bulk job to place them in a single `_FIRMA/<firm>/` folder
+ *  instead of duplicating multi-MB scans into every client folder. */
+export async function firmLibraryFiles(firmId: number): Promise<PacketFile[]> {
+  const firmDocs = await prisma.firmDocument.findMany({ where: { firmId }, select: { kind: true, label: true, filePath: true } });
+  const out: PacketFile[] = [];
+  const seen = new Set<string>();
+  for (const fd of firmDocs) {
+    try {
+      const buf = await fs.readFile(fd.filePath);
+      const ext = path.extname(fd.filePath);
+      let name = `${fd.kind}__${safe(fd.label || `${fd.kind}${ext}`, 50)}`;
+      for (let i = 2; seen.has(name); i++) name = `${fd.kind}_${i}__${safe(fd.label || `${fd.kind}${ext}`, 50)}`;
+      seen.add(name);
+      out.push({ name, buf });
+    } catch { /* missing file — skip */ }
+  }
+  return out;
 }
 
 /** Mark the case as generated: flag talabnoma-sent, and move IMPORTED →

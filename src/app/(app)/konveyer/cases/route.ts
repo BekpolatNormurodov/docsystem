@@ -10,13 +10,17 @@ export const runtime = 'nodejs';
 export async function GET(req: NextRequest) {
   await requireAdmin();
   const sp = req.nextUrl.searchParams;
-  const firmId = sp.get('firmId') ? Number(sp.get('firmId')) : undefined;
+  // Validate numerics: a non-numeric param must degrade to undefined/default, NOT
+  // become NaN and silently return an empty list on a populated dataset.
+  const num = (raw: string | null): number | undefined => { const n = Number(raw); return raw != null && raw !== '' && Number.isFinite(n) ? n : undefined; };
+  const posInt = (raw: string | null, dflt: number, max: number): number => { const n = Number(raw); return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), max) : dflt; };
+  const firmId = num(sp.get('firmId'));
   const stages = (sp.get('stages') || '').split(',').filter(Boolean) as CaseStage[];
   const talabnoma = sp.get('talabnoma') === '1';
-  const snapshotId = sp.get('s') ? Number(sp.get('s')) : undefined;
-  const page = sp.get('page') ? Number(sp.get('page')) : 1;
+  const snapshotId = num(sp.get('s'));
+  const page = posInt(sp.get('page'), 1, 1_000_000);
   const q = sp.get('q') || undefined;
-  const pageSize = sp.get('pageSize') ? Number(sp.get('pageSize')) : 5;
+  const pageSize = posInt(sp.get('pageSize'), 5, 100);
   const data = await konveyerPersons({ firmId, snapshotId, stages, talabnoma, q, page, pageSize });
   return NextResponse.json(data);
 }

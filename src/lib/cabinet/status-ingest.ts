@@ -12,6 +12,10 @@ export function normName(s: string): string {
   return String(s || '')
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
     .toUpperCase().replace(/[‘’`ʻ']/g, '').replace(/X/g, 'H')
+    // Fold Uzbek/Karakalpak Cyrillic to base letters BEFORE the keep-class strip —
+    // else Ў Қ Ғ Ҳ Ҷ Ё (outside А-Я) are deleted, collapsing ҒАНИЕВ→АНИЕВ and
+    // false-matching a different АНИЕВ (→ wrong client's PINFL on a court case).
+    .replace(/Ў/g, 'У').replace(/Қ/g, 'К').replace(/Ғ/g, 'Г').replace(/Ҳ/g, 'Х').replace(/Ҷ/g, 'Ч').replace(/Ё/g, 'Е')
     .replace(/[^A-ZА-Я ]/g, '').replace(/\s+/g, ' ').trim();
 }
 
@@ -32,12 +36,20 @@ export interface IngestResult {
 }
 
 // Build norm(name) -> pinfl index from the firm's full latest-snapshot portfolio.
+// A `null` value marks an AMBIGUOUS name: two distinct portfolio clients normalise
+// to the same string, so a name-only match cannot safely pick one — such a case is
+// left UNMATCHED for a human to resolve instead of silently attaching the wrong PINFL.
 async function buildNameIndex(branchCode: string, snapshotId: number) {
   const loans = await prisma.loan.findMany({
     where: { snapshotId, branchCode }, select: { clientName: true, pinfl: true },
   });
-  const idx = new Map<string, string>();
-  for (const l of loans) if (l.clientName && l.pinfl) idx.set(normName(l.clientName), l.pinfl);
+  const idx = new Map<string, string | null>();
+  for (const l of loans) {
+    if (!l.clientName || !l.pinfl) continue;
+    const k = normName(l.clientName);
+    if (!idx.has(k)) idx.set(k, l.pinfl);
+    else if (idx.get(k) !== l.pinfl) idx.set(k, null); // collision → ambiguous
+  }
   return idx;
 }
 
@@ -45,7 +57,8 @@ export async function ingestCabinetStatuses(
   session: CabinetSession, branchCode: string,
 ): Promise<IngestResult> {
   const snap = await prisma.snapshot.findFirst({ orderBy: { reportDate: 'desc' } });
-  const nameIdx = await buildNameIndex(branchCode, snap!.id);
+  if (!snap) throw new Error(`ingestCabinetStatuses: portfel snapshot topilmadi (${branchCode})`);
+  const nameIdx = await buildNameIndex(branchCode, snap.id);
 
   // Collect one row per distinct cabinet case (dedupe by caseNumber).
   const seen = new Set<string>();
@@ -77,11 +90,20 @@ export async function ingestCabinetStatuses(
     }
   }
 
-  // Upsert all rows.
+  // Upsert all rows. On an EXISTING row keep the status fields fresh, but do NOT
+  // overwrite a detail-ingest exact match: this coarse pass only ever produces a
+  // NAME/UNMATCHED guess, so blindly writing pinfl/matchedBy here would downgrade a
+  // matchedBy='PINFL' row back to a name guess (possibly a colliding wrong person).
   for (const row of rows) {
+    const { pinfl, matchedBy, ...statusFields } = row;
     await prisma.clientCaseStatus.upsert({
       where: { source_caseNumber: { source: 'CABINET', caseNumber: row.caseNumber } },
-      create: row, update: row,
+      create: row, update: statusFields,
+    });
+    // Apply the name match only where a detail pass hasn't already pinned an exact PINFL.
+    await prisma.clientCaseStatus.updateMany({
+      where: { source: 'CABINET', caseNumber: row.caseNumber, matchedBy: { not: 'PINFL' } },
+      data: { pinfl, matchedBy },
     });
   }
 
