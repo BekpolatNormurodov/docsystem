@@ -12,18 +12,22 @@ const dt = (iso: string) => { const d = new Date(iso); const p = (x: number) => 
 
 interface RowProg { done: number; total: number; ok: number; failed: number; phase: string; pauseLeftMs: number; error?: string }
 
+// Bir paketda ko'pi bilan shuncha — backend MAX_COUNT (invoice-rest.ts) bilan mos.
+const ROW_CAP = 100;
+
 function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: number; onDone: () => void; amount: number }) {
-  const [count, setCount] = useState<number>(Math.min(100, f.remaining || 0));
+  const cap = Math.min(ROW_CAP, f.remaining); // bir paketda ko'pi bilan ROW_CAP (backend MAX_COUNT bilan mos)
+  const [count, setCount] = useState<number>(cap || 0);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
   const [batchId, setBatchId] = useState<number | null>(null);
   const [prog, setProg] = useState<RowProg | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const LS_KEY = `konv_inv_batch_${f.firmId}`; // faol paketni reload'da tiklash uchun
   const pct = f.total > 0 ? Math.round((f.withInvoice / f.total) * 100) : 0;
   // Re-clamp when remaining shrinks after a refetch (the row isn't remounted).
-  useEffect(() => { setCount((c) => Math.min(c, f.remaining) || Math.min(100, f.remaining)); }, [f.remaining]);
-  useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
+  useEffect(() => { setCount((c) => Math.min(c, cap) || cap); }, [f.remaining]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fon REST jarayonini kuzatadi: jonli sanoq/progress, tugagach yakunlaydi.
   const poll = (restBatchId: string) => {
@@ -35,6 +39,7 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
       setProg(p);
       if ((p.phase === 'DONE' || p.phase === 'BLOCKED') && timer.current) {
         clearInterval(timer.current);
+        localStorage.removeItem(LS_KEY);
         setBusy(false);
         if (p.phase === 'BLOCKED') {
           setOk(false);
@@ -48,8 +53,31 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
     }, 1500);
   };
 
+  // Mount: shu firma uchun fon paket ishllayotgan bo'lsa (localStorage) tiklaymiz —
+  // reload/navigatsiyada progress yo'qolmaydi va tugma qayta bosilib ikki batch ketmaydi.
+  useEffect(() => {
+    let alive = true;
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(LS_KEY) : null;
+    if (raw) {
+      (async () => {
+        let saved: { r: string; i: number | null };
+        try { saved = JSON.parse(raw); } catch { localStorage.removeItem(LS_KEY); return; }
+        const res = await fetch(`/api/invoices/batch/${saved.r}`);
+        if (!alive) return;
+        if (!res.ok) { localStorage.removeItem(LS_KEY); return; }
+        const p: RowProg = await res.json();
+        if (!alive) return;
+        setProg(p); setBatchId(saved.i ?? null);
+        if (p.phase === 'RUNNING' || p.phase === 'PAUSING') { setBusy(true); poll(saved.r); }
+        else { localStorage.removeItem(LS_KEY); if (p.phase === 'BLOCKED') { setOk(false); setMsg(p.error ?? 'IP bloklandi yoki tarmoq ishlamayapti'); } }
+      })();
+    }
+    return () => { alive = false; if (timer.current) clearInterval(timer.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const create = async () => {
-    if (!count || count > f.remaining) { setOk(false); setMsg(`1–${n(f.remaining)} oraligʻida son kiriting`); return; }
+    if (!count || count > cap) { setOk(false); setMsg(`1–${n(cap)} oraligʻida son kiriting`); return; }
     setBusy(true); setMsg(null); setProg(null); setBatchId(null);
     try {
       const res = await fetch('/konveyer/invoice-batch', {
@@ -59,8 +87,10 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? 'Xato');
       setBatchId(data.invoiceBatchId ?? null);
-      if (data.restBatchId) poll(data.restBatchId);
-      else { setBusy(false); setOk(true); setMsg('Yaratildi'); onDone(); }
+      if (data.restBatchId) {
+        localStorage.setItem(LS_KEY, JSON.stringify({ r: data.restBatchId, i: data.invoiceBatchId ?? null }));
+        poll(data.restBatchId);
+      } else { setBusy(false); setOk(true); setMsg('Yaratildi'); onDone(); }
     } catch (e: any) { setOk(false); setBusy(false); setMsg(e?.message ?? 'Xato'); }
   };
 
@@ -83,14 +113,14 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
         <>
           <div className="flex flex-wrap items-center gap-1">
             <input
-              type="number" min={1} max={f.remaining} value={count} aria-label="Invoice soni"
-              onChange={(e) => setCount(Math.max(1, Math.min(f.remaining, Number(e.target.value) || 0)))}
+              type="number" min={1} max={cap} value={count} aria-label="Invoice soni"
+              onChange={(e) => setCount(Math.max(1, Math.min(cap, Number(e.target.value) || 0)))}
               className="w-12 rounded border border-line bg-surface px-1.5 py-0.5 text-[13px] font-medium tabular-nums outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15"
             />
-            {[100, 200, 300].filter((v) => v <= f.remaining).map((v) => (
+            {[25, 50, 100].filter((v) => v <= cap).map((v) => (
               <button key={v} onClick={() => setCount(v)} aria-pressed={count === v} className={`rounded border px-1.5 py-0.5 text-[10px] font-medium tabular-nums transition-colors ${count === v ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-line text-muted hover:border-amber-500/40'}`}>{v}</button>
             ))}
-            <button onClick={() => setCount(f.remaining)} className="rounded border border-line px-1.5 py-0.5 text-[10px] font-medium text-muted hover:border-amber-500/40">Hammasi</button>
+            <button onClick={() => setCount(cap)} className="rounded border border-line px-1.5 py-0.5 text-[10px] font-medium text-muted hover:border-amber-500/40">Hammasi ({n(cap)})</button>
             <span className="ml-1 text-[10px] tabular-nums text-muted">= <span className="font-medium text-fg">{n(count * amount)}</span></span>
             <button onClick={create} disabled={busy || !count} aria-busy={busy} className="ml-auto inline-flex items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-amber-600 disabled:opacity-50">
               {busy ? <><span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" /> {prog ? `${n(prog.done)}/${n(prog.total)}` : '…'}</> : 'Yarat'}

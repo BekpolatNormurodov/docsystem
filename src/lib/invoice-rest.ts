@@ -25,11 +25,24 @@ const CONCURRENCY = 3;                  // guruh ichida bir vaqtda nechta kvitan
 const BATCH_SIZE = 15;                  // har 15 ta kvitansiyadan keyin katta tanaffus
 const BATCH_PAUSE_MS = 15_000;          // katta tanaffus vaqti (15 soniya) — IP blok bo'lmasligi uchun
 const MAX_CAPTCHA_RETRY = 5;            // challenge kelsa skip qilib qayta analyze urinishlari
-const MAX_ITEM_ATTEMPTS = 3;           // bitta kvitansiya uchun tashqi qayta urinish; 3 tada ham bo'lmasa → IP blok/tarmoq
+const MAX_ITEM_ATTEMPTS = 3;           // bitta kvitansiya uchun tashqi qayta urinish; 3 tada ham bo'lmasa → xato
 const ITEM_RETRY_BACKOFF = 2500;       // urinishlar orasidagi kutish (o'sib boradi)
 const MAX_COUNT = 100;
+// Bazadan tiklaganda: non-terminal (RUNNING/PAUSING) batch shu vaqtdan ko'p tegilmagan
+// bo'lsa (server qayta ishga tushgan, fon jarayon o'lgan) — BLOCKED deb ko'rsatamiz,
+// aks holda UI cheksiz poll qiladi. Item timeout (3×20s) + pauza (15s)dan katta.
+const STALE_MS = 90_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Xato IP blok/tarmoq (qayta urinishga arziydi, «IP bloklandi» deb ko'rsatiladi) mi,
+ * yoki deterministik server rad etishi (400/404/422, «invoice raqami yo'q») mi.
+ * Har ikkalasi ham paketni to'xtatadi (foydalanuvchi «98 berma» dedi), lekin xabar aniq bo'ladi.
+ */
+function isBlockError(msg: string): boolean {
+  return /\b(429|403|5\d\d)\b|timeout|timed?\s*out|abort|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|network|fetch failed|captcha|challenge|analyze|token olinmadi/i.test(msg);
+}
 
 async function safeJson(res: Response): Promise<any> {
   const text = await res.text();
@@ -87,15 +100,14 @@ export function buildFirmAddress(firm: Pick<Firm, 'region' | 'district' | 'addre
   return [firm.region, firm.district, firm.addressLine].map((s) => s?.trim()).filter(Boolean).join(', ');
 }
 
-/** Pochta paketining standart summasi (/invoyslar). Boji qadami getBojiAmount() beradi. */
-export const POSTAL_AMOUNT_DEFAULT = 2060000;
-
-export function buildRestPayload(firm: Firm, opts: { amount?: number } = {}): RestPayload {
+// Summa har doim chaqiruvchidan (getBojiAmount — davlat boji, default 20 600) keladi;
+// bu yerda default yo'q — noto'g'ri summa (masalan eski 2 060 000) tasodifan ketmasin.
+export function buildRestPayload(firm: Firm, opts: { amount: number }): RestPayload {
   const name = firm.shortName?.trim() || firm.legalName?.trim() || '';
   const tin = (firm.stir ?? '').replace(/\D/g, '');
   const address = buildFirmAddress(firm);
   return {
-    amount: opts.amount ?? POSTAL_AMOUNT_DEFAULT,
+    amount: opts.amount,
     captchaToken: '',
     courtId: '525',
     courtType: 'CITIZEN',
@@ -195,18 +207,42 @@ export async function getRestBatch(id: string): Promise<BatchProgress | null> {
   // Xotirada yo'q (server qayta ishga tushgan) — bazadan tiklaymiz.
   const row = await prisma.invoiceRestBatch.findUnique({
     where: { id },
-    include: { records: { select: { invoiceNo: true, pdfPath: true, status: true } } },
+    include: { records: { select: { invoiceNo: true, pdfPath: true, status: true }, orderBy: { id: 'asc' } } },
   });
   if (!row) return null;
-  const items: BatchItem[] = row.records.map((r, i) => ({
-    index: i, status: r.status === 'FAILED' ? 'FAILED' : 'OK', invoiceNo: r.invoiceNo,
-  }));
-  const phase = (row.phase as BatchProgress['phase']) ?? 'DONE';
+  const done = row.ok + row.failed;
+  // Fon jarayon in-process ishlaydi; server qayta ishga tushsa DB non-terminal fazada
+  // qotib qoladi. updatedAt eskirgan bo'lsa — jarayon o'lgan, BLOCKED deb ko'rsatamiz.
+  const rawPhase = (row.phase as BatchProgress['phase']) ?? 'DONE';
+  const stale = Date.now() - new Date(row.updatedAt).getTime() > STALE_MS;
+  const phase: BatchProgress['phase'] =
+    (rawPhase === 'RUNNING' || rawPhase === 'PAUSING') && stale ? 'BLOCKED' : rawPhase;
+  // items[] ni to'liq total uzunlikda tiklaymiz: saqlangan yozuvlar (OK/FAILED),
+  // qolgan indekslar PENDING. FAILED yozuvlar hozircha saqlanmaydi, shuning uchun
+  // ro'yxat asosan OK; lekin uzunlik total bilan mos bo'ladi.
+  const items: BatchItem[] = Array.from({ length: row.total }, (_, i) => {
+    const r = row.records[i];
+    return r
+      ? { index: i, status: (r.status === 'FAILED' ? 'FAILED' : 'OK') as ItemStatus, invoiceNo: r.invoiceNo }
+      : { index: i, status: 'PENDING' as ItemStatus };
+  });
   return {
-    total: row.total, done: row.ok + row.failed, ok: row.ok, failed: row.failed,
-    current: row.total, phase, pauseLeftMs: 0, items,
-    ...(phase === 'BLOCKED' ? { error: 'IP bloklandi yoki tarmoq ishlamayapti — 3 marta urinildi, natija yoʻq.' } : {}),
+    total: row.total, done, ok: row.ok, failed: row.failed,
+    current: phase === 'DONE' ? row.total : done, phase, pauseLeftMs: 0, items,
+    ...(phase === 'BLOCKED'
+      ? { error: stale && rawPhase !== 'BLOCKED'
+          ? 'Jarayon uzildi (server qayta ishga tushgan) — yaratilganlarini yuklab olishingiz mumkin.'
+          : 'IP bloklandi yoki tarmoq ishlamayapti — 3 marta urinildi.' }
+      : {}),
   };
+}
+
+/** Firma uchun hozir ishlayotgan (RUNNING/PAUSING) paket bormi — takroriy start'ni bloklash uchun. */
+function hasActiveBatchForFirm(firmId: number): boolean {
+  for (const b of batches.values()) {
+    if (b.firmId === firmId && (b.phase === 'RUNNING' || b.phase === 'PAUSING')) return true;
+  }
+  return false;
 }
 
 /** batchdagi muvaffaqiyatli (PDF'li) invoicelar (ZIP uchun) — xotira yoki bazadan. */
@@ -303,6 +339,8 @@ async function runBatchLoop(batch: Batch, attemptOne: (idx: number) => Promise<s
   const processWithRetry = async (idx: number): Promise<boolean> => {
     const item = batch.items[idx];
     for (let attempt = 1; attempt <= MAX_ITEM_ATTEMPTS; attempt++) {
+      // Boshqa worker allaqachon abort qo'ygan bo'lsa — bloklangan endpointga urmaymiz.
+      if (batch.aborted) return true;
       try {
         const invoiceNo = await attemptOne(idx);
         item.status = 'OK'; item.invoiceNo = invoiceNo; item.message = undefined;
@@ -310,11 +348,19 @@ async function runBatchLoop(batch: Batch, attemptOne: (idx: number) => Promise<s
         return false;
       } catch (e) {
         item.message = e instanceof Error ? e.message : String(e);
-        if (attempt < MAX_ITEM_ATTEMPTS) await sleep(ITEM_RETRY_BACKOFF * attempt);
+        if (attempt < MAX_ITEM_ATTEMPTS && !batch.aborted) await sleep(ITEM_RETRY_BACKOFF * attempt);
       }
     }
     item.status = 'FAILED'; batch.failed += 1; batch.done += 1;
-    batch.error = `IP bloklandi yoki tarmoq ishlamayapti — 3 marta urinildi, natija yoʻq.${item.message ? ` (${item.message})` : ''}`;
+    // Xato turini ajratamiz: blok/tarmoq → «IP blok»; deterministik → «server rad etdi».
+    // Ikkalasi ham to'xtatadi (jimgina kam berilmaydi), lekin faqat birinchi hard-fail
+    // xabari saqlanadi (ildizga eng yaqin), keyingi worker'lar ustidan yozmaydi.
+    if (!batch.error) {
+      const msg = item.message ?? '';
+      batch.error = isBlockError(msg)
+        ? `IP bloklandi yoki tarmoq ishlamayapti — 3 marta urinildi.${msg ? ` (${msg})` : ''}`
+        : `Kvitansiya yaratilmadi — server rad etdi (3 marta urinildi).${msg ? ` (${msg})` : ''}`;
+    }
     return true; // hard fail → butun paketni to'xtatamiz
   };
 
@@ -344,7 +390,8 @@ async function runBatchLoop(batch: Batch, attemptOne: (idx: number) => Promise<s
     }
   }
   batch.phase = batch.aborted ? 'BLOCKED' : 'DONE';
-  batch.current = batch.total;
+  // BLOCKED da current'ni total ga qotirmaymiz — qancha ishlangani (done) ko'rinsin.
+  if (!batch.aborted) batch.current = batch.total;
   await persistBatch(batch);
 }
 
@@ -354,6 +401,8 @@ export interface StartRestInput { firmId: number; count: number; }
 export async function startRestBatch(input: StartRestInput): Promise<{ batchId: string; total: number }> {
   const firm = await prisma.firm.findUnique({ where: { id: input.firmId } });
   if (!firm) throw new Error('Firma topilmadi');
+  // Takroriy start qulfi — bir firmaga bir vaqtda ikki paket = ikki marta kvitansiya (pul).
+  if (hasActiveBatchForFirm(input.firmId)) throw new Error('Bu firma uchun paket allaqachon ishlayapti — tugashini kuting.');
   const amount = await getBojiAmount();
   const payload = buildRestPayload(firm, { amount });
   if (!payload.juridicalEntity.name) throw new Error('Firma nomi yo‘q');
@@ -370,10 +419,12 @@ export async function startRestBatch(input: StartRestInput): Promise<{ batchId: 
 
   const attemptOne = async (): Promise<string> => {
     const token = await getCaptchaToken();
-    const invoiceNo = await createInvoiceRest(token, payload);
+    const invoiceNo = await createInvoiceRest(token, payload); // MINT — bundan keyin throw yo'q
     let pdfPath: string | null = null;
     try { pdfPath = await downloadInvoicePdf(invoiceNo); } catch { /* raqam saqlanadi, PDF ixtiyoriy */ }
-    await saveRecord(batch.id, input.firmId, payload, invoiceNo, pdfPath);
+    // DB yozuvi best-effort: xato bo'lsa ham attemptOne'dan CHIQMAYDI — aks holda retry
+    // qayta kvitansiya yaratardi (pul isrofi). Kvitansiya allaqachon billing'da bor.
+    try { await saveRecord(batch.id, input.firmId, payload, invoiceNo, pdfPath); } catch { /* re-mint qilmaymiz */ }
     return invoiceNo;
   };
 
@@ -394,6 +445,8 @@ export async function startRestBatchForCases(
 ): Promise<{ restBatchId: string | null; invoiceBatchId: number | null; total: number }> {
   const firm = await prisma.firm.findUnique({ where: { id: input.firmId } });
   if (!firm) throw new Error('Firma topilmadi');
+  // Takroriy start qulfi — bir case'ga ikki marta real boji kvitansiyasi bo'lmasligi uchun.
+  if (hasActiveBatchForFirm(input.firmId)) throw new Error('Bu firma uchun paket allaqachon ishlayapti — tugashini kuting.');
 
   const count = Math.max(1, Math.min(MAX_COUNT, Math.floor(input.count) || 1));
   const picked = await prisma.arizaCase.findMany({
@@ -431,25 +484,45 @@ export async function startRestBatchForCases(
   const attemptOne = async (idx: number): Promise<string> => {
     const caseId = picked[idx].id;
     const token = await getCaptchaToken();
-    const invoiceNo = await createInvoiceRest(token, payload);
+    const invoiceNo = await createInvoiceRest(token, payload); // MINT — bundan keyin throw yo'q
     let pdfPath: string | null = null;
     try { pdfPath = await downloadInvoicePdf(invoiceNo); } catch { /* raqam saqlanadi, PDF ixtiyoriy */ }
-    await prisma.$transaction(async (tx) => {
-      await tx.invoiceRecord.upsert({
-        where: { invoiceNo },
-        update: { pdfPath: pdfPath ?? undefined, restBatchId: batch.id, caseId },
-        create: {
-          invoiceNo, firmId: input.firmId, restBatchId: batch.id, caseId,
-          paymentType: 'Давлат божи', amount, courtType: payload.courtType, courtRegion: '',
-          court: payload.courtId, pdfPath: pdfPath ?? undefined, status: 'CREATED',
-        },
+    // Mint muvaffaqiyatli. Bundan keyingi DB xatolari attemptOne'dan CHIQMAYDI — aks holda
+    // retry qayta kvitansiya yaratardi (pul isrofi). Kvitansiya allaqachon billing'da bor.
+    try {
+      await prisma.$transaction(async (tx) => {
+        // Avval case'ni guard bilan da'vo qilamiz. 0 qator bo'lsa (case allaqachon
+        // olingan) — InvoiceRecord'ni caseId'siz yozamiz, stale caseId qoldirmaymiz.
+        const claimed = await tx.arizaCase.updateMany({
+          where: { id: caseId, receiptNumber: null },
+          data: { receiptNumber: invoiceNo, invoiceNo, batchId: invBatch.id, stage: 'INVOICE_CREATED', stageEnteredAt: now, dueAt },
+        });
+        const linkCaseId = claimed.count > 0 ? caseId : null;
+        await tx.invoiceRecord.upsert({
+          where: { invoiceNo },
+          update: { pdfPath: pdfPath ?? undefined, restBatchId: batch.id, caseId: linkCaseId },
+          create: {
+            invoiceNo, firmId: input.firmId, restBatchId: batch.id, caseId: linkCaseId,
+            paymentType: 'Давлат божи', amount, courtType: payload.courtType, courtRegion: '',
+            court: payload.courtId, pdfPath: pdfPath ?? undefined, status: 'CREATED',
+          },
+        });
       });
-      // receiptNumber:null guard — parallel batch ikki marta belgilamasligi uchun.
-      await tx.arizaCase.updateMany({
-        where: { id: caseId, receiptNumber: null },
-        data: { receiptNumber: invoiceNo, invoiceNo, batchId: invBatch.id, stage: 'INVOICE_CREATED', stageEnteredAt: now, dueAt },
-      });
-    });
+    } catch {
+      // Tranzaksiya uzildi — kvitansiya baribir yaratilgan. Best-effort: caseId'siz yozib
+      // qo'yamiz (izsiz qolmasin), lekin QAYTA yaratmaymiz.
+      try {
+        await prisma.invoiceRecord.upsert({
+          where: { invoiceNo },
+          update: { pdfPath: pdfPath ?? undefined, restBatchId: batch.id },
+          create: {
+            invoiceNo, firmId: input.firmId, restBatchId: batch.id, paymentType: 'Давлат божи',
+            amount, courtType: payload.courtType, courtRegion: '', court: payload.courtId,
+            pdfPath: pdfPath ?? undefined, status: 'CREATED',
+          },
+        });
+      } catch { /* iz ham qolmasa — hech bo'lmasa re-mint qilmadik */ }
+    }
     return invoiceNo;
   };
 

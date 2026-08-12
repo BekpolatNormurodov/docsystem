@@ -50,17 +50,23 @@ export function InvoiceCreateForm({ firms, bojiAmount }: { firms: FirmLite[]; bo
   // Mount'da: faol paket bo'lsa (localStorage) tiklaymiz — reload/chiqib-kirishga chidamli.
   // getRestBatch bazaga fallback qiladi, shuning uchun server qayta ishga tushsa ham tiklanadi.
   useEffect(() => {
+    let alive = true;
     const saved = typeof window !== 'undefined' ? localStorage.getItem(LS_KEY) : null;
     if (saved) {
       (async () => {
         const res = await fetch(`/api/invoices/batch/${saved}`);
+        if (!alive) return;
         if (!res.ok) { localStorage.removeItem(LS_KEY); return; }
         const data: Progress = await res.json();
+        if (!alive) return;
         setBatchId(saved); setProgress(data);
-        if (data.phase !== 'DONE') { setBusy(true); poll(saved); }
+        // Faqat hali ishlayotgan (RUNNING/PAUSING) paketni davom ettiramiz; terminal
+        // (DONE/BLOCKED) faqat ko'rsatiladi — busy=true chaqnashi bo'lmaydi.
+        if (data.phase === 'RUNNING' || data.phase === 'PAUSING') { setBusy(true); poll(saved); }
+        else if (data.phase === 'BLOCKED') setError(data.error ?? 'IP bloklandi yoki tarmoq ishlamayapti');
       })();
     }
-    return () => { if (timer.current) clearInterval(timer.current); };
+    return () => { alive = false; if (timer.current) clearInterval(timer.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -84,6 +90,14 @@ export function InvoiceCreateForm({ firms, bojiAmount }: { firms: FirmLite[]; bo
   const done = progress?.phase === 'DONE';
   const blocked = progress?.phase === 'BLOCKED';
   const terminal = done || blocked;
+
+  if (firms.length === 0) {
+    return (
+      <div className="card max-w-lg p-6 text-sm text-muted">
+        Firma yoʻq — avval <span className="font-medium text-fg">«Firmalar»</span> boʻlimida firma qoʻshing, soʻng shu yerda invoice yaratasiz.
+      </div>
+    );
+  }
 
   return (
     <div className="card max-w-lg space-y-4 p-6">
