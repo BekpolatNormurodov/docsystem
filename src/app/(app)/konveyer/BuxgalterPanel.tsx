@@ -126,7 +126,7 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
             <input
               type="number" min={1} max={cap} value={count} aria-label="Invoice soni"
               onChange={(e) => setCount(Math.max(1, Math.min(cap, Number(e.target.value) || 0)))}
-              className="w-12 rounded border border-line bg-surface px-1.5 py-0.5 text-[13px] font-medium tabular-nums outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15"
+              className="w-16 rounded border border-line bg-surface px-2 py-0.5 text-center text-[13px] font-medium tabular-nums outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15"
             />
             {[25, 50, 100].filter((v) => v <= cap).map((v) => (
               <button key={v} onClick={() => setCount(v)} aria-pressed={count === v} className={`rounded border px-1.5 py-0.5 text-[10px] font-medium tabular-nums transition-colors ${count === v ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-line text-muted hover:border-amber-500/40'}`}>{v}</button>
