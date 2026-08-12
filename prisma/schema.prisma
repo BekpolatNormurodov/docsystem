@@ -8,11 +8,43 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// An app user. `role` splits ADMIN (full control + oversight) from YURIST (a
+// lawyer who only sees/works the pipeline steps an admin has granted). Kept the
+// model name `Admin` so existing rows/login/seed keep working; the row now
+// carries a role. YURIST rows list their granted step keys in `steps`
+// (e.g. ["talabnoma","invoice"] — see STEP_KEYS in src/lib/access.ts).
 model Admin {
-  id           Int      @id @default(autoincrement())
-  username     String   @unique
+  id           Int        @id @default(autoincrement())
+  username     String     @unique
   passwordHash String
-  createdAt    DateTime @default(now())
+  role         String     @default("ADMIN") // ADMIN | YURIST
+  fullName     String?
+  steps        Json? // YURIST only: array of allowed step keys
+  active       Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt @default(now())
+  auditLogs    AuditLog[]
+}
+
+// Who did what, when. Every pipeline mutation writes one row here so a katta ish
+// (stage advance, talabnoma send, ariza/invoice/packet build, court/MIB submit,
+// import, user change) is traceable to a user id. `username`/`role` are
+// denormalized so the trail survives a user being deleted. See src/lib/audit.ts.
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int?
+  user      Admin?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  username  String // denormalized signer identity (survives user deletion)
+  role      String?
+  action    String // STAGE_ADVANCE | TALABNOMA_SEND | ARIZA_GEN | INVOICE_GEN | COURT_SUBMIT | MIB | IMPORT | USER_* | LOGIN | LOGOUT ...
+  target    String? // free-form subject, e.g. "case:123", "firm:12842", "user:mahmud"
+  detail    Json? // action-specific payload (counts, ids, before/after)
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
 }
 
 model Firm {
