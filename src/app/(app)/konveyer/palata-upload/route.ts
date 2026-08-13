@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { requireAdmin } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
@@ -11,7 +11,7 @@ const DIR = path.join(process.cwd(), 'exports', 'palata-inbox');
 const safe = (s: string) => s.replace(/[^\p{L}\p{N}._-]+/gu, '_').slice(0, 120);
 
 export async function GET() {
-  await requireAdmin();
+  await requireUser();
   await fs.mkdir(DIR, { recursive: true });
   const names = await fs.readdir(DIR).catch(() => [] as string[]);
   const files = await Promise.all(
@@ -25,7 +25,7 @@ export async function GET() {
 
 // POST multipart (file, or multiple "files") — store scans into the inbox.
 export async function POST(req: NextRequest) {
-  await requireAdmin();
+  await requireUser();
   await fs.mkdir(DIR, { recursive: true });
   const form = await req.formData();
   const items = [...form.getAll('files'), ...form.getAll('file')].filter((x): x is File => x instanceof File);
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  await requireAdmin();
+  await requireUser();
   const name = req.nextUrl.searchParams.get('name');
   if (!name) return NextResponse.json({ error: 'name kerak' }, { status: 400 });
   await fs.rm(path.join(DIR, path.basename(name)), { force: true }).catch(() => {});

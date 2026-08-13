@@ -5,6 +5,7 @@ export { Splash } from './Splash';
 export { Spinner } from './Spinner';
 export { Ico, NAV_ICONS } from './icons';
 export { Modal } from './Modal';
+export { ConfirmProvider, useConfirm } from './Confirm';
 export { Select } from './Select';
 export { TextField, DateField, TextArea, PasswordField } from './Field';
 export { FilePicker } from './FilePicker';

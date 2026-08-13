@@ -11,11 +11,11 @@ export default async function KonveyerPage({ searchParams }: { searchParams: { s
   await requireAdmin();
 
   const snaps = await konveyerSnapshots();
-  // Snapshot precedence: explicit ?s= (deep-link) → the sidebar's shared cookie → latest.
-  // A non-numeric value must fall back to the latest, NOT become NaN — which
-  // konveyerSummary/Funnel treat as falsy and silently aggregate ALL snapshots.
-  // Cookie (sidebar picker) wins over ?s= so the sidebar highlight and the page never disagree.
-  const raw = cookies().get('konv_s')?.value ?? searchParams.s;
+  // Snapshot = the sidebar picker's cookie (konv_s) only — the SAME source the layout uses for the
+  // picker highlight, so page and sidebar never disagree. ?s= is not honored (nothing generates it,
+  // and honoring a fresh deep-link would desync the sidebar, which can't read searchParams). An
+  // absent/non-numeric cookie falls back to latest, NOT NaN (which Summary/Funnel treat as ALL).
+  const raw = cookies().get('konv_s')?.value;
   const parsedS = raw ? Number(raw) : NaN;
   const selectedId = Number.isInteger(parsedS) && parsedS > 0 && snaps.some((s) => s.id === parsedS) ? parsedS : snaps[0]?.id;
   const [s, funnel] = await Promise.all([konveyerSummary(selectedId), konveyerFunnel(selectedId)]);

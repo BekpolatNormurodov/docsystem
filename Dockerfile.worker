@@ -1,0 +1,28 @@
+# syntax=docker/dockerfile:1
+#
+# WORKER image — the ONLY container with chromium. It renders every court PDF (PACKET / OFERTA /
+# TALABNOMA) from HTML templates via headless chromium, both the heavy bulk batches and the single-case
+# jobs the web enqueues. Also runs the `migrate` one-shot (it has the prisma CLI + tsx). The Playwright
+# base ships chromium + all system libraries at /ms-playwright, so no `playwright install` is needed.
+FROM mcr.microsoft.com/playwright:v1.62.1-jammy
+
+WORKDIR /app
+ENV DATABASE_URL="mysql://build:build@localhost:3306/build"
+ENV NODE_ENV=production
+ENV JOB_MODE=worker
+
+# Full install: the worker runs the TypeScript directly with tsx (a devDependency), and prisma db push
+# (migrate) needs the prisma CLI (devDependency) — so keep the dev set.
+COPY package.json package-lock.json ./
+RUN npm ci --include=dev
+
+COPY prisma ./prisma
+RUN npx prisma generate
+
+# The worker executes source directly (tsx) and reads the HTML->PDF templates from src/lib, so it needs
+# the source tree + tsconfig. It does NOT need the Next build output.
+COPY tsconfig.json ./
+COPY src ./src
+COPY data ./data
+
+CMD ["npm", "run", "worker"]

@@ -2,7 +2,8 @@
 // (sidebar builds its nav from this) and the server (guards) share one source of
 // truth for what the five pipeline steps are and who may touch them.
 
-export const STEP_KEYS = ['talabnoma', 'ariza', 'invoice', 'sud', 'mib'] as const;
+// Four steps: invoice (buxgalteriya) is no longer its own step — it lives INSIDE Sud as a tab.
+export const STEP_KEYS = ['talabnoma', 'ariza', 'sud', 'mib'] as const;
 export type StepKey = (typeof STEP_KEYS)[number];
 
 export interface StepMeta {
@@ -14,11 +15,10 @@ export interface StepMeta {
 
 // Order == pipeline order == STEP_KEYS order. Labels mirror the old NAV in layout.tsx.
 export const STEP_META: Record<StepKey, StepMeta> = {
-  talabnoma: { step: 1, label: 'Talabnoma', href: '/talabnoma', icon: 'files' },
-  ariza: { step: 2, label: 'Ariza · palata', href: '/ariza', icon: 'pen' },
-  invoice: { step: 3, label: 'Invoice · buxgalteriya', href: '/invoice', icon: 'file-plus' },
-  sud: { step: 4, label: 'Sud (adolat)', href: '/sud', icon: 'building' },
-  mib: { step: 5, label: 'MIB · ijro', href: '/mib', icon: 'check' },
+  talabnoma: { step: 1, label: 'Talabnoma', href: '/talabnoma', icon: 'sms' },
+  ariza: { step: 2, label: 'Sanoat palatasi', href: '/ariza', icon: 'stamp' },
+  sud: { step: 3, label: 'Sud', href: '/sud', icon: 'court' },
+  mib: { step: 4, label: 'MIB', href: '/mib', icon: 'shield' },
 };
 
 export type AppRole = 'ADMIN' | 'YURIST';

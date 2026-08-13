@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
-import { runOfertaJob, runOfertaJobByLoans } from '@/lib/prepare-packets';
+import { enqueueJob } from '@/lib/job-dispatch';
 import type { CaseStage } from '@prisma/client';
 
 export const runtime = 'nodejs';
@@ -13,7 +13,7 @@ const VALID_STAGES = new Set<string>(['IMPORTED', 'TALABNOMA_SENT', 'ARIZA_GENER
 // grouped by client. Returns { jobId, total }; poll /api/jobs/{jobId}, download
 // /api/export/{jobId}/download when DONE.
 export async function POST(req: NextRequest) {
-  await requireAdmin();
+  await requireUser();
   const body = await req.json().catch(() => ({}));
 
   const num = (v: unknown): number | undefined => { const n = Number(v); return v != null && v !== '' && Number.isInteger(n) && n > 0 ? n : undefined; };
@@ -31,10 +31,11 @@ export async function POST(req: NextRequest) {
     if (!pinfls.length) return NextResponse.json({ error: 'Court list boʻsh' }, { status: 400 });
     const loans = await prisma.loan.findMany({ where: { snapshotId, pinfl: { in: pinfls }, summKr: { gt: 0 } }, select: { id: true } });
     const ids = loans.map((l) => l.id);
+    // Store snapshotId/firmId (not the thousands of loan ids) so the worker recomputes the same set.
     const job = await prisma.job.create({
-      data: { type: 'OFERTA', status: 'PENDING', snapshotId, total: ids.length, params: { courtList: true, clients: pinfls.length, insurancePct } },
+      data: { type: 'OFERTA', status: 'PENDING', snapshotId, total: ids.length, params: { courtList: true, snapshotId, firmId, clients: pinfls.length, insurancePct } },
     });
-    void runOfertaJobByLoans(job.id, ids, insurancePct).catch(() => {});
+    enqueueJob(job.id);
     return NextResponse.json({ jobId: job.id, total: ids.length, clients: pinfls.length });
   }
 
@@ -42,10 +43,11 @@ export async function POST(req: NextRequest) {
   const loanIds = (Array.isArray(body?.loanIds) ? body.loanIds : [])
     .map((v: unknown) => Number(v)).filter((n: number) => Number.isInteger(n) && n > 0);
   if (loanIds.length) {
+    // Persist the actual loan ids (a hand-picked subset, so small) so the worker renders the same set.
     const job = await prisma.job.create({
-      data: { type: 'OFERTA', status: 'PENDING', snapshotId: snapshotId ?? null, total: loanIds.length, params: { loanIds: loanIds.length, insurancePct } },
+      data: { type: 'OFERTA', status: 'PENDING', snapshotId: snapshotId ?? null, total: loanIds.length, params: { loanIds, insurancePct } },
     });
-    void runOfertaJobByLoans(job.id, loanIds, insurancePct).catch(() => {});
+    enqueueJob(job.id);
     return NextResponse.json({ jobId: job.id, total: loanIds.length });
   }
 
@@ -66,8 +68,8 @@ export async function POST(req: NextRequest) {
     data: { type: 'OFERTA', status: 'PENDING', snapshotId: snapshotId ?? null, total, params: { snapshotId, firmId, stages, insurancePct } },
   });
 
-  // Fire-and-forget: the server carries it to completion; the client polls the Job.
-  void runOfertaJob(job.id, { snapshotId, firmId, stages, insurancePct }).catch(() => {});
+  // Run inline (default) or leave PENDING for the Docker worker (JOB_MODE=worker).
+  enqueueJob(job.id);
 
   return NextResponse.json({ jobId: job.id, total });
 }

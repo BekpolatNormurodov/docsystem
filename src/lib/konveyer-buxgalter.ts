@@ -38,24 +38,29 @@ export interface FirmInvoiceProgress {
   total: number; // court-list cases
   withInvoice: number; // already have a kvitansiya raqami
   remaining: number;
+  eligible: number; // imzodan o'tgan (SIGNED_SCANNED) va kvitansiyasiz — billing SHULARGA ishlaydi
 }
 
-/** Per-firm invoice progress: how many cases have a boji invoice vs total.
+/** Per-firm invoice progress: how many cases have a boji invoice vs total, and how many are
+ *  billing-ELIGIBLE right now (SIGNED_SCANNED, kvitansiyasiz — the pool startRestBatchForCases
+ *  actually invoices; «remaining» counts every no-invoice case, most of which aren't signed yet).
  *  Optionally scoped to one firm (matches the dashboard's firm dropdown). */
 export async function invoiceProgress(snapshotId?: number, firmId?: number): Promise<FirmInvoiceProgress[]> {
   const scope = { ...(snapshotId ? { snapshotId } : {}), ...(firmId ? { firmId } : {}) };
-  const [firms, totals, withInv] = await Promise.all([
+  const [firms, totals, withInv, eligible] = await Promise.all([
     prisma.firm.findMany({ where: firmId ? { id: firmId } : {}, select: { id: true, shortName: true } }),
     prisma.arizaCase.groupBy({ by: ['firmId'], where: scope, _count: { _all: true } }),
     prisma.arizaCase.groupBy({ by: ['firmId'], where: { ...scope, receiptNumber: { not: null } }, _count: { _all: true } }),
+    prisma.arizaCase.groupBy({ by: ['firmId'], where: { ...scope, stage: 'SIGNED_SCANNED', receiptNumber: null }, _count: { _all: true } }),
   ]);
   const totalBy = new Map(totals.map((t) => [t.firmId, t._count._all]));
   const invBy = new Map(withInv.map((t) => [t.firmId, t._count._all]));
+  const eligBy = new Map(eligible.map((t) => [t.firmId, t._count._all]));
   return firms
     .map((f) => {
       const total = totalBy.get(f.id) ?? 0;
       const withInvoice = invBy.get(f.id) ?? 0;
-      return { firmId: f.id, firmName: f.shortName, total, withInvoice, remaining: total - withInvoice };
+      return { firmId: f.id, firmName: f.shortName, total, withInvoice, remaining: total - withInvoice, eligible: eligBy.get(f.id) ?? 0 };
     })
     .filter((f) => f.total > 0)
     .sort((a, b) => b.total - a.total);

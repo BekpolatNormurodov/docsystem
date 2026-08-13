@@ -198,6 +198,16 @@ g.__invoiceRestBatches = batches;
 let seq = 0;
 function newId(): string { seq += 1; return `r${Date.now().toString(36)}_${seq}`; }
 
+/** «Bekor qilish» — mark a live (in-memory) batch as aborted. The runner stops at its next check and
+ *  finalizes (DONE) with whatever it produced so far. Returns false if the batch isn't in memory
+ *  (server restarted → it's already shown as BLOCKED, nothing to stop). */
+export function abortRestBatch(id: string): boolean {
+  const b = batches.get(id);
+  if (!b) return false;
+  b.aborted = true;
+  return true;
+}
+
 export async function getRestBatch(id: string): Promise<BatchProgress | null> {
   const b = batches.get(id);
   if (b) {

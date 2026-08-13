@@ -135,17 +135,19 @@ export function cleanTail(post: string | null | undefined): string {
       if (U === 'KUCHA' || U === 'KUCHASI') { parts.push(`ko${g}chasi`); continue; }
       if (U === 'DAXASI' || U === 'DAHASI') { parts.push('dahasi'); continue; }
       if (U === 'DOM' || U === 'UY' || U === 'D') {
-        const nx = toks[i + 1] ? toks[i + 1]!.replace(/[^\dA-Za-z]/g, '') : '';
-        if (/^\d+[A-Z]?$/.test(nx)) { parts.push(`${nx}-uy`); i++; }
+        // Trim only EDGE punctuation and keep an internal separator, so a composite house number
+        // like "12/3" stays "12/3" instead of collapsing to a wrong single "123".
+        const nx = toks[i + 1] ? toks[i + 1]!.replace(/^[^\dA-Za-z]+|[^\dA-Za-z]+$/g, '') : '';
+        if (/^\d+(?:[\/-]\d+)*[A-Z]?$/.test(nx)) { parts.push(`${nx}-uy`); i++; }
         continue; // "UY R/S" etc. → no number → drop
       }
       if (U === 'KV' || U === 'KVARTIRA' || U === 'XONADON') {
-        const nx = toks[i + 1] ? toks[i + 1]!.replace(/[^\dA-Za-z]/g, '') : '';
-        if (/^\d+[A-Z]?$/.test(nx)) { parts.push(`${nx}-xonadon`); i++; }
+        const nx = toks[i + 1] ? toks[i + 1]!.replace(/^[^\dA-Za-z]+|[^\dA-Za-z]+$/g, '') : '';
+        if (/^\d+(?:[\/-]\d+)*[A-Z]?$/.test(nx)) { parts.push(`${nx}-xonadon`); i++; }
         continue;
       }
-      const num = t.replace(/[^\dA-Za-z]/g, '');
-      if (/^\d+[A-Z]?$/.test(num)) { parts.push(num); continue; }
+      const num = t.replace(/^[^\dA-Za-z]+|[^\dA-Za-z]+$/g, '');
+      if (/^\d+(?:[\/-]\d+)*[A-Z]?$/.test(num)) { parts.push(num); continue; }
       parts.push(titleCase(t));
     }
     if (parts.length) out.push(parts.join(' '));

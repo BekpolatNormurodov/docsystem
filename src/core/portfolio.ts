@@ -37,7 +37,14 @@ function unwrapCell(v: unknown): unknown {
   if (v !== null && typeof v === 'object') {
     const o = v as any;
     if (Array.isArray(o.richText)) return o.richText.map((r: any) => r?.text ?? '').join('');
-    if (o.result !== undefined && o.result !== null) return o.result; // formula → computed value
+    // An errored formula (result = {error:'#DIV/0!'}) or an unresolved formula object (the streaming
+    // reader drops a NaN result, leaving {formula} with no result) must NOT become the literal
+    // "[object Object]" name/PINFL on a court doc — treat them as empty (→ str()='' , num()→0).
+    if (o.error !== undefined) return null;
+    if (o.result !== undefined && o.result !== null) {
+      return (o.result as any)?.error !== undefined ? null : o.result; // formula → computed value (unless it errored)
+    }
+    if (o.formula !== undefined) return null; // formula present but no usable result
     if (o.text !== undefined && o.text !== null && !(v instanceof Date)) return o.text; // hyperlink → text
   }
   return v; // primitives + Date pass through (Date handled by toDate)

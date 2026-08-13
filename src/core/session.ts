@@ -63,7 +63,7 @@ export async function createSession(p: SessionPayload): Promise<string> {
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(p.sub)
     .setIssuedAt()
-    .setExpirationTime('7d')
+    .setExpirationTime('1d')
     .sign(secret());
 }
 

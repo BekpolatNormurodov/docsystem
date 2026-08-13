@@ -1,5 +1,5 @@
 import { Suspense } from 'react';
-import { requireAdmin } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { PageHeader, EmptyState, Skeleton } from '@/ui';
 import { MijozlarFilters } from './MijozlarFilters';
@@ -12,7 +12,7 @@ export default async function MijozlarPage({
 }: {
   searchParams: Record<string, string | undefined>;
 }) {
-  await requireAdmin();
+  await requireUser();
 
   const snapshots = await prisma.snapshot.findMany({
     where: { status: 'READY' },

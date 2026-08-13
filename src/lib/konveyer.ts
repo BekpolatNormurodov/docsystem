@@ -5,6 +5,11 @@ import { prisma } from './db';
 import { Prisma, type CaseStage } from '@prisma/client';
 import { dueForStage } from './konveyer-sla';
 
+// React's server `cache` dedupes a call within one request. It's undefined in the plain (non-RSC)
+// vitest runtime, where invoking it throws "cache is not a function" at module load — degrade to a
+// passthrough there so importing this module in tests stays safe (production keeps the dedup).
+const memo: typeof cache = typeof cache === 'function' ? cache : (((fn: unknown) => fn) as unknown as typeof cache);
+
 // Ordered pipeline stages with Uzbek labels and a semantic color ramp key
 // (matches Tailwind color families used across the app).
 // Main ariza→court track (talabnoma is a PARALLEL track via talabnomaAt, not here).
@@ -63,7 +68,7 @@ export interface SnapshotOption {
 /** Snapshots that have konveyer cases, newest first, for the dashboard dropdown.
  *  Wrapped in React cache() so the layout's sidebar picker and the page that renders under it
  *  share a single query per request instead of each firing their own. */
-export const konveyerSnapshots = cache(async (): Promise<SnapshotOption[]> => {
+export const konveyerSnapshots = memo(async (): Promise<SnapshotOption[]> => {
   const grouped = await prisma.arizaCase.groupBy({ by: ['snapshotId'], _count: { _all: true } });
   const ids = grouped.map((g) => g.snapshotId).filter((x): x is number => x != null);
   if (ids.length === 0) return [];
@@ -83,7 +88,7 @@ export interface StageBadges { phase: Record<string, number>; talabnoma: number;
 
 /** Lightweight per-phase case counts for the sidebar stepper badges — one groupBy + two counts,
  *  far cheaper than the full konveyerSummary. Cached so the layout shares one hit per request. */
-export const konveyerStageBadges = cache(async (snapshotId?: number): Promise<StageBadges> => {
+export const konveyerStageBadges = memo(async (snapshotId?: number): Promise<StageBadges> => {
   const scope = snapshotId ? { snapshotId } : {};
   const [byStage, talabnoma, total] = await Promise.all([
     prisma.arizaCase.groupBy({ by: ['stage'], where: scope, _count: { _all: true } }),
@@ -444,8 +449,26 @@ export async function konveyerCases(opts: {
 // This is the pool the MIB monitoring pull runs over: for each, two MIB APIs
 // (qarzdorlik so'rovi + ijro monitoringi) are queried. The real APIs aren't
 // wired yet — the panel runs a clearly-labelled SIMULATION over this real pool.
-const MIB_ELIGIBLE_STAGES: CaseStage[] = ['COURT_ACCEPTED', 'MIB_SUBMITTED'];
+// The MIB step's set = exactly the EXEC phase (MIB_SUBMITTED + CLOSED), so the panel's «Jami ish»
+// matches the Mijozlar list below it. COURT_ACCEPTED belongs to the Sud (court) step, not MIB.
+const MIB_ELIGIBLE_STAGES: CaseStage[] = ['MIB_SUBMITTED', 'CLOSED'];
 const MIB_CASE_CAP = 500; // cases[] payload cap; the counts/sum below stay full
+
+// Real cabinet.sud.uz court statuses → Uzbek label + a coarse «kind» for the monitoring buckets.
+// DECIDED/FINISHED = qaror chiqarilgan (foydaga → qanoatlantirilgan); DECLINED = rad; else jarayonda.
+const COURT_STATUS_META: Record<string, { label: string; kind: 'granted' | 'process' | 'declined' | 'pending' }> = {
+  DECIDED: { label: 'Qaror chiqarilgan', kind: 'granted' },
+  FINISHED: { label: 'Yakunlangan', kind: 'granted' },
+  IN_PROCESS: { label: "Ko'rib chiqilmoqda", kind: 'process' },
+  PENDING: { label: 'Kutilmoqda', kind: 'pending' },
+  CREATED: { label: 'Yaratilgan', kind: 'pending' },
+  DRAFT: { label: 'Qoralama', kind: 'pending' },
+  RETURNED: { label: 'Qaytarilgan', kind: 'declined' },
+  DECLINED: { label: 'Rad etilgan', kind: 'declined' },
+};
+const courtStatusMeta = (s?: string | null) => (s ? COURT_STATUS_META[s] ?? { label: s, kind: 'process' as const } : null);
+// Pick the most-advanced status when a client has several cabinet cases.
+const COURT_STATUS_RANK: Record<string, number> = { FINISHED: 7, DECIDED: 6, IN_PROCESS: 5, RETURNED: 4, DECLINED: 4, PENDING: 2, CREATED: 1, DRAFT: 0 };
 
 export interface MibCaseRow {
   id: number;
@@ -457,14 +480,25 @@ export interface MibCaseRow {
   stage: CaseStage; // COURT_ACCEPTED | MIB_SUBMITTED
   stageLabel: string;
   totalDebt: string;
-  mibRef: string | null;
+  courtCaseId: string | null; // real sud ish raqami (2-1004-…/…) — MIB shu qaror bo'yicha ijro qiladi
+  mibRef: string | null; // real MIB ijro ref (hozircha yo'q; API ulangach to'ladi)
+  // Real court status pulled from cabinet.sud.uz (ClientCaseStatus source CABINET), matched by PINFL.
+  courtStatus: string | null;      // DECIDED | IN_PROCESS | … (null = statusi hali tortilmagan)
+  courtStatusLabel: string | null; // Uzbek label
+  courtResult: string | null;      // case_result — «qanoatlantirilgan» / qisman / rad, agar bor bo'lsa
+  courtCaseNumber: string | null;  // cabinet ish raqami
 }
+export interface MibStatusBucket { key: string; label: string; count: number; debt: string; kind: 'granted' | 'process' | 'declined' | 'pending' }
 export interface MibPullData {
-  total: number;
-  accepted: number; // COURT_ACCEPTED — sud foydaga hal qildi, MIB'ga tayyor
-  atMib: number; // MIB_SUBMITTED — allaqachon ijroda
+  total: number; // distinct PERSONS (PINFL) in the MIB set — matches the Mijozlar list
+  accepted: number; // (legacy) COURT_ACCEPTED — endi Sud qadamida, bu yerda 0
+  atMib: number; // MIB_SUBMITTED — ijroda
+  closed: number; // CLOSED — yakunlangan
   totalDebt: string;
   byFirm: { firmId: number; firmName: string; count: number }[];
+  byStatus: MibStatusBucket[]; // real court-status breakdown (sums) — the monitoring's core
+  granted: number;             // «qanoatlantirilgan» (DECIDED/FINISHED) count — highlighted
+  withStatus: number;          // how many eligible cases already have a pulled court status
   cases: MibCaseRow[];
   capped: boolean; // cases[] kesildi (statistika to'liq); UI buni ko'rsatadi
 }
@@ -473,10 +507,18 @@ export interface MibPullData {
  *  already-at-MIB, per-firm counts, summed debt, and the case list (capped) the
  *  simulation streams over. Scoped like the rest of Boshqaruv. */
 export async function mibEligibleCases(opts: { firmId?: number; snapshotId?: number }): Promise<MibPullData> {
+  // Per-snapshot view. With no snapshot given, pin to the latest READY one — else the
+  // same person exists once per historical snapshot (@@unique[snapshotId,pinfl,firmId]),
+  // so counts/debt would sum N× across snapshots. Mirrors konveyerPersons.
+  let snapshotId = opts.snapshotId;
+  if (snapshotId == null) {
+    const latest = await prisma.snapshot.findFirst({ where: { status: 'READY' }, orderBy: { reportDate: 'desc' }, select: { id: true } });
+    snapshotId = latest?.id;
+  }
   const where = {
     stage: { in: MIB_ELIGIBLE_STAGES },
     ...(opts.firmId ? { firmId: opts.firmId } : {}),
-    ...(opts.snapshotId ? { snapshotId: opts.snapshotId } : {}),
+    ...(snapshotId ? { snapshotId } : {}),
   };
   const [grouped, rows, firms] = await Promise.all([
     prisma.arizaCase.groupBy({ by: ['firmId', 'stage'], where, _count: { _all: true }, _sum: { totalDebt: true } }),
@@ -484,42 +526,166 @@ export async function mibEligibleCases(opts: { firmId?: number; snapshotId?: num
       where,
       orderBy: [{ totalDebt: 'desc' }, { id: 'asc' }],
       take: MIB_CASE_CAP + 1, // +1 sentinel so we know the list was truncated
-      select: { id: true, firmId: true, clientName: true, pinfl: true, kod: true, stage: true, totalDebt: true, mibRef: true },
+      select: { id: true, firmId: true, clientName: true, pinfl: true, kod: true, stage: true, totalDebt: true, courtCaseId: true, mibRef: true },
     }),
     prisma.firm.findMany({ select: { id: true, shortName: true } }),
   ]);
 
   const nameOf = new Map(firms.map((f) => [f.id, f.shortName]));
-  let accepted = 0;
-  let atMib = 0;
+  let accepted = 0;   // COURT_ACCEPTED belongs to the Sud step now → always 0 here (payload compat)
+  let atMib = 0;      // MIB_SUBMITTED (ijroda)
+  let closed = 0;     // CLOSED (yakunlangan)
   let totalDebtNum = 0;
   const firmCount = new Map<number, number>();
   for (const g of grouped) {
     const c = g._count._all;
-    if (g.stage === 'COURT_ACCEPTED') accepted += c;
-    else if (g.stage === 'MIB_SUBMITTED') atMib += c;
+    if (g.stage === 'MIB_SUBMITTED') atMib += c;
+    else if (g.stage === 'CLOSED') closed += c;
     totalDebtNum += Number(g._sum.totalDebt ?? 0);
     firmCount.set(g.firmId, (firmCount.get(g.firmId) ?? 0) + c);
   }
+  // «Jami ish» = distinct PERSONS (PINFL), so it matches the Mijozlar list below (which groups by
+  // PINFL) exactly — never the case count, which double-counts a person with two MIB cases.
+  const personRows = await prisma.arizaCase.findMany({ where, select: { pinfl: true }, distinct: ['pinfl'] });
+  const totalPersons = personRows.length;
   const byFirm = [...firmCount.entries()]
     .map(([firmId, count]) => ({ firmId, firmName: nameOf.get(firmId) ?? `#${firmId}`, count }))
     .sort((a, b) => b.count - a.count);
 
   const capped = rows.length > MIB_CASE_CAP;
-  const cases: MibCaseRow[] = (capped ? rows.slice(0, MIB_CASE_CAP) : rows).map((r) => ({
-    id: r.id,
-    firmId: r.firmId,
-    firmName: nameOf.get(r.firmId) ?? '',
-    clientName: r.clientName,
-    pinfl: r.pinfl,
-    kod: r.kod,
-    stage: r.stage,
-    stageLabel: STAGE_LABEL[r.stage],
-    totalDebt: String(r.totalDebt),
-    mibRef: r.mibRef,
-  }));
+  const shown = capped ? rows.slice(0, MIB_CASE_CAP) : rows;
 
-  return { total: accepted + atMib, accepted, atMib, totalDebt: String(totalDebtNum), byFirm, cases, capped };
+  // Attach the REAL court status pulled from cabinet.sud.uz (ClientCaseStatus source CABINET), matched
+  // by PINFL. A client with several cabinet cases → keep the most-advanced status.
+  const pinfls = [...new Set(shown.map((r) => r.pinfl).filter((p): p is string => !!p))];
+  const statusRows = pinfls.length
+    ? await prisma.clientCaseStatus.findMany({
+        where: { source: 'CABINET', pinfl: { in: pinfls }, ...(snapshotId ? { snapshotId } : {}) },
+        select: { pinfl: true, status: true, statusLabel: true, caseResult: true, caseNumber: true, updatedAt: true },
+      })
+    : [];
+  const bestByPinfl = new Map<string, (typeof statusRows)[number]>();
+  for (const s of statusRows) {
+    if (!s.pinfl) continue;
+    const cur = bestByPinfl.get(s.pinfl);
+    const rank = COURT_STATUS_RANK[s.status] ?? 0;
+    const curRank = cur ? (COURT_STATUS_RANK[cur.status] ?? 0) : -1;
+    if (!cur || rank > curRank || (rank === curRank && s.updatedAt > cur.updatedAt)) bestByPinfl.set(s.pinfl, s);
+  }
+
+  const cases: MibCaseRow[] = shown.map((r) => {
+    const st = r.pinfl ? bestByPinfl.get(r.pinfl) ?? null : null;
+    return {
+      id: r.id,
+      firmId: r.firmId,
+      firmName: nameOf.get(r.firmId) ?? '',
+      clientName: r.clientName,
+      pinfl: r.pinfl,
+      kod: r.kod,
+      stage: r.stage,
+      stageLabel: STAGE_LABEL[r.stage],
+      totalDebt: String(r.totalDebt),
+      courtCaseId: r.courtCaseId,
+      mibRef: r.mibRef,
+      courtStatus: st?.status ?? null,
+      courtStatusLabel: st ? (courtStatusMeta(st.status)?.label ?? st.statusLabel ?? null) : null,
+      courtResult: st?.caseResult ?? null,
+      courtCaseNumber: st?.caseNumber ?? null,
+    };
+  });
+
+  // Status breakdown (sums) over the shown cases — the monitoring's core. A case with no pulled
+  // status falls into a «status yo'q» bucket so the totals always add up.
+  const bucketMap = new Map<string, MibStatusBucket>();
+  for (const c of cases) {
+    const key = c.courtStatus ?? '__none__';
+    const meta = c.courtStatus ? courtStatusMeta(c.courtStatus) : null;
+    const b = bucketMap.get(key) ?? { key, label: meta?.label ?? "Status yo'q (tortilmagan)", count: 0, debt: '0', kind: meta?.kind ?? 'pending' };
+    b.count += 1;
+    b.debt = String(Number(b.debt) + Number(c.totalDebt));
+    bucketMap.set(key, b);
+  }
+  const KIND_ORDER = { granted: 0, process: 1, pending: 2, declined: 3 } as const;
+  const byStatus = [...bucketMap.values()].sort((a, b) => (KIND_ORDER[a.kind] - KIND_ORDER[b.kind]) || (b.count - a.count));
+  const granted = cases.filter((c) => c.courtStatus === 'DECIDED' || c.courtStatus === 'FINISHED').length;
+  const withStatus = cases.filter((c) => c.courtStatus != null).length;
+
+  return { total: totalPersons, accepted, atMib, closed, totalDebt: String(totalDebtNum), byFirm, byStatus, granted, withStatus, cases, capped };
+}
+
+// One row of the MIB working list (Excel export). Same eligible pool as mibEligibleCases
+// (MIB_SUBMITTED + CLOSED) and the same PINFL-matched cabinet court status — but UNCAPPED,
+// so the operator gets the full list to file with MIB by hand while the real MIB API is pending.
+export interface MibExportRow {
+  clientName: string | null;
+  pinfl: string | null;
+  kod: string | null;
+  firmName: string;
+  stage: CaseStage;
+  stageLabel: string;
+  courtCaseId: string | null;
+  courtCaseNumber: string | null;
+  courtStatusLabel: string | null;
+  courtResult: string | null;
+  mibRef: string | null;
+  totalDebt: string;
+}
+
+export async function mibEligibleExport(opts: { firmId?: number; snapshotId?: number }): Promise<MibExportRow[]> {
+  let snapshotId = opts.snapshotId;
+  if (snapshotId == null) {
+    const latest = await prisma.snapshot.findFirst({ where: { status: 'READY' }, orderBy: { reportDate: 'desc' }, select: { id: true } });
+    snapshotId = latest?.id;
+  }
+  const where = {
+    stage: { in: MIB_ELIGIBLE_STAGES },
+    ...(opts.firmId ? { firmId: opts.firmId } : {}),
+    ...(snapshotId ? { snapshotId } : {}),
+  };
+  const [rows, firms] = await Promise.all([
+    prisma.arizaCase.findMany({
+      where,
+      orderBy: [{ totalDebt: 'desc' }, { id: 'asc' }],
+      select: { id: true, firmId: true, clientName: true, pinfl: true, kod: true, stage: true, totalDebt: true, courtCaseId: true, mibRef: true },
+    }),
+    prisma.firm.findMany({ select: { id: true, shortName: true } }),
+  ]);
+  const nameOf = new Map(firms.map((f) => [f.id, f.shortName]));
+
+  // Attach the best (most-advanced) cabinet court status per PINFL — same rule as mibEligibleCases.
+  const pinfls = [...new Set(rows.map((r) => r.pinfl).filter((p): p is string => !!p))];
+  const statusRows = pinfls.length
+    ? await prisma.clientCaseStatus.findMany({
+        where: { source: 'CABINET', pinfl: { in: pinfls }, ...(snapshotId ? { snapshotId } : {}) },
+        select: { pinfl: true, status: true, statusLabel: true, caseResult: true, caseNumber: true, updatedAt: true },
+      })
+    : [];
+  const bestByPinfl = new Map<string, (typeof statusRows)[number]>();
+  for (const s of statusRows) {
+    if (!s.pinfl) continue;
+    const cur = bestByPinfl.get(s.pinfl);
+    const rank = COURT_STATUS_RANK[s.status] ?? 0;
+    const curRank = cur ? (COURT_STATUS_RANK[cur.status] ?? 0) : -1;
+    if (!cur || rank > curRank || (rank === curRank && s.updatedAt > cur.updatedAt)) bestByPinfl.set(s.pinfl, s);
+  }
+
+  return rows.map((r) => {
+    const st = r.pinfl ? bestByPinfl.get(r.pinfl) ?? null : null;
+    return {
+      clientName: r.clientName,
+      pinfl: r.pinfl,
+      kod: r.kod,
+      firmName: nameOf.get(r.firmId) ?? '',
+      stage: r.stage,
+      stageLabel: STAGE_LABEL[r.stage],
+      courtCaseId: r.courtCaseId,
+      courtCaseNumber: st?.caseNumber ?? null,
+      courtStatusLabel: st ? (courtStatusMeta(st.status)?.label ?? st.statusLabel ?? null) : null,
+      courtResult: st?.caseResult ?? null,
+      mibRef: r.mibRef,
+      totalDebt: String(r.totalDebt),
+    };
+  });
 }
 
 export interface PersonCase {
@@ -533,6 +699,10 @@ export interface PersonCase {
   dueAt: string | null;
   daysLeft: number | null;
   totalDebt: string;
+  courtCaseId: string | null;      // real sud ish raqami (arizaCase.courtCaseId)
+  courtStatus: string | null;      // cabinet.sud.uz ruling status (DECIDED/IN_PROCESS/…) matched by PINFL
+  courtStatusLabel: string | null; // Uzbek label
+  courtResult: string | null;      // case_result — «qanoatlantirilgan» / qisman / rad
 }
 export interface PersonRow {
   pinfl: string;
@@ -634,8 +804,23 @@ export async function konveyerPersons(opts: {
   const rows = await prisma.arizaCase.findMany({
     where: { pinfl: { in: pinfls }, ...(snapshotId ? { snapshotId } : {}) },
     orderBy: { id: 'asc' },
-    select: { id: true, pinfl: true, clientName: true, kod: true, firmId: true, stage: true, dueAt: true, totalDebt: true, receiptNumber: true, talabnomaAt: true, firm: { select: { shortName: true } } },
+    select: { id: true, pinfl: true, clientName: true, kod: true, firmId: true, stage: true, dueAt: true, totalDebt: true, receiptNumber: true, courtCaseId: true, talabnomaAt: true, firm: { select: { shortName: true } } },
   });
+
+  // Real court status per person (cabinet.sud.uz, matched by PINFL) — attached to every case so the
+  // list can show «qanoatlantirilgan» under a client. Most-advanced status wins across cabinet cases.
+  const statusRows = pinfls.length ? await prisma.clientCaseStatus.findMany({
+    where: { source: 'CABINET', pinfl: { in: pinfls }, ...(snapshotId ? { snapshotId } : {}) },
+    select: { pinfl: true, status: true, statusLabel: true, caseResult: true, updatedAt: true },
+  }) : [];
+  const courtByPinfl = new Map<string, (typeof statusRows)[number]>();
+  for (const s of statusRows) {
+    if (!s.pinfl) continue;
+    const cur = courtByPinfl.get(s.pinfl);
+    const rank = COURT_STATUS_RANK[s.status] ?? 0;
+    const curRank = cur ? (COURT_STATUS_RANK[cur.status] ?? 0) : -1;
+    if (!cur || rank > curRank || (rank === curRank && s.updatedAt > cur.updatedAt)) courtByPinfl.set(s.pinfl, s);
+  }
 
   const now = Date.now();
   const day = 86400000;
@@ -643,10 +828,15 @@ export async function konveyerPersons(opts: {
   for (const r of rows) {
     if (!r.pinfl) continue;
     const daysLeft = r.dueAt ? ((v) => (v < 0 ? Math.floor(v) : Math.ceil(v)))((r.dueAt.getTime() - now) / day) : null;
+    const cs = courtByPinfl.get(r.pinfl) ?? null;
     const pc: PersonCase = {
       caseId: r.id, firmId: r.firmId, firmName: r.firm?.shortName ?? '', stage: r.stage,
       stageLabel: STAGE_LABEL[r.stage], receiptNumber: r.receiptNumber, talabnomaSent: !!r.talabnomaAt,
       dueAt: r.dueAt ? r.dueAt.toISOString() : null, daysLeft, totalDebt: String(r.totalDebt),
+      courtCaseId: r.courtCaseId ?? null,
+      courtStatus: cs?.status ?? null,
+      courtStatusLabel: cs ? (courtStatusMeta(cs.status)?.label ?? cs.statusLabel ?? null) : null,
+      courtResult: cs?.caseResult ?? null,
     };
     const p = byPinfl.get(r.pinfl);
     if (p) p.cases.push(pc);

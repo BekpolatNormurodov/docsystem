@@ -35,15 +35,14 @@ function ParallelRail({ prep, talabnoma, ariza, boj, court, exec, selected, onSe
   prep: number; talabnoma: number; ariza: number; boj: number; court: number; exec: number;
   selected: string | null; onSelect: (k: string) => void;
 }) {
-  // Flow: Tayyorlash splits into Talabnoma(top) + Ariza·palata(bottom); both
-  // MERGE into Invoice, then Sud, then Ijro.
+  // 4-step flow: Tayyorlash splits into Talabnoma(top) + Sanoat palatasi(bottom); both MERGE
+  // straight into Sud (invoice/buxgalteriya is folded INTO Sud now), then Ijro (MIB).
   const N = {
-    prep: { x: 60, y: 95, r: 32, c: '#64748b', v: prep, label: 'Tayyorlash', key: 'PREP' },
-    tal: { x: 250, y: 46, r: 28, c: '#0ea5e9', v: talabnoma, label: 'Talabnoma (hippo)', key: 'TALABNOMA' },
-    ariza: { x: 250, y: 152, r: 28, c: '#8b5cf6', v: ariza, label: 'Ariza · palata', key: 'SIGN' },
-    inv: { x: 490, y: 99, r: 32, c: '#f59e0b', v: boj, label: 'Invoice', key: 'BOJ' },
-    court: { x: 700, y: 99, r: 32, c: '#3b82f6', v: court, label: 'Sud (adolat)', key: 'COURT' },
-    exec: { x: 880, y: 99, r: 28, c: '#14b8a6', v: exec, label: 'Ijro (MIB)', key: 'EXEC' },
+    prep: { x: 70, y: 100, r: 32, c: '#64748b', v: prep, label: 'Tayyorlash', key: 'PREP' },
+    tal: { x: 300, y: 52, r: 30, c: '#0ea5e9', v: talabnoma, label: 'Talabnoma', key: 'TALABNOMA' },
+    ariza: { x: 300, y: 148, r: 30, c: '#8b5cf6', v: ariza, label: 'Sanoat palatasi', key: 'SIGN' },
+    court: { x: 580, y: 100, r: 34, c: '#3b82f6', v: boj + court, label: 'Sud', key: 'COURT' },
+    exec: { x: 820, y: 100, r: 30, c: '#14b8a6', v: exec, label: 'Ijro (MIB)', key: 'EXEC' },
   };
   const curve = (x1: number, y1: number, x2: number, y2: number, on: boolean, color: string) =>
     <path d={`M ${x1} ${y1} C ${(x1 + x2) / 2} ${y1}, ${(x1 + x2) / 2} ${y2}, ${x2} ${y2}`} fill="none" stroke={on ? color : LINE} strokeWidth={on ? 3 : 2} />;
@@ -69,18 +68,17 @@ function ParallelRail({ prep, talabnoma, ariza, boj, court, exec, selected, onSe
       </g>
     );
   };
-  const invOn = N.inv.v > 0;
+  const sudOn = N.court.v > 0;
 
   return (
-    <svg viewBox="0 0 950 225" className="w-full" style={{ maxHeight: 250 }} role="img" aria-label="Konveyer sxemasi">
+    <svg viewBox="0 0 900 210" className="w-full" style={{ maxHeight: 250 }} role="img" aria-label="Konveyer sxemasi">
       {curve(N.prep.x + N.prep.r, N.prep.y - 8, N.tal.x - N.tal.r, N.tal.y, N.tal.v > 0, N.tal.c)}
       {curve(N.prep.x + N.prep.r, N.prep.y + 8, N.ariza.x - N.ariza.r, N.ariza.y, N.ariza.v > 0, N.ariza.c)}
-      {/* both lanes merge into Invoice */}
-      {curve(N.tal.x + N.tal.r, N.tal.y, N.inv.x - N.inv.r, N.inv.y - 8, invOn, N.inv.c)}
-      {curve(N.ariza.x + N.ariza.r, N.ariza.y, N.inv.x - N.inv.r, N.inv.y + 8, invOn, N.inv.c)}
-      {straight(N.inv.x + N.inv.r, N.inv.y, N.court.x - N.court.r, N.court.y, N.court.v > 0, N.court.c)}
+      {/* both lanes merge straight into Sud (invoice folded in) */}
+      {curve(N.tal.x + N.tal.r, N.tal.y, N.court.x - N.court.r, N.court.y - 8, sudOn, N.court.c)}
+      {curve(N.ariza.x + N.ariza.r, N.ariza.y, N.court.x - N.court.r, N.court.y + 8, sudOn, N.court.c)}
       {straight(N.court.x + N.court.r, N.court.y, N.exec.x - N.exec.r, N.exec.y, N.exec.v > 0, N.exec.c)}
-      {Node(N.prep)}{Node(N.tal)}{Node(N.ariza)}{Node(N.inv)}{Node(N.court)}{Node(N.exec)}
+      {Node(N.prep)}{Node(N.tal)}{Node(N.ariza)}{Node(N.court)}{Node(N.exec)}
     </svg>
   );
 }
@@ -104,13 +102,26 @@ export function Explorer({ phases, stages, firms, funnel, snapshotId }: {
 
   const firmOpts = [{ value: 'all', label: 'Hamma firma' }, ...funnel.firms.map((f) => ({ value: String(f.firmId), label: f.firmName, hint: n(f.total) }))];
 
+  // Advance targets must follow the pipeline graph, NOT raw STAGES adjacency: a court-ACCEPTED case
+  // goes to MIB (execution), never to the "sud qaytardi" reject bucket that sits next in the display
+  // list, and a court-RETURNED case has no automatic forward step. Mirror lib/konveyer's nextStage()
+  // + NEXT_OVERRIDE client-side (Explorer can't import the prisma-backed lib) so this dashboard offers
+  // the SAME transitions as the server-driven step pages (stage-data.ts), which already do this right.
+  const NEXT_OVERRIDE: Record<string, string | null> = { COURT_ACCEPTED: 'MIB_SUBMITTED', COURT_RETURNED: null };
+  const stageKeys = stages.map((s) => s.key);
+  const labelOf = (k: string) => stages.find((s) => s.key === k)?.label ?? k;
+  const nextOf = (k: string): string | null => {
+    if (k in NEXT_OVERRIDE) return NEXT_OVERRIDE[k];
+    const i = stageKeys.indexOf(k);
+    return i >= 0 && i < stageKeys.length - 1 ? stageKeys[i + 1] : null;
+  };
   const transitions: Transition[] = [];
   if (summaryFirm && activePhase) {
-    for (let i = 0; i < stages.length - 1; i++) {
-      const from = stages[i], to = stages[i + 1];
-      const c = summaryFirm.byStage[from.key] ?? 0;
-      if (c > 0 && activePhase.stages.includes(from.key))
-        transitions.push({ from: from.key, fromLabel: from.label, count: c, to: to.key, toLabel: to.label, external: EXTERNAL_TARGETS.has(to.key) });
+    for (const fromKey of activePhase.stages) {
+      const c = summaryFirm.byStage[fromKey] ?? 0;
+      const toKey = nextOf(fromKey);
+      if (c > 0 && toKey)
+        transitions.push({ from: fromKey, fromLabel: labelOf(fromKey), count: c, to: toKey, toLabel: labelOf(toKey), external: EXTERNAL_TARGETS.has(toKey) });
     }
   }
 

@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PDFDocument } from 'pdf-lib';
-import { requireAdmin } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
 import { readScannedArizas } from '@/lib/palata-scan';
 import { SCAN_STORE } from '@/lib/palata-ocr';
+import { extractPagesPdfFromFile } from '@/lib/palata-attach';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 // GET ?pinfl= → that client's signed ariza pages, extracted from the retained scan.
 export async function GET(req: NextRequest) {
-  await requireAdmin();
+  await requireUser();
   const pinfl = req.nextUrl.searchParams.get('pinfl');
   if (!pinfl) return NextResponse.json({ error: 'pinfl kerak' }, { status: 400 });
 
@@ -20,16 +20,7 @@ export async function GET(req: NextRequest) {
   const file = path.join(SCAN_STORE, path.basename(ariza.source));
   if (!fs.existsSync(file)) return NextResponse.json({ error: 'Skan fayli topilmadi' }, { status: 404 });
 
-  const src = await PDFDocument.load(fs.readFileSync(file));
-  const out = await PDFDocument.create();
-  const count = src.getPageCount();
-  const m = /^(\d+)-(\d+)$/.exec(ariza.pages || '');
-  let idxs: number[];
-  if (m) { const a = Math.max(1, Number(m[1])), b = Math.min(count, Number(m[2])); idxs = []; for (let p = a; p <= b; p++) idxs.push(p - 1); }
-  else idxs = src.getPageIndices();
-  const copied = await out.copyPages(src, idxs);
-  copied.forEach((p) => out.addPage(p));
-  const bytes = await out.save();
+  const bytes = await extractPagesPdfFromFile(file, ariza.pages);
 
   const base = (ariza.name || pinfl).replace(/[^\p{L}\p{N} ._()-]+/gu, '_').trim().slice(0, 60) || pinfl;
   const ascii = `${base}.pdf`.replace(/[^\x20-\x7E]/g, '_');

@@ -4,7 +4,7 @@
 // (one letterhead, one account), so a mixed-firm batch would never be importable there.
 //
 // Reuses the single-case join + grouping (buildTalabnomaRows) so the bulk documents are
-// byte-for-byte the same shape as «gen-talabnoma»/«gen-talabnoma-excel», just batched and
+// byte-for-byte the same shape as the single-case «gen-talabnoma» PDF, just batched and
 // with a running contract_id sequence across the whole reyestr.
 import type { CaseStage } from '@prisma/client';
 import { prisma } from '@/lib/db';
@@ -15,12 +15,14 @@ export interface TalabnomaScope {
   snapshotId: number;
   firmId: number;
   stages?: CaseStage[];
+  pinfl?: string;   // single-case gen-talabnoma — narrow the batch to ONE client
 }
 
 export interface TalabnomaScopeResult {
   rows: TalabnomaRow[];              // debt-gated (total_debt > 0), one per client × firm
   firm: TalabnomaFirm | null;        // letterhead firm for every PDF in this batch
   firmShort: string;                 // safe-ish short name for filenames
+  branchCode: string;                // firm.code === loan.branchCode — the dedupe/trace key
   docDate: Date;
   paidPinfls: string[];              // PINFLs whose grouped debt > 0 — the funnel-mark set
 }
@@ -29,7 +31,7 @@ export interface TalabnomaScopeResult {
  * Load the talabnoma rows for every case of ONE firm in ONE snapshot, in reyestr order.
  * @throws if the firm or snapshot is missing — the caller turns that into a 4xx.
  */
-export async function loadTalabnomaRowsForScope({ snapshotId, firmId, stages }: TalabnomaScope): Promise<TalabnomaScopeResult> {
+export async function loadTalabnomaRowsForScope({ snapshotId, firmId, stages, pinfl }: TalabnomaScope): Promise<TalabnomaScopeResult> {
   const firm = await prisma.firm.findUnique({
     where: { id: firmId },
     select: { code: true, legalName: true, shortName: true, address: true, stir: true, bankAccount: true, mfo: true, phone: true },
@@ -42,12 +44,12 @@ export async function loadTalabnomaRowsForScope({ snapshotId, firmId, stages }: 
   // Distinct debtors of this firm in this snapshot (optionally narrowed by stage). Talabnoma is
   // the parallel track, so the step-page passes no stages — this covers the whole firm.
   const cases = await prisma.arizaCase.findMany({
-    where: { snapshotId, firmId, ...(stages && stages.length ? { stage: { in: stages } } : {}) },
+    where: { snapshotId, firmId, ...(stages && stages.length ? { stage: { in: stages } } : {}), ...(pinfl ? { pinfl } : {}) },
     select: { pinfl: true },
     distinct: ['pinfl'],
   });
   const pinfls = cases.map((c) => c.pinfl).filter((p): p is string => !!p);
-  if (pinfls.length === 0) return { rows: [], firm, firmShort: firm.shortName || firm.code || 'firma', docDate: snapshot.reportDate, paidPinfls: [] };
+  if (pinfls.length === 0) return { rows: [], firm, firmShort: firm.shortName || firm.code || 'firma', branchCode: firm.code ?? '', docDate: snapshot.reportDate, paidPinfls: [] };
 
   // firm.code === arizaCase.kod === loan.branchCode, so scope the loans to this firm's branch —
   // exactly the join the single-case route uses (branchCode: ac.kod), just batched. Ordered by
@@ -76,5 +78,5 @@ export async function loadTalabnomaRowsForScope({ snapshotId, firmId, stages }: 
   }
   const paidPinfls = [...debtByPinfl.entries()].filter(([, d]) => Math.round(d) > 0).map(([p]) => p);
 
-  return { rows, firm, firmShort: firm.shortName || firm.code || 'firma', docDate: snapshot.reportDate, paidPinfls };
+  return { rows, firm, firmShort: firm.shortName || firm.code || 'firma', branchCode: firm.code ?? '', docDate: snapshot.reportDate, paidPinfls };
 }

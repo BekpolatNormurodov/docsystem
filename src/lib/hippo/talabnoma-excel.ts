@@ -40,6 +40,9 @@ export interface TalabnomaLoan {
 }
 
 export interface TalabnomaRow {
+  // pinfl is carried for our own overview/statistika (never emitted into the hippo reyestr —
+  // talabnomaWorkbook/talabnomaRowsToMails only read the fixed TALABNOMA_COLUMNS, so this is ignored there).
+  pinfl: string | null;
   date: Date;
   contract_id: string;
   address: string;
@@ -75,6 +78,7 @@ export function buildTalabnomaRows(loans: TalabnomaLoan[], docDate: Date): Talab
     const { regionId, areaId } = resolveHippoRegionArea(g0.regionName ?? '', distr);
     seq += 1;
     rows.push({
+      pinfl: g0.pinfl != null && String(g0.pinfl).trim() !== '' ? String(g0.pinfl) : null,
       date: docDate,
       contract_id: `${ddmmyyyy(docDate)}/${seq}`,
       // Prefer the cleaned Uzbek-Latin address (drops source junk like «Д. РС, КВ.»),

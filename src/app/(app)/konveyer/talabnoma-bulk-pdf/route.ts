@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
-import { runTalabnomaJob } from '@/lib/prepare-packets';
+import { enqueueJob } from '@/lib/job-dispatch';
 
 export const runtime = 'nodejs';
 
@@ -10,7 +10,7 @@ export const runtime = 'nodejs';
 // the root). Returns { jobId, total }; the client polls /api/jobs/{jobId} and downloads
 // /api/export/{jobId}/download when DONE. Per-firm because a hippo reyestr is per-firm.
 export async function POST(req: NextRequest) {
-  await requireAdmin();
+  await requireUser();
   const body = await req.json().catch(() => ({}));
   const num = (v: unknown): number | undefined => { const n = Number(v); return v != null && v !== '' && Number.isInteger(n) && n > 0 ? n : undefined; };
   const snapshotId = num(body?.snapshotId);
@@ -26,8 +26,8 @@ export async function POST(req: NextRequest) {
     data: { type: 'TALABNOMA', status: 'PENDING', snapshotId, total, params: { snapshotId, firmId } },
   });
 
-  // Fire-and-forget: the server carries it to completion; the client polls the Job.
-  void runTalabnomaJob(job.id, { snapshotId, firmId }).catch(() => {});
+  // Run inline (default) or leave PENDING for the Docker worker (JOB_MODE=worker).
+  enqueueJob(job.id);
 
   return NextResponse.json({ jobId: job.id, total });
 }

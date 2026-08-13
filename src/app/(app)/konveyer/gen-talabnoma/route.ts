@@ -1,15 +1,20 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
-import { buildTalabnomaRows, type TalabnomaLoan } from '@/lib/hippo/talabnoma-excel';
-import { renderTalabnomaPdf } from '@/lib/hippo/talabnoma-pdf';
+import { enqueueJob } from '@/lib/job-dispatch';
+import { awaitJob } from '@/lib/await-job';
 
 export const runtime = 'nodejs';
+export const maxDuration = 300;
 
-// GET ?caseId= — generate this client's talabnoma PDF on the fly from the
-// portfolio loan data and stream it as a download.
+// GET ?caseId= — this client's talabnoma letter. The chromium HTML→PDF render now runs on the
+// background worker: create a single-case TALABNOMA job (its reyestr .xlsx is skipped, so the ZIP is
+// just the one letter), wait for it, then stream exports/{jobId}.zip. The job advances the talabnoma
+// track (talabnomaAt) for this client, so no funnel write here.
 export async function GET(req: NextRequest) {
-  await requireAdmin();
+  await requireUser();
   const caseId = Number(req.nextUrl.searchParams.get('caseId'));
   if (!Number.isInteger(caseId) || caseId <= 0) return NextResponse.json({ error: 'caseId kerak' }, { status: 400 });
 
@@ -19,48 +24,35 @@ export async function GET(req: NextRequest) {
   });
   if (!ac?.pinfl || !ac.snapshotId) return NextResponse.json({ error: 'Case yoki mijoz maʼlumoti yoʻq' }, { status: 404 });
 
-  // Letterhead firm (was hardcoded in the template → wrong firm on every PDF).
-  const firm = ac.kod ? await prisma.firm.findUnique({ where: { code: ac.kod }, select: { legalName: true, shortName: true, address: true, stir: true, bankAccount: true, mfo: true, phone: true } }) : null;
+  // Letterhead firm resolved by branch code (as before); the job needs its numeric id to scope the batch.
+  const firm = ac.kod ? await prisma.firm.findUnique({ where: { code: ac.kod }, select: { id: true } }) : null;
+  if (!firm) return NextResponse.json({ error: 'Firma topilmadi' }, { status: 404 });
 
-  const loans = (await prisma.loan.findMany({
-    where: { snapshotId: ac.snapshotId, pinfl: ac.pinfl, ...(ac.kod ? { branchCode: ac.kod } : {}) },
-    orderBy: { id: 'asc' },
-    select: { pinfl: true, branchCode: true, clientName: true, postAddress: true, postAddressUz: true, regionName: true, ldId: true, dateToCr: true, summKr: true, totalDebt: true, raw: true },
-  })) as TalabnomaLoan[];
-  if (loans.length === 0) return NextResponse.json({ error: 'Portfel maʼlumoti topilmadi' }, { status: 404 });
+  const job = await prisma.job.create({
+    data: {
+      type: 'TALABNOMA', status: 'PENDING', snapshotId: ac.snapshotId, total: 1,
+      params: { snapshotId: ac.snapshotId, firmId: firm.id, pinfl: ac.pinfl, singleCase: true },
+    },
+  });
+  enqueueJob(job.id);
 
-  // Debt gate — no outstanding debt → nothing to demand, so no talabnoma (mirrors the
-  // ariza's own «Qarzdorlik 0» refusal so the two documents are never inconsistent).
-  const caseDebt = loans.reduce((s, l) => s + (Number((l as { totalDebt?: unknown }).totalDebt) || 0), 0);
-  if (caseDebt <= 0) return NextResponse.json({ error: 'Qarzdorlik 0 — talabnoma yaratilmaydi' }, { status: 422 });
+  const r = await awaitJob(job.id);
+  // FIX 3(a): a timeout means the job is still QUEUED (likely stuck behind a large bulk batch), not
+  // failed — tell the user to retry once the batch clears rather than implying the document errored.
+  if (r === 'TIMEOUT') return NextResponse.json({ error: 'Talabnoma navbatda — katta partiya tugagach qayta urinib koʻring' }, { status: 504 });
+  if (r === 'FAILED') return NextResponse.json({ error: 'Talabnoma yaratilmadi' }, { status: 500 });
 
-  // Use the snapshot's reportDate (same as the one-click packet) so the doc date
-  // and contract_id are stable no matter which button generated it.
-  const snapshot = await prisma.snapshot.findUnique({ where: { id: ac.snapshotId }, select: { reportDate: true } });
-  const rows = buildTalabnomaRows(loans, snapshot?.reportDate ?? new Date());
-  if (rows.length === 0) return NextResponse.json({ error: 'Talabnoma qatori shakllanmadi' }, { status: 400 });
-
-  let buf: Buffer;
-  let browser: Awaited<ReturnType<Awaited<typeof import('playwright')>['chromium']['launch']>> | null = null;
-  try {
-    const { chromium } = await import('playwright');
-    browser = await chromium.launch({ headless: true });
-    buf = await renderTalabnomaPdf(rows[0], browser, firm);
-  } catch (e) {
-    console.error('gen-talabnoma failed', e);
-    return NextResponse.json({ error: 'Talabnoma yaratilmadi' }, { status: 500 });
-  } finally {
-    if (browser) await browser.close().catch(() => {});
-  }
-
-  // Smart auto-mark: generating the talabnoma flags the parallel track as sent.
-  await prisma.arizaCase.updateMany({ where: { id: caseId, talabnomaAt: null }, data: { talabnomaAt: new Date() } });
+  const zipPath = path.join(process.cwd(), 'exports', `${job.id}.zip`);
+  if (!fs.existsSync(zipPath)) return NextResponse.json({ error: 'Talabnoma yaratilmadi' }, { status: 500 });
 
   const safe = (ac.clientName || `case-${caseId}`).replace(/[^\p{L}\p{N}]+/gu, '_').slice(0, 40);
-  return new NextResponse(new Uint8Array(buf), {
+  const stat = fs.statSync(zipPath);
+  const stream = fs.createReadStream(zipPath);
+  return new NextResponse(stream as unknown as ReadableStream, {
     headers: {
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="${encodeURIComponent(`Talabnoma_${safe}.pdf`)}"`,
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(`Talabnoma_${safe}`)}.zip"`,
+      'Content-Length': String(stat.size),
     },
   });
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
-import { requireAdmin } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
 import { palataScanSummary } from '@/lib/palata-scan';
 
 export const runtime = 'nodejs';
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 // GET → the whole palata scan list as an .xlsx (F.I.Sh, JShShIR, firma, manzil, holat).
 export async function GET() {
-  await requireAdmin();
+  await requireUser();
   const s = await palataScanSummary();
 
   const wb = new ExcelJS.Workbook();

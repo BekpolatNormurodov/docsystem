@@ -1,11 +1,169 @@
+# Production stack for docsystem — the full pipeline behind yuristsystem.uz.
+#
+#   mysql    → database (named volume, not exposed to the host)
+#   migrate  → one-shot: `prisma db push` + seed, then exits; gates web/worker (uses the worker image)
+#   web      → Next.js app, LEAN (node-slim, NO chromium), fronted by nginx
+#   worker   → the ONLY chromium container: renders all court PDFs (bulk + single-case jobs)
+#   nginx    → TLS edge + reverse proxy for the 3 domains; also serves ACME challenges
+#   certbot  → obtains & auto-renews the Let's Encrypt certificate
+#
+# Two images by design: web (Dockerfile, chromium-free) and worker (Dockerfile.worker, Playwright base).
+# migrate reuses the worker image because it needs the prisma CLI + tsx. Config comes from
+# .env.production; ALWAYS invoke compose with `--env-file .env.production` (the deploy scripts do this).
+
+# ---- shared app config (web / worker / migrate) -----------------------------------------------------
+x-app-env: &app-env
+  env_file:
+    - .env.production
+  environment:
+    NODE_ENV: production
+    # The web process only enqueues heavy jobs; the worker container executes them. See WORKER.md.
+    JOB_MODE: worker
+    # Parallel chromium renders per batch on the worker (backend). Scale with the server's CPU cores —
+    # default 5; set WORKER_CONCURRENCY=12 (etc.) in .env.production on a big-CPU box for faster batches.
+    WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
+    # App -> DB over the compose network (service name `mysql`). Built from the MySQL credentials so
+    # there is one source of truth. Keep the password URL-safe (alphanumeric).
+    DATABASE_URL: "mysql://${MYSQL_USER:?set MYSQL_USER in .env.production}:${MYSQL_PASSWORD:?set MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:?set MYSQL_DATABASE}"
+
+# Shared persistent state. web writes single-case docs / invoices; the worker writes batch ZIPs; both
+# read firm docs & templates. They MUST see the same filesystem, so the same host dirs mount into both.
+x-app-volumes: &app-volumes
+  - ./exports:/app/exports    # job ZIPs, firm-docs, case-docs, palata scans, billing invoices
+  - ./uploads:/app/uploads    # import temp xlsx
+  - ./storage:/app/storage    # REST invoice PDFs
+  - ./data:/app/data          # palata-scan.json index (ships a committed default)
+
+# Cap container log growth so a chatty service can't fill the server disk (default json-file is unbounded).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   mysql:
     image: mysql:8.4
+    restart: unless-stopped
+    logging: *default-logging
+    env_file:
+      - .env.production
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: docsystem
-      MYSQL_USER: docsystem
-      MYSQL_PASSWORD: docsystem
-    ports: ["3307:3306"]
-    volumes: ["docsystem_mysql:/var/lib/mysql"]
-volumes: { docsystem_mysql: {} }
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env.production}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?}
+      MYSQL_USER: ${MYSQL_USER:?}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?}
+    # utf8mb4 everywhere (Cyrillic/Latin client names, addresses).
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  # Schema sync + seed. Runs to completion on every `up`, then exits (idempotent: db push is a no-op when
+  # the schema already matches; the seed upserts). web/worker wait for this to finish. Reuses the lean
+  # web image — it already carries the prisma CLI + tsx + schema + seed (no chromium needed for migrate).
+  migrate:
+    image: docsystem-web:latest
+    <<: *app-env
+    volumes: *app-volumes
+    restart: "no"
+    logging: *default-logging
+    command: ["sh", "-c", "npx prisma db push --skip-generate && npm run db:seed"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: docsystem-web:latest
+    <<: *app-env
+    volumes: *app-volumes
+    restart: unless-stopped
+    logging: *default-logging
+    command: ["npm", "run", "start"]
+    expose:
+      - "5200"          # internal only — nginx is the sole public entry point
+    depends_on:
+      mysql:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:5200/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    image: docsystem-worker:latest
+    <<: *app-env
+    volumes: *app-volumes
+    restart: unless-stopped
+    logging: *default-logging
+    # chromium writes shared-memory to /dev/shm; Docker's 64MB default makes it crash under parallel
+    # rendering. 1GB is comfortable headroom for a high WORKER_CONCURRENCY on a big-CPU backend.
+    shm_size: "1gb"
+    # Pinned name = Compose refuses `--scale worker=2`; the orphan-sweep assumes a single executor.
+    container_name: docsystem_worker
+    command: ["npm", "run", "worker"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # The worker has no HTTP port; verify the poll loop process is alive (restart policy covers crashes,
+    # this just surfaces a dead worker in `docker ps`). The `[s]rc` bracket-glob stops pgrep from
+    # matching its OWN command line (which literally contains the pattern), which would always pass.
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f '[s]rc/worker' >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./docker/nginx/snippets:/etc/nginx/snippets:ro
+      - certbot_certs:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
+    depends_on:
+      web:
+        condition: service_started
+    # Reload every 6h so renewed certs are picked up without a restart; run nginx in the foreground.
+    command: >
+      /bin/sh -c "while :; do sleep 6h & wait $${!}; nginx -s reload; done & exec nginx -g 'daemon off;'"
+
+  certbot:
+    image: certbot/certbot
+    restart: unless-stopped
+    logging: *default-logging
+    volumes:
+      - certbot_certs:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    # Attempt renewal twice a day; certbot only actually renews within 30 days of expiry.
+    entrypoint: >
+      /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h & wait $${!}; done"
+
+volumes:
+  mysql_data:
+  certbot_certs:
+  certbot_www:

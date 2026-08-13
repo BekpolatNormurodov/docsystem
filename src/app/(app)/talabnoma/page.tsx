@@ -1,11 +1,11 @@
-import { requireAdmin } from '@/lib/auth';
+import { requireStep } from '@/lib/auth';
 import { loadStageData } from '../konveyer/stage-data';
 import { StageView } from '../konveyer/StageView';
 
 export const dynamic = 'force-dynamic';
 
 export default async function TalabnomaPage({ searchParams }: { searchParams: { s?: string } }) {
-  await requireAdmin();
+  await requireStep('talabnoma');
   const d = await loadStageData('TALABNOMA', searchParams.s);
   return (
     <StageView

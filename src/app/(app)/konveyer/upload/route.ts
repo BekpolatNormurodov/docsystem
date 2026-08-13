@@ -11,17 +11,28 @@ export const runtime = 'nodejs';
 const DIR = path.join(process.cwd(), 'exports', 'case-docs');
 const safe = (s: string) => s.replace(/[^\p{L}\p{N}._-]+/gu, '_').slice(0, 120);
 
-// GET ?caseId= — list a case's uploaded documents.
+// GET ?caseId= — list a case's uploaded documents + the contract (shartnoma) count, so the doc panel
+// can show «Oferta (N)» (one oferta per contract).
 export async function GET(req: NextRequest) {
   await requireAdmin();
   const caseId = Number(req.nextUrl.searchParams.get('caseId'));
   if (!caseId) return NextResponse.json({ error: 'caseId kerak' }, { status: 400 });
-  const docs = await prisma.caseDocument.findMany({
-    where: { caseId },
-    orderBy: { uploadedAt: 'desc' },
-    select: { id: true, kind: true, fileName: true, size: true, uploadedAt: true },
-  });
-  return NextResponse.json({ docs });
+  const [docs, ac] = await Promise.all([
+    prisma.caseDocument.findMany({
+      where: { caseId },
+      orderBy: { uploadedAt: 'desc' },
+      select: { id: true, kind: true, fileName: true, size: true, uploadedAt: true },
+    }),
+    prisma.arizaCase.findUnique({ where: { id: caseId }, select: { pinfl: true, snapshotId: true, kod: true } }),
+  ]);
+  // Ofertalar soni = summasi > 0 bo'lgan shartnomalar (buildCaseOfertas ham shu loanlarni oladi).
+  let contracts = 0;
+  if (ac?.pinfl && ac.snapshotId) {
+    contracts = await prisma.loan.count({
+      where: { snapshotId: ac.snapshotId, pinfl: ac.pinfl, ...(ac.kod ? { branchCode: ac.kod } : {}), summKr: { gt: 0 } },
+    });
+  }
+  return NextResponse.json({ docs, contracts });
 }
 
 // POST multipart (caseId, kind, file) — store the file and record it.

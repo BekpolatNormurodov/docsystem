@@ -1,0 +1,28 @@
+# Local development helper — just a MySQL you can point `npm run dev` at, so you don't need a native
+# MySQL install. The app + worker still run on the host (npm run dev / npm run worker) for fast HMR.
+#
+#   docker compose -f docker-compose.dev.yml up -d
+#   # then in .env:  DATABASE_URL="mysql://docsystem:docsystem@localhost:3307/docsystem"
+#
+# Exposed on 3307 to avoid clashing with a native MySQL on 3306. Data lives in a named volume.
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: docsystem
+      MYSQL_USER: docsystem
+      MYSQL_PASSWORD: docsystem
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "3307:3306"
+    volumes:
+      - docsystem_dev_mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -proot --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  docsystem_dev_mysql:

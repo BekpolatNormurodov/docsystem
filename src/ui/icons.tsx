@@ -3,8 +3,11 @@
 import React from 'react';
 import {
   Add, Archive, ArrowLeft2, ArrowRight2, ArrowRotateLeft, ArrowRotateRight, Calendar, Category,
-  Chart2, CloseCircle, DocumentText, Edit2, Eye, HambergerMenu, InfoCircle, LogoutCurve, Moon,
+  Chart2, CloseCircle, DocumentText, Edit2, Eye, EyeSlash, HambergerMenu, InfoCircle, LogoutCurve, Moon,
   Minus, People, Printer, ScanBarcode, ShieldSlash, Sun1, TickCircle, Buildings2, AddSquare, User, Link2,
+  Trash, Lock1, Unlock, ProfileAdd, Setting2, Global,
+  Send2, Flash, DocumentDownload, Refresh2, Hashtag, Layer, Grid2, Judge, ReceiptText,
+  Sms, Stickynote, ShieldTick, Bank,
 } from 'iconsax-react';
 
 export type IconProps = { className?: string; size?: number };
@@ -35,10 +38,17 @@ export const Ico = {
   moon: mk(Moon),
   qr: mk(ScanBarcode),
   eye: mk(Eye),
+  eyeOff: mk(EyeSlash),
   print: mk(Printer),
+  trash: mk(Trash),
+  lock: mk(Lock1),
+  unlock: mk(Unlock),
+  userAdd: mk(ProfileAdd),
   chevron: mk(ArrowRight2),
   chevronLeft: mk(ArrowLeft2),
   link: mk(Link2),
+  settings: mk(Setting2),
+  globe: mk(Global),
   add: mk(Add),
   minus: mk(Minus),
   undo: mk(ArrowRotateLeft),
@@ -46,6 +56,21 @@ export const Ico = {
   info: mk(InfoCircle),
   /** ЭЦП is not wired up yet — see the sign dialog. */
   shieldOff: mk(ShieldSlash),
+  // Konveyer action glyphs (talabnoma/ariza/sud flow).
+  send: mk(Send2),
+  flash: mk(Flash),
+  download: mk(DocumentDownload),
+  refresh: mk(Refresh2),
+  hashtag: mk(Hashtag),
+  layer: mk(Layer),
+  sheet: mk(Grid2),
+  judge: mk(Judge),
+  receipt: mk(ReceiptText),
+  // Pipeline step glyphs (Boshqaruv stepper): Talabnoma → Palata → Sud → MIB.
+  sms: mk(Sms),           // talabnoma — demand letter
+  stamp: mk(Stickynote),  // sanoat palatasi — ariza tayyorlash/imzo
+  court: mk(Bank),        // sud — kolonnali bino (sud/rasmiy idora)
+  shield: mk(ShieldTick), // MIB — majburiy ijro
 };
 
 /**
@@ -72,4 +97,11 @@ export const NAV_ICONS: Record<string, React.ComponentType<IconProps>> = {
   archive: Ico.archive,
   user: Ico.user,
   link: Ico.link,
+  lock: Ico.lock,
+  settings: Ico.settings,
+  sms: Ico.sms,
+  stamp: Ico.stamp,
+  judge: Ico.judge,
+  court: Ico.court,
+  shield: Ico.shield,
 };

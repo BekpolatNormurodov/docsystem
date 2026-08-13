@@ -3,7 +3,9 @@ import path from 'node:path';
 import { NextRequest, NextResponse } from 'next/server';
 import JSZip from 'jszip';
 import ExcelJS from 'exceljs';
-import { requireAdmin } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
+import { prisma } from '@/lib/db';
+import { buildFarmoyishDocx } from '@/lib/farmoyish-docx';
 import { getRestBatch, getRestBatchPdfs, getRestBatchReport, type ReportRow } from '@/lib/invoice-rest';
 
 export const runtime = 'nodejs';
@@ -30,7 +32,7 @@ async function buildReportXlsx(rows: ReportRow[]): Promise<Buffer> {
 
 // GET — batchning barcha PDF'lari + Excel hisoboti bitta ZIP bo'lib yuklanadi.
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  await requireAdmin();
+  await requireUser();
   const b = await getRestBatch(params.id);
   if (!b) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
 
@@ -49,6 +51,19 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   if (report && report.rows.length > 0) {
     zip.file('Hisobot.xlsx', await buildReportXlsx(report.rows));
   }
+  // 3) Farmoyish (buxgalteriya) DOCX — invoice PDF'lari yonida, buxgalterga tayyor paket. Rest-batch →
+  //    InvoiceRecord → case.batchId (InvoiceBatch) orqali topiladi. Best-effort — bo'lmasa ZIP baribir chiqadi.
+  try {
+    const rec = await prisma.invoiceRecord.findFirst({
+      where: { restBatchId: params.id, caseId: { not: null } },
+      select: { case: { select: { batchId: true } } },
+    });
+    const invBatchId = rec?.case?.batchId ?? null;
+    if (invBatchId) {
+      const { buffer, fileName } = await buildFarmoyishDocx(invBatchId);
+      zip.file(fileName, buffer);
+    }
+  } catch (e) { console.error('batch zip: farmoyish qoʻshilmadi', e); }
 
   const out = await zip.generateAsync({ type: 'nodebuffer' });
   return new NextResponse(new Uint8Array(out), {

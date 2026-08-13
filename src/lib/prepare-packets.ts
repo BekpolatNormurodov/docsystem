@@ -12,6 +12,7 @@ import type { Browser } from 'playwright';
 import type { CaseStage } from '@prisma/client';
 import { prisma } from './db';
 import { buildCasePacket, buildCaseOfertas, markPacketGenerated, firmLibraryFiles } from './konveyer-packet';
+import { markCasesExported } from './court-ready';
 import { renderOfertaPdf } from './oferta-pdf';
 import { loadTalabnomaRowsForScope, type TalabnomaScope } from './hippo/talabnoma-bulk';
 import { renderTalabnomaPdf } from './hippo/talabnoma-pdf';
@@ -19,31 +20,51 @@ import { talabnomaExcelBuffer } from './hippo/talabnoma-excel';
 
 const EXPORTS_DIR = path.join(process.cwd(), 'exports');
 
+// How many chromium pages render in parallel per batch. Each open page ≈ one CPU-bound render, so on a
+// big-CPU backend raise WORKER_CONCURRENCY (e.g. 8–16) to render packets/ofertas/talabnomas much faster;
+// it also raises peak chromium RAM, so give the worker container matching memory + /dev/shm. Default 5.
+const PDF_CONCURRENCY = Math.max(1, Number(process.env.WORKER_CONCURRENCY) || 5);
+
 export interface PacketJobOpts {
   snapshotId?: number;
   firmId?: number;
   stages?: CaseStage[];
   talabnomaPdf?: boolean; // include the (slow) rendered talabnoma PDF
+  caseIds?: number[];     // explicit case list (sudga-yuborish) — overrides snapshot/firm/stages
+  includeGrafik?: boolean; // default true; ready-export passes false («grafik yoq»)
+  markExported?: boolean;  // stamp meta.exportedAt on the produced cases when done
+  limit?: number;          // «belgilangan son» — build only the first N cases of the scope (0/omitted → all)
+  arizaOnly?: boolean;     // «Arizani tayyorlash» — ONLY the ariza per client (no talabnoma/oferta/firm docs)
 }
 
 /** Runs a bulk packet job to completion. Never throws — failures are recorded on
  *  the Job row so the fire-and-forget caller needs no catch. */
 export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<void> {
   await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING' } });
-  const withPdf = opts.talabnomaPdf !== false;
+  const arizaOnly = opts.arizaOnly === true;
+  // Ariza-only needs no chromium (ariza is a .docx) — force the PDF/browser off.
+  const withPdf = !arizaOnly && opts.talabnomaPdf !== false;
   let browser: Browser | null = null;
   let output: fs.WriteStream | null = null;
   try {
-    const rows = await prisma.arizaCase.findMany({
-      where: {
-        ...(opts.snapshotId ? { snapshotId: opts.snapshotId } : {}),
-        ...(opts.firmId ? { firmId: opts.firmId } : {}),
-        ...(opts.stages && opts.stages.length ? { stage: { in: opts.stages } } : {}),
-      },
-      select: { id: true },
-      orderBy: { id: 'asc' },
-    });
-    const caseIds = rows.map((r) => r.id);
+    // Explicit case list (sudga-yuborish) wins; otherwise the scope query.
+    let caseIds: number[];
+    if (opts.caseIds && opts.caseIds.length) {
+      caseIds = opts.caseIds;
+    } else {
+      const rows = await prisma.arizaCase.findMany({
+        where: {
+          ...(opts.snapshotId ? { snapshotId: opts.snapshotId } : {}),
+          ...(opts.firmId ? { firmId: opts.firmId } : {}),
+          ...(opts.stages && opts.stages.length ? { stage: { in: opts.stages } } : {}),
+        },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+      });
+      caseIds = rows.map((r) => r.id);
+    }
+    // «Belgilangan son» — build only the first N of the scope (ordered by id for a stable slice).
+    if (opts.limit && opts.limit > 0 && opts.limit < caseIds.length) caseIds = caseIds.slice(0, opts.limit);
 
     await fsp.mkdir(EXPORTS_DIR, { recursive: true });
     const zipPath = path.join(EXPORTS_DIR, `${jobId}.zip`);
@@ -68,14 +89,17 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
     closed.catch(() => {});
     archive.pipe(out);
 
-    // Chromium is only needed for the OPTIONAL talabnoma PDF — a launch failure must
-    // NOT discard the whole batch; the other documents need no browser.
-    if (withPdf) {
+    // Chromium renders the OFERTAS (one per contract) AND the optional talabnoma PDF — a FULL packet
+    // (not arizaOnly) ALWAYS needs it, even when the talabnoma PDF is turned off (else every packet
+    // silently ships without ofertas). A launch failure must NOT discard the whole batch; the
+    // ariza/grafik/invoice/firm docs need no browser.
+    if (!arizaOnly) {
       try { const { chromium } = await import('playwright'); browser = await chromium.launch({ headless: true }); }
-      catch (e) { console.error('prepare-packets: chromium launch failed — continuing without PDF', e); browser = null; }
+      catch (e) { console.error('prepare-packets: chromium launch failed — continuing without PDF/oferta', e); browser = null; }
     }
 
     const usedFolders = new Set<string>();
+    const usedArizaPaths = new Set<string>(); // ariza-only: dedupe the flat «firma/file» paths
     const toMark: { id: number; talabnomaMade: boolean; arizaMade: boolean }[] = [];
     // Firm library docs are identical for every client of a firm, so collect the
     // firms seen and add each firm's docs ONCE (to `_FIRMA/<firm>/`) after the loop —
@@ -87,14 +111,14 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
     // flight, each holding at most one chromium page → ≤CONCURRENCY pages open at once.
     // The ZIP APPEND stays single-threaded per batch (archiver is not concurrency-safe and
     // the entry order must be deterministic). ~CONCURRENCY× faster with flat memory.
-    const CONCURRENCY = 5;
+    const CONCURRENCY = PDF_CONCURRENCY;
     for (let i = 0; i < caseIds.length; i += CONCURRENCY) {
       if (streamErr) throw streamErr; // sink died (disk full/locked) → abort before spawning more work
       const batch = caseIds.slice(i, i + CONCURRENCY);
       // Only a per-CASE failure (bad data, doc build) is swallowed here; a sink error is not.
       const packets = await Promise.all(
         batch.map((id) =>
-          buildCasePacket(id, { browser: browser ?? undefined, talabnomaPdf: withPdf, includeFirmDocs: false })
+          buildCasePacket(id, { browser: browser ?? undefined, talabnomaPdf: withPdf, includeFirmDocs: false, includeGrafik: opts.includeGrafik, arizaOnly })
             .catch(() => null), // skip a failed case, keep the rest of the batch
         ),
       );
@@ -103,10 +127,28 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
         const id = batch[k];
         const p = packets[k];
         if (p && p.files.length) {
-          let folder = p.folder;
-          for (let j = 2; usedFolders.has(folder); j++) folder = `${p.folder} (${j})`;
-          usedFolders.add(folder);
-          for (const f of p.files) archive.append(f.buf, { name: `${folder}/${f.name}` });
+          if (arizaOnly) {
+            // «Arizani tayyorlash» — one ariza per client, grouped by FIRM folder, named
+            // «F.I.O PINFL kod». No per-client subfolder (each client is a single file).
+            const firmDir = safeName(p.firmName || `firma-${p.firmId}`, 60);
+            for (const f of p.files) {
+              let full = `${firmDir}/${f.name}`;
+              if (usedArizaPaths.has(full)) {
+                const dot = f.name.lastIndexOf('.');
+                const base = dot > 0 ? f.name.slice(0, dot) : f.name;
+                const ext = dot > 0 ? f.name.slice(dot) : '';
+                let j = 2; while (usedArizaPaths.has(`${firmDir}/${base} (${j})${ext}`)) j++;
+                full = `${firmDir}/${base} (${j})${ext}`;
+              }
+              usedArizaPaths.add(full);
+              archive.append(f.buf, { name: full });
+            }
+          } else {
+            let folder = p.folder;
+            for (let j = 2; usedFolders.has(folder); j++) folder = `${p.folder} (${j})`;
+            usedFolders.add(folder);
+            for (const f of p.files) archive.append(f.buf, { name: `${folder}/${f.name}` });
+          }
           if (p.firmId != null && !firmsSeen.has(p.firmId)) firmsSeen.set(p.firmId, p.firmName || `firma-${p.firmId}`);
           // Backpressure → memory stays flat at any scale. Outside the per-case catch so a
           // sink error rejecting here propagates to the outer catch (clean FAILED), not swallowed.
@@ -120,7 +162,8 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
 
     // Firm library docs — once per firm at the ZIP root (`_FIRMA/<firm>/`), so a firm's
     // guvohnoma/ishonchnoma/shartnoma/oferta isn't copied into every client folder.
-    for (const [fid, fname] of firmsSeen) {
+    // Ariza-only: firm docs belong to the court packet, not this step — skip them.
+    if (!arizaOnly) for (const [fid, fname] of firmsSeen) {
       if (streamErr) throw streamErr;
       const libFiles = await firmLibraryFiles(fid).catch(() => []);
       const dir = `_FIRMA/${fname.replace(/[^\p{L}\p{N}._ ()-]+/gu, '_').trim().slice(0, 60) || `firma-${fid}`}`;
@@ -133,6 +176,8 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
 
     // ZIP is on disk — now advance the cases (idempotent guards make a retry safe).
     for (const m of toMark) await markPacketGenerated(m.id, m.talabnomaMade, m.arizaMade).catch(() => {});
+    // Sudga-yuborish: stamp exportedAt so «chiqarilganlar» counters exclude them next time.
+    if (opts.markExported) await markCasesExported(toMark.map((m) => m.id)).catch(() => {});
 
     await prisma.job.updateMany({
       where: { id: jobId },
@@ -187,7 +232,7 @@ export async function runOfertaJobByLoans(jobId: number, loanIds: number[], insu
 
     const usedPaths = new Set<string>();
     let done = 0;
-    const CONCURRENCY = 5;
+    const CONCURRENCY = PDF_CONCURRENCY;
     for (let i = 0; i < loans.length; i += CONCURRENCY) {
       if (streamErr) throw streamErr;
       const batch = loans.slice(i, i + CONCURRENCY);
@@ -245,7 +290,7 @@ export async function runOfertaJobByLoans(jobId: number, loanIds: number[], insu
  *  so a launch failure fails the job. Same streaming/backpressure pattern as runOfertaJob; never
  *  throws — the outcome is recorded on the Job row. On success it advances the talabnoma track
  *  (talabnomaAt) for the firm's debt>0 clients — the reyestr set — matching the single-case routes. */
-export async function runTalabnomaJob(jobId: number, opts: TalabnomaScope): Promise<void> {
+export async function runTalabnomaJob(jobId: number, opts: TalabnomaScope, singleCase = false): Promise<void> {
   await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING' } });
   let browser: Browser | null = null;
   let output: fs.WriteStream | null = null;
@@ -272,15 +317,16 @@ export async function runTalabnomaJob(jobId: number, opts: TalabnomaScope): Prom
 
     // Reyestr Excel first — the hippo import file the whole batch exists to produce. Its failure is
     // FATAL: a ZIP without it is useless, so a throw here fails the job (→ FAILED, no funnel advance)
-    // rather than silently shipping a green download that is missing the import file.
-    archive.append(await talabnomaExcelBuffer(rows), { name: '_reyestr.xlsx' });
+    // rather than silently shipping a green download that is missing the import file. A single-case
+    // talabnoma (one client) has no reyestr to import, so its ZIP is just the one letter PDF.
+    if (!singleCase) archive.append(await talabnomaExcelBuffer(rows), { name: '_reyestr.xlsx' });
 
     try { const { chromium } = await import('playwright'); browser = await chromium.launch({ headless: true }); }
     catch (e) { throw new Error(`chromium launch failed: ${e instanceof Error ? e.message : String(e)}`); }
 
     const usedNames = new Set<string>();
     let done = 0;
-    const CONCURRENCY = 5;
+    const CONCURRENCY = PDF_CONCURRENCY;
     for (let i = 0; i < rows.length; i += CONCURRENCY) {
       if (streamErr) throw streamErr;
       const batch = rows.slice(i, i + CONCURRENCY);
@@ -309,6 +355,17 @@ export async function runTalabnomaJob(jobId: number, opts: TalabnomaScope): Prom
         done += 1;
       }
       await prisma.job.updateMany({ where: { id: jobId }, data: { progress: done, message: `${usedNames.size} talabnoma / ${done} mijoz` } }).catch(() => {});
+    }
+
+    // FIX 1 (single-case data integrity): a per-letter render failure is swallowed above (~the catch in
+    // the batch map), so a single-case job whose only letter failed would otherwise finalize an EMPTY
+    // ZIP, stamp talabnomaAt, and be marked DONE — the funnel would falsely advance and the route would
+    // stream an empty 200. There is no reyestr to fall back on for a single case (skipped above), so a
+    // zero-render single case has produced NOTHING deliverable. THROW before finalize → the catch marks
+    // the job FAILED (route returns 500) and talabnomaAt is never stamped. Bulk (singleCase false) is
+    // deliberately untouched: its reyestr guarantees delivery, so its existing marking stays correct.
+    if (singleCase && usedNames.size === 0) {
+      throw new Error('Talabnoma render qilinmadi (0 ta hujjat)');
     }
 
     await archive.finalize();
@@ -346,6 +403,7 @@ export interface OfertaJobOpts {
   firmId?: number;
   stages?: CaseStage[];
   insurancePct?: number; // таъминот % of principal (0 → policy text, no invented sum)
+  caseIds?: number[];    // explicit case list (single-case gen-oferta) — overrides snapshot/firm/stages
 }
 
 /** Background «Oferta» job: render ONLY the ofertas — one PDF per loan (contract) — for
@@ -357,16 +415,22 @@ export async function runOfertaJob(jobId: number, opts: OfertaJobOpts): Promise<
   let browser: Browser | null = null;
   let output: fs.WriteStream | null = null;
   try {
-    const rows = await prisma.arizaCase.findMany({
-      where: {
-        ...(opts.snapshotId ? { snapshotId: opts.snapshotId } : {}),
-        ...(opts.firmId ? { firmId: opts.firmId } : {}),
-        ...(opts.stages && opts.stages.length ? { stage: { in: opts.stages } } : {}),
-      },
-      select: { id: true },
-      orderBy: { id: 'asc' },
-    });
-    const caseIds = rows.map((r) => r.id);
+    // Explicit case list (single-case gen-oferta) wins; otherwise the scope query.
+    let caseIds: number[];
+    if (opts.caseIds && opts.caseIds.length) {
+      caseIds = opts.caseIds;
+    } else {
+      const rows = await prisma.arizaCase.findMany({
+        where: {
+          ...(opts.snapshotId ? { snapshotId: opts.snapshotId } : {}),
+          ...(opts.firmId ? { firmId: opts.firmId } : {}),
+          ...(opts.stages && opts.stages.length ? { stage: { in: opts.stages } } : {}),
+        },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+      });
+      caseIds = rows.map((r) => r.id);
+    }
 
     await fsp.mkdir(EXPORTS_DIR, { recursive: true });
     const zipPath = path.join(EXPORTS_DIR, `${jobId}.zip`);
@@ -396,7 +460,7 @@ export async function runOfertaJob(jobId: number, opts: OfertaJobOpts): Promise<
     const usedPaths = new Set<string>();
     let done = 0;
     let ofertaCount = 0;
-    const CONCURRENCY = 5;
+    const CONCURRENCY = PDF_CONCURRENCY;
     for (let i = 0; i < caseIds.length; i += CONCURRENCY) {
       if (streamErr) throw streamErr;
       const batch = caseIds.slice(i, i + CONCURRENCY);

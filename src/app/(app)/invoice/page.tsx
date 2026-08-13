@@ -1,21 +1,7 @@
-import { requireAdmin } from '@/lib/auth';
-import { loadStageData } from '../konveyer/stage-data';
-import { StageView } from '../konveyer/StageView';
+import { redirect } from 'next/navigation';
 
-export const dynamic = 'force-dynamic';
-
-export default async function InvoicePage({ searchParams }: { searchParams: { s?: string } }) {
-  await requireAdmin();
-  const d = await loadStageData('BOJ', searchParams.s);
-  return (
-    <StageView
-      title="Invoice · buxgalteriya"
-      phaseKey="BOJ"
-      stages={d.stages}
-      selectedId={d.selectedId}
-      firms={d.firms}
-      transitionsByFirm={d.transitionsByFirm}
-      total={d.total}
-    />
-  );
+// Invoice (buxgalteriya) is no longer a standalone step — it moved INTO Sud as a tab.
+// Keep the old /invoice URL working by redirecting to /sud.
+export default function InvoiceRedirect() {
+  redirect('/sud');
 }

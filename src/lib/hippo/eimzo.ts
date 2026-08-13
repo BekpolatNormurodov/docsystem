@@ -10,7 +10,11 @@
 //  - CAPIWS closes the socket after EVERY response -> one socket per call
 import WebSocket from 'ws';
 
-const URL = 'wss://127.0.0.1:64443/service/cryptapi';
+// E-IMZO CAPIWS lives on the SAME machine as the Node server (127.0.0.1). That holds on a
+// Windows/desktop deployment, but a remote Linux server has no local E-IMZO — so the endpoint is
+// overridable via EIMZO_WS_URL (e.g. point it at a host running E-IMZO through an SSH/stunnel bridge).
+// Unset => the original localhost default, so nothing changes for the desktop setup. See DEPLOYMENT.md.
+const URL = process.env.EIMZO_WS_URL || 'wss://127.0.0.1:64443/service/cryptapi';
 const ORIGIN = 'https://localhost';
 
 export interface CertInfo {
@@ -32,12 +36,26 @@ export interface CertKey {
   info: CertInfo;
 }
 
+// CAPIWS (the E-IMZO desktop) serves ONE websocket request at a time — overlapping connections
+// deadlock and time out. Verified directly: a single list_certificates finishes in ~330ms, but the
+// app was timing out because it fired OVERLAPPING calls (modal-open effect + stale-while-revalidate,
+// doubled by React StrictMode). So funnel EVERY CAPIWS call through a global queue: at most one
+// request in flight, ever. The per-call timeout starts only once the call is dequeued (below), so a
+// queued call is not penalised for time spent waiting behind another.
+let _eimzoChain: Promise<unknown> = Promise.resolve();
 function rpc<T = any>(payload: unknown, timeoutMs = 120000): Promise<T> {
+  const run = _eimzoChain.then(() => rawRpc<T>(payload, timeoutMs));
+  _eimzoChain = run.then(() => undefined, () => undefined); // keep the queue alive past a failed call
+  return run;
+}
+
+function rawRpc<T = any>(payload: unknown, timeoutMs = 120000): Promise<T> {
   return new Promise((resolve, reject) => {
     let settled = false;
     const ws = new WebSocket(URL, { rejectUnauthorized: false, headers: { Origin: ORIGIN } });
+    const opName = (payload as { name?: string })?.name ?? 'call';
     const timer = setTimeout(() => {
-      if (!settled) { settled = true; ws.terminate(); reject(new Error('E-IMZO call timed out')); }
+      if (!settled) { settled = true; ws.terminate(); reject(new Error(`E-IMZO ${opName} timed out (${Math.round(timeoutMs / 1000)}s)`)); }
     }, timeoutMs);
     ws.on('open', () => ws.send(JSON.stringify(payload)));
     ws.on('message', (raw: WebSocket.RawData) => {
@@ -61,12 +79,24 @@ function rpc<T = any>(payload: unknown, timeoutMs = 120000): Promise<T> {
   });
 }
 
+// Timeouts. `list_disks` is quick, but `list_certificates` PARSES every PFX in DSKEYS and is
+// genuinely slow on real machines (measured >12s with ~7 keys, incl. old 2023-format ones) — a
+// short cap turned a working scan into a false "DSKEYS boʻsh". Give the enumeration a wide ceiling;
+// the picker no longer freezes on it thanks to the server-side cache + the client's own abort.
+// Only createPkcs7 keeps the longest ceiling — that one waits on the user typing the PIN.
+// Real ops finish in ~330ms (measured); these are only ceilings for a genuinely stuck E-IMZO, kept
+// tight so a failure surfaces fast instead of spinning. The serialize() queue above means calls run
+// one-at-a-time, so a ceiling never has to cover overlap.
+const LIST_DISKS_TIMEOUT_MS = 12_000;
+const LIST_CERTS_TIMEOUT_MS = 18_000;
+const LOAD_KEY_TIMEOUT_MS = 18_000;
+
 export const Eimzo = {
-  listDisks: () => rpc<{ disks: string[] }>({ plugin: 'pfx', name: 'list_disks' }),
+  listDisks: () => rpc<{ disks: string[] }>({ plugin: 'pfx', name: 'list_disks' }, LIST_DISKS_TIMEOUT_MS),
   listCertificates: (disk: string) =>
-    rpc<{ certificates: Omit<CertKey, 'info'>[] }>({ plugin: 'pfx', name: 'list_certificates', arguments: [disk] }),
+    rpc<{ certificates: Omit<CertKey, 'info'>[] }>({ plugin: 'pfx', name: 'list_certificates', arguments: [disk] }, LIST_CERTS_TIMEOUT_MS),
   loadKey: (disk: string, path: string, name: string, alias: string) =>
-    rpc<{ keyId: string }>({ plugin: 'pfx', name: 'load_key', arguments: [disk, path, name, alias] }),
+    rpc<{ keyId: string }>({ plugin: 'pfx', name: 'load_key', arguments: [disk, path, name, alias] }, LOAD_KEY_TIMEOUT_MS),
   // detached 'yes' = signature only (what xat.hippo.uz uses).
   // Shows E-IMZO's OWN native password dialog — the user types the password.
   createPkcs7: (keyId: string, data: string, detached: 'yes' | 'no' = 'yes') =>
@@ -81,10 +111,40 @@ export async function listAllKeys(): Promise<CertKey[]> {
   const { disks } = await Eimzo.listDisks();
   const out: CertKey[] = [];
   for (const disk of disks || []) {
-    const { certificates } = await Eimzo.listCertificates(disk);
-    for (const c of certificates || []) out.push({ ...c, info: parseAlias(c.alias) });
+    // A single stuck/empty disk (e.g. a card reader with no card) must NOT block the
+    // real DSKEYS keys — time it out (LIST_TIMEOUT_MS) and skip it, keep the rest.
+    try {
+      const { certificates } = await Eimzo.listCertificates(disk);
+      for (const c of certificates || []) out.push({ ...c, info: parseAlias(c.alias) });
+    } catch { /* skip this disk, continue enumerating */ }
   }
   return out;
+}
+
+// Reconstruct a full CertKey from the {disk,path,name,alias} coordinates the
+// key-picker UI posts back. Returns null when the payload isn't a valid picked key
+// (so a caller can fall back to a string selector). `info` is derived from alias.
+export function parsePickedKey(raw: unknown): CertKey | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const { disk, path, name, alias } = r;
+  if (typeof disk === 'string' && typeof path === 'string' && typeof name === 'string' && typeof alias === 'string' && disk && path && name) {
+    return { disk, path, name, alias, info: parseAlias(alias) };
+  }
+  return null;
+}
+
+// Build a minimal CertKey from CLIENT-asserted cert fields (client mode: the server
+// never scanned the PFX, so there is no disk/path/name/alias — only what the browser
+// posts). Used purely to carry cn/org/tin/pinfl into the session record for display;
+// identity is verified separately (see eimzo-verify.ts). NEVER treat this as a
+// server-scanned key.
+export function syntheticKey(cert?: { cn?: string | null; org?: string | null; tin?: string | null; pinfl?: string | null } | null): CertKey {
+  const c = cert ?? {};
+  return {
+    disk: '', path: '', name: '', alias: '',
+    info: { raw: {}, cn: c.cn ?? undefined, org: c.org ?? undefined, tin: c.tin ?? undefined, pinfl: c.pinfl ?? undefined },
+  };
 }
 
 export function parseAlias(alias: string): CertInfo {
@@ -103,6 +163,20 @@ export function parseAlias(alias: string): CertInfo {
     validFrom: raw.validfrom,
     validTo: raw.validto,
   };
+}
+
+// Resolve a signing key from EITHER an explicit CertKey the caller already chose
+// (the key-picker UI passes the exact {disk,path,name,alias} — no re-scan, no
+// fragile STIR match) OR a string selector routed through pickKey. When the picked
+// object carries no parsed `info`, derive it from its alias so downstream code
+// (org/cn/tin) still works.
+export async function resolveKey(sel?: string | CertKey): Promise<CertKey> {
+  if (sel && typeof sel === 'object' && sel.disk && sel.path && sel.name && sel.alias != null) {
+    return sel.info ? sel : { ...sel, info: parseAlias(sel.alias) };
+  }
+  // Not a fully-formed CertKey → route a string selector through pickKey; anything else falls back
+  // to the default (BRIGHT) key. (pickKey only accepts a string | undefined.)
+  return pickKey(typeof sel === 'string' ? sel : undefined);
 }
 
 // Pick a key by index, by CN/file substring, or default to first BRIGHT key.
@@ -128,11 +202,14 @@ export async function pickKey(selector?: string): Promise<CertKey> {
     return k;
   }
   const s = selector.toLowerCase();
-  const k = keys.find((k) =>
-    (k.info.cn || '').toLowerCase().includes(s) ||
-    (k.info.org || '').toLowerCase().includes(s) ||
-    k.name.toLowerCase().includes(s),
-  );
+  const eq = (v?: string) => (v || '').toLowerCase() === s;
+  const has = (v?: string) => (v || '').toLowerCase().includes(s);
+  // Prefer an EXACT org/cn/name match before any substring hit, so a name selector like "BRIGHT"
+  // never picks a different firm whose org merely contains it ("BRIGHT INVEST") when the exact key
+  // is also inserted. Substring stays as a last-resort fallback for partial names.
+  const k =
+    keys.find((k) => eq(k.info.org) || eq(k.info.cn) || eq(k.name)) ??
+    keys.find((k) => has(k.info.cn) || has(k.info.org) || has(k.name));
   if (!k) throw new Error(`No key matching "${selector}"`);
   return k;
 }

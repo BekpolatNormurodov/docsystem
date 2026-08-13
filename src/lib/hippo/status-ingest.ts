@@ -9,6 +9,10 @@ import { latinToCyrillic } from '../../core/uz-latin-to-cyrillic';
 import { normName } from '../cabinet/status-ingest';
 
 const asArray = (j: any): any[] => (Array.isArray(j) ? j : j?.content ?? j?.data?.items ?? j?.items ?? j?.data ?? []);
+// The registry's send date (tolerant of field-name variants) — stamped onto each mail's trace row as
+// registryDt so the talabnoma «iz»/epoch can tell recent (real, lawyer-sent) reyestrs from old ones.
+const regDate = (r: any) => r?.createdAt ?? r?.createdDate ?? r?.created ?? r?.createdOn ?? r?.date ?? null;
+const toDate = (v: any): Date | null => { if (!v) return null; const d = new Date(v); return Number.isNaN(d.getTime()) ? null : d; };
 
 export interface HippoIngestResult {
   branchCode: string; totalMails: number; matched: number; unmatched: number;
@@ -61,6 +65,8 @@ export async function ingestHippoStatuses(
     }
     if (!registries.length) break;
     for (const reg of registries) {
+      // The batch's send date → registryDt on every mail it contains (the «iz» epoch reads this).
+      const regDt = toDate(regDate(reg)) ?? toDate(reg?.registryDt);
       try {
       for (let page = 1; ; page++) {
         const res = await listRegistryMails(session, reg.id, page, 100);
@@ -74,16 +80,18 @@ export async function ingestHippoStatuses(
           const status = m.activePerform?.performType ?? m.sendStatus ?? (m.isSend ? 'SENT' : 'CREATED');
           byStatus[status] = (byStatus[status] ?? 0) + 1;
           total++;
+          const mailDt = regDt ?? toDate(m.createdAt ?? m.sendDate ?? m.createdDate);
           await prisma.clientCaseStatus.upsert({
             where: { source_caseNumber: { source: 'HIPPO', caseNumber: String(m.uid) } },
             create: {
               branchCode, pinfl, clientName: receiver, source: 'HIPPO', category: 'talabnoma',
               caseNumber: String(m.uid), claimId: String(reg.id), status, statusLabel: null,
               caseResult: m.sendStatus ?? null, matchedBy: pinfl ? 'NAME' : 'UNMATCHED', snapshotId: snap.id,
+              registryDt: mailDt,
             },
             // refresh snapshotId too so a re-ingest under a newer snapshot doesn't
             // leave B-derived pinfl attributed to snapshot A.
-            update: { status, caseResult: m.sendStatus ?? null, pinfl, matchedBy: pinfl ? 'NAME' : 'UNMATCHED', snapshotId: snap.id },
+            update: { status, caseResult: m.sendStatus ?? null, pinfl, matchedBy: pinfl ? 'NAME' : 'UNMATCHED', snapshotId: snap.id, registryDt: mailDt },
           });
         }
         if (mails.length < 100) break;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
 import { syncCasesFromSnapshot } from '@/lib/konveyer';
+import { audit, AuditAction } from '@/lib/audit';
 
 export const runtime = 'nodejs';
 
@@ -19,6 +20,7 @@ export async function POST(req: NextRequest) {
   }
   try {
     const result = await syncCasesFromSnapshot(snapshotId);
+    await audit(AuditAction.SYNC, { target: snapshotId ? `snapshot:${snapshotId}` : 'snapshot:latest', detail: { snapshotId: snapshotId ?? null } });
     return NextResponse.json(result);
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? 'sync xatosi' }, { status: 400 });

@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'node:fs/promises';
 import JSZip from 'jszip';
-import { requireAdmin } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
 // GET ?caseId= — download all of a case's uploaded documents as one ZIP.
 export async function GET(req: NextRequest) {
-  await requireAdmin();
+  await requireUser();
   const caseId = Number(req.nextUrl.searchParams.get('caseId'));
   // Integer guard: Infinity/floats are truthy and would 500 on Prisma's Int column.
   if (!Number.isInteger(caseId) || caseId <= 0) return NextResponse.json({ error: 'caseId kerak' }, { status: 400 });

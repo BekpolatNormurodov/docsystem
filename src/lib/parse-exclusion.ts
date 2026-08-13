@@ -5,8 +5,8 @@ import Excel from 'exceljs';
 /**
  * Opens the (small, ~180KB) exclusion xlsx and returns the Set of pinfl strings found in its
  * `Pnfl` worksheet (case-insensitive match on the sheet name containing "pnfl"/"pinfl"; falls
- * back to the sheet whose first header cell is `ПНФЛ` with the most rows). Only column 1
- * (`ПНФЛ`, exceljs is 1-indexed) is read; every other column is ignored.
+ * back to the sheet whose first header cell reads `ПНФЛ`/`ПИНФЛ` with the most rows). Only column 1
+ * (exceljs is 1-indexed) is read; every other column is ignored.
  */
 export async function parseExclusionPinfls(filePath: string): Promise<Set<string>> {
   const workbook = new Excel.Workbook();
@@ -14,7 +14,11 @@ export async function parseExclusionPinfls(filePath: string): Promise<Set<string
 
   const worksheet = pickWorksheet(workbook);
   const pinfls = new Set<string>();
-  if (!worksheet) return pinfls;
+  if (!worksheet) {
+    // NEVER silently return an empty set — that would treat "PINFL sheet not found" as "nobody is
+    // excluded", and every do-not-sue client would be sued. Fail loud so the operator rechecks.
+    throw new Error('Istisno faylida «ПНФЛ» ustuni topilmadi — fayl formatini tekshiring');
+  }
 
   worksheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return; // header
@@ -45,10 +49,13 @@ function pickWorksheet(workbook: Excel.Workbook): Excel.Worksheet | undefined {
   });
   if (byName) return byName;
 
-  // Fallback: the sheet whose row-1 first cell is ПНФЛ, preferring the one with the most rows.
+  // Fallback: the sheet whose row-1 first cell reads ПНФЛ/ПИНФЛ, preferring the one with the most
+  // rows. Read via cellStr (rich-text/formula aware) and match by substring, not a raw value / exact
+  // compare — a bold/rich-text header deserializes to an OBJECT (not a string), and «ПИНФЛ» / «№ ПНФЛ»
+  // spellings occur; missing them here would silently drop the entire exclusion list.
   const candidates = workbook.worksheets.filter((ws) => {
-    const first = ws.getRow(1).getCell(1).value;
-    return typeof first === 'string' && first.trim().toUpperCase() === 'ПНФЛ';
+    const first = cellStr(ws.getRow(1).getCell(1)).trim().toUpperCase();
+    return first.includes('ПНФЛ') || first.includes('ПИНФЛ');
   });
   if (candidates.length === 0) return undefined;
   return candidates.reduce((best, ws) => (ws.rowCount > best.rowCount ? ws : best));

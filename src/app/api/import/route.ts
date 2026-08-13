@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAdmin } from '@/lib/auth';
 import { runImportJob } from '@/lib/jobs';
+import { audit, AuditAction } from '@/lib/audit';
 
 export const runtime = 'nodejs';
 
@@ -24,6 +25,11 @@ export async function POST(req: NextRequest) {
   }
 
   const reportDate = new Date(`${date}T00:00:00.000Z`);
+  // Shape alone isn't enough: 2026-13-45 is an Invalid Date and 2026-02-30 rolls forward to Mar 1 —
+  // validate it's a REAL calendar date so a snapshot never lands on the wrong day (or 500s later).
+  if (Number.isNaN(reportDate.getTime()) || reportDate.toISOString().slice(0, 10) !== date) {
+    return NextResponse.json({ error: 'date notoʻgʻri (mavjud sana emas)' }, { status: 400 });
+  }
 
   // Concurrency guard: never delete a snapshot that is still importing. Two imports racing on the
   // same date previously deleted each other's in-flight snapshot, causing FK violations on the
@@ -77,6 +83,8 @@ export async function POST(req: NextRequest) {
   const job = await prisma.job.create({
     data: { type: 'IMPORT', status: 'PENDING', snapshotId: snapshot.id, total: estimatedRows },
   });
+
+  await audit(AuditAction.IMPORT, { target: `snapshot:${snapshot.id}`, detail: { date, file: file.name, jobId: job.id } });
 
   // Fire-and-forget: the server process carries this to completion; the client polls the Job.
   // The `.catch` is a final backstop — runImportJob already records failures on the rows.

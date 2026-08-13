@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireAdmin } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
 import { getSettings } from '@/lib/settings';
 import { loansToAriza } from '@/core/ariza';
 import { buildArizaDocx } from '@/lib/ariza-docx';
+import { audit, AuditAction } from '@/lib/audit';
 
 export const runtime = 'nodejs';
 
 // GET ?caseId= — generate this client's court ariza (.docx) on the fly, keyed by
 // the konveyer case (finds the client's loans and reuses the ariza builder).
 export async function GET(req: NextRequest) {
-  await requireAdmin();
+  await requireUser();
   const caseId = Number(req.nextUrl.searchParams.get('caseId'));
   // Integer guard: a float/Infinity caseId is truthy and would hit Prisma's Int
   // column ABOVE the try below → uncaught 500 instead of a clean 400.
@@ -53,6 +54,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Ariza yaratilmadi' }, { status: 500 });
   }
 
+  await audit(AuditAction.ARIZA_GEN, { target: `case:${caseId}`, detail: { client: ac.clientName } });
   const safe = (ac.clientName || `case-${caseId}`).replace(/[^\p{L}\p{N}]+/gu, '_').slice(0, 40);
   return new NextResponse(new Uint8Array(buffer), {
     headers: {

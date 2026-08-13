@@ -3,6 +3,7 @@
 // per-firm summary, and precomputes each firm's stage-advance transitions for THIS phase so
 // the client StageView never has to import the prisma-backed konveyer lib.
 import { cookies } from 'next/headers';
+import { prisma } from '@/lib/db';
 import { konveyerSnapshots, konveyerSummary, PHASES, STAGE_LABEL, nextStage } from '@/lib/konveyer';
 
 // External targets are sent out via xat.hippo / adolat — the advance row defaults its count to 1
@@ -13,6 +14,7 @@ export interface StageFirm {
   firmId: number;
   firmName: string;
   total: number;
+  stir?: string | null; // for the E-IMZO key-picker to pre-select this firm's key
 }
 export interface StageTransition {
   from: string;
@@ -39,10 +41,13 @@ export interface StageData {
  */
 export async function loadStageData(phaseKey: string, sParam?: string): Promise<StageData> {
   const snaps = await konveyerSnapshots();
-  // The sidebar picker (cookie) is the single source of truth — it wins over ?s= so its highlight
-  // (layouts can't read searchParams, only the cookie) never disagrees with the page. ?s= stays a
-  // fallback only for a fresh deep-link before any cookie exists.
-  const raw = cookies().get('konv_s')?.value ?? sParam;
+  // The sidebar picker (cookie konv_s) is the SINGLE source of truth — the layout derives the picker
+  // highlight AND the stepper badges from the same cookie, so page and sidebar can never disagree.
+  // ?s= (sParam) is deliberately NOT honored: nothing in the app generates it, and a layout can't
+  // read searchParams, so honoring a fresh ?s= deep-link would desync the sidebar. sParam is kept
+  // in the signature only so existing call-sites (which still pass searchParams.s) type-check.
+  const raw = cookies().get('konv_s')?.value;
+  void sParam;
   const parsed = raw ? Number(raw) : NaN;
   const selectedId = Number.isInteger(parsed) && parsed > 0 && snaps.some((s) => s.id === parsed) ? parsed : snaps[0]?.id;
   const summary = await konveyerSummary(selectedId);
@@ -50,7 +55,11 @@ export async function loadStageData(phaseKey: string, sParam?: string): Promise<
   const isTalabnoma = phaseKey === 'TALABNOMA';
   const stages = isTalabnoma ? [] : (PHASES.find((p) => p.key === phaseKey)?.stages ?? []);
 
-  const firms: StageFirm[] = summary.firms.map((f) => ({ firmId: f.firmId, firmName: f.firmName, total: f.total }));
+  // Firm STIR (one tiny indexed query) so the client E-IMZO key-picker can pre-select
+  // each firm's own key by matching cert TIN → STIR.
+  const stirRows = await prisma.firm.findMany({ select: { id: true, stir: true } });
+  const stirById = new Map(stirRows.map((f) => [f.id, f.stir]));
+  const firms: StageFirm[] = summary.firms.map((f) => ({ firmId: f.firmId, firmName: f.firmName, total: f.total, stir: stirById.get(f.firmId) ?? null }));
 
   const transitionsByFirm: Record<number, StageTransition[]> = {};
   if (!isTalabnoma) {

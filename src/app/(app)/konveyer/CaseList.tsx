@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Skeleton, Ico } from '@/ui';
+import { Skeleton, Ico, Modal } from '@/ui';
 import { CaseDocs } from './CaseDocs';
+import { CourtDetail } from './CourtDetail';
+import { courtBadge } from '@/lib/court-result';
 
 interface PersonCase {
   caseId: number;
@@ -14,7 +16,17 @@ interface PersonCase {
   talabnomaSent: boolean;
   daysLeft: number | null;
   totalDebt: string;
+  courtCaseId?: string | null;
+  courtStatus?: string | null;
+  courtStatusLabel?: string | null;
+  courtResult?: string | null;
 }
+
+// Stages from the court step onward — where an invoice is water under the bridge (assigned earlier at
+// boji), so a red «invoice yo'q» there is just noise; the court status/ish raqami is what matters.
+const LATE_STAGES = new Set(['COURT_SUBMITTED', 'COURT_ACCEPTED', 'COURT_RETURNED', 'MIB_SUBMITTED', 'CLOSED']);
+// Court status+result badge (label + tone) lives in @/lib/court-result (courtBadge) — a RETURNED
+// result now overrides the FINISHED green with rose, instead of the old status-only COURT_TONE.
 interface Person {
   pinfl: string;
   clientName: string | null;
@@ -79,19 +91,66 @@ function MiniSteps({ stage }: { stage: string }) {
 }
 
 function CaseBlock({ c }: { c: PersonCase }) {
+  // The heavy document packet lives behind a «Hujjatlar» icon → a modal, so the inline row stays
+  // light (firm + step + due + debt) and readable, not a wall of document slots.
+  const [docsOpen, setDocsOpen] = useState(false);
+  const [courtOpen, setCourtOpen] = useState(false);
+  const late = LATE_STAGES.has(c.stage); // court+ → the sud maʼlumoti (ijrochi, qaror, modda…) is relevant
+  // ALSO surface «Sud» when a court status exists even if OUR internal stage is early — the client may
+  // have reached court via another firm/track, so a real ruling shouldn't be hidden by our pipeline step.
+  const showCourt = late || !!c.courtStatus;
+  // Court badge: a RETURNED/REFUSED result overrides the status tone (rose) so it never reads as a
+  // green «Yakunlangan». label = «Ariza qaytarilgan» for bad outcomes, else «status · natija».
+  const cb = courtBadge(c.courtStatus, c.courtStatusLabel, c.courtResult);
   return (
     <div className="rounded-xl border border-line bg-surface p-3">
-      <div className="mb-2 flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{c.firmName}</span>
         <MiniSteps stage={c.stage} />
         <span className="rounded-md bg-surface-2 px-1.5 py-0.5 text-[11px] text-muted">{c.stageLabel}</span>
         {c.daysLeft !== null && <DueBadge d={c.daysLeft} />}
+        {/* Sud qarori holati + real sud ish raqami — sud bosqichidan boshlab asosiy maʼlumot. */}
+        {cb && (
+          <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium ${cb.tone}`} title={c.courtResult ? `Sud natijasi (xom): ${c.courtResult}` : undefined}>
+            {cb.label}
+          </span>
+        )}
+        {c.courtCaseId && (
+          <span className="rounded-md bg-sky-500/12 px-1.5 py-0.5 font-mono text-[11px] font-medium text-sky-700 tabular-nums dark:text-sky-300" title="Sud ish raqami">{c.courtCaseId}</span>
+        )}
         {c.receiptNumber
           ? <span className="rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-300">№{c.receiptNumber}</span>
-          : <span className="rounded-md bg-rose-500/15 px-1.5 py-0.5 text-[11px] font-medium text-rose-600 dark:text-rose-300">invoice yo‘q</span>}
+          : !showCourt && <span className="rounded-md bg-rose-500/15 px-1.5 py-0.5 text-[11px] font-medium text-rose-600 dark:text-rose-300">invoice yo‘q</span>}
         <span className="ml-auto text-sm font-semibold tabular-nums">{sum(c.totalDebt)}</span>
+        {showCourt && (
+          <button
+            onClick={() => setCourtOpen((v) => !v)}
+            aria-expanded={courtOpen}
+            title={cb?.bad ? 'Suddan qaytgan — sabab, ajrim sanasi, qayta topshirish' : 'Sud maʼlumoti (qaror, sudya, modda, ijrochi…)'}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium outline-none transition-colors focus-visible:ring-2 ${
+              cb?.bad
+                ? 'border-rose-500/30 bg-rose-500/[0.04] text-rose-600 hover:border-rose-500/50 hover:bg-rose-500/10 focus-visible:ring-rose-500/30 dark:text-rose-300'
+                : 'border-line text-sky-600 hover:border-sky-500/40 hover:bg-surface-2 focus-visible:ring-sky-500/30 dark:text-sky-400'
+            }`}
+          >
+            {cb?.bad ? <Ico.undo size={14} /> : <Ico.judge size={14} />}
+            {cb?.bad ? 'Qaytgan' : 'Sud'} {courtOpen ? '▲' : '▼'}
+          </button>
+        )}
+        <button
+          onClick={() => setDocsOpen(true)}
+          aria-haspopup="dialog"
+          title="Mijozning hujjatlari"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-brand-600 outline-none transition-colors hover:border-brand-500/40 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-brand-500/30 dark:text-brand-400"
+        >
+          <Ico.files size={14} />
+          Hujjatlar
+        </button>
       </div>
-      <CaseDocs caseId={c.caseId} firmId={c.firmId} stage={c.stage} receiptNumber={c.receiptNumber} talabnomaSent={c.talabnomaSent} />
+      {courtOpen && showCourt && <div className="mt-2"><CourtDetail caseId={c.caseId} /></div>}
+      <Modal open={docsOpen} onClose={() => setDocsOpen(false)} title="Mijozning hujjatlari" description={`${c.firmName} · ${c.stageLabel}`} size="xl">
+        <CaseDocs caseId={c.caseId} firmId={c.firmId} stage={c.stage} receiptNumber={c.receiptNumber} talabnomaSent={c.talabnomaSent} />
+      </Modal>
     </div>
   );
 }
@@ -99,6 +158,11 @@ function CaseBlock({ c }: { c: PersonCase }) {
 function PersonCard({ p }: { p: Person }) {
   const [open, setOpen] = useState(false);
   const firms = [...new Set(p.cases.map((c) => c.firmName))];
+  const hasLate = p.cases.some((c) => LATE_STAGES.has(c.stage)); // court+ → invoice is moot
+  // Prefer a RETURNED/REFUSED case for the person summary (it needs attention), else the first with a status.
+  const court = p.cases.find((c) => c.courtStatus && c.courtStatusLabel && courtBadge(c.courtStatus, c.courtStatusLabel, c.courtResult)?.bad)
+    ?? p.cases.find((c) => c.courtStatus && c.courtStatusLabel);
+  const cb = courtBadge(court?.courtStatus, court?.courtStatusLabel, court?.courtResult);
   return (
     <div className="card overflow-hidden transition-shadow hover:shadow-sm">
       <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center gap-3 px-3 py-2.5 text-left outline-none transition-colors hover:bg-surface-2 focus-visible:bg-surface-2">
@@ -115,7 +179,8 @@ function PersonCard({ p }: { p: Person }) {
             {firms.map((fn) => (
               <span key={fn} className="max-w-[10rem] truncate rounded bg-surface-2 px-1.5 py-0.5 font-medium text-muted" title={fn}>{fn}</span>
             ))}
-            {!p.hasInvoice && <span className="rounded bg-rose-500/15 px-1.5 py-0.5 font-medium text-rose-600 dark:text-rose-300">invoice yo‘q</span>}
+            {cb && <span className={`rounded px-1.5 py-0.5 font-medium ${cb.tone}`}>{cb.label}</span>}
+            {!p.hasInvoice && !hasLate && !court && <span className="rounded bg-rose-500/15 px-1.5 py-0.5 font-medium text-rose-600 dark:text-rose-300">invoice yo‘q</span>}
           </div>
         </div>
 

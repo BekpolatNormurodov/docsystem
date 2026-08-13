@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
 import { mibEligibleCases } from '@/lib/konveyer';
 
 export const runtime = 'nodejs';
@@ -9,7 +9,7 @@ export const runtime = 'nodejs';
 // SIMULATED "2-API pull" over these — the real MIB APIs aren't wired yet.
 // GET /konveyer/mib/pull?firmId=1&s=3
 export async function GET(req: NextRequest) {
-  await requireAdmin();
+  await requireUser();
   const sp = req.nextUrl.searchParams;
   const num = (raw: string | null): number | undefined => {
     const n = Number(raw);

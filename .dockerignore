@@ -1,0 +1,43 @@
+# Keep the build context small and reproducible. Anything not needed to `next build` or run the
+# worker is excluded — smaller context = faster uploads and fewer needless cache invalidations.
+
+# Dependencies & build output (reinstalled/rebuilt inside the image)
+node_modules
+.next
+out
+
+# VCS / tooling
+.git
+.gitignore
+.github
+.claude
+$OUT
+
+# Runtime data — these come from mounted volumes at run time, never bake them into the image.
+# (data/ is intentionally NOT ignored: it ships the committed palata-scan.json default.)
+exports
+uploads
+storage
+*.log
+
+# Secrets — never copy any .env into an image layer.
+.env
+.env.*
+
+# Infra & docs — not needed at runtime inside the container.
+Dockerfile*
+docker-compose*.yml
+docker/
+scripts/
+Makefile
+README.md
+DEPLOYMENT.md
+WORKER.md
+docs/
+.gitattributes
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode
+.idea

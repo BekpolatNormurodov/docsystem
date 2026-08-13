@@ -9,6 +9,12 @@ exports/
 *.tsbuildinfo
 .env.test
 .env.*
+# …but DO commit the example templates (they carry no secrets).
+!.env.example
+!.env.production.example
 
 # Generated invoice PDFs
 storage/
+
+# Local backups produced by scripts/backup.sh
+backups/

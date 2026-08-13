@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
 import { konveyerPersons } from '@/lib/konveyer';
 import type { CaseStage } from '@prisma/client';
 
@@ -8,7 +8,7 @@ export const runtime = 'nodejs';
 // People (grouped by PINFL, unified across firms) moving through the pipeline.
 // GET /konveyer/cases?firmId=1&stages=IMPORTED,...&s=3&page=1&q=...
 export async function GET(req: NextRequest) {
-  await requireAdmin();
+  await requireUser();
   const sp = req.nextUrl.searchParams;
   // Validate numerics: a non-numeric param must degrade to undefined/default, NOT
   // become NaN and silently return an empty list on a populated dataset.

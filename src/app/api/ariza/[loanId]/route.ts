@@ -26,11 +26,15 @@ export async function GET(_req: Request, { params }: { params: { loanId: string 
     loan.branchCode ? prisma.firm.findUnique({ where: { code: loan.branchCode } }) : null,
     prisma.snapshot.findUnique({ where: { id: loan.snapshotId } }),
     getSettings(),
-    // All of this client's loans at the same firm — one combined ariza.
-    prisma.loan.findMany({
-      where: { snapshotId: loan.snapshotId, pinfl: loan.pinfl, branchCode: loan.branchCode },
-      orderBy: { id: 'asc' },
-    }),
+    // All of this client's loans at the same firm — one combined ariza. ONLY group when both
+    // identity keys are present: a null pinfl/branchCode would match EVERY other identity-less loan
+    // and merge unrelated debtors into a single petition, so an identity-less loan stays a group of one.
+    loan.pinfl && loan.branchCode
+      ? prisma.loan.findMany({
+          where: { snapshotId: loan.snapshotId, pinfl: loan.pinfl, branchCode: loan.branchCode },
+          orderBy: { id: 'asc' },
+        })
+      : Promise.resolve([loan]),
   ]);
 
   // A firm-less loan (no matching Firm row) still renders, with the branch code as its name.

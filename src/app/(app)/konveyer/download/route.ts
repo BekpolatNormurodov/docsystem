@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { requireAdmin } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 
 export const runtime = 'nodejs';
@@ -14,7 +14,7 @@ const MIME: Record<string, string> = {
 
 // GET ?id= — stream an uploaded case document as a download.
 export async function GET(req: NextRequest) {
-  await requireAdmin();
+  await requireUser();
   const id = Number(req.nextUrl.searchParams.get('id'));
   // Integer guard: Infinity ('1e999') / floats are truthy and would reach Prisma's
   // Int column, throwing an uncaught 500 instead of a clean 400.

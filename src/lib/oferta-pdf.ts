@@ -64,7 +64,11 @@ export function ofertaFields(loan: OfertaLoan, firm: OfertaFirm, clientName: str
   // «Тўлиқ қиймати» = the firm's real repayment schedule total (1-month interest-only grace,
   // annuity over term−1, daily 365-basis interest, 5th-of-month business-day installments) —
   // reproduces the reference oferta to the tiyin. Same engine as the printed grafik.
-  const fullValue = loanSchedule(principal, rate, start ?? new Date(), term).total;
+  // «Тўлиқ қиймати» must be reproducible — the schedule is anchored to the disburse date, so NEVER
+  // anchor it to today (new Date()) when dateToCr is missing, or the same unchanged loan prints a
+  // different total on every render. No stored date → fall back to the bare principal (no invented,
+  // date-dependent interest) rather than a moving figure on a legal document.
+  const fullValue = start ? loanSchedule(principal, rate, start, term).total : principal;
 
   // Таъминот (insurance premium) is NOT a stored portfolio column — but the insured sum
   // (`sumguarr`) is. The premium equals 4% of that insured sum, which is 19% of principal on

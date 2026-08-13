@@ -3,6 +3,7 @@ import path from 'node:path';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAdmin } from '@/lib/auth';
+import { audit, AuditAction } from '@/lib/audit';
 
 export const runtime = 'nodejs';
 
@@ -16,6 +17,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   if (!snap) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
 
   await prisma.snapshot.delete({ where: { id } }); // Loan rows cascade via the relation
+  await audit(AuditAction.SNAPSHOT_DELETE, { target: `snapshot:${id}`, detail: { sourceFileName: snap.sourceFileName, rowCount: snap.rowCount } });
 
   const uploads = path.join(process.cwd(), 'uploads');
   await Promise.all([

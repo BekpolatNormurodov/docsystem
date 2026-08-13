@@ -38,6 +38,32 @@ const jget = (s: CabinetSession, p: string) => cabinetFetch(s, p);
 const jpost = (s: CabinetSession, p: string, body: unknown) =>
   cabinetFetch(s, p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
+// ---- case documents (ajrim/qaror + all case files) ----
+// getCaseDocumentsByCaseId / getAppealableCaseDocumentsByCaseId — reverse-engineered from the
+// cabinet.sud.uz «cases» chunk (2026-08). appealable-documents = the JUDGE documents (ajrim/qaror);
+// case-documents = every document. Each doc carries `docx:{id,name}` — the downloadable file id.
+export const getCaseDocuments = (s: CabinetSession, cabinetCaseId: string) => jget(s, `/api/cabinet/case/case-documents/${cabinetCaseId}`);
+export const getAppealableDocuments = (s: CabinetSession, cabinetCaseId: string) => jget(s, `/api/cabinet/case/appealable-documents/${cabinetCaseId}`);
+
+// Download a case file (PDF) by its file id → Buffer. `downloadFileById` in the bundle. The endpoint
+// wraps the PDF as JSON `{ data: base64(...) }` with a small binary header before `%PDF-` — so we
+// base64-decode and slice from the `%PDF-` marker to get a clean PDF. (Confirmed live 2026-08.)
+export async function downloadCaseFile(session: CabinetSession, fileId: string): Promise<{ ok: boolean; status: number; buf: Buffer; contentType: string }> {
+  const res = await fetchT(`${CABINET.base_url}/api/cabinet/case/download_as_buffer/${fileId}`, {
+    headers: { 'X-AUTH-TOKEN': session.token, accept: '*/*', 'ngrok-skip-browser-warning': 'true' },
+  });
+  const raw = Buffer.from(await res.arrayBuffer());
+  let buf = raw;
+  if (raw[0] === 0x7b /* '{' → JSON envelope */) {
+    try {
+      const j = JSON.parse(raw.toString('utf8'));
+      const b64 = typeof j === 'string' ? j : (j?.data ?? j?.file ?? j?.content ?? '');
+      if (b64) { const dec = Buffer.from(b64, 'base64'); const i = dec.indexOf('%PDF-'); buf = i >= 0 ? dec.subarray(i) : dec; }
+    } catch { /* not JSON — keep raw */ }
+  }
+  return { ok: res.ok, status: res.status, buf, contentType: 'application/pdf' };
+}
+
 // ---- read-only ----
 export const getUser = (s: CabinetSession) => jget(s, ENDPOINTS.userGet);
 export const getCategories = (s: CabinetSession) => jget(s, ENDPOINTS.guideCategories);

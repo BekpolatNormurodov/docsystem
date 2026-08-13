@@ -4,7 +4,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Skeleton } from '@/ui';
 
-interface FirmProg { firmId: number; firmName: string; total: number; withInvoice: number; remaining: number }
+interface FirmProg { firmId: number; firmName: string; total: number; withInvoice: number; remaining: number; eligible: number }
 interface Batch { id: number; firmName: string; count: number; paid: number; createdAt: string }
 
 const n = (x: number) => x.toLocaleString('ru-RU');
@@ -16,9 +16,12 @@ interface RowProg { done: number; total: number; ok: number; failed: number; pha
 const ROW_CAP = 100;
 
 function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: number; onDone: () => void; amount: number }) {
-  const cap = Math.min(ROW_CAP, f.remaining); // bir paketda ko'pi bilan ROW_CAP (backend MAX_COUNT bilan mos)
+  // Billing FAQAT imzodan o'tgan (SIGNED_SCANNED, kvitansiyasiz) case'larga ishlaydi — shuning uchun
+  // slider «remaining» (barcha kvitansiyasiz) emas, ELIGIBLE bilan cheklanadi (aks holda «100 yarat» bosib 2 ta chiqardi).
+  const cap = Math.min(ROW_CAP, f.eligible);
   const [count, setCount] = useState<number>(cap || 0);
   const [busy, setBusy] = useState(false);
+  const [canceling, setCanceling] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
   const [batchId, setBatchId] = useState<number | null>(null);
@@ -35,8 +38,8 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
     a.href = `/api/invoices/batch/${rid}/zip`;
     document.body.appendChild(a); a.click(); a.remove();
   };
-  // Re-clamp when remaining shrinks after a refetch (the row isn't remounted).
-  useEffect(() => { setCount((c) => Math.min(c, cap) || cap); }, [f.remaining]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Re-clamp when the eligible pool shrinks after a refetch (the row isn't remounted).
+  useEffect(() => { setCount((c) => Math.min(c, cap) || cap); }, [f.eligible]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fon REST jarayonini kuzatadi: jonli sanoq/progress, tugagach yakunlaydi.
   const poll = (restBatchId: string) => {
@@ -88,7 +91,7 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
 
   const create = async () => {
     if (!count || count > cap) { setOk(false); setMsg(`1–${n(cap)} oraligʻida son kiriting`); return; }
-    setBusy(true); setMsg(null); setProg(null); setBatchId(null); setRestId(null);
+    setBusy(true); setCanceling(false); setMsg(null); setProg(null); setBatchId(null); setRestId(null);
     try {
       const res = await fetch('/konveyer/invoice-batch', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -105,14 +108,24 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
     } catch (e: any) { setOk(false); setBusy(false); setMsg(e?.message ?? 'Xato'); }
   };
 
+  // «Bekor qilish» — stop the running batch; the runner finalizes with what it made so far and the
+  // poll flips busy off. Keeps whatever invoices already succeeded.
+  const cancel = async () => {
+    if (!restId || canceling) return;
+    setCanceling(true);
+    try { await fetch(`/api/invoices/batch/${restId}`, { method: 'DELETE' }); } catch { /* poll still finalizes */ }
+  };
+
   const done = f.remaining === 0;
+  const nothingEligible = !done && f.eligible === 0; // kvitansiyasiz case bor, lekin imzodan o'tgani yo'q
   return (
     <div className={`rounded-lg border px-2.5 py-1.5 transition-colors ${done ? 'border-emerald-500/25 bg-emerald-500/[0.03]' : 'border-line hover:border-amber-500/30'}`}>
       <div className="flex items-center justify-between gap-2">
         <span className="truncate text-[13px] font-semibold">{f.firmName}</span>
         <span className="shrink-0 text-[11px] tabular-nums text-muted">
           {n(f.withInvoice)}/{n(f.total)}
-          {!done && <span className="text-amber-600 dark:text-amber-400"> · {n(f.remaining)} qoldi</span>}
+          {f.eligible > 0 && <span className="font-medium text-emerald-600 dark:text-emerald-400"> · {n(f.eligible)} imzodan o'tgan</span>}
+          {!done && f.eligible === 0 && <span className="text-muted"> · {n(f.remaining)} qoldi</span>}
         </span>
       </div>
       <div className="my-1.5 h-1 w-full overflow-hidden rounded-full bg-surface-2">
@@ -120,6 +133,8 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
       </div>
       {done ? (
         <div className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">✓ Hammasiga yaratilgan</div>
+      ) : nothingEligible ? (
+        <div className="text-[11px] text-muted">Imzodan o'tgan (skanlangan) case yo'q — avval palatadan imzolangan arizani biriktiring, so'ng boji yaratiladi. <span className="tabular-nums">({n(f.remaining)} ta kvitansiyasiz, hali skansiz)</span></div>
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-1">
@@ -131,8 +146,16 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
             {[25, 50, 100].filter((v) => v <= cap).map((v) => (
               <button key={v} onClick={() => setCount(v)} aria-pressed={count === v} className={`rounded border px-1.5 py-0.5 text-[10px] font-medium tabular-nums transition-colors ${count === v ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-line text-muted hover:border-amber-500/40'}`}>{v}</button>
             ))}
-            <button onClick={() => setCount(cap)} className="rounded border border-line px-1.5 py-0.5 text-[10px] font-medium text-muted hover:border-amber-500/40">Hammasi ({n(cap)})</button>
+            {/* «Hammasi» faqat 100 dan kam qolganda — aks holda [100] tugmasi bir xil (cap=100). */}
+            {cap < ROW_CAP && (
+              <button onClick={() => setCount(cap)} className="rounded border border-line px-1.5 py-0.5 text-[10px] font-medium text-muted hover:border-amber-500/40">Hammasi ({n(cap)})</button>
+            )}
             <span className="ml-1 text-[10px] tabular-nums text-muted">= <span className="font-medium text-fg">{n(count * amount)}</span></span>
+            {busy && restId && (
+              <button onClick={cancel} disabled={canceling} className="ml-auto inline-flex items-center gap-1 rounded-md border border-rose-500/40 px-2 py-1 text-[11px] font-semibold text-rose-600 transition-colors hover:bg-rose-500/10 disabled:opacity-50 dark:text-rose-300">
+                {canceling ? 'Toʻxtatilmoqda…' : 'Bekor'}
+              </button>
+            )}
             <button onClick={create} disabled={busy || !count} aria-busy={busy} className="ml-auto inline-flex items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-amber-600 disabled:opacity-50">
               {busy ? <><span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" /> {prog ? `${n(prog.done)}/${n(prog.total)}` : '…'}</> : 'Yarat'}
             </button>
@@ -203,13 +226,14 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
 
   const totalRemaining = firms?.reduce((s, f) => s + f.remaining, 0) ?? 0;
   const totalWith = firms?.reduce((s, f) => s + f.withInvoice, 0) ?? 0;
+  const totalEligible = firms?.reduce((s, f) => s + f.eligible, 0) ?? 0;
 
   return (
     <div className="card p-5">
       <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center justify-between text-left">
         <div>
           <div className="text-sm font-semibold">Invoice — buxgalteriya</div>
-          <div className="mt-0.5 text-xs tabular-nums text-muted">Har biri {n(amount)} so'm · {n(totalWith)} yaratilgan · {n(totalRemaining)} qoldi</div>
+          <div className="mt-0.5 text-xs tabular-nums text-muted">Har biri {n(amount)} so'm · {n(totalWith)} yaratilgan{totalEligible > 0 && <span className="font-medium text-emerald-600 dark:text-emerald-400"> · {n(totalEligible)} imzodan o'tgan (boji tayyor)</span>} · {n(totalRemaining)} qoldi</div>
         </div>
         <svg className={`h-4 w-4 shrink-0 text-muted transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m9 6 6 6-6 6" /></svg>
       </button>
@@ -242,7 +266,7 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
                       <th scope="col" className="px-3 py-1.5 text-left font-semibold">Firma</th>
                       <th scope="col" className="w-16 px-3 py-1.5 text-right font-semibold">Soni</th>
                       <th scope="col" className="w-28 px-3 py-1.5 text-right font-semibold">Holat</th>
-                      <th scope="col" className="w-24 px-3 py-1.5 text-right font-semibold">Farmoyish</th>
+                      <th scope="col" className="w-32 px-3 py-1.5 text-right font-semibold">Farmoyish</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-line">
@@ -257,7 +281,7 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
                             : <span className="text-muted">to'lanmagan</span>}
                         </td>
                         <td className="px-3 py-2 text-right">
-                          <a href={`/konveyer/farmoyish?batchId=${b.id}`} className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-xs font-medium text-brand-600 hover:border-brand-500/40 dark:text-brand-400">
+                          <a href={`/konveyer/farmoyish?batchId=${b.id}`} className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-line px-2 py-0.5 text-xs font-medium text-brand-600 hover:border-brand-500/40 dark:text-brand-400">
                             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 3v12" /><path d="m8 11 4 4 4-4" /></svg>
                             Farmoyish
                           </a>

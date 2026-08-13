@@ -112,16 +112,22 @@ export function ocrPdf(pdfPath: string, outJson: string, onProgress?: (done: num
 }
 
 // ---------- merge ----------
-export async function mergeArizas(fresh: ScannedArizaFull[]): Promise<{ added: number; total: number }> {
+export async function mergeArizas(fresh: ScannedArizaFull[], update = false): Promise<{ added: number; updated: number; total: number }> {
   let cur: ScannedArizaFull[] = [];
   try { cur = JSON.parse(await fsp.readFile(DATA_PATH, 'utf8')); } catch { cur = []; }
-  const seen = new Set(cur.map((x) => x.pinfl));
-  let added = 0;
-  for (const a of fresh) if (a.pinfl && !seen.has(a.pinfl)) { cur.push(a); seen.add(a.pinfl); added++; }
+  const idx = new Map<string, number>();
+  cur.forEach((x, i) => { if (x.pinfl) idx.set(x.pinfl, i); });
+  let added = 0, updated = 0;
+  for (const a of fresh) {
+    if (!a.pinfl) continue;
+    const at = idx.get(a.pinfl);
+    if (at === undefined) { cur.push(a); idx.set(a.pinfl, cur.length - 1); added++; }
+    else if (update) { cur[at] = a; updated++; } // «yangilash» — re-scan overwrites source/pages/name
+  }
   cur.sort((a, b) => Number(a.reg) - Number(b.reg));
   await fsp.mkdir(path.dirname(DATA_PATH), { recursive: true });
   await fsp.writeFile(DATA_PATH, JSON.stringify(cur, null, 1));
-  return { added, total: cur.length };
+  return { added, updated, total: cur.length };
 }
 
 // A live OCR job refreshes updatedAt every ~10 pages (~20s). If a RUNNING/PENDING job
@@ -131,7 +137,7 @@ const STALE_MS = 3 * 60 * 1000;
 export async function reapStaleOcrJobs(): Promise<void> {
   const cutoff = new Date(Date.now() - STALE_MS);
   await prisma.job.updateMany({
-    where: { type: 'PALATA_OCR', status: { in: ['PENDING', 'RUNNING'] }, updatedAt: { lt: cutoff } },
+    where: { type: { in: ['PALATA_OCR', 'PALATA_ATTACH'] }, status: { in: ['PENDING', 'RUNNING'] }, updatedAt: { lt: cutoff } },
     data: { status: 'FAILED', message: 'Uzilib qoldi (server qayta ishga tushdi) — qayta yuklang' },
   }).catch(() => {});
 }
@@ -140,11 +146,12 @@ export async function reapStaleOcrJobs(): Promise<void> {
 /** OCR each uploaded PDF, extract arizas, merge the dataset. Never throws — records
  *  the outcome on the Job row (the fire-and-forget caller needs no catch). Each scan
  *  is RETAINED in SCAN_STORE so a client's signed pages stay downloadable. */
-export async function runPalataOcrJob(jobId: number, filePaths: string[]): Promise<void> {
+export async function runPalataOcrJob(jobId: number, filePaths: string[], update = false): Promise<void> {
   await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING' } });
   await fsp.mkdir(SCAN_STORE, { recursive: true }).catch(() => {});
   try {
     let added = 0, total = 0;
+    const freshPinfls = new Set<string>(); // PINFLs read from THIS upload (for «yangilash»)
     for (let i = 0; i < filePaths.length; i++) {
       const out = path.join(os.tmpdir(), `palata-ocr-${jobId}-${i}.json`);
       let last = 0;
@@ -161,12 +168,41 @@ export async function runPalataOcrJob(jobId: number, filePaths: string[]): Promi
         await fsp.rm(filePaths[i], { force: true }).catch(() => {});
       });
       const got = extractArizas(pages).map((a) => ({ ...a, source: sourceId }));
+      got.forEach((g) => { if (g.pinfl) freshPinfls.add(g.pinfl); });
       // Merge THIS file's arizas to disk immediately — a later file dying can't lose it.
-      const r = await mergeArizas(got);
+      // `update` overwrites an already-known client's source/pages with the fresh scan.
+      const r = await mergeArizas(got, update);
       added += r.added; total = r.total;
       await fsp.rm(out, { force: true }).catch(() => {});
     }
-    await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'DONE', message: `+${added} yangi ariza (jami ${total})`, progress: 1, total: 1 } });
+
+    // ── Phase 2: BAZAGA SAQLASH — split each client's signed pages into its own PDF
+    // and attach it to the matching case (CaseDocument SIGNED_ARIZA) so the signed
+    // ariza is stored per-case and flows into the court packet. Runs over the WHOLE
+    // merged dataset (idempotent) so previously-unlinked clients whose cases now
+    // exist are picked up too. A dynamic import keeps the module graph acyclic
+    // (palata-attach imports SCAN_STORE from here). Non-fatal: an attach hiccup must
+    // not fail an OCR run whose scans already landed.
+    let saved = 0, updatedCount = 0, noCase = 0;
+    try {
+      await prisma.job.updateMany({ where: { id: jobId }, data: { message: 'Bazaga saqlanmoqda…', progress: 0, total: 1 } });
+      const { attachAllScanned } = await import('./palata-attach');
+      let lastAt = 0;
+      const att = await attachAllScanned({
+        // «yangilash» — only THIS upload's clients overwrite an already-saved doc.
+        replacePinfls: update ? freshPinfls : undefined,
+        onProgress: (d, t) => {
+          // Throttle DB writes (every 10 arizas), same rhythm as the OCR progress.
+          if (d - lastAt >= 10 || d === t) { lastAt = d; prisma.job.updateMany({ where: { id: jobId }, data: { progress: d, total: Math.max(1, t) } }).catch(() => {}); }
+        },
+      });
+      saved = att.linked; updatedCount = att.updated; noCase = att.noCase;
+    } catch (e) { console.error('[palata-ocr] attach phase failed', e); }
+
+    const msg = `+${added} yangi ariza (jami ${total}) · ${saved} bazaga saqlandi`
+      + (updatedCount ? ` · ${updatedCount} yangilandi` : '')
+      + (noCase ? ` · ${noCase} ish topilmadi` : '');
+    await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'DONE', message: msg, progress: 1, total: 1 } });
   } catch (e) {
     const m = e instanceof Error ? e.message : String(e);
     await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'FAILED', message: m } }).catch(() => {});

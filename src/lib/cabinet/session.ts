@@ -1,11 +1,14 @@
 // DB-backed cabinet.sud.uz sessions. authenticate once (E-IMZO), reuse the stored
 // token to pull data; when the server rejects it, mark EXPIRED and surface a
 // SessionExpiredError so the UI can ask the user to re-confirm via E-IMZO.
-import { loginToCabinet, type CabinetSession } from './oneid';
+import { loginToCabinet, cabinetLoginWithSignature, type CabinetSession } from './oneid';
+import type { CertKey } from '../hippo/eimzo';
+import type { ClientCert } from '../hippo/login';
 import { cabinetFetch, getUser } from './api';
 import {
   saveExternalSession, loadUsableSession, markSessionExpired, SessionExpiredError, decodeJwtClaims,
 } from '../session-store';
+import { reconcileIdentityOrThrow } from '../eimzo-verify';
 
 const PROVIDER = 'CABINET' as const;
 
@@ -30,9 +33,37 @@ function toSession(row: { accessToken: string; tokenId: string | null; meta: any
 
 // Full E-IMZO login, then persist. Cabinet tokens carry no server expiry, so we
 // store expiresAt=null and rely on liveness checks (getUser) instead.
-export async function authenticateCabinet(selector?: string, account?: string): Promise<CabinetSession> {
-  const s = await loginToCabinet(selector);
+// `opts.challengeId` + `opts.pkcs7` (CLIENT mode) => consume the browser-signed challenge
+// (steps 4-6), then RECONCILE the cabinet identity (/user/get + validate-code payload)
+// against the firm account before persisting. Without opts (SERVER mode) the behaviour is
+// UNCHANGED.
+export async function authenticateCabinet(
+  selector?: string | CertKey,
+  account?: string,
+  opts?: { challengeId?: string; pkcs7?: string; cert?: ClientCert },
+): Promise<CabinetSession> {
+  const s = opts?.pkcs7
+    ? await cabinetLoginWithSignature(opts.challengeId ?? '', opts.pkcs7, opts.cert)
+    : await loginToCabinet(selector);
   const acct = account ?? accountForSession(s);
+
+  // CLIENT MODE only: reconcile the identity cabinet associates with this session against
+  // the firm's STIR before storing it. /user/get is the authoritative "who am I"; the
+  // validate-code payload (s.user) is a fallback source.
+  if (opts?.pkcs7) {
+    let identity: unknown = { ...s.user };
+    try {
+      const me = await getUser(s);
+      if (me.ok && me.json) identity = { ...(me.json as object), ...s.user };
+    } catch { /* transient — fall back to the validate-code payload below */ }
+    const { verified } = reconcileIdentityOrThrow('CABINET', acct, identity);
+    if (!verified) {
+      // SECURITY TODO (client mode): identity is client-asserted; harden by parsing the
+      // signer cert STIR from the PKCS7 before multi-tenant prod. Cabinet exposed no STIR
+      // to reconcile, so we trusted the client-sent tin for the UX check only.
+      console.warn(`[SECURITY] CABINET client-mode: no STIR in /user/get to reconcile for account ${acct}; identity is CLIENT-ASSERTED (tin=${opts.cert?.tin ?? 'none'}).`);
+    }
+  }
   // The OneID login JWT carries iat/exp (~2h) — the id.egov login window, NOT the
   // cabinet session lifetime. Persist it for the record; the cabinet session token
   // (token_id) has no declared expiry and is validated per-call (expiresAt=null).

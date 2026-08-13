@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
 import { startRestBatch } from '@/lib/invoice-rest';
 
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
-  await requireAdmin();
+  await requireUser();
   const body = await req.json().catch(() => ({}));
   const firmId = Number(body?.firmId);
   const count = Math.max(1, Math.min(100, Number(body?.count) || 1));

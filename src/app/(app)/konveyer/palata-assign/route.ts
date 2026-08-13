@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { requireAdmin } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { dueForStage } from '@/lib/konveyer-sla';
+import { audit, AuditAction } from '@/lib/audit';
 
 export const runtime = 'nodejs';
 
@@ -15,7 +16,7 @@ const STAGE_ORDER = ['IMPORTED', 'TALABNOMA_SENT', 'ARIZA_GENERATED', 'PRINTED',
 // POST { file, caseId } — assign an inbox scan to a case as its signed ariza,
 // then auto-advance the case to SIGNED_SCANNED. Removes the file from the inbox.
 export async function POST(req: NextRequest) {
-  await requireAdmin();
+  await requireUser();
   const body = await req.json().catch(() => ({}));
   const file = String(body?.file || '');
   const caseId = Number(body?.caseId);
@@ -46,5 +47,6 @@ export async function POST(req: NextRequest) {
     await prisma.arizaCase.update({ where: { id: caseId }, data: { stage: 'SIGNED_SCANNED', stageEnteredAt: now, dueAt: await dueForStage('SIGNED_SCANNED', now) } });
     advanced = 'SIGNED_SCANNED';
   }
+  await audit(AuditAction.PALATA_SCAN, { target: `case:${caseId}`, detail: { advanced } });
   return NextResponse.json({ ok: true, advanced });
 }

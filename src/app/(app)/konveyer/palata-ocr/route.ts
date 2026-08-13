@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { requireAdmin } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { runPalataOcrJob, reapStaleOcrJobs } from '@/lib/palata-ocr';
 
@@ -17,7 +17,7 @@ const MAX = 200 * 1024 * 1024; // 200MB — a long chamber scan can be >100MB
 
 // GET → the latest OCR job's status (for progress polling).
 export async function GET() {
-  await requireAdmin();
+  await requireUser();
   await reapStaleOcrJobs();
   const job = await prisma.job.findFirst({ where: { type: 'PALATA_OCR' }, orderBy: { id: 'desc' } });
   if (!job) return NextResponse.json({ job: null });
@@ -26,13 +26,16 @@ export async function GET() {
 
 // POST multipart (files) → save temps, start a background OCR job, return its id.
 export async function POST(req: NextRequest) {
-  await requireAdmin();
+  await requireUser();
   // Refuse to pile a second OCR run on top of a LIVE one (stale/dead jobs reaped first).
   await reapStaleOcrJobs();
   const running = await prisma.job.findFirst({ where: { type: 'PALATA_OCR', status: { in: ['PENDING', 'RUNNING'] } } });
   if (running) return NextResponse.json({ error: 'OCR allaqachon ishlayapti, kuting.' }, { status: 409 });
 
   const form = await req.formData();
+  // «Mavjudlarni yangilash» — a re-scan of an already-saved client overwrites its
+  // stored PDF instead of being skipped. Default off (never silently overwrite).
+  const update = String(form.get('update') || '') === 'true';
   const items = [...form.getAll('files'), ...form.getAll('file')].filter((x): x is File => x instanceof File);
   if (items.length === 0) return NextResponse.json({ error: 'Fayl kerak' }, { status: 400 });
   if (items.some((f) => f.size > MAX)) return NextResponse.json({ error: 'Fayl 200MB dan katta' }, { status: 413 });
@@ -50,6 +53,6 @@ export async function POST(req: NextRequest) {
   const job = await prisma.job.create({ data: { type: 'PALATA_OCR', status: 'PENDING', total: 0, progress: 0 } });
   // Fire-and-forget — progress lives on the Job row (polled via GET). A dev-server
   // restart mid-run leaves the job RUNNING; the user can simply re-upload.
-  void runPalataOcrJob(job.id, paths);
+  void runPalataOcrJob(job.id, paths, update);
   return NextResponse.json({ jobId: job.id, files: paths.length });
 }

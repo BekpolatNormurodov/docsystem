@@ -36,6 +36,7 @@ export async function runExportJob(jobId: number, filters: ExportFilters): Promi
   // "record not found" and — since callers fire-and-forget this — surface as an unhandledRejection.
   await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING' } });
 
+  let output: fs.WriteStream | null = null;
   try {
     const snapshot = await prisma.snapshot.findUniqueOrThrow({ where: { id: filters.snapshotId } });
     const settings = await getSettings();
@@ -65,13 +66,19 @@ export async function runExportJob(jobId: number, filters: ExportFilters): Promi
 
     await fsp.mkdir(EXPORTS_DIR, { recursive: true });
     const zipPath = path.join(EXPORTS_DIR, `${jobId}.zip`);
-    const output = fs.createWriteStream(zipPath);
+    output = fs.createWriteStream(zipPath);
+    const out = output; // non-null local
     const archive = archiver('zip');
     const closed = new Promise<void>((resolve, reject) => {
-      output.on('close', resolve);
+      out.on('close', resolve);
+      // .pipe() does NOT forward a destination error to the source, so without this an ENOSPC/EACCES
+      // on the ZIP emits 'error' with no listener → uncaughtException that crashes the whole process
+      // (taking every other in-flight job/request down) instead of failing just this one Job.
+      out.on('error', reject);
       archive.on('error', reject);
     });
-    archive.pipe(output);
+    closed.catch(() => {}); // never surface as an unhandledRejection if we throw before `await closed`
+    archive.pipe(out);
 
     // One ariza per (client × firm): stream ordered so a client's loans at one firm are contiguous,
     // then flush each group into a single combined petition (contracts listed, debt summed).
@@ -147,5 +154,7 @@ export async function runExportJob(jobId: number, filters: ExportFilters): Promi
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'FAILED', message } }).catch(() => {});
+  } finally {
+    if (output && !output.closed) output.destroy(); // never leak the write-stream FD on a mid-run throw
   }
 }

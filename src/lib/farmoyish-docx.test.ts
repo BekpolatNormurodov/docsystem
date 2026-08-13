@@ -6,7 +6,10 @@ import { renderFarmoyishDocx, courtFromDistrict } from './farmoyish-docx';
 // normalise the ru-RU thousands space (nbsp / narrow-nbsp) to a regular space so assertions are stable.
 async function docText(buf: Buffer): Promise<string> {
   const zip = await JSZip.loadAsync(buf);
-  const xml = await zip.file('word/document.xml')!.async('string');
+  // Include the letterhead running header (word/header*.xml), which lives outside document.xml.
+  const names = Object.keys(zip.files).filter((n) => /^word\/(document|header\d*|footer\d*)\.xml$/.test(n)).sort();
+  let xml = '';
+  for (const n of names) xml += (await zip.file(n)!.async('string')) + '\n';
   return xml
     .replace(/<\/w:p>/g, '\n')
     .replace(/<\/w:tr>/g, '\n')
@@ -32,6 +35,12 @@ describe('renderFarmoyishDocx — matches the real URBAN reference', () => {
     district: 'Учтепа тумани',
     phone: '99-772-92-77',
     date: new Date('2026-08-07T00:00:00Z'),
+    address: 'Toshkent shahar, Olmazor tumani, Chinniobod MFY, Chinniobod-2 mavzesi, 7-uy',
+    stir: '311 943 592',
+    bankAccount: '20216000307206292001',
+    mfo: '01183',
+    directorName: 'Ё.А.Хасанов',
+    executorName: 'Л.Сурманов',
     rows: [
       { clientName: "TURDALIYEV SAMANDAR SAFARALI O'G'LI", kod: '60123092', receiptNumber: '262160984965' },
       { clientName: "XOSHIMOV BEKZODBEK ERKINJON O'G'LI", kod: '60123859', receiptNumber: '262168671390' },
@@ -61,9 +70,16 @@ describe('renderFarmoyishDocx — matches the real URBAN reference', () => {
     expect(t).toContain('262160984965');
     expect(t).toContain('20 600');
 
-    // Signature block with the real firm phone.
+    // Letterhead running header — rekvizit assembled from the firm's own data.
+    expect(t).toContain('ИНН 311943592'); // spaces stripped
+    expect(t).toContain('Х/р 20216000307206292001');
+    expect(t).toContain('МФО 01183');
+    expect(t).toContain('ANORBANK');
+
+    // Signature block with the real director/executor names + firm phone.
     expect(t).toContain('Ижрожи директори');
-    expect(t).toContain('Ижрочи:');
+    expect(t).toContain('Ё.А.Хасанов');
+    expect(t).toContain('Ижрочи: Л.Сурманов');
     expect(t).toContain('Tel: 99-772-92-77');
   });
 

@@ -16,8 +16,10 @@
 //   6. POST cabinetapi.sud.uz/api/validate-code {code}  -> {token_id, entity_id,
 //      id, pin, username, ...}. token_id IS the cabinet session token, sent as
 //      X-AUTH-TOKEN on all later calls.
-import { Eimzo, pickKey, type CertKey } from '../hippo/eimzo';
+import { Eimzo, resolveKey, syntheticKey, type CertKey } from '../hippo/eimzo';
+import type { ClientCert } from '../hippo/login';
 import { CABINET, ONEID, ENDPOINTS } from './config';
+import { putChallenge, takeChallenge, type CookieDump } from '../eimzo-challenge-store';
 
 // tiny per-host cookie jar (Node fetch does not manage cookies)
 class CookieJar {
@@ -36,6 +38,16 @@ class CookieJar {
   header(url: string): string {
     const jar = this.store.get(new URL(url).host);
     return jar ? [...jar].map(([k, v]) => `${k}=${v}`).join('; ') : '';
+  }
+  // Serialize/restore — client mode splits the flow across two HTTP requests, so the jar
+  // built in steps 1-2 (the challenge is cookie-bound) must be stashed and reloaded.
+  dump(): CookieDump {
+    return [...this.store].map(([host, jar]) => [host, [...jar]]);
+  }
+  static restore(dump: CookieDump): CookieJar {
+    const j = new CookieJar();
+    for (const [host, entries] of dump ?? []) j.store.set(host, new Map(entries));
+    return j;
   }
 }
 
@@ -79,14 +91,9 @@ async function jfetch(jar: CookieJar, url: string, init: RequestInit = {}) {
   return res;
 }
 
-export async function loginToCabinet(
-  selector?: string,
-  opts: { scope?: string; state?: string; tin?: string } = {},
-): Promise<CabinetSession> {
-  const scope = opts.scope ?? ONEID.scope;
-  const state = opts.state ?? ONEID.state;
-  const jar = new CookieJar();
-
+// Steps 1-2: mint the OneID token_id and fetch the (cookie-bound) challenge. Shared by
+// server-mode loginToCabinet and client-mode cabinetChallenge.
+async function mintChallenge(jar: CookieJar, scope: string, state: string): Promise<{ tokenId: string; challenge: string }> {
   // 1. mint token_id (BEFORE login)
   const authUrl = `${ONEID.ssoAuthorize}?response_type=one_code&client_id=${ONEID.clientId}` +
     `&redirect_uri=${encodeURIComponent(ONEID.redirectUri)}&scope=${encodeURIComponent(scope)}&state=${encodeURIComponent(state)}`;
@@ -100,14 +107,14 @@ export async function loginToCabinet(
   const chJson: any = await chRes.json().catch(() => ({})); // degraded gateway may return HTML, not JSON
   const challenge = chJson?.challenge;
   if (!challenge) throw new Error(`no challenge (http ${chRes.status}): ${JSON.stringify(chJson).slice(0, 200)}`);
+  return { tokenId, challenge };
+}
 
-  // 3. sign the challenge (native password dialog pops up here). detached "no".
-  const key = await pickKey(selector);
-  const { keyId } = await Eimzo.loadKey(key.disk, key.path, key.name, key.alias);
-  const { pkcs7_64 } = await Eimzo.createPkcs7(keyId, challenge, 'no');
-  // Don't log the signer's STIR/JShShIR (PII) — only the CN + signature length.
-  if (process.env.DEBUG) console.error(`[dbg] key=${key.info.cn} | challenge set | pkcs len=${pkcs7_64?.length}`);
-
+// Steps 4-6: OneID login with the signed PKCS7 → sso generate → cabinet validate-code.
+// Shared by both modes; `key` carries the identity into the session record.
+async function finishCabinetLogin(
+  jar: CookieJar, tokenId: string, scope: string, state: string, pkcs7_64: string, tin: string | undefined, key: CertKey,
+): Promise<CabinetSession> {
   // 4. login with pkcs7
   const loginJson: any = await (await jfetch(jar, `${ONEID.api}${ENDPOINTS.login}`, {
     method: 'POST',
@@ -125,7 +132,6 @@ export async function loginToCabinet(
   if (!oneIdToken) throw new Error(`OneID login failed: ${JSON.stringify(loginJson).slice(0, 200)}`);
 
   // 5. mint the client code for cabinet — tin = the key's own STIR (legal entity)
-  const tin = opts.tin ?? key.info.tin;
   const genJson: any = await (await jfetch(jar, `${ONEID.api}${ENDPOINTS.ssoGenerate}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${oneIdToken}` },
@@ -149,4 +155,55 @@ export async function loginToCabinet(
     user: { entityId: valJson?.entity_id, id: valJson?.id, pin: valJson?.pin, username: valJson?.username, isAdvocate: valJson?.is_advocate },
     raw: { code, state: gstate, callbackUrl },
   };
+}
+
+// SERVER MODE: full flow in one process — mint challenge, sign it via the LOCAL E-IMZO
+// (native password dialog, step 3), then finish. Behaviour UNCHANGED from the original.
+export async function loginToCabinet(
+  selector?: string | CertKey,
+  opts: { scope?: string; state?: string; tin?: string } = {},
+): Promise<CabinetSession> {
+  const scope = opts.scope ?? ONEID.scope;
+  const state = opts.state ?? ONEID.state;
+  const jar = new CookieJar();
+
+  const { tokenId, challenge } = await mintChallenge(jar, scope, state);
+
+  // 3. sign the challenge (native password dialog pops up here). detached "no".
+  const key = await resolveKey(selector);
+  const { keyId } = await Eimzo.loadKey(key.disk, key.path, key.name, key.alias);
+  const { pkcs7_64 } = await Eimzo.createPkcs7(keyId, challenge, 'no');
+  // Don't log the signer's STIR/JShShIR (PII) — only the CN + signature length.
+  if (process.env.DEBUG) console.error(`[dbg] key=${key.info.cn} | challenge set | pkcs len=${pkcs7_64?.length}`);
+
+  return finishCabinetLogin(jar, tokenId, scope, state, pkcs7_64, opts.tin ?? key.info.tin, key);
+}
+
+// CLIENT MODE — half 1: mint token_id + challenge on the SERVER, stash the cookie jar +
+// token_id under a random challengeId, and hand the raw challenge to the browser to sign
+// on the USER's machine. `tin` is the firm's STIR (server-derived) for step 5.
+export async function cabinetChallenge(
+  opts: { scope?: string; state?: string; tin?: string } = {},
+): Promise<{ challengeId: string; challenge: string }> {
+  const scope = opts.scope ?? ONEID.scope;
+  const state = opts.state ?? ONEID.state;
+  const jar = new CookieJar();
+  const { tokenId, challenge } = await mintChallenge(jar, scope, state);
+  const challengeId = putChallenge({ tokenId, cookies: jar.dump(), scope, state, tin: opts.tin });
+  return { challengeId, challenge };
+}
+
+// CLIENT MODE — half 2: the browser posts back the PKCS7 it signed. Reload the saved jar +
+// token_id and run steps 4-6 in the SAME server context. The cert is client-asserted
+// (untrusted) — it only populates the session record; identity is reconciled in
+// authenticateCabinet. `tin` prefers the server-stored firm STIR.
+export async function cabinetLoginWithSignature(
+  challengeId: string, pkcs7: string, cert?: ClientCert,
+): Promise<CabinetSession> {
+  if (!pkcs7) throw new Error('cabinet login: pkcs7 kerak');
+  const saved = takeChallenge(challengeId);
+  if (!saved) throw new Error('Challenge topilmadi yoki muddati tugadi — qaytadan urinib koʻring');
+  const jar = CookieJar.restore(saved.cookies);
+  const tin = saved.tin ?? cert?.tin ?? undefined;
+  return finishCabinetLogin(jar, saved.tokenId, saved.scope, saved.state, pkcs7, tin ?? undefined, syntheticKey(cert));
 }

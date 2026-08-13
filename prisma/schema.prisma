@@ -416,6 +416,9 @@ model ClientCaseStatus {
   @@unique([source, caseNumber])
   @@index([branchCode, source, status])
   @@index([pinfl])
+  // courtStatusBoard groupBy filters by (snapshotId, branchCode); the aggregate (no firm)
+  // path filters snapshotId alone, which had no index. Lets that filtered aggregate use an index.
+  @@index([snapshotId, branchCode])
 }
 
 // A file uploaded/attached to a case (e.g. the signed scanned ariza, a receipt).

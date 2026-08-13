@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { Modal } from '@/ui';
+import { KeyPicker } from './KeyPicker';
 
 type State = 'ACTIVE' | 'EXPIRED' | 'NONE';
 interface Prov { state: State; since: string | null; expiresAt: string | null; balance?: number | null; name?: string | null }
@@ -67,7 +68,7 @@ export function ConnectionStatus({ inline = false }: { inline?: boolean }) {
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [healthBusy, setHealthBusy] = useState(false);
-  const [connecting, setConnecting] = useState<string | null>(null);
+  const [picker, setPicker] = useState<{ firmId: number; firmName: string; stir: string | null; provider: 'HIPPO' | 'CABINET' } | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -90,17 +91,15 @@ export function ConnectionStatus({ inline = false }: { inline?: boolean }) {
   }, []);
   useEffect(() => { load(false); }, [load]);
 
-  const connect = async (firmId: number, provider: 'HIPPO' | 'CABINET') => {
-    setConnecting(`${firmId}:${provider}`); setNote(null); setErr(null);
-    try {
-      const res = await fetch('/konveyer/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ firmId, provider }) });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Ulanmadi');
-      setNote(`${provider === 'HIPPO' ? 'xat.hippo' : 'adolat'} ulandi ✓`);
-      await load(true);
-    } catch (e) { setErr(e instanceof Error ? e.message : 'Ulanmadi'); }
-    // Clear only OUR key — an overlapping connect on another firm keeps its spinner.
-    finally { setConnecting((cur) => (cur === `${firmId}:${provider}` ? null : cur)); }
+  // «Ula» opens the key-picker (list real DSKEYS files → pick the firm's key →
+  // native E-IMZO password). No more blind STIR auto-match that failed silently.
+  const openPicker = (firmId: number, firmName: string, stir: string | null, provider: 'HIPPO' | 'CABINET') => {
+    setNote(null); setErr(null);
+    setPicker({ firmId, firmName, stir, provider });
+  };
+  const onPickerSuccess = async (provider: 'HIPPO' | 'CABINET') => {
+    setNote(`${provider === 'HIPPO' ? 'xat.hippo' : 'adolat'} ulandi ✓`);
+    await load(true);
   };
 
   const hippoOk = rows.filter((r) => r.hippo.state === 'ACTIVE').length;
@@ -138,8 +137,8 @@ export function ConnectionStatus({ inline = false }: { inline?: boolean }) {
           {list.map((r) => (
             <div key={r.firmId} className="rounded-xl border border-line bg-surface px-3 py-2">
               <div className="mb-1 truncate text-[13px] font-semibold" title={r.firmName}>{r.firmName}</div>
-              <Provider label="xat.hippo" p={r.hippo} extra={r.hippo.balance != null ? `${n(r.hippo.balance)} so‘m` : undefined} onConnect={() => connect(r.firmId, 'HIPPO')} busy={connecting === `${r.firmId}:HIPPO`} />
-              <Provider label="adolat" p={r.cabinet} onConnect={() => connect(r.firmId, 'CABINET')} busy={connecting === `${r.firmId}:CABINET`} />
+              <Provider label="xat.hippo" p={r.hippo} extra={r.hippo.balance != null ? `${n(r.hippo.balance)} so‘m` : undefined} onConnect={() => openPicker(r.firmId, r.firmName, r.stir ?? null, 'HIPPO')} busy={picker?.firmId === r.firmId && picker?.provider === 'HIPPO'} />
+              <Provider label="adolat" p={r.cabinet} onConnect={() => openPicker(r.firmId, r.firmName, r.stir ?? null, 'CABINET')} busy={picker?.firmId === r.firmId && picker?.provider === 'CABINET'} />
             </div>
           ))}
         </div>
@@ -149,8 +148,24 @@ export function ConnectionStatus({ inline = false }: { inline?: boolean }) {
           {showAll ? 'Faqat ulanganlar' : `Yana ${rest.length} ta ulanmagan firma`}
         </button>
       )}
-      <div className="mt-2 text-[11px] text-muted">«Ula» — E-IMZO oynasi ochilib, kalit paroli so‘raladi (kalit ulangan bo‘lishi shart).</div>
+      <div className="mt-2 text-[11px] text-muted">«Ula» — kalit roʻyxatidan firma kalitini tanlaysiz, soʻng E-IMZO oynasida parol soʻraladi (kalit ulangan boʻlishi shart).</div>
     </>
+  );
+
+  // The picker is rendered as a SIBLING of the shell (never a child of the pill Modal): it is
+  // controlled by `picker`, so closing the outer connections modal (Esc/backdrop) can't unmount
+  // an in-flight sign, and its own Modal owns its Esc handling.
+  const pickerEl = picker && (
+    <KeyPicker
+      open
+      onClose={() => setPicker(null)}
+      firm={{ firmId: picker.firmId, firmName: picker.firmName, stir: picker.stir }}
+      provider={picker.provider}
+      endpoint="/konveyer/connect"
+      title={picker.provider === 'HIPPO' ? 'xat.hippo — kalitni ulash' : 'adolat (sud) — kalitni ulash'}
+      confirmLabel="Imzolab ulash"
+      onSuccess={() => onPickerSuccess(picker.provider)}
+    />
   );
 
   if (inline) {
@@ -161,6 +176,7 @@ export function ConnectionStatus({ inline = false }: { inline?: boolean }) {
           <p className="mt-1 text-sm text-muted">xat.hippo va adolat (cabinet.sud.uz) — firma kaliti bilan</p>
         </div>
         <div className="card p-4 sm:p-5">{body}</div>
+        {pickerEl}
       </div>
     );
   }
@@ -180,6 +196,7 @@ export function ConnectionStatus({ inline = false }: { inline?: boolean }) {
       <Modal open={open} onClose={() => setOpen(false)} size="lg" title="Ulanishlar — E-IMZO" description="xat.hippo va adolat (cabinet.sud.uz) — firma kaliti bilan">
         {body}
       </Modal>
+      {pickerEl}
     </>
   );
 }

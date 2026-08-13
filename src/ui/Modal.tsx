@@ -112,7 +112,9 @@ export function Modal({
         onClick={onClose}
         aria-hidden
       />
-      <div ref={panel} className={`card relative w-full ${SIZES[size]} p-6 shadow-2xl animate-fade-in`}>
+      {/* Balandlik viewportning 90% bilan cheklangan; uzun kontent ICHIDA skroll bo'ladi —
+          sarlavha (tepada) va footer (pastda) doim ko'rinib turadi, kontent ular orasida oqadi. */}
+      <div ref={panel} className={`card relative flex max-h-[90vh] w-full ${SIZES[size]} flex-col p-6 shadow-2xl animate-fade-in`}>
         <button
           onClick={onClose}
           className="absolute right-4 top-4 cursor-pointer rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-fg"
@@ -121,10 +123,10 @@ export function Modal({
         >
           <Ico.close size={18} />
         </button>
-        <h3 className="pr-8 text-base font-semibold">{title}</h3>
-        {description && <p className="mt-1 text-sm text-muted">{description}</p>}
-        <div className="mt-4">{children}</div>
-        {footer && <div className="mt-5 flex justify-end gap-2">{footer}</div>}
+        <h3 className="shrink-0 pr-8 text-base font-semibold">{title}</h3>
+        {description && <p className="mt-1 shrink-0 text-sm text-muted">{description}</p>}
+        <div className="-mr-2 mt-4 min-h-0 flex-1 overflow-y-auto pr-2">{children}</div>
+        {footer && <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-line pt-4">{footer}</div>}
       </div>
     </div>,
     document.body,

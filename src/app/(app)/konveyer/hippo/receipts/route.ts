@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import JSZip from 'jszip';
-import { requireAdmin } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { getStoredHippoSession } from '@/lib/hippo/session';
 import { listReceiptRefs, downloadReceiptPdf } from '@/lib/hippo/xat';
@@ -16,7 +16,7 @@ const safe = (s: string) => (s || 'kvitansiya').replace(/[^\p{L}\p{N}._ -]+/gu, 
 // of a hippo registry as one ZIP (court proof-of-delivery). Read-only. Capped to
 // bound the request; ?all=1 also includes non-delivered (sent) receipts.
 export async function GET(req: NextRequest) {
-  await requireAdmin();
+  await requireUser();
   const firmId = Number(req.nextUrl.searchParams.get('firmId'));
   const registryId = req.nextUrl.searchParams.get('registryId');
   if (!firmId || !registryId) return NextResponse.json({ error: 'firmId va registryId kerak' }, { status: 400 });

@@ -1,10 +1,12 @@
 // DB-backed xat.hippo.uz sessions. hippo issues a 7-day token (expires_in) + a
 // refresh token, so we can store expiresAt and reuse the token for data pulls
 // until it expires; then the UI prompts an E-IMZO re-login.
-import { loginToHippo, hippoFetch, type HippoSession } from './login';
+import { loginToHippo, loginToHippoWithSignature, hippoFetch, type HippoSession, type ClientCert } from './login';
+import type { CertKey } from './eimzo';
 import {
   saveExternalSession, loadUsableSession, markSessionExpired, SessionExpiredError, decodeJwtClaims,
 } from '../session-store';
+import { reconcileIdentityOrThrow } from '../eimzo-verify';
 
 const PROVIDER = 'HIPPO' as const;
 
@@ -24,9 +26,32 @@ function toSession(row: { accessToken: string; refreshToken: string | null; meta
   } as HippoSession;
 }
 
-export async function authenticateHippo(selector?: string, account?: string): Promise<HippoSession> {
-  const s = await loginToHippo(selector);
+// `opts.pkcs7` (CLIENT mode) => the browser already produced the PKCS7; we skip the local
+// CAPIWS sign and only submit it, then RECONCILE the resulting hippo identity against the
+// firm account before persisting. Without opts (SERVER mode) the behaviour is UNCHANGED.
+export async function authenticateHippo(
+  selector?: string | CertKey,
+  account?: string,
+  opts?: { pkcs7?: string; cert?: ClientCert },
+): Promise<HippoSession> {
+  const s = opts?.pkcs7
+    ? await loginToHippoWithSignature(opts.pkcs7, opts.cert)
+    : await loginToHippo(selector);
   const acct = account ?? accountForSession(s);
+
+  // CLIENT MODE only: the cert is client-asserted (untrusted). Reconcile the identity the
+  // hippo access_token carries against the firm's STIR before storing the session.
+  if (opts?.pkcs7) {
+    const claims = decodeJwtClaims(s.accessToken) ?? {};
+    const { verified } = reconcileIdentityOrThrow(PROVIDER, acct, { ...claims, ...(s.raw?.data ?? {}) });
+    if (!verified) {
+      // SECURITY TODO (client mode): identity is client-asserted; harden by parsing the
+      // signer cert STIR from the PKCS7 before multi-tenant prod. The hippo access_token
+      // exposed no STIR to reconcile, so we trusted the client-sent tin for the UX check only.
+      console.warn(`[SECURITY] HIPPO client-mode: no STIR in access_token to reconcile for account ${acct}; identity is CLIENT-ASSERTED (tin=${opts.cert?.tin ?? 'none'}).`);
+    }
+  }
+
   await saveExternalSession(PROVIDER, acct, {
     accessToken: s.accessToken,
     refreshToken: s.refreshToken,

@@ -5,7 +5,10 @@
 // and POSTs { signature }. The server verifies the signature and reads the cert
 // to identify the user/organization. Login was live-verified with the BRIGHT
 // (Suvonov Farrux) key -> "E-IMZO Login successful".
-import { Eimzo, pickKey, type CertKey } from './eimzo';
+import { Eimzo, resolveKey, syntheticKey, type CertKey } from './eimzo';
+
+// CLIENT-asserted cert fields (client mode). Untrusted — see src/lib/eimzo-verify.ts.
+export interface ClientCert { cn?: string | null; org?: string | null; tin?: string | null; pinfl?: string | null }
 
 export const HIPPO = {
   apiBase: 'https://xat.hippo.uz/api',
@@ -23,17 +26,25 @@ export interface HippoSession {
   raw: any;
 }
 
-// Load the key, sign the constant (native E-IMZO password dialog), submit.
-export async function loginToHippo(selector?: string): Promise<HippoSession> {
-  const key = await pickKey(selector);
-  const { keyId } = await Eimzo.loadKey(key.disk, key.path, key.name, key.alias);
-  const { pkcs7_64: signature } = await Eimzo.createPkcs7(keyId, HIPPO.signData, HIPPO.detached);
-
-  const res = await fetch(HIPPO.apiBase + HIPPO.loginPath, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ signature }),
-  });
+// POST the PKCS7 signature to hippo and parse the token payload. Shared by BOTH the
+// server-sign path (loginToHippo) and the client-sign path (loginToHippoWithSignature),
+// so the parse/validation stays in exactly one place.
+async function submitHippoSignature(signature: string, key: CertKey): Promise<HippoSession> {
+  // 30s ceiling (matches hippoFetch / cabinet fetchT). The signature is already computed, so a
+  // stalled /auth/login/eimzo must not hang the connect request indefinitely after the E-IMZO dialog.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), HIPPO_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(HIPPO.apiBase + HIPPO.loginPath, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ signature }),
+      signal: ctrl.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
   const json: any = await res.json().catch(() => ({}));
   if (!res.ok || (json.code && json.code >= 400)) {
     throw new Error(`hippo login ${res.status}: ${JSON.stringify(json).slice(0, 400)}`);
@@ -48,6 +59,25 @@ export async function loginToHippo(selector?: string): Promise<HippoSession> {
     key,
     raw: json,
   };
+}
+
+// SERVER MODE: load the key, sign the constant (native E-IMZO password dialog on the
+// server machine), submit. `selector` is either an explicit picked key (from the UI) or
+// a string routed through pickKey (STIR / name / index). UNCHANGED behaviour.
+export async function loginToHippo(selector?: string | CertKey): Promise<HippoSession> {
+  const key = await resolveKey(selector);
+  const { keyId } = await Eimzo.loadKey(key.disk, key.path, key.name, key.alias);
+  const { pkcs7_64: signature } = await Eimzo.createPkcs7(keyId, HIPPO.signData, HIPPO.detached);
+  return submitHippoSignature(signature, key);
+}
+
+// CLIENT MODE: the browser already signed HIPPO.signData on the USER's machine and posts
+// the finished PKCS7. We ONLY do the POST + parse — no local CAPIWS. The cert fields are
+// client-asserted (untrusted): they populate the session record for display; identity is
+// reconciled against the hippo access_token in authenticateHippo.
+export async function loginToHippoWithSignature(pkcs7: string, cert?: ClientCert): Promise<HippoSession> {
+  if (!pkcs7) throw new Error('hippo login: pkcs7 (signature) kerak');
+  return submitHippoSignature(pkcs7, syntheticKey(cert));
 }
 
 const HIPPO_TIMEOUT_MS = 30_000;

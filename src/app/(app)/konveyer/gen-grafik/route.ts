@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { buildGrafikDocx, isSchedulableLoan, type GrafikLoan } from '@/lib/grafik-docx';
 
@@ -8,7 +8,7 @@ export const runtime = 'nodejs';
 // GET ?caseId= — the client's kredit toʻlash grafigi (.docx), a computed annuity
 // (equal monthly payment) schedule per contract. Auto-generated — no manual upload.
 export async function GET(req: NextRequest) {
-  await requireAdmin();
+  await requireUser();
   const caseId = Number(req.nextUrl.searchParams.get('caseId'));
   if (!Number.isInteger(caseId) || caseId <= 0) return NextResponse.json({ error: 'caseId kerak' }, { status: 400 });
 

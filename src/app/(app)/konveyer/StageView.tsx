@@ -5,12 +5,12 @@ import { EmptyState } from '@/ui';
 import { Dropdown } from './Dropdown';
 import { AdvanceControls, type Transition } from './AdvanceControls';
 import { CaseList } from './CaseList';
-import { PalataScanPanel } from './PalataScanPanel';
-import { PacketBulk } from './PacketBulk';
+import { ClientsExcel } from './ClientsExcel';
 import { BuxgalterPanel } from './BuxgalterPanel';
 import { HippoStatusPanel } from './HippoStatusPanel';
 import { MibPanel } from './MibPanel';
 import { TalabnomaBulk } from './TalabnomaBulk';
+import { ArizaBulk } from './ArizaBulk';
 
 const n = (x: number) => x.toLocaleString('ru-RU');
 
@@ -37,6 +37,7 @@ export function StageView({
   firms,
   transitionsByFirm,
   total,
+  hideHeader = false,
 }: {
   title: string;
   phaseKey: 'TALABNOMA' | 'SIGN' | 'BOJ' | 'COURT' | 'EXEC';
@@ -46,8 +47,13 @@ export function StageView({
   firms: StageFirm[];
   transitionsByFirm: Record<number, Transition[]>;
   total: number;
+  hideHeader?: boolean;
 }) {
-  const [firmId, setFirmId] = useState<number | null>(null); // null => Hamma firma
+  // Talabnoma opens on BRIGHT by default (the main firm) so the sums/reyestr are visible on entry;
+  // other phases still open on «Hamma firma». null => Hamma firma.
+  const [firmId, setFirmId] = useState<number | null>(
+    () => (talabnoma ? firms.find((f) => /bright/i.test(f.firmName))?.firmId ?? null : null),
+  );
   const firm = firms.find((f) => f.firmId === firmId) ?? null;
   const firmOpts = [
     { value: 'all', label: 'Hamma firma' },
@@ -61,7 +67,9 @@ export function StageView({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
+        {hideHeader
+          ? <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Batafsil — mijozlar va bosqichlar</h2>
+          : <h1 className="text-2xl font-bold tracking-tight">{title}</h1>}
         <Dropdown
           value={firmId ? String(firmId) : 'all'}
           options={firmOpts}
@@ -81,7 +89,9 @@ export function StageView({
           {phaseKey === 'TALABNOMA' && (
             <TalabnomaBulk firmId={firmId ?? undefined} firmName={firm?.firmName} snapshotId={selectedId} scopeLabel={scopeLabel} firms={firms} onSelectFirm={setFirmId} />
           )}
-          {phaseKey === 'SIGN' && <PalataScanPanel />}
+          {/* SIGN (Sanoat palatasi) — «Ariza yaratish»: the heavy full-packet ZIP (ariza + PDFs). Scan
+              lives in PalataManager on the ariza page, not here. */}
+          {phaseKey === 'SIGN' && <ArizaBulk firmId={firmId ?? undefined} firmName={firm?.firmName} snapshotId={selectedId} scopeLabel={scopeLabel} />}
           {phaseKey === 'BOJ' && <BuxgalterPanel snapshotId={selectedId} firmId={firmId ?? undefined} />}
           {phaseKey === 'EXEC' && <MibPanel snapshotId={selectedId} firmId={firmId ?? undefined} />}
 
@@ -97,7 +107,9 @@ export function StageView({
                 )}
               </span>
               <div className="ml-auto">
-                <PacketBulk firmId={firmId ?? undefined} snapshotId={selectedId} stages={listStages} scopeLabel={scopeLabel} />
+                {/* Every client-list header offers a plain «Excel» — the current scope's clients as
+                    data (F.I.O, PINFL, kod, qarzdorlik…). */}
+                <ClientsExcel firmId={firmId ?? undefined} snapshotId={selectedId} stages={listStages} talabnoma={talabnoma} />
               </div>
             </div>
             <CaseList

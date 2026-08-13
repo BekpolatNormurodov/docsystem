@@ -1,0 +1,6 @@
+# Shell scripts, Dockerfiles and nginx configs are executed on Linux — force LF so a Windows checkout
+# (autocrlf) can't inject CRLF and break `#!/usr/bin/env bash` or nginx parsing.
+*.sh            text eol=lf
+Dockerfile*     text eol=lf
+*.conf          text eol=lf
+docker-compose*.yml text eol=lf
