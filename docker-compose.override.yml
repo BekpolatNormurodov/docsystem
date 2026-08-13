@@ -7,8 +7,14 @@
 #
 # Bring up the app WITHOUT the container edge (host nginx fronts it):
 #   docker compose --env-file .env.production up -d --build mysql web worker
-# Then point your host nginx at 127.0.0.1:5200 — see docker/nginx/host-nginx.example.conf.
+#
+# WEB_BIND controls which host interface the web port is published on:
+#   - unset / 127.0.0.1  → localhost only (front nginx runs on THIS same machine)
+#   - 172.18.1.20 (this server's LAN IP) → reachable by a front nginx on ANOTHER machine
+#   - 0.0.0.0 → all interfaces (only if firewalled to the front nginx)
+# Set it in .env.production, e.g.  WEB_BIND=172.18.1.20
+# Then point the front nginx at <WEB_BIND>:5200 — see docker/nginx/host-nginx.example.conf.
 services:
   web:
     ports:
-      - "127.0.0.1:5200:5200"
+      - "${WEB_BIND:-127.0.0.1}:5200:5200"
