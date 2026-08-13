@@ -1,0 +1,14 @@
+# HOST-nginx mode: publish the web container on localhost so a HOST-level nginx (running outside Docker)
+# can reverse-proxy to it, INSTEAD of the docsystem `nginx`/`certbot` containers.
+#
+# docker compose reads this file automatically for plain `docker compose ...` commands (no `-f`).
+# The ops scripts (deploy.sh/update.sh) pass `-f docker-compose.yml`, so they IGNORE this override and
+# keep using the built-in containerized nginx — this file only affects manual, no-`-f` invocations.
+#
+# Bring up the app WITHOUT the container edge (host nginx fronts it):
+#   docker compose --env-file .env.production up -d --build mysql web worker
+# Then point your host nginx at 127.0.0.1:5200 — see docker/nginx/host-nginx.example.conf.
+services:
+  web:
+    ports:
+      - "127.0.0.1:5200:5200"
