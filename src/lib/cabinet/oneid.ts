@@ -197,12 +197,18 @@ export async function cabinetChallenge(
 // token_id and run steps 4-6 in the SAME server context. The cert is client-asserted
 // (untrusted) — it only populates the session record; identity is reconciled in
 // authenticateCabinet. `tin` prefers the server-stored firm STIR.
+//
+// SECURITY (Fix B): the challengeId is opaque and the challenge was minted with tin=firm
+// (cabinetChallenge). Bind it to the SAME firm here — assert saved.tin === account — so a
+// caller can't pair an arbitrary challengeId with a different firmId and store the session
+// under the wrong account.
 export async function cabinetLoginWithSignature(
-  challengeId: string, pkcs7: string, cert?: ClientCert,
+  challengeId: string, pkcs7: string, account: string, cert?: ClientCert,
 ): Promise<CabinetSession> {
   if (!pkcs7) throw new Error('cabinet login: pkcs7 kerak');
   const saved = takeChallenge(challengeId);
   if (!saved) throw new Error('Challenge topilmadi yoki muddati tugadi — qaytadan urinib koʻring');
+  if (saved.tin !== account) throw new Error('Challenge boshqa firma uchun yaratilgan');
   const jar = CookieJar.restore(saved.cookies);
   const tin = saved.tin ?? cert?.tin ?? undefined;
   return finishCabinetLogin(jar, saved.tokenId, saved.scope, saved.state, pkcs7, tin ?? undefined, syntheticKey(cert));

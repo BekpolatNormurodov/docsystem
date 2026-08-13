@@ -105,6 +105,7 @@ Automate daily backups via cron:
 | `BASE_DOMAIN` / `CERTBOT_EMAIL` / `CERTBOT_STAGING` | used by the SSL scripts (not the app) |
 | `EIMZO_MODE` | `server` (default) = server signs via local E-IMZO; `client` = the user's browser signs (see below) |
 | `NEXT_PUBLIC_EIMZO_API_KEY` | client mode only: NIC domain API-KEY (`domain,hash,…`) for a real domain; empty on localhost |
+| `EIMZO_ALLOW_UNVERIFIED` | client mode only. **Default unset = REJECT** any connect whose signer STIR can't be reconciled against the firm (the client-asserted cert is untrusted). Set to `1` ONLY in a trusted single-tenant / dev environment — e.g. hippo client mode, whose token carries no STIR — to let such connects through as client-asserted (audit records `verified:false`). Leave unset in multi-tenant production. |
 | `EIMZO_WS_URL` | server mode only: optional E-IMZO endpoint override (see below) |
 | `WORKER_CONCURRENCY` | parallel chromium renders on the worker/backend; scale with CPU cores (default 5, e.g. 12 on a big-CPU server) for faster document batches |
 

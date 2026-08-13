@@ -33,7 +33,7 @@ export async function authenticateHippo(
   selector?: string | CertKey,
   account?: string,
   opts?: { pkcs7?: string; cert?: ClientCert },
-): Promise<HippoSession> {
+): Promise<HippoSession & { verified?: boolean }> {
   const s = opts?.pkcs7
     ? await loginToHippoWithSignature(opts.pkcs7, opts.cert)
     : await loginToHippo(selector);
@@ -41,14 +41,18 @@ export async function authenticateHippo(
 
   // CLIENT MODE only: the cert is client-asserted (untrusted). Reconcile the identity the
   // hippo access_token carries against the firm's STIR before storing the session.
+  // reconcileIdentityOrThrow now FAILS CLOSED: it THROWS (propagating out to the route,
+  // BEFORE saveExternalSession) unless the STIR matched OR EIMZO_ALLOW_UNVERIFIED=1.
+  let verified: boolean | undefined;
   if (opts?.pkcs7) {
     const claims = decodeJwtClaims(s.accessToken) ?? {};
-    const { verified } = reconcileIdentityOrThrow(PROVIDER, acct, { ...claims, ...(s.raw?.data ?? {}) });
-    if (!verified) {
-      // SECURITY TODO (client mode): identity is client-asserted; harden by parsing the
-      // signer cert STIR from the PKCS7 before multi-tenant prod. The hippo access_token
-      // exposed no STIR to reconcile, so we trusted the client-sent tin for the UX check only.
-      console.warn(`[SECURITY] HIPPO client-mode: no STIR in access_token to reconcile for account ${acct}; identity is CLIENT-ASSERTED (tin=${opts.cert?.tin ?? 'none'}).`);
+    const r = reconcileIdentityOrThrow(PROVIDER, acct, { ...claims, ...(s.raw?.data ?? {}) });
+    verified = r.verified;
+    if (!r.verified) {
+      // EIMZO_ALLOW_UNVERIFIED bypass: the hippo access_token exposed no STIR to reconcile,
+      // so identity is CLIENT-ASSERTED. SECURITY: full hardening = extract signer STIR from
+      // the PKCS7 via ASN.1 (then this bypass is no longer needed).
+      console.warn(`[SECURITY] HIPPO client-mode: no STIR in access_token to reconcile for account ${acct}; identity is CLIENT-ASSERTED (tin=${opts.cert?.tin ?? 'none'}), EIMZO_ALLOW_UNVERIFIED bypass.`);
     }
   }
 
@@ -63,7 +67,7 @@ export async function authenticateHippo(
       jwt: (() => { const j = decodeJwtClaims(s.accessToken); return j ? { iat: j.iat, exp: j.exp, expiresAt: j.exp && new Date(j.exp * 1000).toISOString() } : null; })(),
     },
   });
-  return s;
+  return Object.assign(s, { verified });
 }
 
 export async function getStoredHippoSession(account: string): Promise<HippoSession> {

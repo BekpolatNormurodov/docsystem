@@ -41,27 +41,32 @@ export async function authenticateCabinet(
   selector?: string | CertKey,
   account?: string,
   opts?: { challengeId?: string; pkcs7?: string; cert?: ClientCert },
-): Promise<CabinetSession> {
+): Promise<CabinetSession & { verified?: boolean }> {
   const s = opts?.pkcs7
-    ? await cabinetLoginWithSignature(opts.challengeId ?? '', opts.pkcs7, opts.cert)
+    // Fix B: bind the challenge to the firm it was minted for (account passed through).
+    ? await cabinetLoginWithSignature(opts.challengeId ?? '', opts.pkcs7, account ?? '', opts.cert)
     : await loginToCabinet(selector);
   const acct = account ?? accountForSession(s);
 
   // CLIENT MODE only: reconcile the identity cabinet associates with this session against
   // the firm's STIR before storing it. /user/get is the authoritative "who am I"; the
-  // validate-code payload (s.user) is a fallback source.
+  // validate-code payload (s.user) is a fallback source. reconcileIdentityOrThrow now FAILS
+  // CLOSED: it THROWS (out to the route, BEFORE saveExternalSession) unless the STIR matched
+  // OR EIMZO_ALLOW_UNVERIFIED=1.
+  let verified: boolean | undefined;
   if (opts?.pkcs7) {
     let identity: unknown = { ...s.user };
     try {
       const me = await getUser(s);
       if (me.ok && me.json) identity = { ...(me.json as object), ...s.user };
     } catch { /* transient — fall back to the validate-code payload below */ }
-    const { verified } = reconcileIdentityOrThrow('CABINET', acct, identity);
-    if (!verified) {
-      // SECURITY TODO (client mode): identity is client-asserted; harden by parsing the
-      // signer cert STIR from the PKCS7 before multi-tenant prod. Cabinet exposed no STIR
-      // to reconcile, so we trusted the client-sent tin for the UX check only.
-      console.warn(`[SECURITY] CABINET client-mode: no STIR in /user/get to reconcile for account ${acct}; identity is CLIENT-ASSERTED (tin=${opts.cert?.tin ?? 'none'}).`);
+    const r = reconcileIdentityOrThrow('CABINET', acct, identity);
+    verified = r.verified;
+    if (!r.verified) {
+      // EIMZO_ALLOW_UNVERIFIED bypass: cabinet exposed no STIR to reconcile, so identity is
+      // CLIENT-ASSERTED. SECURITY: full hardening = extract signer STIR from the PKCS7 via
+      // ASN.1 (then this bypass is no longer needed).
+      console.warn(`[SECURITY] CABINET client-mode: no STIR in /user/get to reconcile for account ${acct}; identity is CLIENT-ASSERTED (tin=${opts.cert?.tin ?? 'none'}), EIMZO_ALLOW_UNVERIFIED bypass.`);
     }
   }
   // The OneID login JWT carries iat/exp (~2h) — the id.egov login window, NOT the
@@ -79,7 +84,7 @@ export async function authenticateCabinet(
       jwt: jwt ? { iat: jwt.iat, exp: jwt.exp, issuedAt: jwt.iat && new Date(jwt.iat * 1000).toISOString(), expiresAt: jwt.exp && new Date(jwt.exp * 1000).toISOString() } : null,
     },
   });
-  return s;
+  return Object.assign(s, { verified });
 }
 
 // Get a usable session from the DB WITHOUT signing. Throws SessionExpiredError if

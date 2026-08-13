@@ -36,12 +36,20 @@ function loadBrowserClient(): Promise<void> {
   if (window.EimzoBrowser) return Promise.resolve();
   if (browserClientPromise) return browserClientPromise;
   browserClientPromise = new Promise<void>((resolve, reject) => {
-    const done = () => (window.EimzoBrowser ? resolve() : reject(new Error('E-IMZO brauzer klienti yuklanmadi')));
+    // On failure REMOVE the dead <script> and null the cached promise, so a retry starts a
+    // FRESH script. Without this, a retry re-attaches listeners to an already-settled script
+    // that never re-fires → the cached promise never resolves and the modal spins forever.
+    const fail = (script?: HTMLScriptElement | null) => {
+      script?.remove();
+      browserClientPromise = null;
+      reject(new Error('E-IMZO brauzer klienti yuklanmadi'));
+    };
     const existing = document.querySelector<HTMLScriptElement>('script[data-eimzo-browser]');
+    const done = () => (window.EimzoBrowser ? resolve() : fail(document.querySelector<HTMLScriptElement>('script[data-eimzo-browser]')));
     if (existing) {
       if (window.EimzoBrowser) return resolve();
       existing.addEventListener('load', done, { once: true });
-      existing.addEventListener('error', () => reject(new Error('E-IMZO brauzer klienti yuklanmadi')), { once: true });
+      existing.addEventListener('error', () => fail(existing), { once: true });
       return;
     }
     const s = document.createElement('script');
@@ -49,10 +57,19 @@ function loadBrowserClient(): Promise<void> {
     s.async = true;
     s.dataset.eimzoBrowser = '1';
     s.onload = done;
-    s.onerror = () => { browserClientPromise = null; reject(new Error('E-IMZO brauzer klienti yuklanmadi')); };
+    s.onerror = () => fail(s);
     document.head.appendChild(s);
   });
   return browserClientPromise;
+}
+
+// Bound a promise so the client-key load path can never hang indefinitely (e.g. a script
+// that stays pending forever). Rejects with a clear error → the caller surfaces an error phase.
+function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(msg)), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
 }
 
 type Phase = 'loading' | 'ready' | 'signing' | 'done' | 'error';
@@ -151,7 +168,8 @@ export function KeyPicker({
     setSyncing(true); setSyncErr(null); setErr(null);
     try {
       if (typeof window !== 'undefined') window.__EIMZO_API_KEY__ = process.env.NEXT_PUBLIC_EIMZO_API_KEY || '';
-      await loadBrowserClient();
+      // Bounded so a stuck script load surfaces an error phase instead of spinning forever.
+      await withTimeout(loadBrowserClient(), 20_000, 'E-IMZO brauzer klienti yuklanmadi (vaqt tugadi)');
       const eb = typeof window !== 'undefined' ? window.EimzoBrowser : undefined;
       if (!eb) throw new Error('E-IMZO brauzer klienti yuklanmadi');
       const list = await eb.listKeys();

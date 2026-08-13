@@ -38,13 +38,16 @@ export async function POST(req: NextRequest) {
   if (eimzoMode() === 'client' && pkcs7) {
     const cert = (body?.cert && typeof body.cert === 'object' ? body.cert : {}) as ClientCert;
     const certStir = (cert?.tin ?? '').replace(/\D+/g, '');
-    if (certStir && certStir !== account) {
-      return NextResponse.json({ error: `Tanlangan kalit boshqa firmaga tegishli (STIR ${certStir} ≠ ${account})` }, { status: 400 });
+    // UX pre-filter (the authoritative gate is Fix A's reconciliation): a MISSING/empty
+    // client cert.tin must NOT bypass — require it present AND equal to the firm STIR.
+    if (!certStir || certStir !== account) {
+      return NextResponse.json({ error: certStir ? `Tanlangan kalit boshqa firmaga tegishli (STIR ${certStir} ≠ ${account})` : `Tanlangan kalitda firma STIRi yoʻq — ${firm.shortName} (yuridik shaxs) kalitini tanlang` }, { status: 400 });
     }
     try {
       const s = await authenticateCabinet(undefined, account, { challengeId: String(body?.challengeId || ''), pkcs7, cert });
-      await audit(AuditAction.CONNECT, { target: `firm:${firmId}`, detail: { provider: 'CABINET', account, purpose: 'court-sign', mode: 'client' } });
-      return NextResponse.json({ ok: true, provider: 'CABINET', account, keyCn: s.key.info.cn, org: s.key.info.org });
+      const verified = s.verified === true;
+      await audit(AuditAction.CONNECT, { target: `firm:${firmId}`, detail: { provider: 'CABINET', account, purpose: 'court-sign', mode: 'client', verified } });
+      return NextResponse.json({ ok: true, provider: 'CABINET', account, verified, keyCn: s.key.info.cn, org: s.key.info.org });
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'E-IMZO imzo qoʻyilmadi';
       console.error(`court-sign(client) firm ${firmId} failed:`, msg);

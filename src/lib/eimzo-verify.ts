@@ -60,11 +60,16 @@ export function findStir(obj: unknown, depth = 0): string | null {
 export interface ReconcileResult {
   verified: boolean;   // true only when the service exposed a STIR AND it matched
   foundStir: string | null;
+  reason?: string;     // e.g. 'unverified-bypass' when EIMZO_ALLOW_UNVERIFIED let a no-STIR identity through
 }
 
-// Compare the external service's identity to the firm account. THROWS on a positive
-// mismatch (never persist a wrong identity). Returns {verified:false} when the service
-// exposed no STIR — the caller keeps the client-asserted tin for UX and logs the TODO.
+// Compare the external service's identity to the firm account. FAILS CLOSED:
+//   - STIR found & mismatched -> THROW (never persist a wrong identity).
+//   - STIR found & equal      -> {verified:true}.
+//   - No STIR exposed         -> THROW, UNLESS EIMZO_ALLOW_UNVERIFIED=1 (dev/trusted
+//     single-tenant escape hatch) in which case {verified:false,reason:'unverified-bypass'}.
+// SECURITY: full hardening = extract signer STIR from the PKCS7 via ASN.1 (then this
+// no-STIR branch disappears — hippo/cabinet just won't need the bypass).
 export function reconcileIdentityOrThrow(
   provider: 'HIPPO' | 'CABINET',
   account: string,
@@ -80,5 +85,12 @@ export function reconcileIdentityOrThrow(
     }
     return { verified: true, foundStir: found };
   }
-  return { verified: false, foundStir: null };
+  // The external service exposed no STIR to reconcile against — a client-asserted cert
+  // must NOT bind the session to the firm on its own. Fail closed unless explicitly allowed.
+  if (process.env.EIMZO_ALLOW_UNVERIFIED === '1') {
+    return { verified: false, foundStir: null, reason: 'unverified-bypass' };
+  }
+  throw new Error(
+    `${provider}: Identity tasdiqlanmadi — imzo egasining STIR aniqlanmadi. Ishonchli/dev muhitda EIMZO_ALLOW_UNVERIFIED=1 qo'ying.`,
+  );
 }
