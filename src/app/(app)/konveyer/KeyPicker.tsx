@@ -127,7 +127,11 @@ export function KeyPicker({
 
   // Apply a list without clobbering the operator's current pick if it's still present; firm's key first.
   const applyList = useCallback((list: EimzoKey[]) => {
-    const sorted = [...list].sort((a, b) => (matches(b) ? 1 : 0) - (matches(a) ? 1 : 0));
+    // Show ONLY this firm's keys (STIR match) — other firms' keys are hidden entirely. Fallback to the
+    // full list if NONE match (e.g. a key whose STIR didn't parse), so the picker is never left empty.
+    const own = wantStir ? list.filter(matches) : list;
+    const shown = own.length ? own : list;
+    const sorted = [...shown].sort((a, b) => (matches(b) ? 1 : 0) - (matches(a) ? 1 : 0));
     keysCountRef.current = sorted.length;
     setKeys(sorted);
     setSel((prev) => {
@@ -135,7 +139,7 @@ export function KeyPicker({
       const mine = sorted.find(matches);
       return mine ? keyId(mine) : (sorted[0] ? keyId(sorted[0]) : null);
     });
-  }, [matches]);
+  }, [matches, wantStir]);
 
   // Live E-IMZO re-scan (slow) — server re-scans DSKEYS and re-caches. 20s hard ceiling so it never freezes.
   const refreshLive = useCallback(async () => {
