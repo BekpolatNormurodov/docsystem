@@ -3,6 +3,7 @@
 import { prisma } from './db';
 import { importPortfolio } from './import-portfolio';
 import { parseExclusionPinfls } from './parse-exclusion';
+import { syncCasesFromSnapshot } from './konveyer';
 
 /**
  * Runs a portfolio import to completion, updating Job.progress as rows land and flipping
@@ -52,6 +53,16 @@ export async function runImportJob(
         excludedCount: result.excludedCount,
       },
     });
+    // Auto-populate the pipeline: create ArizaCase rows from the freshly-imported snapshot's
+    // court-list clients, so the operator never has to click «Snapshot'dan yangilash» by hand.
+    // Wrapped so a sync hiccup can't fail an import that already succeeded — it stays retryable
+    // from the button. (Idempotent: re-running only adds newcomers.)
+    try {
+      const synced = await syncCasesFromSnapshot(snapshotId);
+      console.log(`[import] auto-synced conveyor: +${synced.created} case(s) from snapshot ${snapshotId}`);
+    } catch (e) {
+      console.error('[import] auto-sync failed (retry from the «Snapshot\'dan yangilash» button)', e);
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'FAILED', message } }).catch(() => {});
