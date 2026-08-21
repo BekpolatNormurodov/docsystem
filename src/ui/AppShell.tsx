@@ -120,7 +120,9 @@ export function AppShell({
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [profileOpen]);
 
-  const isActive = (href: string) => (href === '/' ? pathname === '/' : pathname.startsWith(href));
+  // Exact match OR a nested sub-route (href + '/…'). NOT a bare prefix — otherwise the «/mib» step
+  // lights up on «/mib-hisoboti» (and «/talabnoma» on «/talabnoma-shakllantirish»), which are separate.
+  const isActive = (href: string) => (href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(href + '/'));
   const current = nav.find((n) => isActive(n.href));
 
   const topItems = nav.filter((i) => !i.bottom);
