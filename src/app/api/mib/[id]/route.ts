@@ -18,12 +18,14 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   if (!report) return NextResponse.json({ error: 'Hisobot topilmadi' }, { status: 404 });
   const clients = await prisma.mibClient.findMany({ where: { reportId: id }, orderBy: { id: 'asc' }, include: { cases: true } });
   const stats = computeStats(clients);
-  // «Holat» filter options — re-parsed from the source only when idle (the filter can't change mid-run).
+  // «Holat» + date-range filter options — re-parsed from the source only when idle.
   let holatValues: { value: string; count: number }[] = [];
+  let sentDateRange: { min: string | null; max: string | null } = { min: null, max: null };
   if (!report.autoRun && report.sourcePath) {
-    holatValues = await parseHisobot(report.sourcePath).then((r) => r.holatValues).catch(() => []);
+    const p = await parseHisobot(report.sourcePath).catch(() => null);
+    if (p) { holatValues = p.holatValues; sentDateRange = p.sentDateRange; }
   }
-  return NextResponse.json({ report, clients, stats, holatValues });
+  return NextResponse.json({ report, clients, stats, holatValues, sentDateRange });
 }
 
 // DELETE — remove a report (clients/cases cascade) + its folder.

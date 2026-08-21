@@ -18,9 +18,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const body = await req.json().catch(() => ({}));
   const statusFilter = (String(body?.statusFilter ?? '').trim() || null) as string | null;
+  const dateFrom = (String(body?.dateFrom ?? '').trim() || null) as string | null; // YYYY-MM-DD
+  const dateTo = (String(body?.dateTo ?? '').trim() || null) as string | null;
 
   const parsed = await parseHisobot(report.sourcePath);
-  const rows = statusFilter ? parsed.rows.filter((r) => r.holat === statusFilter) : parsed.rows;
+  const rows = parsed.rows.filter((r) => {
+    if (statusFilter && r.holat !== statusFilter) return false;
+    if (dateFrom && (!r.sentDate || r.sentDate < dateFrom)) return false;
+    if (dateTo && (!r.sentDate || r.sentDate > dateTo)) return false;
+    return true;
+  });
 
   await prisma.mibClient.deleteMany({ where: { reportId: id } });
   if (rows.length) {

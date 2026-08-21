@@ -96,13 +96,8 @@ export function MibReport() {
 }
 
 // ── Config (phone / interval / webhook) ───────────────────────────────────────
-// Strip the country code → national 9 digits; and mask 9 digits as «90 123 45 67».
+// Strip the country code → national 9 digits (no live re-masking, which fought the cursor).
 const toNational = (raw: string) => { const d = (raw || '').replace(/\D/g, ''); return (d.startsWith('998') ? d.slice(3) : d).slice(0, 9); };
-const maskPhone = (nat9: string) => {
-  const d = nat9.replace(/\D/g, '').slice(0, 9);
-  const p = [d.slice(0, 2), d.slice(2, 5), d.slice(5, 7), d.slice(7, 9)].filter(Boolean);
-  return p.join(' ');
-};
 
 function ConfigCard() {
   const [cfg, setCfg] = useState<MibConfig | null>(null);
@@ -124,6 +119,16 @@ function ConfigCard() {
     setSaved(true); setTimeout(() => setSaved(false), 1500);
   };
 
+  // Test the SMS pipeline: wait for a code to arrive at the webhook (operator sends a test SMS).
+  const [testState, setTestState] = useState<'idle' | 'waiting' | 'ok' | 'timeout'>('idle');
+  const [testCode, setTestCode] = useState('');
+  const testSms = async () => {
+    setTestState('waiting'); setTestCode('');
+    const { ok, json } = await jpost('/api/mib/test-sms');
+    if (ok && json.code) { setTestCode(json.code); setTestState('ok'); }
+    else setTestState('timeout');
+  };
+
   return (
     <div className="card p-4">
       <div className="mb-3 flex items-center gap-2 text-sm font-semibold"><Ico.settings size={16} className="text-brand-600 dark:text-brand-400" /> Sozlamalar</div>
@@ -131,9 +136,9 @@ function ConfigCard() {
         <label>
           <span className="field-label">Telefon raqami (SMS shu raqamga keladi)</span>
           <div className="flex items-center rounded-xl border border-[var(--field-line)] bg-[var(--field)] pl-3.5 transition focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/25">
-            <span className="select-none pr-1.5 text-sm font-medium tabular-nums text-muted">+998</span>
-            <input className="w-full bg-transparent py-2.5 pr-3.5 text-sm tabular-nums tracking-wider text-fg outline-none placeholder:text-muted/60" inputMode="numeric" placeholder="90 123 45 67"
-              value={maskPhone(phone9)} onChange={(e) => setPhone9(e.target.value.replace(/\D/g, '').slice(0, 9))} />
+            <span className="select-none pr-2 text-sm font-medium tabular-nums text-muted">+998</span>
+            <input className="w-full bg-transparent py-2.5 pr-3.5 text-sm tabular-nums tracking-[0.15em] text-fg outline-none placeholder:tracking-normal placeholder:text-muted/60" inputMode="numeric" maxLength={9} placeholder="901234567"
+              value={phone9} onChange={(e) => setPhone9(e.target.value.replace(/\D/g, '').slice(0, 9))} />
           </div>
         </label>
         <label>
@@ -151,6 +156,16 @@ function ConfigCard() {
           </button>
         </div>
       )}
+
+      {/* Test the SMS pipeline (phone → forwarder → webhook) before running the automator. */}
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button className="btn-ghost" disabled={testState === 'waiting'} onClick={testSms}>
+          {testState === 'waiting' ? <Spinner size={16} /> : <Ico.send size={16} />} SMS ni tekshirish
+        </button>
+        {testState === 'waiting' && <span className="text-sm text-amber-600 dark:text-amber-300">Telefonga test SMS yuboring — 90s kutilmoqda…</span>}
+        {testState === 'ok' && <span className="text-sm font-medium text-emerald-600 dark:text-emerald-300">✓ Tasdiqlandi — kod keldi: <b className="tabular-nums">{testCode}</b>. Telefon + webhook ishlayapti.</span>}
+        {testState === 'timeout' && <span className="text-sm text-rose-600 dark:text-rose-300">⏱ 90s ichida SMS kelmadi — telefon/forwarder/webhook’ni tekshiring.</span>}
+      </div>
     </div>
   );
 }
@@ -247,12 +262,16 @@ function ReportPanel({ reportId, confirm, onChanged }: { reportId: number; confi
   const [stats, setStats] = useState<Stats | null>(null);
   const [holatValues, setHolatValues] = useState<HolatValue[]>([]);
   const [statusFilter, setStatusFilter] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [sentRange, setSentRange] = useState<{ min: string | null; max: string | null }>({ min: null, max: null });
   const [busy, setBusy] = useState('');
   const [note, setNote] = useState('');
 
   const load = useCallback(async () => {
     const j = await jget(`/api/mib/${reportId}`);
     setReport(j.report); setClients(j.clients ?? []); setStats(j.stats ?? null); setHolatValues(j.holatValues ?? []);
+    setSentRange(j.sentDateRange ?? { min: null, max: null });
     if (j.report?.statusFilter != null) setStatusFilter(j.report.statusFilter);
   }, [reportId]);
   useEffect(() => { void load(); }, [load]);
@@ -268,7 +287,7 @@ function ReportPanel({ reportId, confirm, onChanged }: { reportId: number; confi
 
   const build = async () => {
     setBusy('build'); setNote('');
-    const { ok, json } = await jpost(`/api/mib/${reportId}/build`, { statusFilter: statusFilter || null });
+    const { ok, json } = await jpost(`/api/mib/${reportId}/build`, { statusFilter: statusFilter || null, dateFrom: dateFrom || null, dateTo: dateTo || null });
     if (!ok) setNote(json.error || 'Xatolik'); else { await load(); await onChanged(); }
     setBusy('');
   };
@@ -292,16 +311,34 @@ function ReportPanel({ reportId, confirm, onChanged }: { reportId: number; confi
       {/* filter + build / run controls */}
       <div className="card p-4">
         {!report.autoRun ? (
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="min-w-[200px] flex-1">
-              <span className="field-label">«Holat» bo‘yicha filter</span>
-              <select className="field-input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-                <option value="">Barchasi</option>
-                {holatValues.map((h) => <option key={h.value} value={h.value}>{h.value} ({h.count})</option>)}
-              </select>
-            </label>
-            <button className="btn-ghost shrink-0" disabled={busy === 'build'} onClick={build}>{busy === 'build' ? <Spinner size={16} /> : <Ico.refresh size={16} />} Ro‘yxatni qurish</button>
-            <button className="btn-primary shrink-0" disabled={!built || busy === 'go'} onClick={go}>{busy === 'go' ? <Spinner size={16} /> : <Ico.flash size={16} />} GO — tekshirishni boshlash</button>
+          <div className="space-y-4">
+            {/* «Holat» as chips */}
+            <div>
+              <span className="field-label">«Holat» bo‘yicha</span>
+              <div className="flex flex-wrap gap-2">
+                <Chip active={statusFilter === ''} onClick={() => setStatusFilter('')}>Barchasi</Chip>
+                {holatValues.map((h) => (
+                  <Chip key={h.value} active={statusFilter === h.value} onClick={() => setStatusFilter(h.value)}>
+                    {h.value} <span className="opacity-60">· {h.count}</span>
+                  </Chip>
+                ))}
+              </div>
+            </div>
+            {/* «Yuborilgan sana» range */}
+            <div className="flex flex-wrap items-end gap-3">
+              <label>
+                <span className="field-label">Yuborilgan sana — dan</span>
+                <input type="date" className="field-input" min={sentRange.min ?? undefined} max={sentRange.max ?? undefined} value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+              </label>
+              <label>
+                <span className="field-label">gacha</span>
+                <input type="date" className="field-input" min={sentRange.min ?? undefined} max={sentRange.max ?? undefined} value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+              </label>
+              {(dateFrom || dateTo) && <button className="btn-ghost px-2.5 py-1.5 text-xs" onClick={() => { setDateFrom(''); setDateTo(''); }}>Sanani tozalash</button>}
+              <div className="flex-1" />
+              <button className="btn-ghost shrink-0" disabled={busy === 'build'} onClick={build}>{busy === 'build' ? <Spinner size={16} /> : <Ico.refresh size={16} />} Ro‘yxatni qurish</button>
+              <button className="btn-primary shrink-0" disabled={!built || busy === 'go'} onClick={go}>{busy === 'go' ? <Spinner size={16} /> : <Ico.flash size={16} />} GO — tekshirishni boshlash</button>
+            </div>
           </div>
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -396,6 +433,20 @@ function ReportPanel({ reportId, confirm, onChanged }: { reportId: number; confi
         </div>
       )}
     </div>
+  );
+}
+
+function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cx(
+        'rounded-full border px-3 py-1.5 text-sm font-medium transition-colors',
+        active ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line text-muted hover:bg-surface-2 hover:text-fg',
+      )}
+    >
+      {children}
+    </button>
   );
 }
 

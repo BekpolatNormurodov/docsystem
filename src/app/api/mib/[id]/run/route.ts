@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAdmin } from '@/lib/auth';
-import { runMibReportJob } from '@/lib/mib/run';
+import { runMibReportJob, isMibRunActive } from '@/lib/mib/run';
 import { getMibConfig } from '@/lib/mib/config';
 
 export const runtime = 'nodejs';
@@ -16,8 +16,12 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'id noto‘g‘ri' }, { status: 400 });
   const report = await prisma.mibReport.findUnique({ where: { id }, select: { autoRun: true, total: true } });
   if (!report) return NextResponse.json({ error: 'Hisobot topilmadi' }, { status: 404 });
-  if (report.autoRun) return NextResponse.json({ error: 'Allaqachon ishlayapti' }, { status: 409 });
+  // A live loop for this report → truly already running. autoRun=true with NO live loop = stale flag
+  // left by a process restart; treat GO as a resume.
+  if (report.autoRun && isMibRunActive(id)) return NextResponse.json({ error: 'Allaqachon ishlayapti' }, { status: 409 });
 
+  // Recover any client stuck RUNNING (killed/duplicate loop) so it re-enters the queue.
+  await prisma.mibClient.updateMany({ where: { reportId: id, status: 'RUNNING' }, data: { status: 'PENDING' } });
   const pending = await prisma.mibClient.count({ where: { reportId: id, status: 'PENDING' } });
   if (pending === 0) return NextResponse.json({ error: 'Tekshiriladigan (PENDING) mijoz yo‘q' }, { status: 422 });
 

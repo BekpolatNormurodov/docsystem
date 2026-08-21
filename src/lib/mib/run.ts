@@ -11,6 +11,13 @@ import { getMibConfig } from './config';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const SMS_TIMEOUT_MS = 120_000;
+const log = (m: string) => console.log(`[mib] ${m}`);
+
+// In-process guard: prevents a second GO from spawning a duplicate loop for the SAME report (which is
+// how two clients ended up RUNNING at once). Survives only within one web process — a restart clears it,
+// so pressing GO after a restart correctly resumes.
+const ACTIVE = new Set<number>();
+export const isMibRunActive = (reportId: number): boolean => ACTIVE.has(reportId);
 
 /** Poll the MibSms table for an OTP that arrived AFTER `sinceMs`, marking it consumed. */
 async function waitForSms(sinceMs: number, timeoutMs = SMS_TIMEOUT_MS): Promise<string | null> {
@@ -38,11 +45,28 @@ export async function runMibReportJob(jobId: number): Promise<void> {
   const job = await prisma.job.findUnique({ where: { id: jobId }, select: { params: true } });
   const reportId = Number((job?.params as any)?.reportId);
   if (!reportId) return;
+  if (ACTIVE.has(reportId)) { log(`report ${reportId} already running — skip duplicate`); return; }
+  ACTIVE.add(reportId);
 
   await prisma.job.update({ where: { id: jobId }, data: { status: 'RUNNING' } }).catch(() => {});
+  // Recover any client left RUNNING by a killed/duplicate run so it isn't stuck forever.
+  await prisma.mibClient.updateMany({ where: { reportId, status: 'RUNNING' }, data: { status: 'PENDING' } });
+
   const cfg = await getMibConfig();
   const captcha = new CaptchaSolver();
-  let engine = new MibEngine(cfg.baseUrl, { captcha });
+  let engine = new MibEngine(cfg.baseUrl, { captcha, log });
+
+  try {
+    // Preflight the OCR worker FIRST (bundled offline model). If it can't start, fail loudly instead
+    // of hanging silently on the first captcha — this was the silent «otmayapti» cause.
+    log(`report ${reportId}: OCR (tesseract) ishga tushmoqda…`);
+    await captcha.init();
+    log(`report ${reportId}: OCR tayyor`);
+  } catch (e) {
+    await failReport(reportId, jobId, `Captcha (OCR) ishga tushmadi: ${(e as Error).message}`);
+    ACTIVE.delete(reportId);
+    return;
+  }
 
   // Bring up a session + the (re-usable) debt-search page.
   let debtPage = '';
@@ -51,10 +75,13 @@ export async function runMibReportJob(jobId: number): Promise<void> {
     debtPage = await engine.getDebtSearchPage(homeHtml);
   };
   try {
+    log(`report ${reportId}: mib.uz sessiya ochilmoqda…`);
     await bootSession();
+    log(`report ${reportId}: sessiya tayyor`);
   } catch (e) {
     await failReport(reportId, jobId, `Sessiya ochilmadi: ${(e as Error).message}`);
     await captcha.terminate().catch(() => {});
+    ACTIVE.delete(reportId);
     return;
   }
 
@@ -67,6 +94,7 @@ export async function runMibReportJob(jobId: number): Promise<void> {
       });
       if (!client) break; // nothing left → done
 
+      log(`report ${reportId}: [${processed + 1}] PINFL ${client.pinfl} tekshirilmoqda…`);
       await prisma.mibClient.update({ where: { id: client.id }, data: { status: 'RUNNING', attempts: { increment: 1 } } });
 
       try {
@@ -100,12 +128,14 @@ export async function runMibReportJob(jobId: number): Promise<void> {
             }
           }
           await prisma.mibClient.update({ where: { id: client.id }, data: { status: 'DONE', checkedAt: new Date() } });
+          log(`report ${reportId}: PINFL ${client.pinfl} → ${search.cases.length} ijro ishi`);
         }
       } catch (e) {
         const msg = (e as Error).message || String(e);
+        log(`report ${reportId}: PINFL ${client.pinfl} XATO: ${msg}`);
         await prisma.mibClient.update({ where: { id: client.id }, data: { status: 'FAILED', error: msg, checkedAt: new Date() } });
         // Session may have broken — rebuild it so the next client isn't lost.
-        try { engine = new MibEngine(cfg.baseUrl, { captcha }); await bootSession(); } catch { /* next tick retries */ }
+        try { engine = new MibEngine(cfg.baseUrl, { captcha, log }); await bootSession(); } catch { /* next tick retries */ }
       }
 
       processed += 1;
@@ -123,8 +153,10 @@ export async function runMibReportJob(jobId: number): Promise<void> {
     const remaining = await prisma.mibClient.count({ where: { reportId, status: 'PENDING' } });
     await prisma.mibReport.update({ where: { id: reportId }, data: { autoRun: false, runJobId: null } });
     await prisma.job.update({ where: { id: jobId }, data: { status: 'DONE', message: remaining ? 'Toʻxtatildi' : 'Yakunlandi' } }).catch(() => {});
+    log(`report ${reportId}: tugadi (${processed} ta ishlandi, ${remaining} qoldi)`);
   } finally {
     await captcha.terminate().catch(() => {});
+    ACTIVE.delete(reportId);
   }
 }
 

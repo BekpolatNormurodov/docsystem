@@ -36,11 +36,13 @@ export class MibEngine {
   jsessionid = '';
   captchaSolver: CaptchaSolver;
   private log: (m: string) => void;
+  private timeoutMs: number;
 
-  constructor(baseUrl = 'https://mib.uz', opts: { captcha?: CaptchaSolver; log?: (m: string) => void } = {}) {
+  constructor(baseUrl = 'https://mib.uz', opts: { captcha?: CaptchaSolver; log?: (m: string) => void; timeoutMs?: number } = {}) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.captchaSolver = opts.captcha ?? new CaptchaSolver();
     this.log = opts.log ?? (() => {});
+    this.timeoutMs = opts.timeoutMs ?? 30_000;
   }
 
   private updateCookies(response: Response): void {
@@ -78,12 +80,24 @@ export class MibEngine {
     if (options.body && !headers['Content-Type']) {
       headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';
     }
-    const response = await fetch(targetUrl, {
-      method: options.method || 'GET',
-      headers,
-      body: options.body,
-      redirect: 'manual',
-    });
+    // Hard timeout so a stalled mib.uz connection can never hang the automator forever.
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
+    let response: Response;
+    try {
+      response = await fetch(targetUrl, {
+        method: options.method || 'GET',
+        headers,
+        body: options.body,
+        redirect: 'manual',
+        signal: ctrl.signal,
+      });
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') throw new Error(`mib.uz javob bermadi (timeout ${this.timeoutMs}ms): ${targetUrl}`);
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
     this.updateCookies(response);
     return response;
   }

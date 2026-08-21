@@ -1,7 +1,14 @@
 // MIB (mib.uz) captcha solver — Uzbek worded / numeric math expressions (0..30), solved locally by
 // tesseract.js OCR across multiple PSM modes. Ported from tests/src/captcha_solver.js; disk audit
 // logging dropped (a long-running worker keeps one shared tesseract worker in memory).
+import path from 'node:path';
+import os from 'node:os';
 import { createWorker, type Worker } from 'tesseract.js';
+
+// Load the OCR language model from a BUNDLED file (tessdata/eng.traineddata), NOT the CDN — the prod
+// server can reach mib.uz but its egress may block jsdelivr/unpkg, which would hang createWorker
+// forever. gzip:false because the shipped file is uncompressed; cachePath must be writable.
+const LANG_PATH = process.env.MIB_TESSDATA_PATH || path.join(process.cwd(), 'tessdata');
 
 interface Ones { val: number; regex: RegExp }
 const ONES: Ones[] = [
@@ -22,7 +29,8 @@ export class CaptchaSolver {
 
   async init(): Promise<void> {
     if (this.ready && this.worker) return;
-    this.worker = await createWorker('eng');
+    // Offline: langPath → bundled tessdata dir, gzip:false (uncompressed file), cachePath → writable tmp.
+    this.worker = await createWorker('eng', 1, { langPath: LANG_PATH, gzip: false, cachePath: os.tmpdir() } as never);
     this.ready = true;
   }
 

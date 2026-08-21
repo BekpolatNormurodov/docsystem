@@ -94,7 +94,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <ConfirmProvider>
       <AppShell
-        appName="Docsystem"
+        appName="Maʼlumotnoma"
         nav={nav}
         user={{ fullName: user.fullName, roleLabel: roleLabel(user.role) }}
         topActions={topActions}

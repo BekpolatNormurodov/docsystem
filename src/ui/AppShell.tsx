@@ -300,7 +300,6 @@ export function AppShell({
           <Logo size={36} className="shrink-0" />
           <div className={cx('min-w-0', rail && 'lg:hidden')}>
             <div className="truncate text-sm font-semibold leading-tight">{appName}</div>
-            <div className="text-xs text-muted">Maʼlumotnoma</div>
           </div>
           <button onClick={() => setOpen(false)} className="ml-auto rounded-lg p-1.5 text-muted hover:bg-surface-2 lg:hidden" aria-label="Yopish">
             <Ico.close />
