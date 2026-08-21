@@ -1,27 +1,31 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAdmin } from '@/lib/auth';
 
 export const runtime = 'nodejs';
-export const maxDuration = 120;
+export const dynamic = 'force-dynamic';
 
-// POST — validate the SMS pipeline end-to-end: wait up to 90s for a NEW code to land at the webhook
-// (operator sends a test SMS to the configured phone → forwarder POSTs it). Returns the code when it
-// arrives, or a timeout. Marks it consumed so it isn't reused by the automator.
+// SMS-pipeline test WITHOUT a long-poll (which 504s behind nginx's 60s timeout). The client:
+//   1. POST → get a baseline id (the newest MibSms right now).
+//   2. GET ?after=<baseline> every few seconds until a NEW code (id > baseline) lands, then stops.
+// A code arrives when the operator's phone forwards a test SMS to /api/mib-webhook.
+
+// POST — start a test: return the current newest MibSms id as the baseline.
 export async function POST() {
   await requireAdmin();
-  const since = Date.now();
-  const deadline = since + 90_000;
-  while (Date.now() < deadline) {
-    const row = await prisma.mibSms.findFirst({
-      where: { consumed: false, createdAt: { gte: new Date(since) } },
-      orderBy: { id: 'desc' },
-    });
-    if (row) {
-      await prisma.mibSms.update({ where: { id: row.id }, data: { consumed: true } });
-      return NextResponse.json({ ok: true, code: row.code, source: row.source });
-    }
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-  return NextResponse.json({ ok: false, timeout: true }, { status: 408 });
+  const latest = await prisma.mibSms.findFirst({ orderBy: { id: 'desc' }, select: { id: true } });
+  return NextResponse.json({ baselineId: latest?.id ?? 0 });
+}
+
+// GET ?after=<id> — quick check: the first unconsumed SMS newer than `after`. Marks it consumed.
+export async function GET(req: NextRequest) {
+  await requireAdmin();
+  const after = Number(req.nextUrl.searchParams.get('after')) || 0;
+  const row = await prisma.mibSms.findFirst({
+    where: { id: { gt: after }, consumed: false },
+    orderBy: { id: 'asc' },
+  });
+  if (!row) return NextResponse.json({ waiting: true });
+  await prisma.mibSms.update({ where: { id: row.id }, data: { consumed: true } });
+  return NextResponse.json({ code: row.code, source: row.source });
 }

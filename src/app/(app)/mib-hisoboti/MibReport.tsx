@@ -124,9 +124,16 @@ function ConfigCard() {
   const [testCode, setTestCode] = useState('');
   const testSms = async () => {
     setTestState('waiting'); setTestCode('');
-    const { ok, json } = await jpost('/api/mib/test-sms');
-    if (ok && json.code) { setTestCode(json.code); setTestState('ok'); }
-    else setTestState('timeout');
+    const start = await jpost('/api/mib/test-sms');
+    const baseline = Number(start.json?.baselineId) || 0;
+    const deadline = Date.now() + 90_000;
+    const tick = async () => {
+      if (Date.now() > deadline) { setTestState('timeout'); return; }
+      const r = await jget(`/api/mib/test-sms?after=${baseline}`);
+      if (r?.code) { setTestCode(String(r.code)); setTestState('ok'); return; }
+      setTimeout(() => { void tick(); }, 3000);
+    };
+    void tick();
   };
 
   return (
@@ -162,7 +169,7 @@ function ConfigCard() {
         <button className="btn-ghost" disabled={testState === 'waiting'} onClick={testSms}>
           {testState === 'waiting' ? <Spinner size={16} /> : <Ico.send size={16} />} SMS ni tekshirish
         </button>
-        {testState === 'waiting' && <span className="text-sm text-amber-600 dark:text-amber-300">Telefonga test SMS yuboring — 90s kutilmoqda…</span>}
+        {testState === 'waiting' && <span className="text-sm text-amber-600 dark:text-amber-300">Telefondan test SMS yuboring — kelishi kutilmoqda…</span>}
         {testState === 'ok' && <span className="text-sm font-medium text-emerald-600 dark:text-emerald-300">✓ Tasdiqlandi — kod keldi: <b className="tabular-nums">{testCode}</b>. Telefon + webhook ishlayapti.</span>}
         {testState === 'timeout' && <span className="text-sm text-rose-600 dark:text-rose-300">⏱ 90s ichida SMS kelmadi — telefon/forwarder/webhook’ni tekshiring.</span>}
       </div>
