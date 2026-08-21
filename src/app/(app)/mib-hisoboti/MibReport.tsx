@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Ico, Spinner, useConfirm } from '@/ui';
+import { Ico, Spinner, useConfirm, DateField } from '@/ui';
 
 // ── API shapes ────────────────────────────────────────────────────────────────
 interface CaseRow {
@@ -331,16 +331,14 @@ function ReportPanel({ reportId, confirm, onChanged }: { reportId: number; confi
                 ))}
               </div>
             </div>
-            {/* «Yuborilgan sana» range */}
+            {/* «Yuborilgan sana» range — the app's themed date picker (ISO in/out, DD/MM/YYYY shown) */}
             <div className="flex flex-wrap items-end gap-3">
-              <label>
-                <span className="field-label">Yuborilgan sana — dan</span>
-                <input type="date" className="field-input" min={sentRange.min ?? undefined} max={sentRange.max ?? undefined} value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-              </label>
-              <label>
-                <span className="field-label">gacha</span>
-                <input type="date" className="field-input" min={sentRange.min ?? undefined} max={sentRange.max ?? undefined} value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
-              </label>
+              <div className="w-[168px]">
+                <DateField label="Yuborilgan sana — dan" value={dateFrom} onChange={setDateFrom} min={sentRange.min ?? undefined} max={sentRange.max ?? undefined} />
+              </div>
+              <div className="w-[168px]">
+                <DateField label="gacha" value={dateTo} onChange={setDateTo} min={sentRange.min ?? undefined} max={sentRange.max ?? undefined} />
+              </div>
               {(dateFrom || dateTo) && <button className="btn-ghost px-2.5 py-1.5 text-xs" onClick={() => { setDateFrom(''); setDateTo(''); }}>Sanani tozalash</button>}
               <div className="flex-1" />
               <button className="btn-ghost shrink-0" disabled={busy === 'build'} onClick={build}>{busy === 'build' ? <Spinner size={16} /> : <Ico.refresh size={16} />} Ro‘yxatni qurish</button>

@@ -13,7 +13,12 @@ const nextConfig = {
     // `playwright` is external too: it is only ever reached through the dynamic `import('playwright')`
     // in the job libs (worker path), never executed on the web process (JOB_MODE=worker). Keeping it
     // external means the lean, internet-facing web build never bundles chromium's driver code.
-    serverComponentsExternalPackages: ['ws', 'playwright'],
+    //
+    // `tesseract.js` (MIB captcha OCR) MUST stay external: bundling it breaks its Node worker-thread
+    // path resolution — it looked for `/app/.next/worker-script/node/index.js` (bundle dir) instead of
+    // node_modules, throwing MODULE_NOT_FOUND on the first captcha. External → __dirname resolves to the
+    // real package, so the worker script + wasm core load correctly.
+    serverComponentsExternalPackages: ['ws', 'playwright', 'tesseract.js'],
   },
 };
 module.exports = nextConfig;
