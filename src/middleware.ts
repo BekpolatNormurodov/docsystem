@@ -7,7 +7,10 @@ export function middleware(req: NextRequest) {
   // Healthcheck must stay public — otherwise the container probe follows the login redirect (a 200
   // page) and reports "healthy" WITHOUT ever hitting the DB, masking a real MySQL outage.
   const isHealth = req.nextUrl.pathname === '/api/health';
-  if (!token && !isLogin && !isAuthApi && !isHealth) {
+  // The MIB SMS webhook must stay public — the operator's phone/SMS-forwarder posts the OTP here and
+  // cannot send an auth cookie. It only ever WRITES a numeric code; no data is read out through it.
+  const isMibWebhook = req.nextUrl.pathname.startsWith('/api/mib-webhook');
+  if (!token && !isLogin && !isAuthApi && !isHealth && !isMibWebhook) {
     return NextResponse.redirect(new URL('/login', req.url));
   }
   return NextResponse.next();

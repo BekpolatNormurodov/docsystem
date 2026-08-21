@@ -22,8 +22,8 @@ exceljs · docx · archiver · vitest · Docker Compose.
   no E-IMZO.
 - **Total debt formula (verbatim):** `totalDebt = summ_ost_ze + summ_ostpr_ze + sumproc_eqv + sumnachpr_eqv`.
   The Ensay account codes (14801, 12405, 16309, 16377) are never stored or used.
-- **UI is copied verbatim** from spravka at `C:\Users\JONIBEK\Desktop\spravka\packages\shared\src`
-  and `C:\Users\JONIBEK\Desktop\spravka\apps\web-yurist`. Follow spravka's patterns; do not redesign.
+- **UI is copied verbatim** from spravka at `/Users/khurshid28/Desktop/spravka/packages/shared/src`
+  and `/Users/khurshid28/Desktop/spravka/apps/web-yurist`. Follow spravka's patterns; do not redesign.
 - **Ariza** = a 1:1 replica of spravka `CourtArizaDocument`, **with the QR removed** (`qrDataUrl`
   dropped everywhere).
 - **Export folder tree (verbatim):**

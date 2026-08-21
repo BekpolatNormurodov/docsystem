@@ -160,6 +160,149 @@ model Job {
   updatedAt  DateTime @updatedAt
 }
 
+// «Talabnoma shakllantirish» — mustaqil bo'lim (Boshqaruv step'laridan alohida). Operator 2 ta
+// Excel yuklaydi (20.08 talabnoma-manba + портфель), ular DISK'da saqlanadi va bu yozuv ularning
+// PATH'ini ushlab turadi — history shu yerdan ochib ko'radi. Snapshot/Loan konveyeridan mustaqil.
+model TalabnomaFormBatch {
+  id                Int                 @id @default(autoincrement())
+  createdAt         DateTime            @default(now())
+  createdBy         String? // yaratgan admin username
+  label             String? // ixtiyoriy nom (masalan sana)
+  status            String              @default("PARSING") // PARSING | READY | FAILED
+  message           String?             @db.Text
+  sourceFileName    String // 20.08 fayl asl nomi
+  sourcePath        String // diskdagi to'liq yo'l
+  portfolioFileName String // портфель asl nomi
+  portfolioPath     String
+  candidatesPath    String? // parse natijasi (candidates.json) yo'li
+  processedRows     Int                 @default(0) // портфель oqimidan o'qilgan qatorlar (progress %)
+  totalRows         Int                 @default(0) // портфель taxminiy qator soni (progress mahraji)
+  candidateCount    Int                 @default(0) // List1 dagi jami shaxs
+  qualifiedCount    Int                 @default(0) // standart 2mln chegaradan o'tganlar
+  summary           Json? // firma bo'yicha sonlar, tayyor/tayyor emas, taqsimot
+  runs              TalabnomaFormRun[]
+}
+
+// Har bir generatsiya/yuborish amali — history uchun. resultPath diskdagi xlsx/zip ni ko'rsatadi.
+model TalabnomaFormRun {
+  id              Int                @id @default(autoincrement())
+  batchId         Int
+  batch           TalabnomaFormBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  createdAt       DateTime           @default(now())
+  createdBy       String?
+  kind            String // REYESTR | LETTERS | HIPPO
+  firmCode        String?
+  firmName        String?
+  filters         Json? // { thresholdTotal, perFirmMin, includeUnready }
+  rowCount        Int                @default(0)
+  personCount     Int                @default(0)
+  status          String             @default("PENDING") // PENDING | RUNNING | DONE | FAILED
+  message         String?            @db.Text
+  resultPath      String?
+  hippoRegistryId String?
+
+  @@index([batchId])
+}
+
+// «MIB hisoboti» — mustaqil bo'lim. HISOBOT excel yuklanadi, «Holat» ustuni bo'yicha (masalan
+// «MIBda») filtrlanadi, GO bosilsa har ~1 daqiqada ketma-ket mib.uz dan tekshiradi (captcha OCR +
+// SMS-OTP), natijalarni DB ga yozadi. Statelar yo'qolmaydi (resumable), sessiya uzilmaydi.
+model MibReport {
+  id             Int         @id @default(autoincrement())
+  createdAt      DateTime    @default(now())
+  createdBy      String?
+  label          String?
+  sourceFileName String
+  sourcePath     String
+  statusFilter   String? // qaysi «Holat» qiymati bo'yicha filtrlangan (masalan «MIBda»)
+  total          Int         @default(0)
+  autoRun        Boolean     @default(false) // GO faol (avtomator ishlayapti)
+  runJobId       Int? // joriy MIB_RUN job
+  clients        MibClient[]
+}
+
+model MibClient {
+  id           Int       @id @default(autoincrement())
+  reportId     Int
+  report       MibReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  rowNo        Int?
+  pinfl        String
+  fio          String?
+  phone        String? // Excel «Тел» (ma'lumot uchun)
+  firm         String? // MKO (BRIGHT/URBAN/COMMUNITY...)
+  ishRaqami    String? // Excel «Ish raqami»
+  holat        String? // Excel «Holat» (MIBda...)
+  region       String?
+  address      String?  @db.Text
+  totalDebtSrc String? // Excel «Jami karzdorlik»
+  // avtomatlashtirish holati
+  status      String    @default("PENDING") // PENDING | RUNNING | DONE | CLEAN | FAILED
+  attempts    Int       @default(0)
+  fio2        String? // mib.uz dan olingan F.I.O
+  totalDebt   String? // mib.uz jami qarz
+  currentDebt String?
+  error       String?   @db.Text
+  checkedAt   DateTime?
+  cases       MibCase[]
+
+  @@index([reportId])
+  @@index([pinfl])
+  @@index([status])
+}
+
+model MibCase {
+  id            Int       @id @default(autoincrement())
+  clientId      Int
+  client        MibClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  workNumber    String // «Ijro ishi raqami»
+  monitoringUrl String?   @db.Text
+  // Step 19 chuqur detal (SMS-OTP dan keyin to'ladi)
+  personFullName     String?
+  creditor           String? @db.Text
+  firmName           String? // companies.json dan aniqlangan
+  firmInn            String?
+  isTargetFirm       Boolean @default(false)
+  executorName       String?
+  executorPhone      String?
+  executorDept       String?
+  courtOrgan         String? @db.Text
+  courtDocType       String?
+  courtDocNumber     String?
+  courtDocDate       String?
+  courtEffectiveDate String?
+  caseSubject        String? @db.Text
+  mibReceivedDate    String?
+  mibInitiatedDate   String?
+  totalAmount        String?
+  mainDebt           String?
+  executionFee       String?
+  fine               String?
+  remainingDebt      String?
+  bankName           String? @db.Text
+  bankMfo            String?
+  bankAccount        String?
+  decisions          Json?
+  detailFetchedAt    DateTime?
+  error              String?   @db.Text
+
+  @@index([clientId])
+  @@index([workNumber])
+}
+
+// mib-webhook orqali kelgan SMS kodlar (mobil forwarder POST qiladi). Avtomator shu jadvaldan
+// so'rov vaqtidan keyin kelgan yangi kodni oladi (consumed=true qiladi).
+model MibSms {
+  id        Int      @id @default(autoincrement())
+  code      String
+  raw       String?  @db.Text
+  source    String?
+  createdAt DateTime @default(now())
+  consumed  Boolean  @default(false)
+
+  @@index([createdAt])
+  @@index([consumed])
+}
+
 model InvoiceRecord {
   id          Int      @id @default(autoincrement())
   invoiceNo   String   @unique

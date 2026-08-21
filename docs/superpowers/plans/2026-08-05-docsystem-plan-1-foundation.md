@@ -15,9 +15,9 @@ jose 5.9 · bcryptjs 2.4 · vitest 2.1.
 ## Global Constraints
 
 See the roadmap's Global Constraints — they apply to every task. Key for this plan: single admin only;
-UI copied verbatim from spravka (`C:\Users\JONIBEK\Desktop\spravka`); never commit secrets.
+UI copied verbatim from spravka (`/Users/khurshid28/Desktop/spravka`); never commit secrets.
 
-**Spravka source root:** `C:\Users\JONIBEK\Desktop\spravka` (referred to below as `$SPRAVKA`).
+**Spravka source root:** `/Users/khurshid28/Desktop/spravka` (referred to below as `$SPRAVKA`).
 
 ---
 

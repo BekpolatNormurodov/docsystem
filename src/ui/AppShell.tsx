@@ -345,7 +345,14 @@ export function AppShell({
           )}
         </nav>
 
-        {bottomItems.length > 0 && <div className="mt-3 space-y-1">{bottomItems.map(renderItem)}</div>}
+        {bottomItems.length > 0 && (
+          <div className="mt-3 space-y-1 border-t border-line pt-3">
+            <div className={cx('px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted/70', rail && 'lg:hidden')}>
+              Alohida · stepga kirmaydi
+            </div>
+            {bottomItems.map(renderItem)}
+          </div>
+        )}
 
       </aside>
 

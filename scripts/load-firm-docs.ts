@@ -8,7 +8,7 @@ import path from 'node:path';
 import { PrismaClient, type FirmDocKind } from '@prisma/client';
 
 const prisma = new PrismaClient();
-const SRC = 'C:/Users/JONIBEK/Downloads/Telegram Desktop';
+const SRC = '/Users/khurshid28/Downloads/Telegram Desktop';
 const DEST = path.join(process.cwd(), 'exports', 'firm-docs');
 const commit = process.argv.includes('--commit');
 

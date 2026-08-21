@@ -6,7 +6,7 @@ import path from 'node:path';
 import { extractArizas } from '../../src/lib/palata-ocr';
 
 const STORE = path.join(process.cwd(), 'exports', 'palata-scans');
-const DL = 'C:/Users/JONIBEK/Downloads';
+const DL = '/Users/khurshid28/Downloads';
 const OCR_ALL = process.argv[2]; // scratchpad/ocr-all.json (Scan_0003 page dump)
 
 fs.mkdirSync(STORE, { recursive: true });

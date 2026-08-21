@@ -4,6 +4,8 @@
 // whichever process executes it. IMPORT stays on its own route (temp-file bound); the worker skips it.
 import { prisma } from './db';
 import { runPacketJob, runOfertaJob, runOfertaJobByLoans, runTalabnomaJob, type PacketJobOpts, type OfertaJobOpts } from './prepare-packets';
+import { runTalabnomaFormJob } from './talabnoma-form/job';
+import { runMibReportJob } from './mib/run';
 import type { CaseStage } from '@prisma/client';
 
 const intArr = (v: unknown): number[] => (Array.isArray(v) ? v.map(Number).filter((x) => Number.isInteger(x) && x > 0) : []);
@@ -60,6 +62,16 @@ export async function runJobById(jobId: number): Promise<void> {
         p.singleCase === true,
       );
     }
+    return;
+  }
+
+  if (job.type === 'TALABNOMA_FORM') {
+    await runTalabnomaFormJob(jobId);
+    return;
+  }
+
+  if (job.type === 'MIB_RUN') {
+    await runMibReportJob(jobId);
     return;
   }
   // IMPORT + unknown types: run by their own route (inline). The worker leaves them for the web process.

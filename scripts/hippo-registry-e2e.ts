@@ -13,7 +13,7 @@ import {
 } from '../src/lib/hippo/xat';
 import type { HippoSession } from '../src/lib/hippo/login';
 
-const EXCEL = 'C:/Users/JONIBEK/Downloads/Telegram Desktop/talabnoma BRIGHT.xlsx';
+const EXCEL = '/Users/khurshid28/Downloads/Telegram Desktop/talabnoma BRIGHT.xlsx';
 const TEMPLATE_HINT = 'talabnoma';
 
 const j = (v: any) => JSON.stringify(v);

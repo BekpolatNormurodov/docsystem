@@ -10,7 +10,7 @@ import { runJobById } from '../lib/job-runner';
 //
 // Only PACKET/OFERTA/TALABNOMA are claimed. IMPORT stays on the web process (it needs the just-
 // uploaded temp file in ./uploads); the worker never touches it.
-const DOC_TYPES = ['PACKET', 'OFERTA', 'TALABNOMA'] as const;
+const DOC_TYPES = ['PACKET', 'OFERTA', 'TALABNOMA', 'TALABNOMA_FORM'] as const;
 const POLL_MS = 2000;
 // A RUNNING doc-job whose progress hasn't advanced in this long is treated as orphaned (its worker
 // died). Job.updatedAt is only bumped once per CONCURRENCY-sized render batch, so this MUST stay well

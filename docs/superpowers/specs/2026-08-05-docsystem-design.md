@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-05
 **Status:** Approved (brainstorming) → ready for implementation planning
-**Location:** `C:\Users\JONIBEK\Desktop\docsystem` (own git repo, standalone)
+**Location:** `/Users/khurshid28/Desktop/apps/docsystem` (own git repo, standalone)
 
 ## Xulosa (Uzbek)
 

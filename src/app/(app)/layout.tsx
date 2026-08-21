@@ -68,6 +68,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         { href: '/firms', label: 'Firmalar', icon: 'building', section: 'Menyu' },
         { href: '/foydalanuvchilar', label: 'Foydalanuvchilar', icon: 'user', section: 'Menyu' },
         { href: '/jurnal', label: 'Amaliyotlar', icon: 'calendar', section: 'Menyu' },
+        // Step'lardan ALOHIDA — sidebar eng pastida (bottom). 2 ta Excel'dan talabnoma reyestr/xatlar
+        // shakllantirish (umumiy qarzdorlik 2mln + firma bo'yicha filtr; Bright/Urban/Community tayyor).
+        { href: '/talabnoma-shakllantirish', label: 'Talabnoma shakllantirish', icon: 'sms', bottom: true },
+        // MIB hisoboti — HISOBOT excel yuklab, «Holat» bo'yicha (MIBda) mib.uz dan avtomat tekshiradi.
+        { href: '/mib-hisoboti', label: 'MIB hisoboti', icon: 'judge', bottom: true },
       ]
     : [
         // Yurist: their granted steps + Mijozlar (clients are visible to everyone) + their own log.
