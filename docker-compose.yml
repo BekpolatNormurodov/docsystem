@@ -88,8 +88,16 @@ services:
     restart: unless-stopped
     logging: *default-logging
     command: ["npm", "run", "start"]
+    networks:
+      default: {}
+      # Also join the fininvest stack's network so ITS edge nginx (which owns host 80/443) can reach
+      # this container by the alias below and reverse-proxy yuristsystem.uz here. Persistent across
+      # recreates — unlike a manual `docker network connect`, which is lost on the next deploy.
+      fininvest_default:
+        aliases:
+          - docsystem-web
     expose:
-      - "5200"          # internal only — nginx is the sole public entry point
+      - "5200"          # internal only — reached via the (fininvest) edge nginx over the shared network
     depends_on:
       mysql:
         condition: service_healthy
@@ -167,3 +175,12 @@ volumes:
   mysql_data:
   certbot_certs:
   certbot_www:
+
+networks:
+  # docsystem's own network (auto-named `docsystem_default`) — every internal service talks over it.
+  default: {}
+  # The fininvest stack's pre-existing network, joined by `web` above so fininvest's edge nginx
+  # (the container that binds host 80/443) can reverse-proxy yuristsystem.uz → docsystem-web:5200.
+  fininvest_default:
+    external: true
+    name: fininvest_default
