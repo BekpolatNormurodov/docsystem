@@ -5,8 +5,15 @@ import { Ico, Spinner, useConfirm, DateField } from '@/ui';
 
 // ── API shapes ────────────────────────────────────────────────────────────────
 interface CaseRow {
-  id: number; workNumber: string; firmName: string | null; isTargetFirm: boolean; courtDocNumber: string | null;
-  remainingDebt: string | null; executorName: string | null; detailFetchedAt: string | null; error: string | null;
+  id: number; workNumber: string; monitoringUrl: string | null;
+  personFullName: string | null; creditor: string | null; firmName: string | null; firmInn: string | null; isTargetFirm: boolean;
+  executorName: string | null; executorPhone: string | null; executorDept: string | null;
+  courtOrgan: string | null; courtDocType: string | null; courtDocNumber: string | null; courtDocDate: string | null; courtEffectiveDate: string | null; caseSubject: string | null;
+  mibReceivedDate: string | null; mibInitiatedDate: string | null;
+  totalAmount: string | null; mainDebt: string | null; executionFee: string | null; fine: string | null; remainingDebt: string | null;
+  bankName: string | null; bankMfo: string | null; bankAccount: string | null;
+  decisions: { article: string; date: string }[] | null;
+  detailFetchedAt: string | null; error: string | null;
 }
 interface ClientRow {
   id: number; rowNo: number | null; pinfl: string; fio: string | null; firm: string | null; ishRaqami: string | null;
@@ -274,6 +281,7 @@ function ReportPanel({ reportId, confirm, onChanged }: { reportId: number; confi
   const [sentRange, setSentRange] = useState<{ min: string | null; max: string | null }>({ min: null, max: null });
   const [busy, setBusy] = useState('');
   const [note, setNote] = useState('');
+  const [expanded, setExpanded] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     const j = await jget(`/api/mib/${reportId}`);
@@ -389,6 +397,19 @@ function ReportPanel({ reportId, confirm, onChanged }: { reportId: number; confi
                   </tbody>
                 </table>
               </div>
+              {/* Reconcile the total: not every execution case belongs to the 8 target MMTs. */}
+              {(() => {
+                const targetSum = stats.firms.reduce((s, f) => s + f.cases, 0);
+                const other = Math.max(0, stats.totalCases - targetSum);
+                return (
+                  <div className="border-t border-line px-4 py-2.5 text-xs text-muted">
+                    Jami ijro ishlari: <b className="text-fg tabular-nums">{n(stats.totalCases)}</b>
+                    {' · '}8 MMT: <b className="text-fg tabular-nums">{n(targetSum)}</b>
+                    {' · '}boshqa kreditorlar (davlat boji / bank / boshqa): <b className="text-fg tabular-nums">{n(other)}</b>
+                    {stats.detailedCases < stats.totalCases && <> · detal olinmagan: <b className="text-amber-600 tabular-nums dark:text-amber-300">{n(stats.totalCases - stats.detailedCases)}</b></>}
+                  </div>
+                );
+              })()}
             </div>
           )}
         </>
@@ -403,7 +424,7 @@ function ReportPanel({ reportId, confirm, onChanged }: { reportId: number; confi
           </div>
           <div className="max-h-[560px] overflow-auto">
             <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-surface text-xs uppercase tracking-wide text-muted">
+              <thead className="sticky top-0 z-10 bg-surface text-xs uppercase tracking-wide text-muted">
                 <tr className="border-b border-line">
                   <th className="px-3 py-2 text-left">#</th><th className="px-3 py-2 text-left">PINFL / F.I.O</th>
                   <th className="px-3 py-2 text-left">Firma</th><th className="px-3 py-2 text-left">Ish raqami</th>
@@ -411,19 +432,40 @@ function ReportPanel({ reportId, confirm, onChanged }: { reportId: number; confi
                 </tr>
               </thead>
               <tbody>
-                {clients.map((c) => (
-                  <tr key={c.id} className={cx('border-b border-line/60', c.status === 'RUNNING' && 'bg-amber-500/5')}>
-                    <td className="px-3 py-2 tabular-nums text-muted">{c.rowNo ?? ''}</td>
-                    <td className="px-3 py-2"><div className="font-medium tabular-nums">{c.pinfl}</div><div className="truncate text-xs text-muted">{c.fio2 || c.fio || ''}</div></td>
-                    <td className="px-3 py-2 text-xs">{c.firm || ''}</td>
-                    <td className="px-3 py-2 text-xs tabular-nums">{c.cases.map((k) => k.workNumber).join(', ') || c.ishRaqami || ''}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{c.cases.length || (c.status === 'CLEAN' ? '0' : '')}</td>
-                    <td className="px-3 py-2 text-center">
-                      <span className={cx('badge', STATUS_STYLE[c.status] ?? 'border-line text-muted')}>{c.status === 'RUNNING' ? <Spinner size={11} className="mr-1" /> : null}{STATUS_LABEL[c.status] ?? c.status}</span>
-                      {c.error && <div className="mt-0.5 truncate text-[10px] text-rose-500" title={c.error}>{c.error.slice(0, 40)}</div>}
-                    </td>
-                  </tr>
-                ))}
+                {clients.map((c) => {
+                  const open = expanded === c.id;
+                  const hasDetail = c.cases.some((k) => k.detailFetchedAt);
+                  return (
+                    <React.Fragment key={c.id}>
+                      <tr
+                        className={cx('border-b border-line/60 transition-colors', c.status === 'RUNNING' && 'bg-amber-500/5', c.cases.length > 0 && 'cursor-pointer hover:bg-surface-2', open && 'bg-surface-2')}
+                        onClick={() => c.cases.length > 0 && setExpanded(open ? null : c.id)}
+                      >
+                        <td className="px-3 py-2 tabular-nums text-muted">
+                          <span className="inline-flex items-center gap-1">
+                            {c.cases.length ? <Ico.chevron size={13} className={cx('transition-transform', open && 'rotate-90')} /> : <span className="w-[13px]" />}
+                            {c.rowNo ?? ''}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2"><div className="font-medium tabular-nums">{c.pinfl}</div><div className="truncate text-xs text-muted">{c.fio2 || c.fio || ''}</div></td>
+                        <td className="px-3 py-2 text-xs">{c.firm || ''}</td>
+                        <td className="px-3 py-2 text-xs tabular-nums">{c.cases.map((k) => k.workNumber).join(', ') || c.ishRaqami || ''}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{c.cases.length || (c.status === 'CLEAN' ? '0' : '')}</td>
+                        <td className="px-3 py-2 text-center">
+                          <span className={cx('badge', STATUS_STYLE[c.status] ?? 'border-line text-muted')}>{c.status === 'RUNNING' ? <Spinner size={11} className="mr-1" /> : null}{STATUS_LABEL[c.status] ?? c.status}</span>
+                          {c.error && <div className="mt-0.5 truncate text-[10px] text-rose-500" title={c.error}>{c.error.slice(0, 40)}</div>}
+                        </td>
+                      </tr>
+                      {open && (
+                        <tr className="border-b border-line/60 bg-surface-2/40">
+                          <td colSpan={6} className="px-3 py-3">
+                            <ClientDetail client={c} hasDetail={hasDetail} />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
                 {!clients.length && <tr><td colSpan={6} className="px-4 py-8 text-center text-muted">Ro‘yxat bo‘sh — «Holat» tanlab «Ro‘yxatni qurish» bosing.</td></tr>}
               </tbody>
             </table>
@@ -435,6 +477,69 @@ function ReportPanel({ reportId, confirm, onChanged }: { reportId: number; confi
         <div className="card p-6 text-sm text-muted">
           Yuklandi. Endi yuqorida «Holat» (masalan <b>MIBda</b>) ni tanlab «Ro‘yxatni qurish» bosing — tekshiriladigan
           mijozlar ro‘yxati shakllanadi, so‘ng GO bosing.
+        </div>
+      )}
+    </div>
+  );
+}
+
+const money = (s: string | null) => {
+  if (!s || s === 'Nomaʼlum') return '—';
+  const v = Number(String(s).replace(/[^\d.-]/g, ''));
+  return Number.isFinite(v) ? v.toLocaleString('ru-RU') : s;
+};
+const val = (v: string | null) => (v && v !== 'Nomaʼlum' ? v : '—');
+
+function ClientDetail({ client, hasDetail }: { client: ClientRow; hasDetail: boolean }) {
+  const fullName = client.cases.map((k) => k.personFullName).find((nm) => nm && !nm.includes('***') && nm !== 'Nomaʼlum');
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+        {fullName && <span><span className="text-muted">To‘liq ism: </span><b>{fullName}</b></span>}
+        {client.totalDebt && <span><span className="text-muted">Umumiy qarz (mib): </span><b className="tabular-nums">{money(client.totalDebt)}</b></span>}
+      </div>
+      {!hasDetail && <div className="text-xs text-amber-600 dark:text-amber-300">Chuqur detal (SMS) hali olinmagan — faqat ijro ishlari ro‘yxati.</div>}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {client.cases.map((k) => <CaseCard key={k.id} c={k} />)}
+      </div>
+    </div>
+  );
+}
+
+function DRow({ l, v, strong }: { l: string; v: string; strong?: boolean }) {
+  return (<><dt className="text-muted">{l}</dt><dd className={cx('tabular-nums', strong && 'font-semibold text-fg')}>{v}</dd></>);
+}
+
+function CaseCard({ c }: { c: CaseRow }) {
+  return (
+    <div className="rounded-xl border border-line bg-surface p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-sm font-semibold tabular-nums">Ish № {c.workNumber}</span>
+        {c.firmName && <span className={cx('badge', c.isTargetFirm ? 'border-emerald-500/30 text-emerald-600 dark:text-emerald-300' : 'border-line text-muted')}>{c.firmName.replace(/ MIKROMOLIYA.*$/i, '')}</span>}
+      </div>
+      {c.error && <div className="mb-2 text-xs text-rose-500">{c.error}</div>}
+      <dl className="grid grid-cols-[118px_1fr] gap-x-3 gap-y-1 text-xs">
+        <DRow l="Sud organi" v={val(c.courtOrgan)} />
+        <DRow l="Hujjat" v={`${val(c.courtDocType)}${c.courtDocNumber && c.courtDocNumber !== 'Nomaʼlum' ? ' № ' + c.courtDocNumber : ''}`} />
+        <DRow l="Hujjat sanasi" v={val(c.courtDocDate)} />
+        <DRow l="Kuchga kirgan" v={val(c.courtEffectiveDate)} />
+        <DRow l="Ijrochi" v={val(c.executorName)} />
+        <DRow l="Ijrochi tel" v={val(c.executorPhone)} />
+        <DRow l="MIB bo‘limi" v={val(c.executorDept)} />
+        <DRow l="MIBga kelgan" v={val(c.mibReceivedDate)} />
+        <DRow l="Qo‘zg‘atilgan" v={val(c.mibInitiatedDate)} />
+        <DRow l="Umumiy summa" v={money(c.totalAmount)} />
+        <DRow l="Asosiy qarz" v={money(c.mainDebt)} />
+        <DRow l="Ijro yig‘imi" v={money(c.executionFee)} />
+        <DRow l="Jarima" v={money(c.fine)} />
+        <DRow l="Qoldiq qarz" v={money(c.remainingDebt)} strong />
+        <DRow l="Bank" v={val(c.bankName)} />
+        <DRow l="MFO / H/r" v={`${val(c.bankMfo)} · ${val(c.bankAccount)}`} />
+      </dl>
+      {c.decisions && c.decisions.length > 0 && (
+        <div className="mt-2 border-t border-line pt-2 text-xs">
+          <div className="mb-1 text-muted">Qarorlar:</div>
+          <ul className="space-y-0.5">{c.decisions.map((d, i) => <li key={i}>· {d.article} <span className="text-muted">{d.date}</span></li>)}</ul>
         </div>
       )}
     </div>
