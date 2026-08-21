@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Ico, Spinner, useConfirm, DateField } from '@/ui';
+import { Ico, Spinner, useConfirm, DateField, Modal } from '@/ui';
 
 // ── API shapes ────────────────────────────────────────────────────────────────
 interface CaseRow {
@@ -281,7 +281,7 @@ function ReportPanel({ reportId, confirm, onChanged }: { reportId: number; confi
   const [sentRange, setSentRange] = useState<{ min: string | null; max: string | null }>({ min: null, max: null });
   const [busy, setBusy] = useState('');
   const [note, setNote] = useState('');
-  const [expanded, setExpanded] = useState<number | null>(null);
+  const [detailId, setDetailId] = useState<number | null>(null); // derive from `clients` so it stays fresh while polling
 
   const load = useCallback(async () => {
     const j = await jget(`/api/mib/${reportId}`);
@@ -420,7 +420,10 @@ function ReportPanel({ reportId, confirm, onChanged }: { reportId: number; confi
         <div className="card overflow-hidden">
           <div className="flex items-center justify-between border-b border-line px-4 py-3 text-sm font-semibold">
             <span>Mijozlar ({n(clients.length)})</span>
-            {report.autoRun && <span className="flex items-center gap-1.5 text-xs font-normal text-muted"><Spinner size={12} /> jonli yangilanmoqda</span>}
+            <div className="flex items-center gap-3">
+              {report.autoRun && <span className="flex items-center gap-1.5 text-xs font-normal text-muted"><Spinner size={12} /> jonli yangilanmoqda</span>}
+              <a className="btn-ghost px-2.5 py-1.5 text-xs" href={`/api/mib/${report.id}/excel`}><Ico.download size={14} /> Excel yuklab olish</a>
+            </div>
           </div>
           <div className="max-h-[560px] overflow-auto">
             <table className="w-full text-sm">
@@ -432,40 +435,28 @@ function ReportPanel({ reportId, confirm, onChanged }: { reportId: number; confi
                 </tr>
               </thead>
               <tbody>
-                {clients.map((c) => {
-                  const open = expanded === c.id;
-                  const hasDetail = c.cases.some((k) => k.detailFetchedAt);
-                  return (
-                    <React.Fragment key={c.id}>
-                      <tr
-                        className={cx('border-b border-line/60 transition-colors', c.status === 'RUNNING' && 'bg-amber-500/5', c.cases.length > 0 && 'cursor-pointer hover:bg-surface-2', open && 'bg-surface-2')}
-                        onClick={() => c.cases.length > 0 && setExpanded(open ? null : c.id)}
-                      >
-                        <td className="px-3 py-2 tabular-nums text-muted">
-                          <span className="inline-flex items-center gap-1">
-                            {c.cases.length ? <Ico.chevron size={13} className={cx('transition-transform', open && 'rotate-90')} /> : <span className="w-[13px]" />}
-                            {c.rowNo ?? ''}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2"><div className="font-medium tabular-nums">{c.pinfl}</div><div className="truncate text-xs text-muted">{c.fio2 || c.fio || ''}</div></td>
-                        <td className="px-3 py-2 text-xs">{c.firm || ''}</td>
-                        <td className="px-3 py-2 text-xs tabular-nums">{c.cases.map((k) => k.workNumber).join(', ') || c.ishRaqami || ''}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{c.cases.length || (c.status === 'CLEAN' ? '0' : '')}</td>
-                        <td className="px-3 py-2 text-center">
-                          <span className={cx('badge', STATUS_STYLE[c.status] ?? 'border-line text-muted')}>{c.status === 'RUNNING' ? <Spinner size={11} className="mr-1" /> : null}{STATUS_LABEL[c.status] ?? c.status}</span>
-                          {c.error && <div className="mt-0.5 truncate text-[10px] text-rose-500" title={c.error}>{c.error.slice(0, 40)}</div>}
-                        </td>
-                      </tr>
-                      {open && (
-                        <tr className="border-b border-line/60 bg-surface-2/40">
-                          <td colSpan={6} className="px-3 py-3">
-                            <ClientDetail client={c} hasDetail={hasDetail} />
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
+                {clients.map((c) => (
+                  <tr
+                    key={c.id}
+                    className={cx('border-b border-line/60 transition-colors', c.status === 'RUNNING' && 'bg-amber-500/5', c.cases.length > 0 && 'cursor-pointer hover:bg-surface-2')}
+                    onClick={() => c.cases.length > 0 && setDetailId(c.id)}
+                  >
+                    <td className="px-3 py-2 tabular-nums text-muted">
+                      <span className="inline-flex items-center gap-1">
+                        {c.cases.length ? <Ico.eye size={13} className="text-brand-500" /> : <span className="w-[13px]" />}
+                        {c.rowNo ?? ''}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2"><div className="font-medium tabular-nums">{c.pinfl}</div><div className="truncate text-xs text-muted">{c.fio2 || c.fio || ''}</div></td>
+                    <td className="px-3 py-2 text-xs">{c.firm || ''}</td>
+                    <td className="px-3 py-2 text-xs tabular-nums">{c.cases.map((k) => k.workNumber).join(', ') || c.ishRaqami || ''}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{c.cases.length || (c.status === 'CLEAN' ? '0' : '')}</td>
+                    <td className="px-3 py-2 text-center">
+                      <span className={cx('badge', STATUS_STYLE[c.status] ?? 'border-line text-muted')}>{c.status === 'RUNNING' ? <Spinner size={11} className="mr-1" /> : null}{STATUS_LABEL[c.status] ?? c.status}</span>
+                      {c.error && <div className="mt-0.5 truncate text-[10px] text-rose-500" title={c.error}>{c.error.slice(0, 40)}</div>}
+                    </td>
+                  </tr>
+                ))}
                 {!clients.length && <tr><td colSpan={6} className="px-4 py-8 text-center text-muted">Ro‘yxat bo‘sh — «Holat» tanlab «Ro‘yxatni qurish» bosing.</td></tr>}
               </tbody>
             </table>
@@ -479,6 +470,21 @@ function ReportPanel({ reportId, confirm, onChanged }: { reportId: number; confi
           mijozlar ro‘yxati shakllanadi, so‘ng GO bosing.
         </div>
       )}
+
+      {(() => {
+        const dc = detailId != null ? clients.find((c) => c.id === detailId) ?? null : null;
+        return (
+          <Modal
+            open={!!dc}
+            onClose={() => setDetailId(null)}
+            size="xl"
+            title={dc ? `${dc.pinfl} — ${dc.cases.length} ijro ishi` : ''}
+            description={dc?.firm ? `Firma (Excel): ${dc.firm}` : undefined}
+          >
+            {dc && <ClientDetail client={dc} hasDetail={dc.cases.some((k) => k.detailFetchedAt)} />}
+          </Modal>
+        );
+      })()}
     </div>
   );
 }
