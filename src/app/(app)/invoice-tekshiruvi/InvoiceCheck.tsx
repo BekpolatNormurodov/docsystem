@@ -356,15 +356,18 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
   ];
   const ownCount = amountFacet.filter((a) => isOwn(a.amount, ownAmounts)).reduce((s, a) => s + a._count._all, 0);
   const extraCount = amountFacet.filter((a) => a.amount !== null && !isOwn(a.amount, ownAmounts)).reduce((s, a) => s + a._count._all, 0);
+  // «Summa» ro'yxati faqat aniq qiymatlar — bizniki/ortiqcha alohida chiplarda.
   const amountOptions = [
-    { value: '', label: 'Barcha summa' },
-    { value: 'own', label: `Bizniki (${ownCount})` },
-    { value: 'extra', label: `Ortiqcha (${extraCount})` },
+    { value: '', label: 'Barchasi' },
     ...amountFacet
       .filter((a) => a.amount !== null)
       .sort((a, b) => Number(b._count._all) - Number(a._count._all))
       .map((a) => ({ value: String(a.amount), label: `${money(a.amount)} so‘m (${a._count._all})` })),
   ];
+  // `amount` ikkala boshqaruvni birga saqlaydi ('own'/'extra' yoki aniq summa) — Select'da
+  // faqat aniq summa ko'rinsin, aks holda «Bizniki» tanlanganda ro'yxat bo'sh ko'rinardi.
+  const exactAmount = amount === 'own' || amount === 'extra' ? '' : amount;
+  const activeFilters = [status, cat, amount, dq].filter(Boolean).length;
 
   const lastPage = Math.max(0, Math.ceil(total / size) - 1);
 
@@ -449,15 +452,19 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
         })}
       </div>
 
-      {/* qidiruv + holat + sahifa o'lchami */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative">
+      {/* ── Filtrlar: har biri nomlangan guruh ───────────────────────────────
+          «Summa» — qiymat bo'yicha filtr, «Tegishli» — bizniki/ortiqcha bo'yicha.
+          Ilgari ikkalasi bitta ro'yxatda aralashib turardi va sozlash tugmasi ham
+          o'shanga o'xshab ketardi; endi sozlash aynan «Tegishli» yonida. */}
+      <div className="space-y-3 rounded-xl border border-line bg-surface-2/30 p-3">
+        <div className="relative max-w-md">
+          <Ico.qr size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { setDq(q.trim()); setPage(0); } if (e.key === 'Escape') setQ(''); }}
             placeholder="Qidirish: raqam, egasi, STIR, da'vo…"
-            className="field-input w-72 pr-8"
+            className="field-input w-full pl-9 pr-8"
           />
           {q && (
             <button onClick={() => setQ('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-fg" title="Tozalash">
@@ -465,39 +472,60 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
             </button>
           )}
         </div>
-        <Chip active={status === null} onClick={() => { setStatus(null); setPage(0); }}>Barcha holat</Chip>
-        {statusList.map((s) => (
-          <Chip key={s} active={status === s} onClick={() => { setStatus(s); setPage(0); }}>{statusLabel(s)}</Chip>
-        ))}
-      </div>
 
-      {/* to'lov turi + summa bo'yicha filtr (Почта харажатлари / боji va h.k.) */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Select value={cat} onChange={(v) => { setCat(v); setPage(0); }} options={catOptions} className="w-64" />
-        <Select value={amount} onChange={(v) => { setAmount(v); setPage(0); }} options={amountOptions} className="w-56" />
-        <button className="btn-ghost !py-1.5 !px-3 text-sm" onClick={() => setOwnOpen(true)} title="Qaysi summalar bizniki — sozlash">
-          <Ico.settings size={14} className="mr-1 inline" />Bizning summalar
-        </button>
-        {(cat || amount || status || dq) && (
-          <button
-            className="btn-ghost !py-1.5 !px-3 text-sm"
-            onClick={() => { setCat(''); setAmount(''); setStatus(null); setQ(''); setPage(0); }}
-          >
-            <Ico.close size={14} className="mr-1 inline" />Filtrni tozalash
-          </button>
-        )}
-        <div className="ml-auto flex items-center gap-1 text-sm text-muted">
-          <span>Sahifada:</span>
-          {SIZES.map((n) => (
-            <button
-              key={n}
-              onClick={() => { setSize(n); setPage(0); }}
-              className={cx('rounded-lg border px-2 py-1 tabular-nums transition-colors',
-                size === n ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line hover:bg-surface-2 hover:text-fg')}
-            >
-              {n}
-            </button>
+        <FilterRow label="Holat">
+          <Chip active={status === null} onClick={() => { setStatus(null); setPage(0); }}>Barchasi</Chip>
+          {statusList.map((s) => (
+            <Chip key={s} active={status === s} onClick={() => { setStatus(s); setPage(0); }}>{statusLabel(s)}</Chip>
           ))}
+        </FilterRow>
+
+        <FilterRow label="Tegishli">
+          <Chip active={amount !== 'own' && amount !== 'extra'} onClick={() => { setAmount(''); setPage(0); }}>Barchasi</Chip>
+          <Chip active={amount === 'own'} onClick={() => { setAmount('own'); setPage(0); }}>Bizniki ({ownCount})</Chip>
+          <Chip active={amount === 'extra'} onClick={() => { setAmount('extra'); setPage(0); }}>Ortiqcha ({extraCount})</Chip>
+          <button
+            className="rounded-lg border border-line p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+            onClick={() => setOwnOpen(true)}
+            title="Qaysi summalar bizniki — sozlash"
+          >
+            <Ico.settings size={15} />
+          </button>
+          <span className="text-xs text-muted">
+            {ownAmounts.length ? `bizniki: ${ownAmounts.map((n) => money(n)).join(' · ')}` : 'bizniki summa belgilanmagan'}
+          </span>
+        </FilterRow>
+
+        <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted">Turi</span>
+            <Select value={cat} onChange={(v) => { setCat(v); setPage(0); }} options={catOptions} className="w-64" />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted">Summa</span>
+            <Select value={exactAmount} onChange={(v) => { setAmount(v); setPage(0); }} options={amountOptions} className="w-52" />
+          </label>
+          {activeFilters > 0 && (
+            <button
+              className="btn-ghost !py-1.5 !px-3 text-sm"
+              onClick={() => { setCat(''); setAmount(''); setStatus(null); setQ(''); setPage(0); }}
+            >
+              <Ico.close size={14} className="mr-1 inline" />Tozalash ({activeFilters})
+            </button>
+          )}
+          <div className="ml-auto flex items-center gap-1 text-sm text-muted">
+            <span>Sahifada:</span>
+            {SIZES.map((n) => (
+              <button
+                key={n}
+                onClick={() => { setSize(n); setPage(0); }}
+                className={cx('rounded-lg border px-2 py-1 tabular-nums transition-colors',
+                  size === n ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line hover:bg-surface-2 hover:text-fg')}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -667,6 +695,16 @@ function OwnAmountsModal({
         </button>
       </div>
     </Modal>
+  );
+}
+
+/** Nomlangan filtr qatori — chap tomonda kichik yorliq, o'ngida boshqaruvlar. */
+function FilterRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="w-16 shrink-0 text-xs font-medium uppercase tracking-wide text-muted">{label}</span>
+      {children}
+    </div>
   );
 }
 
