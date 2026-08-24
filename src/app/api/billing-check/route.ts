@@ -2,44 +2,31 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import type { Prisma } from '@prisma/client';
+import { buildInvoiceWhere } from '@/lib/billing-check/filters';
 
 export const runtime = 'nodejs';
 
-// Keshdagi kvitansiyalar ro'yxati — firma/holat bo'yicha filtr, matn qidiruv, sahifalab.
-// Bitta firmada 2000+ yozuv bo'lishi mumkin, shuning uchun hammasi birdan qaytarilmaydi.
-// GET ?firm=<code>&status=<CREATED|PAID|USED>&q=<matn>&page=<0..>&size=<1..200>
+// Keshdagi kvitansiyalar ro'yxati — firma/holat/tur/summa bo'yicha filtr, matn qidiruv,
+// sahifalab. Bitta firmada 2000+ yozuv bo'lishi mumkin, hammasi birdan qaytarilmaydi.
+// GET ?firm=&status=&cat=&amount=&q=&page=&size=
 export async function GET(req: NextRequest) {
   await requireAdmin();
   const sp = req.nextUrl.searchParams;
-  const firmCode = sp.get('firm') || undefined;
-  const status = sp.get('status') || undefined;
-  const q = (sp.get('q') || '').trim();
   const page = Math.max(0, Number(sp.get('page')) || 0);
   const size = Math.min(200, Math.max(1, Number(sp.get('size')) || 20));
-
-  const where: Prisma.BillingCheckInvoiceWhereInput = {
-    ...(firmCode ? { firmCode } : {}),
-    ...(status ? { invoiceStatus: status } : {}),
-    // Qidiruv: kvitansiya raqami, egasi (firma nomi), STIR yoki da'vo raqami bo'yicha.
-    ...(q
-      ? {
-          OR: [
-            { number: { contains: q } },
-            { payer: { contains: q } },
-            { payerTin: { contains: q } },
-            { claimCaseNumber: { contains: q } },
-          ],
-        }
-      : {}),
-  };
+  const where = buildInvoiceWhere(sp);
 
   // Statistika holat bo'yicha bo'linadi, shuning uchun uning o'zi holat filtriga bog'lanmaydi —
-  // faqat firma va qidiruvga. Shunda «To'langan (ishlatilmagan)» chipini bosganda ham
-  // yuqoridagi umumiy sonlar joyida turadi.
+  // qolgan filtrlar (firma/tur/summa/qidiruv) esa amal qiladi. Shunda «To'langan
+  // (ishlatilmagan)» chipini bosganda ham yuqoridagi umumiy sonlar joyida turadi.
   const statsWhere: Prisma.BillingCheckInvoiceWhereInput = { ...where };
   delete (statsWhere as { invoiceStatus?: unknown }).invoiceStatus;
 
-  const [invoices, total, summary, stats] = await Promise.all([
+  // Tanlanadigan qiymatlar (facet) — faqat FIRMA kesimida. Tur/summa o'zaro cheklab
+  // qo'ymasin: biror turni tanlagach summalar ro'yxati bo'shab qolmasligi kerak.
+  const facetWhere: Prisma.BillingCheckInvoiceWhereInput = sp.get('firm') ? { firmCode: sp.get('firm')! } : {};
+
+  const [invoices, total, summary, stats, catFacet, amountFacet] = await Promise.all([
     prisma.billingCheckInvoice.findMany({
       where,
       // Yangi kvitansiyalar tepada. issuedAt faqat ro'yxatdan kelganda to'ladi (bitta raqam
@@ -57,7 +44,9 @@ export async function GET(req: NextRequest) {
       _count: { _all: true },
       _sum: { amount: true },
     }),
+    prisma.billingCheckInvoice.groupBy({ by: ['payCategory'], where: facetWhere, _count: { _all: true } }),
+    prisma.billingCheckInvoice.groupBy({ by: ['amount'], where: facetWhere, _count: { _all: true } }),
   ]);
 
-  return NextResponse.json({ invoices, total, page, size, summary, stats });
+  return NextResponse.json({ invoices, total, page, size, summary, stats, catFacet, amountFacet });
 }

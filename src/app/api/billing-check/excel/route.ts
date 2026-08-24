@@ -2,37 +2,25 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { buildBillingCheckExcel } from '@/lib/billing-check/excel';
+import { buildInvoiceWhere } from '@/lib/billing-check/filters';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-// GET ?firm=<code>&status=<CREATED|PAID|USED>&q=<matn> — keshdagi kvitansiyalarni xlsx qilib
-// beradi. Filtrlar UI dagi bilan bir xil: yuklab olingan fayl ekranda ko'rinayotgan ro'yxatga mos.
+// GET ?firm=&status=&cat=&amount=&q= — keshdagi kvitansiyalarni xlsx qilib beradi.
+// Filtrlar ro'yxat so'rovi bilan BIR XIL manbadan (buildInvoiceWhere) olinadi, shuning
+// uchun yuklangan fayl ekranda ko'rinayotgan ro'yxatga aynan mos tushadi.
 export async function GET(req: NextRequest) {
   await requireAdmin();
-  const firmCode = req.nextUrl.searchParams.get('firm') || undefined;
-  const status = req.nextUrl.searchParams.get('status') || undefined;
-  const q = (req.nextUrl.searchParams.get('q') || '').trim();
-
+  const sp = req.nextUrl.searchParams;
   const rows = await prisma.billingCheckInvoice.findMany({
-    where: {
-      ...(firmCode ? { firmCode } : {}),
-      ...(status ? { invoiceStatus: status } : {}),
-      ...(q
-        ? {
-            OR: [
-              { number: { contains: q } },
-              { payer: { contains: q } },
-              { payerTin: { contains: q } },
-              { claimCaseNumber: { contains: q } },
-            ],
-          }
-        : {}),
-    },
-    orderBy: { issuedAt: 'desc' },
+    where: buildInvoiceWhere(sp),
+    orderBy: [{ issuedAt: 'desc' }, { checkedAt: 'desc' }],
   });
+
   const buf = await buildBillingCheckExcel(rows);
-  const name = `kvitansiyalar${firmCode ? `-${firmCode}` : ''}${status ? `-${status}` : ''}.xlsx`;
+  const parts = ['kvitansiyalar', sp.get('firm'), sp.get('status')].filter(Boolean);
+  const name = `${parts.join('-')}.xlsx`;
   return new NextResponse(buf as unknown as BodyInit, {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

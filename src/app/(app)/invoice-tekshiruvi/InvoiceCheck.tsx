@@ -218,6 +218,9 @@ function DetailModal({ inv, onClose }: { inv: CheckedInvoice | null; onClose: ()
 function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void }) {
   const [firmCode, setFirmCode] = useState<string | null>(FIRMS[0]?.branchCode ?? null);
   const [status, setStatus] = useState<string | null>(null);
+  // To'lov turi (payCategory) va summa (tiyinda) — ikkalasi ham '' = barchasi.
+  const [cat, setCat] = useState('');
+  const [amount, setAmount] = useState('');
   const [q, setQ] = useState('');
   const [dq, setDq] = useState('');
   const [page, setPage] = useState(0);
@@ -227,6 +230,8 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
   const [total, setTotal] = useState(0);
   const [summary, setSummary] = useState<{ firmCode: string | null; _count: { _all: number } }[]>([]);
   const [stats, setStats] = useState<StatRow[]>([]);
+  const [catFacet, setCatFacet] = useState<{ payCategory: string | null; _count: { _all: number } }[]>([]);
+  const [amountFacet, setAmountFacet] = useState<{ amount: string | number | null; _count: { _all: number } }[]>([]);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<CheckedInvoice | null>(null);
 
@@ -243,12 +248,22 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
     return () => clearTimeout(t);
   }, [q]);
 
+  // Barcha filtrlar bitta joyda — ro'yxat so'rovi ham, Excel havolasi ham shundan quriladi.
+  const filterParams = useCallback(() => {
+    const p = new URLSearchParams();
+    if (firmCode) p.set('firm', firmCode);
+    if (status) p.set('status', status);
+    if (cat) p.set('cat', cat);
+    if (amount) p.set('amount', amount);
+    if (dq) p.set('q', dq);
+    return p;
+  }, [firmCode, status, cat, amount, dq]);
+
   const load = useCallback(async () => {
     setLoading(true);
-    const params = new URLSearchParams({ page: String(page), size: String(size) });
-    if (firmCode) params.set('firm', firmCode);
-    if (status) params.set('status', status);
-    if (dq) params.set('q', dq);
+    const params = filterParams();
+    params.set('page', String(page));
+    params.set('size', String(size));
     const res = await fetch(`/api/billing-check?${params.toString()}`, { cache: 'no-store' });
     if (!res.ok) { setErr('Ro‘yxatni yuklab bo‘lmadi'); setLoading(false); return; }
     const j = await res.json().catch(() => null);
@@ -258,8 +273,10 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
     setTotal(j.total ?? 0);
     setSummary(j.summary ?? []);
     setStats(j.stats ?? []);
+    setCatFacet(j.catFacet ?? []);
+    setAmountFacet(j.amountFacet ?? []);
     setLoading(false);
-  }, [firmCode, status, dq, page, size]);
+  }, [filterParams, page, size]);
 
   useEffect(() => { void load(); }, [load, tick]);
 
@@ -303,13 +320,23 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
     void pollSync();
   }, [activeFirm, pollSync, syncLimit]);
 
-  const excelHref = (() => {
-    const params = new URLSearchParams();
-    if (firmCode) params.set('firm', firmCode);
-    if (status) params.set('status', status);
-    if (dq) params.set('q', dq);
-    return `/api/billing-check/excel?${params.toString()}`;
-  })();
+  const excelHref = `/api/billing-check/excel?${filterParams().toString()}`;
+
+  // Tanlanadigan turlar/summalar — bazada bori (ko'pdan ozga).
+  const catOptions = [
+    { value: '', label: 'Barcha turi' },
+    ...catFacet
+      .filter((c) => c.payCategory)
+      .sort((a, b) => b._count._all - a._count._all)
+      .map((c) => ({ value: c.payCategory as string, label: `${c.payCategory} (${c._count._all})` })),
+  ];
+  const amountOptions = [
+    { value: '', label: 'Barcha summa' },
+    ...amountFacet
+      .filter((a) => a.amount !== null)
+      .sort((a, b) => Number(b._count._all) - Number(a._count._all))
+      .map((a) => ({ value: String(a.amount), label: `${money(a.amount)} so‘m (${a._count._all})` })),
+  ];
 
   const lastPage = Math.max(0, Math.ceil(total / size) - 1);
 
@@ -411,6 +438,20 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
         {STATUSES.map((s) => (
           <Chip key={s} active={status === s} onClick={() => { setStatus(s); setPage(0); }}>{STATUS_LABEL[s]}</Chip>
         ))}
+      </div>
+
+      {/* to'lov turi + summa bo'yicha filtr (Почта харажатлари / боji va h.k.) */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Select value={cat} onChange={(v) => { setCat(v); setPage(0); }} options={catOptions} className="w-64" />
+        <Select value={amount} onChange={(v) => { setAmount(v); setPage(0); }} options={amountOptions} className="w-56" />
+        {(cat || amount || status || dq) && (
+          <button
+            className="btn-ghost !py-1.5 !px-3 text-sm"
+            onClick={() => { setCat(''); setAmount(''); setStatus(null); setQ(''); setPage(0); }}
+          >
+            <Ico.close size={14} className="mr-1 inline" />Filtrni tozalash
+          </button>
+        )}
         <div className="ml-auto flex items-center gap-1 text-sm text-muted">
           <span>Sahifada:</span>
           {SIZES.map((n) => (
@@ -433,6 +474,7 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
             <tr>
               <th className="px-3 py-2">Kvitansiya raqami</th>
               <th className="px-3 py-2">Holati</th>
+              <th className="px-3 py-2">Turi</th>
               <th className="px-3 py-2">Summasi</th>
               <th className="px-3 py-2">Da'vo raqami</th>
               <th className="px-3 py-2">Yaratilgan</th>
@@ -441,7 +483,7 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="px-3 py-8 text-center text-muted"><Spinner size={16} className="mr-2 inline" />Yuklanmoqda…</td></tr>
+              <tr><td colSpan={7} className="px-3 py-8 text-center text-muted"><Spinner size={16} className="mr-2 inline" />Yuklanmoqda…</td></tr>
             ) : rows.length ? (
               rows.map((row) => (
                 <tr key={row.id} className="cursor-pointer border-t border-line/60 hover:bg-surface-2/50" onClick={() => setDetail(row)}>
@@ -454,6 +496,7 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
                       {STATUS_SHORT[row.invoiceStatus] ?? row.invoiceStatus}
                     </span>
                   </td>
+                  <td className="px-3 py-2 text-muted">{val(row.payCategory ?? row.description)}</td>
                   <td className="px-3 py-2 tabular-nums">{money(row.amount)}</td>
                   <td className="px-3 py-2">{val(row.claimCaseNumber)}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{dt(row.issuedAt)}</td>
@@ -461,7 +504,7 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
                 </tr>
               ))
             ) : (
-              <tr><td colSpan={6} className="px-3 py-8 text-center text-muted">
+              <tr><td colSpan={7} className="px-3 py-8 text-center text-muted">
                 {dq || status ? 'Filtrga mos yozuv yo‘q' : 'Bazada hali kvitansiya yo‘q — «Hozir yangilash» ni bosing'}
               </td></tr>
             )}
