@@ -40,26 +40,46 @@ interface QueryRow {
   message: string | null;
 }
 
-const STATUSES = ['CREATED', 'PAID', 'USED'] as const;
+interface SyncState {
+  firmCode: string;
+  firmName: string;
+  status: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  done: number;
+  total: number;
+  lastCount: number;
+  trigger: string | null;
+  message: string | null;
+}
+
+interface StatRow { invoiceStatus: string; _count: { _all: number }; _sum: { amount: string | number | null } }
+
+const STATUSES = ['PAID', 'CREATED', 'USED'] as const;
 const STATUS_LABEL: Record<string, string> = {
   CREATED: "To'lanmagan",
-  PAID: "To'liq to'langan",
+  PAID: "To'langan (ishlatilmagan)",
   USED: 'Foydalanilgan',
 };
+// Jadvalda qisqa yorliq — uzuni qatorlarni ikki qatorga cho'zib yuboradi. Rang farqlaydi,
+// to'liq matni esa `title` da va statistika kartochkalarida turadi.
+const STATUS_SHORT: Record<string, string> = { CREATED: "To'lanmagan", PAID: "To'langan", USED: 'Foydalanilgan' };
 const STATUS_STYLE: Record<string, string> = {
   CREATED: 'border-rose-500/30 text-rose-600 dark:text-rose-300',
   PAID: 'border-emerald-500/30 text-emerald-600 dark:text-emerald-300',
   USED: 'border-amber-500/30 text-amber-600 dark:text-amber-300',
 };
 
-// billing.sud.uz bir so'rovda shuncha qatorni bemalol qaytaradi (Spring Pageable).
-const SYNC_PAGE = 50;
-const TABLE_SIZE = 20;
+const SIZES = [10, 20, 50] as const;
 
+// DIQQAT: billing.sud.uz summalarni TIYINDA qaytaradi — 2 060 000 = 20 600,00 so'm
+// (billing.sud.uz sahifasining o'zi ham shunday ko'rsatadi). Bazada xom ko'rinishda
+// saqlanadi, so'mga aylantirish faqat ko'rsatishda (bu yerda va Excel eksportida).
+const TIYIN = 100;
 const money = (v: string | number | null) => {
   if (v === null || v === undefined || v === '') return '—';
   const n = Number(v);
-  return Number.isFinite(n) ? n.toLocaleString('ru-RU') : String(v);
+  return Number.isFinite(n) ? (n / TIYIN).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(v);
 };
 const val = (v: string | null) => (v && v.trim() ? v : '—');
 const dt = (s: string | null) =>
@@ -73,8 +93,7 @@ async function jpost(url: string, body: unknown) {
 }
 
 export function InvoiceCheck() {
-  // Yig'ish tugagach kesh jadvali o'zini yangilashi uchun oddiy signal.
-  const [syncTick, setSyncTick] = useState(0);
+  const [tick, setTick] = useState(0);
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <header>
@@ -83,14 +102,14 @@ export function InvoiceCheck() {
           <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">Alohida · stepga kirmaydi</span>
         </div>
         <p className="mt-1 max-w-2xl text-sm text-muted">
-          billing.sud.uz dan kvitansiya holatini tekshiring: bitta raqam bo'yicha yoki firma STIR
-          bo'yicha butun ro'yxatni bazaga yig'ib, qidiruv va Excel bilan ishlang.
+          Kvitansiyalar firma bo'yicha bazaga yig'iladi va <b>har yarim soatda o'zi yangilanadi</b>.
+          Qidiruv, filtr va Excel — shu bazadan.
         </p>
       </header>
 
-      <SingleCheckCard onSaved={() => setSyncTick((t) => t + 1)} />
-      <CacheCard syncTick={syncTick} onSynced={() => setSyncTick((t) => t + 1)} />
-      <HistoryCard tick={syncTick} />
+      <SingleCheckCard onSaved={() => setTick((t) => t + 1)} />
+      <CacheCard tick={tick} onChanged={() => setTick((t) => t + 1)} />
+      <HistoryCard tick={tick} />
     </div>
   );
 }
@@ -186,98 +205,94 @@ function DetailModal({ inv, onClose }: { inv: CheckedInvoice | null; onClose: ()
   );
 }
 
-// ── 2) Baza: billing.sud.uz dan yig'ish + qidiruv/sahifalash ─────────────────
-function CacheCard({ syncTick, onSynced }: { syncTick: number; onSynced: () => void }) {
-  // filtrlar
+// ── 2) Baza: avtomatik yangilanadi + qidiruv/sahifalash ─────────────────────
+function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void }) {
   const [firmCode, setFirmCode] = useState<string | null>(FIRMS[0]?.branchCode ?? null);
   const [status, setStatus] = useState<string | null>(null);
   const [q, setQ] = useState('');
-  const [dq, setDq] = useState(''); // debounced qidiruv
+  const [dq, setDq] = useState('');
   const [page, setPage] = useState(0);
+  const [size, setSize] = useState<number>(20);
 
-  // ma'lumot
   const [rows, setRows] = useState<CheckedInvoice[]>([]);
   const [total, setTotal] = useState(0);
   const [summary, setSummary] = useState<{ firmCode: string | null; _count: { _all: number } }[]>([]);
+  const [stats, setStats] = useState<StatRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<CheckedInvoice | null>(null);
 
-  // yig'ish (sync)
-  const [syncing, setSyncing] = useState(false);
-  const [prog, setProg] = useState<{ done: number; total: number } | null>(null);
-  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+  const [syncStates, setSyncStates] = useState<SyncState[]>([]);
+  const [running, setRunning] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const cancelRef = useRef(false);
+  // 0 = hammasi; aks holda «oxirgi N ta» (yangi kvitansiyalarni tez ilib olish uchun).
+  const [syncLimit, setSyncLimit] = useState(0);
+  const wasRunning = useRef(false);
 
-  // Qidiruvni 400ms kechiktiramiz — har harfda so'rov yubormaslik uchun.
+  // Qidiruv: 250ms kechikish (har harfda so'rov yubormaslik uchun), Enter — darhol.
   useEffect(() => {
-    const t = setTimeout(() => { setDq(q.trim()); setPage(0); }, 400);
+    const t = setTimeout(() => { setDq(q.trim()); setPage(0); }, 250);
     return () => clearTimeout(t);
   }, [q]);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const params = new URLSearchParams({ page: String(page), size: String(TABLE_SIZE) });
+    const params = new URLSearchParams({ page: String(page), size: String(size) });
     if (firmCode) params.set('firm', firmCode);
     if (status) params.set('status', status);
     if (dq) params.set('q', dq);
     const res = await fetch(`/api/billing-check?${params.toString()}`, { cache: 'no-store' });
-    const j = await res.json().catch(() => ({ invoices: [], total: 0, summary: [] }));
+    if (!res.ok) { setErr('Ro‘yxatni yuklab bo‘lmadi'); setLoading(false); return; }
+    const j = await res.json().catch(() => null);
+    if (!j) { setErr('Ro‘yxatni yuklab bo‘lmadi'); setLoading(false); return; }
+    setErr(null);
     setRows(j.invoices ?? []);
     setTotal(j.total ?? 0);
     setSummary(j.summary ?? []);
+    setStats(j.stats ?? []);
     setLoading(false);
-  }, [firmCode, status, dq, page]);
+  }, [firmCode, status, dq, page, size]);
 
-  useEffect(() => { void load(); }, [load, syncTick]);
+  useEffect(() => { void load(); }, [load, tick]);
+
+  // Yig'ish holatini kuzatish: ketayotganda tez-tez, bo'sh turganda siyrak (avtomatik
+  // yangilanish worker'da bo'lgani uchun uni ham shu yerdan ushlab olamiz).
+  const pollSync = useCallback(async () => {
+    const res = await fetch('/api/billing-check/sync', { cache: 'no-store' });
+    if (!res.ok) return;
+    const j = await res.json().catch(() => null);
+    if (!j) return;
+    setSyncStates(j.states ?? []);
+    setRunning(!!j.running);
+    // Yig'ish endigina tugadi → jadvalni va sonlarni yangilaymiz.
+    if (wasRunning.current && !j.running) onChanged();
+    wasRunning.current = !!j.running;
+  }, [onChanged]);
+
+  useEffect(() => {
+    void pollSync();
+    const t = setInterval(() => void pollSync(), running ? 2000 : 20000);
+    return () => clearInterval(t);
+  }, [pollSync, running]);
 
   const activeFirm = FIRMS.find((f: FirmCfg) => f.branchCode === firmCode);
+  const activeSync = syncStates.find((s) => s.firmCode === firmCode);
+  const runningSync = syncStates.find((s) => s.status === 'RUNNING');
   const countFor = (code: string | null) => summary.find((s) => s.firmCode === code)?._count?._all ?? 0;
   const cachedTotal = summary.reduce((s, r) => s + r._count._all, 0);
+  const statFor = (st: string) => stats.find((s) => s.invoiceStatus === st);
 
-  // billing.sud.uz dan sahifama-sahifa yig'adi. Har sahifa alohida so'rov (o'z captcha
-  // tokeni bilan) — shuning uchun uzoq so'rov timeout'ga tushmaydi va jarayon ko'rinib turadi.
-  // `all=true` bo'lsa oxirgi sahifagacha; aks holda `want` tagacha.
-  const sync = useCallback(async (want: number, all: boolean) => {
+  const startSync = useCallback(async () => {
     if (!activeFirm) return;
-    cancelRef.current = false;
-    setSyncing(true);
     setErr(null);
-    setSyncMsg(null);
-    setProg({ done: 0, total: all ? 0 : want });
-
-    let done = 0;
-    let serverTotal = 0;
-    let failure: string | null = null;
-
-    for (let p = 0; all || done < want; p++) {
-      if (cancelRef.current) break;
-      const size = all ? SYNC_PAGE : Math.min(SYNC_PAGE, want - done);
-      // silent: har sahifa uchun tarix yozuvi yaratilmaydi — oxirida bitta umumiy yoziladi.
-      const { ok, json } = await jpost('/api/billing-check/list', { inn: activeFirm.stir, page: p, size, silent: true });
-      if (!ok) { failure = json?.error || 'billing.sud.uz javob bermadi'; break; }
-      const got = json.content?.length ?? 0;
-      done += got;
-      serverTotal = json.totalElements ?? serverTotal;
-      setProg({ done, total: all ? serverTotal : want });
-      if (json.last || got === 0) break;
-    }
-
-    const stopped = cancelRef.current;
-    setSyncing(false);
-    setProg(null);
-    if (failure) setErr(`${failure} — shu paytgacha ${done} ta olindi va saqlandi`);
-    else setSyncMsg(`${done} ta kvitansiya yangilandi${serverTotal ? ` (billing'da jami: ${serverTotal})` : ''}${stopped ? ' — to‘xtatildi' : ''}`);
-
-    // Tarixga bitta umumiy yozuv.
-    await jpost('/api/billing-check/history', {
-      query: activeFirm.stir,
-      resultCount: done,
-      status: failure ? 'FAILED' : 'OK',
-      message: failure ? `${failure} (${done} ta olindi)` : `yangilandi: ${done} ta${stopped ? ' (to‘xtatildi)' : ''}`,
+    const { ok, json } = await jpost('/api/billing-check/sync', {
+      firm: activeFirm.branchCode,
+      ...(syncLimit ? { limit: syncLimit } : {}),
     });
-    onSynced();
-  }, [activeFirm, onSynced]);
+    if (!ok) { setErr(json?.error || 'Boshlab bo‘lmadi'); return; }
+    setRunning(true);
+    wasRunning.current = true;
+    void pollSync();
+  }, [activeFirm, pollSync, syncLimit]);
 
   const excelHref = (() => {
     const params = new URLSearchParams();
@@ -287,13 +302,13 @@ function CacheCard({ syncTick, onSynced }: { syncTick: number; onSynced: () => v
     return `/api/billing-check/excel?${params.toString()}`;
   })();
 
-  const lastPage = Math.max(0, Math.ceil(total / TABLE_SIZE) - 1);
+  const lastPage = Math.max(0, Math.ceil(total / size) - 1);
 
   return (
     <section className="card space-y-4 p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">Kvitansiyalar bazasi</h2>
-        <a href={excelHref} className="btn-ghost">
+        <a href={excelHref} className="btn-ghost" title="Har firma alohida varaqda + xulosa">
           <Ico.download size={14} className="mr-1 inline" />Excel yuklab olish
         </a>
       </div>
@@ -308,37 +323,78 @@ function CacheCard({ syncTick, onSynced }: { syncTick: number; onSynced: () => v
         <Chip active={firmCode === null} onClick={() => { setFirmCode(null); setPage(0); }}>Barchasi ({cachedTotal})</Chip>
       </div>
 
-      {/* billing dan yangilash */}
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface-2/40 p-3">
-        <span className="text-sm text-muted">
-          {activeFirm ? <><b>{activeFirm.name.replace(/ MIKROMOLIYA.*$/i, '')}</b> uchun billing.sud.uz dan:</> : 'Yangilash uchun firmani tanlang'}
-        </span>
-        <button onClick={() => void sync(50, false)} disabled={syncing || !activeFirm} className="btn-ghost">
-          {syncing ? <Spinner size={14} className="mr-1.5" /> : <Ico.refresh size={14} className="mr-1 inline" />}Oxirgi 50 ta
-        </button>
-        <button onClick={() => void sync(0, true)} disabled={syncing || !activeFirm} className="btn-primary">
-          {syncing ? <Spinner size={14} className="mr-1.5" /> : null}Hammasini yangilash
-        </button>
-        {syncing && (
-          <>
-            <span className="text-sm tabular-nums text-muted">
-              {prog?.done ?? 0}{prog?.total ? ` / ${prog.total}` : ''} …
-            </span>
-            <button onClick={() => { cancelRef.current = true; }} className="btn-ghost !py-1 !px-2 text-rose-600 dark:text-rose-300">
-              To‘xtatish
-            </button>
-          </>
+      {/* yig'ish holati — avtomatik, qo'lda ham majburlash mumkin */}
+      <div className="rounded-xl border border-line bg-surface-2/40 p-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          {running ? (
+            <>
+              <Spinner size={14} />
+              <span className="text-sm">
+                <b>{runningSync?.firmName ?? '—'}</b> yig‘ilmoqda
+                <span className="ml-2 tabular-nums text-muted">
+                  {runningSync?.done ?? 0}{runningSync?.total ? ` / ${runningSync.total}` : ''}
+                </span>
+                {runningSync?.trigger === 'AUTO' && <span className="ml-2 text-muted">· avtomatik</span>}
+              </span>
+              <span className="text-sm text-amber-600 dark:text-amber-300">— tugagunicha yangi yangilash boshlanmaydi</span>
+            </>
+          ) : (
+            <>
+              <span className="text-sm text-muted">
+                {activeFirm ? <><b>{activeFirm.name.replace(/ MIKROMOLIYA.*$/i, '')}</b> · oxirgi yangilangan: </> : 'Firmani tanlang · '}
+                <span className="text-fg">{dt(activeSync?.finishedAt ?? null)}</span>
+                {activeSync?.lastCount ? <span className="tabular-nums"> ({activeSync.lastCount} ta)</span> : null}
+              </span>
+              <span className="text-sm text-muted">· har 30 daqiqada avtomatik</span>
+              <div className="ml-auto flex items-center gap-2">
+                <select
+                  value={syncLimit}
+                  onChange={(e) => setSyncLimit(Number(e.target.value))}
+                  className="field-input !w-auto !py-1.5 text-sm"
+                  title="Nechta kvitansiya tortilsin"
+                >
+                  <option value={0}>Hammasi</option>
+                  <option value={5}>Oxirgi 5 ta</option>
+                  <option value={10}>Oxirgi 10 ta</option>
+                  <option value={50}>Oxirgi 50 ta</option>
+                  <option value={100}>Oxirgi 100 ta</option>
+                </select>
+                <button onClick={() => void startSync()} disabled={!activeFirm} className="btn-ghost">
+                  <Ico.refresh size={14} className="mr-1 inline" />Hozir yangilash
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+        {activeSync?.status === 'FAILED' && activeSync.message && (
+          <div className="mt-2 text-sm text-rose-600 dark:text-rose-300">Oxirgi urinish uzildi: {activeSync.message}</div>
         )}
       </div>
-      {syncMsg && <div className="text-sm text-emerald-600 dark:text-emerald-300">{syncMsg}</div>}
       {err && <div className="text-sm text-rose-600 dark:text-rose-300">{err}</div>}
 
-      {/* qidiruv + holat */}
+      {/* statistika — «to'langan, ishlatilmagan» eng muhimi */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        {STATUSES.map((st) => {
+          const s = statFor(st);
+          return (
+            <div key={st} className={cx('rounded-xl border p-3', st === 'PAID' ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-line')}>
+              <div className={cx('text-lg font-semibold tabular-nums', st === 'PAID' && 'text-emerald-600 dark:text-emerald-300')}>
+                {(s?._count?._all ?? 0).toLocaleString('ru-RU')} ta
+              </div>
+              <div className="mt-0.5 text-sm tabular-nums text-muted">{money(s?._sum?.amount ?? 0)} so‘m</div>
+              <div className="mt-1 text-xs text-muted">{STATUS_LABEL[st]}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* qidiruv + holat + sahifa o'lchami */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative">
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { setDq(q.trim()); setPage(0); } if (e.key === 'Escape') setQ(''); }}
             placeholder="Qidirish: raqam, egasi, STIR, da'vo…"
             className="field-input w-72 pr-8"
           />
@@ -352,6 +408,19 @@ function CacheCard({ syncTick, onSynced }: { syncTick: number; onSynced: () => v
         {STATUSES.map((s) => (
           <Chip key={s} active={status === s} onClick={() => { setStatus(s); setPage(0); }}>{STATUS_LABEL[s]}</Chip>
         ))}
+        <div className="ml-auto flex items-center gap-1 text-sm text-muted">
+          <span>Sahifada:</span>
+          {SIZES.map((n) => (
+            <button
+              key={n}
+              onClick={() => { setSize(n); setPage(0); }}
+              className={cx('rounded-lg border px-2 py-1 tabular-nums transition-colors',
+                size === n ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line hover:bg-surface-2 hover:text-fg')}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* jadval */}
@@ -375,8 +444,11 @@ function CacheCard({ syncTick, onSynced }: { syncTick: number; onSynced: () => v
                 <tr key={row.id} className="cursor-pointer border-t border-line/60 hover:bg-surface-2/50" onClick={() => setDetail(row)}>
                   <td className="px-3 py-2 font-mono">{row.number}</td>
                   <td className="px-3 py-2">
-                    <span className={cx('badge', STATUS_STYLE[row.invoiceStatus] ?? 'border-line text-muted')}>
-                      {STATUS_LABEL[row.invoiceStatus] ?? row.invoiceStatus}
+                    <span
+                      className={cx('badge whitespace-nowrap', STATUS_STYLE[row.invoiceStatus] ?? 'border-line text-muted')}
+                      title={STATUS_LABEL[row.invoiceStatus] ?? row.invoiceStatus}
+                    >
+                      {STATUS_SHORT[row.invoiceStatus] ?? row.invoiceStatus}
                     </span>
                   </td>
                   <td className="px-3 py-2 tabular-nums">{money(row.amount)}</td>
@@ -387,7 +459,7 @@ function CacheCard({ syncTick, onSynced }: { syncTick: number; onSynced: () => v
               ))
             ) : (
               <tr><td colSpan={6} className="px-3 py-8 text-center text-muted">
-                {dq || status ? 'Filtrga mos yozuv yo‘q' : 'Bazada hali kvitansiya yo‘q — «Hammasini yangilash» ni bosing'}
+                {dq || status ? 'Filtrga mos yozuv yo‘q' : 'Bazada hali kvitansiya yo‘q — «Hozir yangilash» ni bosing'}
               </td></tr>
             )}
           </tbody>
@@ -397,7 +469,7 @@ function CacheCard({ syncTick, onSynced }: { syncTick: number; onSynced: () => v
       {/* sahifalash */}
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted">
         <span className="tabular-nums">
-          {total ? `${page * TABLE_SIZE + 1} – ${Math.min((page + 1) * TABLE_SIZE, total)} / ${total}` : '0'}
+          {total ? `${page * size + 1} – ${Math.min((page + 1) * size, total)} / ${total}` : '0'}
         </span>
         <div className="flex items-center gap-1">
           <button className="btn-ghost !py-1 !px-2" disabled={loading || page <= 0} onClick={() => setPage(0)} title="Boshiga">«</button>
@@ -417,12 +489,13 @@ function CacheCard({ syncTick, onSynced }: { syncTick: number; onSynced: () => v
   );
 }
 
-function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+function Chip({ active, onClick, children, disabled }: { active: boolean; onClick: () => void; children: React.ReactNode; disabled?: boolean }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       className={cx(
-        'rounded-full border px-3 py-1.5 text-sm font-medium transition-colors',
+        'rounded-full border px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40',
         active ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line text-muted hover:bg-surface-2 hover:text-fg',
       )}
     >
@@ -486,8 +559,8 @@ function HistoryCard({ tick }: { tick: number }) {
                   <tr key={r.id} className="border-t border-line/60">
                     <td className="px-3 py-2 whitespace-nowrap">{dt(r.createdAt)}</td>
                     <td className="px-3 py-2">{r.createdBy || '—'}</td>
-                    <td className="px-3 py-2">{r.mode === 'SINGLE' ? 'Bitta' : `Ro'yxat${r.page !== null ? ` (bet ${(r.page ?? 0) + 1})` : ''}`}</td>
-                    <td className="px-3 py-2 font-mono">{r.query}</td>
+                    <td className="px-3 py-2">{r.mode === 'SINGLE' ? 'Bitta' : "Ro'yxat"}</td>
+                    <td className="px-3 py-2 font-mono">{firmLabel(null) === r.query ? r.query : r.query}</td>
                     <td className="px-3 py-2 tabular-nums">{r.resultCount}</td>
                     <td className="px-3 py-2">
                       {r.status === 'OK'

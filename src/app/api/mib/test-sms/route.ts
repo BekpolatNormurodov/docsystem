@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAdmin } from '@/lib/auth';
+import { confirmPendingPhone } from '@/lib/mib/config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,6 +19,10 @@ export async function POST() {
 }
 
 // GET ?after=<id> — quick check: the first unconsumed SMS newer than `after`. Marks it consumed.
+//
+// A real SMS landing here is ALSO the proof that a newly entered phone (+ its forwarder) works,
+// so this is where a pending number is promoted to the live one. Saving the field alone never
+// changes it — see the POST in ../config/route.ts.
 export async function GET(req: NextRequest) {
   await requireAdmin();
   const after = Number(req.nextUrl.searchParams.get('after')) || 0;
@@ -27,5 +32,6 @@ export async function GET(req: NextRequest) {
   });
   if (!row) return NextResponse.json({ waiting: true });
   await prisma.mibSms.update({ where: { id: row.id }, data: { consumed: true } });
-  return NextResponse.json({ code: row.code, source: row.source });
+  const confirmedPhone = await confirmPendingPhone().catch(() => null);
+  return NextResponse.json({ code: row.code, source: row.source, confirmedPhone });
 }

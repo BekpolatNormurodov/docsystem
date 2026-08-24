@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { prisma } from '../lib/db';
 import { runJobById } from '../lib/job-runner';
+import { firmsDueForSync, syncFirm, AUTO_EVERY_MS } from '../lib/billing-check/sync';
 
 // Standalone background worker. Runs in its own process (a Docker container in production) and is the
 // ONLY executor of the heavy document jobs when the web app runs with JOB_MODE=worker. It polls the
@@ -89,6 +90,37 @@ async function loop(): Promise<void> {
   console.log('[worker] stopped');
 }
 
+// billing.sud.uz kvitansiyalarini firma bo'yicha AVTOMAT yangilab turadi (har ~30 daqiqada) —
+// operator hech nima bosmaydi. Doc-job navbatidan MUSTAQIL o'z sikli: worker uzoq PDF paketi
+// ustida band bo'lsa ham jadval kechikmaydi (ular boshqa resurslarni ishlatadi — bu yerda faqat
+// tarmoq + kichik DB yozuvlari).
+//
+// Navbat `finishedAt` asosida: firma oxirgi MUVAFFAQIYATLI yakunidan AUTO_EVERY_MS o'tgandagina
+// qayta yig'iladi. Shu sabab worker qayta ishga tushaverishi ham billing'ni urib tashlamaydi —
+// yaqinda yig'ilgan firma navbatga tushmaydi. Qulf `BillingCheckSync` da, ya'ni qo'lda
+// bosilgan yangilanish bilan hech qachon to'qnashmaydi.
+const AUTO_CHECK_MS = 5 * 60_000;
+
+async function billingAutoSyncLoop(): Promise<void> {
+  console.log(`[worker] billing auto-sync: every ${Math.round(AUTO_EVERY_MS / 60_000)} min per firm`);
+  // Ishga tushgach biroz kutamiz — migrate/DB tayyor bo'lsin.
+  await new Promise((r) => setTimeout(r, 30_000));
+  while (!stopping) {
+    try {
+      for (const firmCode of await firmsDueForSync()) {
+        if (stopping) break;
+        const res = await syncFirm(firmCode, 'AUTO');
+        // null = qulf band (qo'lda yangilanish ketyapti) — keyingi tsiklda urinamiz.
+        if (res) console.log(`[worker] billing auto-sync ${firmCode}: ${res.done}/${res.total}`);
+      }
+    } catch (e) {
+      // syncFirm holatni allaqachon FAILED deb yozgan; bu yerda faqat log.
+      console.error('[worker] billing auto-sync error', e instanceof Error ? e.message : e);
+    }
+    await new Promise((r) => setTimeout(r, AUTO_CHECK_MS));
+  }
+}
+
 for (const sig of ['SIGTERM', 'SIGINT'] as const) {
   process.on(sig, () => {
     if (stopping) return;
@@ -96,6 +128,8 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
     stopping = true;
   });
 }
+
+void billingAutoSyncLoop().catch((e) => console.error('[worker] billing auto-sync fatal', e));
 
 loop().catch((e) => {
   console.error('[worker] fatal', e);

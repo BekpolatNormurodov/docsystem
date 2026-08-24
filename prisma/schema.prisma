@@ -598,6 +598,24 @@ model BillingCheckInvoice {
   @@index([invoiceStatus])
 }
 
+// Firma bo'yicha yig'ish holati — DAVOMLI qulf va progress. Bitta qator = bitta firma.
+// Ikki narsani beradi: (1) «oxirgi qachon yangilangan» (avtomatik yangilash shu asosda
+// har yarim soatda ishlaydi), (2) bir vaqtda faqat BITTA yig'ish ketishini ta'minlaydigan
+// qulf — jarayon web'da (qo'lda) yoki worker'da (avtomatik) boshlanishidan qat'i nazar.
+model BillingCheckSync {
+  id         Int       @id @default(autoincrement())
+  firmCode   String    @unique
+  status     String    @default("IDLE") // IDLE | RUNNING | FAILED
+  startedAt  DateTime?
+  finishedAt DateTime? // oxirgi MUVAFFAQIYATLI yakun — avtomatik jadval shundan hisoblanadi
+  done       Int       @default(0) // jonli progress
+  total      Int       @default(0) // billing'dagi jami (totalElements)
+  lastCount  Int       @default(0) // oxirgi muvaffaqiyatli yugurishda olingan soni
+  trigger    String? // MANUAL | AUTO
+  message    String?   @db.Text
+  updatedAt  DateTime  @updatedAt
+}
+
 // Har bir qidiruv/yangilash amali — tarix uchun (kim, qachon, nima qidirdi, natija).
 model BillingCheckQuery {
   id          Int      @id @default(autoincrement())

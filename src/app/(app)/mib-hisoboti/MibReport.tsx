@@ -30,7 +30,7 @@ interface Stats {
   totalRemainingDebt: number; firms: { name: string; inn: string; cases: number; clients: number; remainingDebt: number }[];
 }
 interface HolatValue { value: string; count: number }
-interface MibConfig { phone: string; baseUrl: string; intervalSec: number; webhookUrl: string }
+interface MibConfig { phone: string; phonePending: string; phoneConfirmedAt: string; baseUrl: string; intervalSec: number; webhookUrl: string }
 
 const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
 const n = (x: number) => (x || 0).toLocaleString('ru-RU');
@@ -121,8 +121,10 @@ function ConfigCard() {
 
   const save = async () => {
     const full = phone9.length === 9 ? `998${phone9}` : '';
-    const { json } = await jpost('/api/mib/config', { phone: full, intervalSec: Number(interval) || 60 });
+    // Interval kamida 60s — bundan tez urish MIB tomonidan bloklanadi.
+    const { json } = await jpost('/api/mib/config', { phone: full, intervalSec: Math.max(60, Number(interval) || 60) });
     setCfg((c) => c ? { ...c, ...json } : c);
+    if (json?.intervalSec) setIntervalS(String(json.intervalSec));
     setSaved(true); setTimeout(() => setSaved(false), 1500);
   };
 
@@ -137,7 +139,14 @@ function ConfigCard() {
     const tick = async () => {
       if (Date.now() > deadline) { setTestState('timeout'); return; }
       const r = await jget(`/api/mib/test-sms?after=${baseline}`);
-      if (r?.code) { setTestCode(String(r.code)); setTestState('ok'); return; }
+      if (r?.code) {
+        setTestCode(String(r.code));
+        setTestState('ok');
+        // SMS kelishi — kutayotgan raqamning haqiqiyligi isboti. Server uni shu paytda
+        // ishlayotgan raqamga aylantiradi; sozlamani qayta o'qib holatni yangilaymiz.
+        if (r.confirmedPhone) void load();
+        return;
+      }
       setTimeout(() => { void tick(); }, 3000);
     };
     void tick();
@@ -156,10 +165,29 @@ function ConfigCard() {
           </div>
         </label>
         <label>
-          <span className="field-label">Interval (sekund)</span>
+          <span className="field-label">Interval (sekund, eng kami 60)</span>
           <input className="field-input tabular-nums" inputMode="numeric" value={interval} onChange={(e) => setIntervalS(e.target.value.replace(/\D/g, ''))} />
         </label>
         <button className="btn-primary shrink-0" onClick={save}>{saved ? <><Ico.check size={16} /> Saqlandi</> : 'Saqlash'}</button>
+      </div>
+
+      {/* Raqam holati: saqlash o'zi raqamni ALMASHTIRMAYDI — faqat o'sha raqamdan test SMS
+          kelgach almashadi. Shunda xato terilgan raqam OTP oqimini jimgina sindirmaydi. */}
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-muted">Ishlayotgan raqam:</span>
+        {cfg?.phone
+          ? <span className="badge border-emerald-500/30 text-emerald-600 dark:text-emerald-300 tabular-nums">+{cfg.phone} · tasdiqlangan</span>
+          : <span className="badge border-line text-muted">hali yo‘q</span>}
+        {cfg?.phonePending && (
+          <>
+            <span className="badge border-amber-500/30 text-amber-600 dark:text-amber-300 tabular-nums">
+              +{cfg.phonePending} · tasdiqlanmagan
+            </span>
+            <span className="text-amber-600 dark:text-amber-300">
+              — shu raqamdan test SMS yuboring, shundan keyingina almashadi
+            </span>
+          </>
+        )}
       </div>
       {cfg?.webhookUrl && (
         <div className="mt-3 flex items-center gap-2 rounded-xl border border-line bg-surface-2 px-3 py-2">

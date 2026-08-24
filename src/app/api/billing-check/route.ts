@@ -33,7 +33,13 @@ export async function GET(req: NextRequest) {
       : {}),
   };
 
-  const [invoices, total, summary] = await Promise.all([
+  // Statistika holat bo'yicha bo'linadi, shuning uchun uning o'zi holat filtriga bog'lanmaydi —
+  // faqat firma va qidiruvga. Shunda «To'langan (ishlatilmagan)» chipini bosganda ham
+  // yuqoridagi umumiy sonlar joyida turadi.
+  const statsWhere: Prisma.BillingCheckInvoiceWhereInput = { ...where };
+  delete (statsWhere as { invoiceStatus?: unknown }).invoiceStatus;
+
+  const [invoices, total, summary, stats] = await Promise.all([
     prisma.billingCheckInvoice.findMany({
       where,
       // Yangi kvitansiyalar tepada. issuedAt faqat ro'yxatdan kelganda to'ladi (bitta raqam
@@ -45,7 +51,13 @@ export async function GET(req: NextRequest) {
     prisma.billingCheckInvoice.count({ where }),
     // Chip'lardagi sonlar — qidiruv/holat filtridan MUSTAQIL, faqat firma kesimida.
     prisma.billingCheckInvoice.groupBy({ by: ['firmCode'], _count: { _all: true } }),
+    prisma.billingCheckInvoice.groupBy({
+      by: ['invoiceStatus'],
+      where: statsWhere,
+      _count: { _all: true },
+      _sum: { amount: true },
+    }),
   ]);
 
-  return NextResponse.json({ invoices, total, page, size, summary });
+  return NextResponse.json({ invoices, total, page, size, summary, stats });
 }
