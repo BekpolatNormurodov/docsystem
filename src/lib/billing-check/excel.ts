@@ -16,6 +16,7 @@ const DATE_FMT = 'dd.mm.yyyy hh:mm';
 export const STATUS_UZ: Record<string, string> = {
   CREATED: "To'lanmagan",
   PAID: "To'langan (ishlatilmagan)",
+  PARTIALLY_PAID: "Qisman to'langan",
   USED: 'Foydalanilgan',
 };
 
@@ -103,7 +104,7 @@ export async function buildBillingCheckExcel(rows: BillingCheckInvoice[]): Promi
     { header: 'Soni', key: 'count', width: 10 },
     { header: 'Summasi', key: 'sum', width: 18 },
   ];
-  const STATUS_ORDER = ['PAID', 'CREATED', 'USED'];
+  const STATUS_ORDER = ['PAID', 'PARTIALLY_PAID', 'CREATED', 'USED'];
   for (const g of groups) {
     if (!g.rows.length) continue;
     for (const st of STATUS_ORDER) {
@@ -111,9 +112,13 @@ export async function buildBillingCheckExcel(rows: BillingCheckInvoice[]): Promi
       if (!sub.length) continue;
       s.addRow({ firm: g.name, status: STATUS_UZ[st] ?? st, count: sub.length, sum: sub.reduce((a, r) => a + num(r.amount), 0) });
     }
-    // Holati ro'yxatdan tashqari bo'lganlar (kutilmagan qiymat) ham yo'qolmasin.
-    const rest = g.rows.filter((r) => !STATUS_ORDER.includes(r.invoiceStatus));
-    if (rest.length) s.addRow({ firm: g.name, status: rest[0].invoiceStatus, count: rest.length, sum: rest.reduce((a, r) => a + num(r.amount), 0) });
+    // Ro'yxatdan tashqari holatlar (billing yangisini qo'shsa) ham yo'qolmasin — HAR BIRI
+    // o'z qatorida, aks holda turlicha holatlar bitta yorliq ostida qo'shilib ketardi.
+    const restStatuses = [...new Set(g.rows.map((r) => r.invoiceStatus).filter((st) => !STATUS_ORDER.includes(st)))].sort();
+    for (const st of restStatuses) {
+      const sub = g.rows.filter((r) => r.invoiceStatus === st);
+      s.addRow({ firm: g.name, status: STATUS_UZ[st] ?? st, count: sub.length, sum: sub.reduce((a, r) => a + num(r.amount), 0) });
+    }
   }
   const unused = rows.filter((r) => r.invoiceStatus === 'PAID');
   s.addRow({});

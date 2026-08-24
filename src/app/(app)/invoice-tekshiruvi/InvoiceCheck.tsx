@@ -55,20 +55,29 @@ interface SyncState {
 
 interface StatRow { invoiceStatus: string; _count: { _all: number }; _sum: { amount: string | number | null } }
 
-const STATUSES = ['PAID', 'CREATED', 'USED'] as const;
+// Ko'rsatish tartibi. Ro'yxatning O'ZI bazadagi haqiqiy holatlardan quriladi (pastdagi
+// `statusList`), bu esa faqat tartib va yorliq beradi — billing yangi holat qo'shsa
+// (masalan PARTIALLY_PAID shunday topilgan), u ko'rinmay qolmaydi, oxiriga qo'shiladi.
+const STATUS_ORDER = ['PAID', 'PARTIALLY_PAID', 'CREATED', 'USED'];
 const STATUS_LABEL: Record<string, string> = {
   CREATED: "To'lanmagan",
   PAID: "To'langan (ishlatilmagan)",
+  PARTIALLY_PAID: "Qisman to'langan",
   USED: 'Foydalanilgan',
 };
 // Jadvalda qisqa yorliq — uzuni qatorlarni ikki qatorga cho'zib yuboradi. Rang farqlaydi,
 // to'liq matni esa `title` da va statistika kartochkalarida turadi.
-const STATUS_SHORT: Record<string, string> = { CREATED: "To'lanmagan", PAID: "To'langan", USED: 'Foydalanilgan' };
+const STATUS_SHORT: Record<string, string> = {
+  CREATED: "To'lanmagan", PAID: "To'langan", PARTIALLY_PAID: 'Qisman', USED: 'Foydalanilgan',
+};
 const STATUS_STYLE: Record<string, string> = {
   CREATED: 'border-rose-500/30 text-rose-600 dark:text-rose-300',
   PAID: 'border-emerald-500/30 text-emerald-600 dark:text-emerald-300',
+  PARTIALLY_PAID: 'border-sky-500/30 text-sky-600 dark:text-sky-300',
   USED: 'border-amber-500/30 text-amber-600 dark:text-amber-300',
 };
+const statusLabel = (s: string) => STATUS_LABEL[s] ?? s;
+const statusShort = (s: string) => STATUS_SHORT[s] ?? s;
 
 const SIZES = [10, 20, 50] as const;
 
@@ -174,7 +183,7 @@ function InvoiceDetail({ inv }: { inv: CheckedInvoice }) {
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <span className="font-mono text-sm font-semibold">{inv.number}</span>
         <span className={cx('badge', STATUS_STYLE[inv.invoiceStatus] ?? 'border-line text-muted')}>
-          {STATUS_LABEL[inv.invoiceStatus] ?? inv.invoiceStatus}
+          {statusLabel(inv.invoiceStatus)}
         </span>
         {inv.firmCode && <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">{firmLabel(inv.firmCode)}</span>}
       </div>
@@ -306,6 +315,11 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
   const countFor = (code: string | null) => summary.find((s) => s.firmCode === code)?._count?._all ?? 0;
   const cachedTotal = summary.reduce((s, r) => s + r._count._all, 0);
   const statFor = (st: string) => stats.find((s) => s.invoiceStatus === st);
+  // Bazada haqiqatan uchraydigan holatlar, ma'lum tartibda; notanishlari oxirida.
+  const statusList = [
+    ...STATUS_ORDER.filter((s) => stats.some((x) => x.invoiceStatus === s)),
+    ...stats.map((s) => s.invoiceStatus).filter((s) => !STATUS_ORDER.includes(s)).sort(),
+  ];
 
   const startSync = useCallback(async () => {
     if (!activeFirm) return;
@@ -403,8 +417,8 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
       {err && <div className="text-sm text-rose-600 dark:text-rose-300">{err}</div>}
 
       {/* statistika — «to'langan, ishlatilmagan» eng muhimi */}
-      <div className="grid gap-3 sm:grid-cols-3">
-        {STATUSES.map((st) => {
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {statusList.map((st) => {
           const s = statFor(st);
           return (
             <div key={st} className={cx('rounded-xl border p-3', st === 'PAID' ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-line')}>
@@ -412,7 +426,7 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
                 {(s?._count?._all ?? 0).toLocaleString('ru-RU')} ta
               </div>
               <div className="mt-0.5 text-sm tabular-nums text-muted">{money(s?._sum?.amount ?? 0)} so‘m</div>
-              <div className="mt-1 text-xs text-muted">{STATUS_LABEL[st]}</div>
+              <div className="mt-1 text-xs text-muted">{statusLabel(st)}</div>
             </div>
           );
         })}
@@ -435,8 +449,8 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
           )}
         </div>
         <Chip active={status === null} onClick={() => { setStatus(null); setPage(0); }}>Barcha holat</Chip>
-        {STATUSES.map((s) => (
-          <Chip key={s} active={status === s} onClick={() => { setStatus(s); setPage(0); }}>{STATUS_LABEL[s]}</Chip>
+        {statusList.map((s) => (
+          <Chip key={s} active={status === s} onClick={() => { setStatus(s); setPage(0); }}>{statusLabel(s)}</Chip>
         ))}
       </div>
 
@@ -491,9 +505,9 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
                   <td className="px-3 py-2">
                     <span
                       className={cx('badge whitespace-nowrap', STATUS_STYLE[row.invoiceStatus] ?? 'border-line text-muted')}
-                      title={STATUS_LABEL[row.invoiceStatus] ?? row.invoiceStatus}
+                      title={statusLabel(row.invoiceStatus)}
                     >
-                      {STATUS_SHORT[row.invoiceStatus] ?? row.invoiceStatus}
+                      {statusShort(row.invoiceStatus)}
                     </span>
                   </td>
                   <td className="px-3 py-2 text-muted">{val(row.payCategory ?? row.description)}</td>
