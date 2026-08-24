@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico, Spinner, Modal, Select, useConfirm } from '@/ui';
 import { FIRMS, type FirmCfg } from '@/lib/firms';
-import { isOwnAmount } from '@/lib/billing-check/filters';
+import { isOwn, DEFAULT_OWN_AMOUNTS_TIYIN } from '@/lib/billing-check/filters';
 
 const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
 
@@ -242,6 +242,9 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
   const [stats, setStats] = useState<StatRow[]>([]);
   const [catFacet, setCatFacet] = useState<{ payCategory: string | null; _count: { _all: number } }[]>([]);
   const [amountFacet, setAmountFacet] = useState<{ amount: string | number | null; _count: { _all: number } }[]>([]);
+  // «Bizning summalarimiz» (tiyinda) — sozlamadan keladi, modalda o'zgartiriladi.
+  const [ownAmounts, setOwnAmounts] = useState<number[]>([]);
+  const [ownOpen, setOwnOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<CheckedInvoice | null>(null);
 
@@ -289,6 +292,7 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
     setStats(j.stats ?? []);
     setCatFacet(j.catFacet ?? []);
     setAmountFacet(j.amountFacet ?? []);
+    setOwnAmounts(j.ownAmounts ?? []);
     setLoading(false);
   }, [filterParams, page, size]);
 
@@ -350,8 +354,8 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
       .sort((a, b) => b._count._all - a._count._all)
       .map((c) => ({ value: c.payCategory as string, label: `${c.payCategory} (${c._count._all})` })),
   ];
-  const ownCount = amountFacet.filter((a) => isOwnAmount(a.amount)).reduce((s, a) => s + a._count._all, 0);
-  const extraCount = amountFacet.filter((a) => a.amount !== null && !isOwnAmount(a.amount)).reduce((s, a) => s + a._count._all, 0);
+  const ownCount = amountFacet.filter((a) => isOwn(a.amount, ownAmounts)).reduce((s, a) => s + a._count._all, 0);
+  const extraCount = amountFacet.filter((a) => a.amount !== null && !isOwn(a.amount, ownAmounts)).reduce((s, a) => s + a._count._all, 0);
   const amountOptions = [
     { value: '', label: 'Barcha summa' },
     { value: 'own', label: `Bizniki (${ownCount})` },
@@ -471,6 +475,9 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
       <div className="flex flex-wrap items-center gap-2">
         <Select value={cat} onChange={(v) => { setCat(v); setPage(0); }} options={catOptions} className="w-64" />
         <Select value={amount} onChange={(v) => { setAmount(v); setPage(0); }} options={amountOptions} className="w-56" />
+        <button className="btn-ghost !py-1.5 !px-3 text-sm" onClick={() => setOwnOpen(true)} title="Qaysi summalar bizniki — sozlash">
+          <Ico.settings size={14} className="mr-1 inline" />Bizning summalar
+        </button>
         {(cat || amount || status || dq) && (
           <button
             className="btn-ghost !py-1.5 !px-3 text-sm"
@@ -526,7 +533,7 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
                   <td className="px-3 py-2 text-muted">{val(row.payCategory ?? row.description)}</td>
                   <td className="px-3 py-2 whitespace-nowrap tabular-nums">
                     {money(row.amount)}
-                    {!isOwnAmount(row.amount) && (
+                    {!isOwn(row.amount, ownAmounts) && (
                       <span className="badge ml-2 border-orange-500/30 text-orange-600 dark:text-orange-300" title="Bizning standart summalarimizdan emas — odatda bekor qilinadi">
                         ortiqcha
                       </span>
@@ -565,7 +572,101 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
       </div>
 
       <DetailModal inv={detail} onClose={() => setDetail(null)} />
+      <OwnAmountsModal
+        open={ownOpen}
+        onClose={() => setOwnOpen(false)}
+        amountFacet={amountFacet}
+        value={ownAmounts}
+        onSaved={(list) => { setOwnAmounts(list); void load(); }}
+      />
     </section>
+  );
+}
+
+/**
+ * «Bizning summalarimiz» ni sozlash. Bazadagi mavjud summalar belgilanadi, va ro'yxatda
+ * yo'q summani ham qo'lda qo'shish mumkin (hali bironta kvitansiya kelmagan bo'lsa).
+ */
+function OwnAmountsModal({
+  open, onClose, amountFacet, value, onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  amountFacet: { amount: string | number | null; _count: { _all: number } }[];
+  value: number[];
+  onSaved: (list: number[]) => void;
+}) {
+  const [sel, setSel] = useState<number[]>(value);
+  const [extra, setExtra] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // Modal ochilganda joriy tanlovdan boshlanadi.
+  useEffect(() => { if (open) { setSel(value); setExtra(''); } }, [open, value]);
+
+  // Bazadagi summalar + tanlanganu bazada yo'qlari (qo'lda qo'shilgan bo'lishi mumkin).
+  const known = amountFacet.map((a) => Number(a.amount)).filter((n) => Number.isFinite(n));
+  const all = [...new Set([...known, ...sel])].sort((a, b) => a - b);
+  const countOf = (n: number) => amountFacet.find((a) => Number(a.amount) === n)?._count?._all ?? 0;
+  const toggle = (n: number) => setSel((s) => (s.includes(n) ? s.filter((x) => x !== n) : [...s, n]));
+
+  const addExtra = () => {
+    // Foydalanuvchi SO'MDA kiritadi, saqlanadigani — tiyinda.
+    const som = Number(extra.replace(/[^\d.]/g, ''));
+    if (!Number.isFinite(som) || som <= 0) return;
+    const tiyin = Math.round(som * 100);
+    setSel((s) => (s.includes(tiyin) ? s : [...s, tiyin]));
+    setExtra('');
+  };
+
+  const save = async () => {
+    setSaving(true);
+    const { ok, json } = await jpost('/api/billing-check/own-amounts', { amounts: sel });
+    setSaving(false);
+    if (ok) { onSaved(json.ownAmounts ?? sel); onClose(); }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Bizning summalarimiz" size="md"
+      footer={
+        <div className="flex items-center justify-between gap-2">
+          <button className="btn-ghost" onClick={() => setSel(DEFAULT_OWN_AMOUNTS_TIYIN)}>Standart (20 600 / 22 000)</button>
+          <div className="flex gap-2">
+            <button className="btn-ghost" onClick={onClose}>Bekor</button>
+            <button className="btn-primary" onClick={() => void save()} disabled={saving}>
+              {saving ? <Spinner size={14} className="mr-1.5" /> : null}Saqlash
+            </button>
+          </div>
+        </div>
+      }
+    >
+      <p className="mb-3 text-sm text-muted">
+        Biz yaratadigan kvitansiyalarning summalarini belgilang. Belgilanmaganlari
+        «ortiqcha» deb ko'rsatiladi — summa xato kiritilgan yoki sud qo'shimcha qo'ygan bo'ladi.
+      </p>
+      <div className="space-y-1.5">
+        {all.map((n) => (
+          <label key={n} className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-line px-3 py-2 hover:bg-surface-2">
+            <input type="checkbox" checked={sel.includes(n)} onChange={() => toggle(n)} className="size-4 accent-[var(--brand-600,#2563eb)]" />
+            <span className="tabular-nums">{money(n)} so‘m</span>
+            <span className="ml-auto text-xs text-muted">{countOf(n) ? `${countOf(n)} ta` : 'bazada yo‘q'}</span>
+          </label>
+        ))}
+        {!all.length && <div className="text-sm text-muted">Bazada hali summa yo‘q — pastdan qo‘lda qo‘shing.</div>}
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <input
+          value={extra}
+          onChange={(e) => setExtra(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') addExtra(); }}
+          placeholder="Boshqa summa (so‘mda, masalan 25000)"
+          className="field-input flex-1"
+          inputMode="numeric"
+        />
+        <button className="btn-ghost" onClick={addExtra} disabled={!extra.trim()}>
+          <Ico.add size={14} className="mr-1 inline" />Qo‘shish
+        </button>
+      </div>
+    </Modal>
   );
 }
 

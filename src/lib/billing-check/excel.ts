@@ -5,7 +5,7 @@
 import ExcelJS from 'exceljs';
 import type { BillingCheckInvoice } from '@prisma/client';
 import { FIRMS, type FirmCfg } from '@/lib/firms';
-import { isOwnAmount } from './filters';
+import { isOwn } from './filters';
 
 // billing.sud.uz summalarni TIYINDA qaytaradi (2 060 000 = 20 600,00 so'm). Bazada xom
 // holicha saqlanadi — so'mga bu yerda aylantiriladi, shunda Excel'dagi yig'indilar to'g'ri.
@@ -39,7 +39,7 @@ const COLUMNS = [
   { header: 'Tekshirilgan', key: 'checked', width: 18 },
 ];
 
-function addInvoiceSheet(wb: ExcelJS.Workbook, name: string, rows: BillingCheckInvoice[]) {
+function addInvoiceSheet(wb: ExcelJS.Workbook, name: string, rows: BillingCheckInvoice[], ownAmounts: number[]) {
   const ws = wb.addWorksheet(name);
   ws.columns = COLUMNS;
   rows.forEach((r, i) => {
@@ -51,7 +51,7 @@ function addInvoiceSheet(wb: ExcelJS.Workbook, name: string, rows: BillingCheckI
       tin: r.payerTin ?? '',
       court: r.court ?? '',
       amount: num(r.amount),
-      own: isOwnAmount(r.amount) ? 'Ha' : 'ortiqcha',
+      own: isOwn(r.amount, ownAmounts) ? 'Ha' : 'ortiqcha',
       mustPay: num(r.mustPayAmount),
       paid: num(r.paidAmount),
       balance: num(r.balance),
@@ -82,7 +82,7 @@ function addInvoiceSheet(wb: ExcelJS.Workbook, name: string, rows: BillingCheckI
   return ws;
 }
 
-export async function buildBillingCheckExcel(rows: BillingCheckInvoice[]): Promise<Buffer> {
+export async function buildBillingCheckExcel(rows: BillingCheckInvoice[], ownAmounts: number[] = []): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.created = new Date();
 
@@ -97,7 +97,7 @@ export async function buildBillingCheckExcel(rows: BillingCheckInvoice[]): Promi
   // Bo'sh firmalar ham varaq sifatida qoladi (tartib barqaror bo'lsin), lekin hech qanday
   // ma'lumot bo'lmasa — hech bo'lmasa bitta varaq chiqsin.
   const nonEmpty = groups.filter((g) => g.rows.length);
-  for (const g of (nonEmpty.length ? nonEmpty : groups.slice(0, 1))) addInvoiceSheet(wb, g.name, g.rows);
+  for (const g of (nonEmpty.length ? nonEmpty : groups.slice(0, 1))) addInvoiceSheet(wb, g.name, g.rows, ownAmounts);
 
   // ── Xulosa: firma × holat, + «to'langan, ishlatilmagan» alohida ──────────────
   const s = wb.addWorksheet('Xulosa');
@@ -131,7 +131,7 @@ export async function buildBillingCheckExcel(rows: BillingCheckInvoice[]): Promi
   });
   hi.font = { bold: true };
   // «Ortiqcha» — bizning standart summalarimizdan boshqasi; odatda bekor qilinadi.
-  const extra = rows.filter((r) => !isOwnAmount(r.amount));
+  const extra = rows.filter((r) => !isOwn(r.amount, ownAmounts));
   if (extra.length) {
     const ex = s.addRow({
       firm: 'HAMMASI', status: 'Ortiqcha (bizning summa emas)',

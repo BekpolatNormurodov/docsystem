@@ -3,6 +3,7 @@ import { requireAdmin } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { buildBillingCheckExcel } from '@/lib/billing-check/excel';
 import { buildInvoiceWhere } from '@/lib/billing-check/filters';
+import { getOwnAmounts } from '@/lib/billing-check/config';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -13,12 +14,13 @@ export const maxDuration = 60;
 export async function GET(req: NextRequest) {
   await requireAdmin();
   const sp = req.nextUrl.searchParams;
+  const ownAmounts = await getOwnAmounts();
   const rows = await prisma.billingCheckInvoice.findMany({
-    where: buildInvoiceWhere(sp),
+    where: buildInvoiceWhere(sp, ownAmounts),
     orderBy: [{ issuedAt: 'desc' }, { checkedAt: 'desc' }],
   });
 
-  const buf = await buildBillingCheckExcel(rows);
+  const buf = await buildBillingCheckExcel(rows, ownAmounts);
   const parts = ['kvitansiyalar', sp.get('firm'), sp.get('status')].filter(Boolean);
   const name = `${parts.join('-')}.xlsx`;
   return new NextResponse(buf as unknown as BodyInit, {

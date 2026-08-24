@@ -3,6 +3,7 @@ import { requireAdmin } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import type { Prisma } from '@prisma/client';
 import { buildInvoiceWhere } from '@/lib/billing-check/filters';
+import { getOwnAmounts } from '@/lib/billing-check/config';
 
 export const runtime = 'nodejs';
 
@@ -14,7 +15,8 @@ export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const page = Math.max(0, Number(sp.get('page')) || 0);
   const size = Math.min(200, Math.max(1, Number(sp.get('size')) || 20));
-  const where = buildInvoiceWhere(sp);
+  const ownAmounts = await getOwnAmounts();
+  const where = buildInvoiceWhere(sp, ownAmounts);
 
   // Statistika holat bo'yicha bo'linadi, shuning uchun uning o'zi holat filtriga bog'lanmaydi —
   // qolgan filtrlar (firma/tur/summa/qidiruv) esa amal qiladi. Shunda «To'langan
@@ -48,5 +50,5 @@ export async function GET(req: NextRequest) {
     prisma.billingCheckInvoice.groupBy({ by: ['amount'], where: facetWhere, _count: { _all: true } }),
   ]);
 
-  return NextResponse.json({ invoices, total, page, size, summary, stats, catFacet, amountFacet });
+  return NextResponse.json({ invoices, total, page, size, summary, stats, catFacet, amountFacet, ownAmounts });
 }
