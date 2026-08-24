@@ -121,7 +121,7 @@ export function InvoiceCheck() {
           <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">Alohida · stepga kirmaydi</span>
         </div>
         <p className="mt-1 max-w-2xl text-sm text-muted">
-          Kvitansiyalar firma bo'yicha bazaga yig'iladi va <b>har yarim soatda o'zi yangilanadi</b>.
+          Kvitansiyalar firma bo'yicha bazaga yig'iladi va <b>har 2 soatda o‘zi yangilanadi</b>.
           Qidiruv, filtr va Excel — shu bazadan.
         </p>
       </header>
@@ -386,9 +386,9 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
 
       {/* yig'ish holati — avtomatik, qo'lda ham majburlash mumkin */}
       <div className="rounded-xl border border-line bg-surface-2/40 p-3">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           {running ? (
-            <>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <Spinner size={14} />
               <span className="text-sm">
                 <b>{runningSync?.firmName ?? '—'}</b> yig‘ilmoqda
@@ -398,7 +398,7 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
                 {runningSync?.trigger === 'AUTO' && <span className="ml-2 text-muted">· avtomatik</span>}
               </span>
               <span className="text-sm text-amber-600 dark:text-amber-300">— tugagunicha yangi yangilash boshlanmaydi</span>
-            </>
+            </div>
           ) : (
             <>
               <span className="text-sm text-muted">
@@ -416,9 +416,9 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
                     <span className="text-fg">{dt(oldestSync)}</span>
                   </>
                 )}
+                <span className="ml-1">· har 2 soatda avtomatik</span>
               </span>
-              <span className="text-sm text-muted">· har 30 daqiqada avtomatik</span>
-              <div className="ml-auto flex items-center gap-2">
+              <div className="flex items-center gap-2">
                 <Select
                   value={String(syncLimit)}
                   onChange={(v) => setSyncLimit(Number(v))}
@@ -485,27 +485,37 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
           ))}
         </FilterRow>
 
-        <FilterRow label="Tegishli">
+        <FilterRow label="Summa">
           <Chip active={amount !== 'own' && amount !== 'extra'} onClick={() => { setAmount(''); setPage(0); }}>Barchasi</Chip>
-          <Chip active={amount === 'own'} onClick={() => { setAmount('own'); setPage(0); }}>Bizniki ({ownCount})</Chip>
-          <Chip active={amount === 'extra'} onClick={() => { setAmount('extra'); setPage(0); }}>Ortiqcha ({extraCount})</Chip>
-          <button
-            className="rounded-lg border border-line p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
-            onClick={() => setOwnOpen(true)}
-            title="Qaysi summalar bizniki — sozlash"
-          >
-            <Ico.settings size={15} />
-          </button>
-          <span className="text-xs text-muted">
-            {ownAmounts.length ? `bizniki: ${ownAmounts.map((n) => money(n)).join(' · ')}` : 'bizniki summa belgilanmagan'}
+          <Chip tone="own" active={amount === 'own'} onClick={() => { setAmount('own'); setPage(0); }}>
+            Bizniki ({ownCount})
+          </Chip>
+          <Chip tone="extra" active={amount === 'extra'} onClick={() => { setAmount('extra'); setPage(0); }}>
+            Ortiqcha ({extraCount})
+          </Chip>
+          {/* Qaysi summalar «bizniki» — shu yerda ko'rinib turadi, modalni ochish shart emas. */}
+          <span className="flex flex-wrap items-center gap-1.5">
+            {ownAmounts.length ? (
+              ownAmounts.map((n) => (
+                <span key={n} className="badge border-emerald-500/30 tabular-nums text-emerald-600 dark:text-emerald-300">
+                  {money(n)}
+                </span>
+              ))
+            ) : (
+              <span className="text-xs text-amber-600 dark:text-amber-300">bizniki summa belgilanmagan</span>
+            )}
+            <button
+              className="rounded-full border border-line p-1.5 text-muted transition-colors hover:border-emerald-500/40 hover:text-emerald-600 dark:hover:text-emerald-300"
+              onClick={() => setOwnOpen(true)}
+              title="Qaysi summalar bizniki — sozlash"
+            >
+              <Ico.settings size={14} />
+            </button>
           </span>
         </FilterRow>
 
-        <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-          <label className="flex flex-col gap-1">
-            <span className="text-xs font-medium uppercase tracking-wide text-muted">Turi</span>
-            <Select value={cat} onChange={(v) => { setCat(v); setPage(0); }} options={catOptions} className="w-64" />
-          </label>
+        <FilterRow label="Turi">
+          <Select value={cat} onChange={(v) => { setCat(v); setPage(0); }} options={catOptions} className="w-64" />
           {activeFilters > 0 && (
             <button
               className="btn-ghost !py-1.5 !px-3 text-sm"
@@ -514,20 +524,7 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
               <Ico.close size={14} className="mr-1 inline" />Tozalash ({activeFilters})
             </button>
           )}
-          <div className="ml-auto flex items-center gap-1 text-sm text-muted">
-            <span>Sahifada:</span>
-            {SIZES.map((n) => (
-              <button
-                key={n}
-                onClick={() => { setSize(n); setPage(0); }}
-                className={cx('rounded-lg border px-2 py-1 tabular-nums transition-colors',
-                  size === n ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line hover:bg-surface-2 hover:text-fg')}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
-        </div>
+        </FilterRow>
       </div>
 
       {/* jadval */}
@@ -583,10 +580,24 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
       </div>
 
       {/* sahifalash */}
-      <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted">
+      <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted">
         <span className="tabular-nums">
           {total ? `${page * size + 1} – ${Math.min((page + 1) * size, total)} / ${total}` : '0'}
         </span>
+        {/* Sahifa o'lchami sahifalash bilan birga — ikkalasi ham «qancha va qaysi bet» haqida. */}
+        <div className="flex items-center gap-1">
+          <span className="mr-1">Sahifada:</span>
+          {SIZES.map((n) => (
+            <button
+              key={n}
+              onClick={() => { setSize(n); setPage(0); }}
+              className={cx('rounded-lg border px-2 py-1 tabular-nums transition-colors',
+                size === n ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line hover:bg-surface-2 hover:text-fg')}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
         <div className="flex items-center gap-1">
           <button className="btn-ghost !py-1 !px-2" disabled={loading || page <= 0} onClick={() => setPage(0)} title="Boshiga">«</button>
           <button className="btn-ghost !py-1 !px-2" disabled={loading || page <= 0} onClick={() => setPage((p) => p - 1)}>
@@ -673,12 +684,18 @@ function OwnAmountsModal({
           on ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-line hover:bg-surface-2',
         )}
       >
-        <input
-          type="checkbox"
-          checked={on}
-          onChange={() => toggle(n)}
-          className="size-4 shrink-0 rounded accent-emerald-600"
-        />
+        {/* Native checkbox yashirin — brauzerlar uni turlicha chizadi va qora kvadrat
+            bo'lib ko'rinardi. O'rniga o'z belgimiz (fokus halqasi saqlanadi). */}
+        <input type="checkbox" checked={on} onChange={() => toggle(n)} className="peer sr-only" />
+        <span
+          aria-hidden
+          className={cx(
+            'flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40',
+            on ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-line bg-surface',
+          )}
+        >
+          {on && <Ico.check size={14} />}
+        </span>
         <span className={cx('shrink-0 tabular-nums', on && 'font-medium')}>{money(n)} so‘m</span>
         {/* Ulush chizig'i — eng ko'p uchraganiga nisbatan */}
         <span className="ml-auto flex items-center gap-2">
@@ -712,15 +729,19 @@ function OwnAmountsModal({
         </div>
       }
     >
-      <p className="mb-4 text-sm text-muted">
-        Biz yaratadigan kvitansiyalarning summalarini belgilang. Belgilanmaganlari
-        «ortiqcha» deb ko‘rsatiladi — summa xato kiritilgan yoki sud qo‘shimcha qo‘ygan bo‘ladi.
+      <p className="mb-4 text-sm leading-relaxed text-muted">
+        Biz yaratadigan kvitansiyalar qaysi summada bo‘lishini belgilang.
+        Belgilanmagan summalar <b className="font-medium text-orange-600 dark:text-orange-300">ortiqcha</b> deb
+        ko‘rsatiladi — bunday kvitansiya summasi xato kiritilgan yoki sud qo‘shimcha qo‘ygan bo‘ladi.
       </p>
 
       {picked.length > 0 && (
         <>
-          <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
-            Bizniki ({picked.length})
+          <div className="mb-1.5 flex items-baseline gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+              Bizniki
+            </span>
+            <span className="text-xs text-muted">{picked.length} ta summa · shu summadagilar to‘g‘ri hisoblanadi</span>
           </div>
           <div className="mb-4 space-y-1.5">{picked.map((n) => <Row key={n} n={n} />)}</div>
         </>
@@ -728,8 +749,11 @@ function OwnAmountsModal({
 
       {rest.length > 0 && (
         <>
-          <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted">
-            Qolganlari ({rest.length}) — ortiqcha deb belgilanadi
+          <div className="mb-1.5 flex items-baseline gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-orange-600 dark:text-orange-300">
+              Ortiqcha
+            </span>
+            <span className="text-xs text-muted">{rest.length} ta summa · belgilansa «bizniki» ga o‘tadi</span>
           </div>
           {/* Quyruq uzun bo'lishi mumkin — modal cho'zilib ketmasin. */}
           <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">{rest.map((n) => <Row key={n} n={n} />)}</div>
@@ -765,14 +789,27 @@ function FilterRow({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
-function Chip({ active, onClick, children, disabled }: { active: boolean; onClick: () => void; children: React.ReactNode; disabled?: boolean }) {
+// Faol holatdagi rang. `tone` — tasnif chiplari uchun (bizniki yashil, ortiqcha to'q sariq),
+// shunda ular oddiy filtrdan ko'ra ma'noni bildiruvchi belgiga o'xshaydi.
+const CHIP_TONE = {
+  brand: 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300',
+  own: 'border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+  extra: 'border-orange-500 bg-orange-500/10 text-orange-700 dark:text-orange-300',
+} as const;
+
+function Chip({
+  active, onClick, children, disabled, tone = 'brand',
+}: {
+  active: boolean; onClick: () => void; children: React.ReactNode; disabled?: boolean;
+  tone?: keyof typeof CHIP_TONE;
+}) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       className={cx(
         'rounded-full border px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40',
-        active ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line text-muted hover:bg-surface-2 hover:text-fg',
+        active ? CHIP_TONE[tone] : 'border-line text-muted hover:bg-surface-2 hover:text-fg',
       )}
     >
       {children}

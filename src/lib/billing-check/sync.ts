@@ -1,6 +1,6 @@
 // Firma bo'yicha kvitansiyalarni billing.sud.uz dan sahifama-sahifa yig'ish — SERVER tomonda.
 // Brauzerga bog'liq emas: foydalanuvchi sahifadan chiqib ketsa ham davom etadi, va worker
-// har yarim soatda o'zi qayta yugurtiradi.
+// har 2 soatda o'zi qayta yugurtiradi.
 //
 // Bir vaqtda FAQAT BITTA yig'ish ketadi (foydalanuvchi talabi: yangilanish o'rtasida boshqa
 // yuklashga ruxsat berilmasin). Qulf `BillingCheckSync` jadvalida — ya'ni web (qo'lda
@@ -18,7 +18,7 @@ const DELAY_MS = 500;
 // Shuncha vaqtdan beri RUNNING turgan qator — jarayoni o'lgan, qulfi bo'shatiladi.
 const STALE_MS = 15 * 60_000;
 // Avtomatik yangilash oralig'i: firma oxirgi marta shuncha vaqt oldin tugagan bo'lsa, navbatga tushadi.
-export const AUTO_EVERY_MS = 30 * 60_000;
+export const AUTO_EVERY_MS = 2 * 60 * 60_000; // 2 soat
 // Cheksiz sikl bo'lib qolmasligi uchun qattiq shift (50 × 400 = 20 000 kvitansiya).
 const MAX_PAGES = 400;
 
@@ -137,7 +137,7 @@ export async function syncFirm(
       data: {
         status: 'IDLE', done, total, lastCount: done, message: null,
         // Qisman yig'ish (oxirgi N) «to'liq yangilandi» hisoblanmaydi — aks holda avtomatik
-        // jadval butun ro'yxatni 30 daqiqaga kechiktirib yuborardi.
+        // jadval butun ro'yxatni keyingi oralig'gacha kechiktirib yuborardi.
         ...(want ? {} : { finishedAt: new Date() }),
       },
     });

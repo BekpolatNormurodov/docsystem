@@ -90,7 +90,7 @@ async function loop(): Promise<void> {
   console.log('[worker] stopped');
 }
 
-// billing.sud.uz kvitansiyalarini firma bo'yicha AVTOMAT yangilab turadi (har ~30 daqiqada) —
+// billing.sud.uz kvitansiyalarini firma bo'yicha AVTOMAT yangilab turadi (AUTO_EVERY_MS, hozir 2 soat) —
 // operator hech nima bosmaydi. Doc-job navbatidan MUSTAQIL o'z sikli: worker uzoq PDF paketi
 // ustida band bo'lsa ham jadval kechikmaydi (ular boshqa resurslarni ishlatadi — bu yerda faqat
 // tarmoq + kichik DB yozuvlari).
