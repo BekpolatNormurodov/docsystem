@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Ico, Spinner } from '@/ui';
+import { Ico, Spinner, Modal, useConfirm } from '@/ui';
 import { FIRMS, type FirmCfg } from '@/lib/firms';
 
 const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
@@ -49,6 +49,7 @@ interface QueryRow {
   message: string | null;
 }
 
+const STATUSES = ['CREATED', 'PAID', 'USED'] as const;
 const STATUS_LABEL: Record<string, string> = {
   CREATED: "To'lanmagan",
   PAID: "To'liq to'langan",
@@ -75,6 +76,8 @@ async function jpost(url: string, body: unknown) {
   return { ok: res.ok, status: res.status, json };
 }
 
+const firmLabel = (code: string | null) => FIRMS.find((f: FirmCfg) => f.branchCode === code)?.name?.replace(/ MIKROMOLIYA.*$/i, '');
+
 export function InvoiceCheck() {
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -85,12 +88,13 @@ export function InvoiceCheck() {
         </div>
         <p className="mt-1 max-w-2xl text-sm text-muted">
           billing.sud.uz dan kvitansiya holatini tekshiring: bitta raqam bo'yicha yoki firma STIR bo'yicha
-          ro'yxat (sahifalab). Tekshirilgan har bir kvitansiya pastdagi tarixga saqlanadi.
+          ro'yxat (sahifalab). Tekshirilgan har bir kvitansiya pastdagi keshga va tarixga saqlanadi.
         </p>
       </header>
 
       <SingleCheckCard />
       <ListCheckCard />
+      <CachedCard />
       <HistoryCard />
     </div>
   );
@@ -148,7 +152,7 @@ function InvoiceDetail({ inv }: { inv: CheckedInvoice }) {
         <span className={cx('badge', STATUS_STYLE[inv.invoiceStatus] ?? 'border-line text-muted')}>
           {STATUS_LABEL[inv.invoiceStatus] ?? inv.invoiceStatus}
         </span>
-        {inv.firmCode && <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">bizning firma</span>}
+        {inv.firmCode && <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">{firmLabel(inv.firmCode) || 'bizning firma'}</span>}
       </div>
       <dl className="grid gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2">
         <DRow l="Egasi" v={val(inv.payer)} />
@@ -178,7 +182,15 @@ function DRow({ l, v, strong }: { l: string; v: string; strong?: boolean }) {
   );
 }
 
-// ── 2) STIR bo'yicha ro'yxat ─────────────────────────────────────────────────
+function DetailModal({ inv, onClose }: { inv: CheckedInvoice | null; onClose: () => void }) {
+  return (
+    <Modal open={!!inv} onClose={onClose} title={inv ? `Kvitansiya ${inv.number}` : ''} size="lg">
+      {inv && <InvoiceDetail inv={inv} />}
+    </Modal>
+  );
+}
+
+// ── 2) STIR bo'yicha ro'yxat (billing.sud.uz dan jonli) ─────────────────────
 const PAGE_SIZE = 10;
 
 function ListCheckCard() {
@@ -188,7 +200,7 @@ function ListCheckCard() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<SearchPage | null>(null);
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [detail, setDetail] = useState<CheckedInvoice | null>(null);
 
   const activeStir = customStir.trim() || stir;
 
@@ -203,11 +215,9 @@ function ListCheckCard() {
     setPage(p);
   }, [activeStir]);
 
-  const firmLabel = (code: string | null) => FIRMS.find((f: FirmCfg) => f.branchCode === code)?.name;
-
   return (
     <section className="card space-y-4 p-5">
-      <h2 className="text-sm font-semibold">Ro'yxat — STIR bo'yicha</h2>
+      <h2 className="text-sm font-semibold">Ro'yxat — STIR bo'yicha (billing.sud.uz, jonli)</h2>
       <div className="flex flex-wrap items-center gap-2">
         {FIRMS.map((f) => (
           <Chip key={f.branchCode} active={!customStir && stir === f.stir} onClick={() => { setCustomStir(''); setStir(f.stir); }}>
@@ -246,30 +256,19 @@ function ListCheckCard() {
               </thead>
               <tbody>
                 {result.content.map((row) => (
-                  <React.Fragment key={row.id}>
-                    <tr className="border-t border-line/60 hover:bg-surface-2/50">
-                      <td className="px-3 py-2 font-mono">{row.number}</td>
-                      <td className="px-3 py-2">
-                        <span className={cx('badge', STATUS_STYLE[row.invoiceStatus] ?? 'border-line text-muted')}>
-                          {STATUS_LABEL[row.invoiceStatus] ?? row.invoiceStatus}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 tabular-nums">{money(row.amount)}</td>
-                      <td className="px-3 py-2">{dt(row.issuedAt)}</td>
-                      <td className="px-3 py-2 text-right">
-                        <button className="btn-ghost !py-1 !px-2" onClick={() => setExpandedId(expandedId === row.id ? null : row.id)}>
-                          {expandedId === row.id ? 'Yopish' : 'Batafsil'}
-                        </button>
-                      </td>
-                    </tr>
-                    {expandedId === row.id && (
-                      <tr className="border-t border-line/60 bg-surface-2/30">
-                        <td colSpan={5} className="p-3">
-                          <InvoiceDetail inv={row} />
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
+                  <tr key={row.id} className="cursor-pointer border-t border-line/60 hover:bg-surface-2/50" onClick={() => setDetail(row)}>
+                    <td className="px-3 py-2 font-mono">{row.number}</td>
+                    <td className="px-3 py-2">
+                      <span className={cx('badge', STATUS_STYLE[row.invoiceStatus] ?? 'border-line text-muted')}>
+                        {STATUS_LABEL[row.invoiceStatus] ?? row.invoiceStatus}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 tabular-nums">{money(row.amount)}</td>
+                    <td className="px-3 py-2">{dt(row.issuedAt)}</td>
+                    <td className="px-3 py-2 text-right">
+                      <button className="btn-ghost !py-1 !px-2" onClick={(e) => { e.stopPropagation(); setDetail(row); }}>Batafsil</button>
+                    </td>
+                  </tr>
                 ))}
                 {!result.content.length && (
                   <tr><td colSpan={5} className="px-3 py-6 text-center text-muted">Natija yo'q</td></tr>
@@ -294,6 +293,7 @@ function ListCheckCard() {
           </div>
         </div>
       )}
+      <DetailModal inv={detail} onClose={() => setDetail(null)} />
     </section>
   );
 }
@@ -312,8 +312,105 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
   );
 }
 
-// ── 3) Tarix ──────────────────────────────────────────────────────────────────
+// ── 3) Kesh — to'plangan kvitansiyalar (bizning DB, filtrlab, Excel) ─────────
+function CachedCard() {
+  const [firmCode, setFirmCode] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [rows, setRows] = useState<CheckedInvoice[]>([]);
+  const [summary, setSummary] = useState<{ firmCode: string | null; _count: { _all: number } }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [detail, setDetail] = useState<CheckedInvoice | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (firmCode) params.set('firm', firmCode);
+    if (status) params.set('status', status);
+    const res = await fetch(`/api/billing-check?${params.toString()}`, { cache: 'no-store' });
+    const j = await res.json().catch(() => ({ invoices: [], summary: [] }));
+    setRows(j.invoices ?? []);
+    setSummary(j.summary ?? []);
+    setLoading(false);
+  }, [firmCode, status]);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const countFor = (code: string | null) => summary.find((s) => s.firmCode === code)?._count?._all ?? 0;
+  const total = summary.reduce((s, r) => s + r._count._all, 0);
+
+  const excelHref = (() => {
+    const params = new URLSearchParams();
+    if (firmCode) params.set('firm', firmCode);
+    if (status) params.set('status', status);
+    return `/api/billing-check/excel?${params.toString()}`;
+  })();
+
+  return (
+    <section className="card space-y-4 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">To'plangan kvitansiyalar (kesh)</h2>
+        <a href={excelHref} className="btn-ghost">
+          <Ico.download size={14} className="mr-1 inline" />Excel yuklab olish
+        </a>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Chip active={firmCode === null} onClick={() => setFirmCode(null)}>Barchasi ({total})</Chip>
+        {FIRMS.map((f) => (
+          <Chip key={f.branchCode} active={firmCode === f.branchCode} onClick={() => setFirmCode(f.branchCode)}>
+            {f.name.replace(/ MIKROMOLIYA.*$/i, '')} ({countFor(f.branchCode)})
+          </Chip>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Chip active={status === null} onClick={() => setStatus(null)}>Barcha holat</Chip>
+        {STATUSES.map((s) => (
+          <Chip key={s} active={status === s} onClick={() => setStatus(s)}>{STATUS_LABEL[s]}</Chip>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="text-sm text-muted"><Spinner size={14} className="mr-1.5 inline" />Yuklanmoqda…</div>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-line">
+          <table className="w-full text-sm">
+            <thead className="bg-surface-2 text-left text-xs text-muted">
+              <tr>
+                <th className="px-3 py-2">Kvitansiya raqami</th>
+                <th className="px-3 py-2">Holati</th>
+                <th className="px-3 py-2">Firma/Egasi</th>
+                <th className="px-3 py-2">Summasi</th>
+                <th className="px-3 py-2">Tekshirilgan</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id} className="cursor-pointer border-t border-line/60 hover:bg-surface-2/50" onClick={() => setDetail(row)}>
+                  <td className="px-3 py-2 font-mono">{row.number}</td>
+                  <td className="px-3 py-2">
+                    <span className={cx('badge', STATUS_STYLE[row.invoiceStatus] ?? 'border-line text-muted')}>
+                      {STATUS_LABEL[row.invoiceStatus] ?? row.invoiceStatus}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2">{firmLabel(row.firmCode) || val(row.payer)}</td>
+                  <td className="px-3 py-2 tabular-nums">{money(row.amount)}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{dt(row.checkedAt)}</td>
+                </tr>
+              ))}
+              {!rows.length && (
+                <tr><td colSpan={5} className="px-3 py-6 text-center text-muted">Hali kvitansiya tekshirilmagan</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <DetailModal inv={detail} onClose={() => setDetail(null)} />
+    </section>
+  );
+}
+
+// ── 4) Tarix ──────────────────────────────────────────────────────────────────
 function HistoryCard() {
+  const confirm = useConfirm();
   const [rows, setRows] = useState<QueryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -326,6 +423,17 @@ function HistoryCard() {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  const del = async (r: QueryRow) => {
+    const ok = await confirm({
+      title: 'Tarix yozuvini o‘chirish',
+      description: `«${r.query}» qidiruvi tarixdan butunlay o‘chiriladi. Davom etilsinmi?`,
+      confirmLabel: 'O‘chirish', danger: true,
+    });
+    if (!ok) return;
+    await fetch(`/api/billing-check/query/${r.id}`, { method: 'DELETE' });
+    await refresh();
+  };
 
   return (
     <section className="card p-5">
@@ -347,6 +455,7 @@ function HistoryCard() {
                   <th className="px-3 py-2">Qidiruv</th>
                   <th className="px-3 py-2">Natija</th>
                   <th className="px-3 py-2">Holat</th>
+                  <th className="px-3 py-2" />
                 </tr>
               </thead>
               <tbody>
@@ -362,9 +471,14 @@ function HistoryCard() {
                         ? <span className="badge border-emerald-500/30 text-emerald-600 dark:text-emerald-300">OK</span>
                         : <span className="badge border-rose-500/30 text-rose-600 dark:text-rose-300" title={r.message || ''}>Xato</span>}
                     </td>
+                    <td className="px-3 py-2 text-right">
+                      <button className="btn-ghost !py-1 !px-2" onClick={() => void del(r)}>
+                        <Ico.trash size={14} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
-                {!rows.length && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted">Hali qidiruv bo'lmagan</td></tr>}
+                {!rows.length && <tr><td colSpan={7} className="px-3 py-6 text-center text-muted">Hali qidiruv bo'lmagan</td></tr>}
               </tbody>
             </table>
           </div>
