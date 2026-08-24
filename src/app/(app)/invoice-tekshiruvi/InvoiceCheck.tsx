@@ -249,6 +249,7 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
   // «Bizning summalarimiz» (tiyinda) — sozlamadan keladi, modalda o'zgartiriladi.
   const [ownAmounts, setOwnAmounts] = useState<number[]>([]);
   const [ownOpen, setOwnOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<CheckedInvoice | null>(null);
 
@@ -354,7 +355,6 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
     void pollSync();
   }, [activeFirm, pollSync, syncLimit]);
 
-  const excelHref = `/api/billing-check/excel?${filterParams().toString()}`;
 
   // Tanlanadigan turlar/summalar — bazada bori (ko'pdan ozga).
   const catOptions = [
@@ -374,9 +374,9 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
     <section className="card space-y-4 p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">Kvitansiyalar bazasi</h2>
-        <a href={excelHref} className="btn-ghost" title="Har firma alohida varaqda + xulosa">
+        <button onClick={() => setExportOpen(true)} className="btn-ghost" title="Sana, firma va holat bo‘yicha tanlab yuklash">
           <Ico.download size={14} className="mr-1 inline" />Excel yuklab olish
-        </a>
+        </button>
       </div>
 
       {/* firma tanlash */}
@@ -523,7 +523,6 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
           <div className="w-44"><DateField label="" value={from} onChange={(v) => { setFrom(v); setPage(0); }} /></div>
           <span className="text-sm text-muted">—</span>
           <div className="w-44"><DateField label="" value={to} onChange={(v) => { setTo(v); setPage(0); }} /></div>
-          <span className="text-xs text-muted">kvitansiya yaratilgan sana</span>
         </FilterRow>
 
         <FilterRow label="Turi">
@@ -624,6 +623,12 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
       </div>
 
       <DetailModal inv={detail} onClose={() => setDetail(null)} />
+      <ExportModal
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        ownAmounts={ownAmounts}
+        initial={{ firm: firmCode, status, cat, amount, from, to }}
+      />
       <OwnAmountsModal
         open={ownOpen}
         onClose={() => setOwnOpen(false)}
@@ -632,6 +637,189 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
         onSaved={(list) => { setOwnAmounts(list); void load(); }}
       />
     </section>
+  );
+}
+
+// ── Excel eksport dialogi ────────────────────────────────────────────────────
+// Sana oralig'i uchun tez tanlovlar. `days: null` = cheklovsiz.
+const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const DATE_PRESETS: { label: string; range: () => [string, string] }[] = [
+  { label: 'Bugun', range: () => [iso(new Date()), iso(new Date())] },
+  {
+    label: '7 kun',
+    range: () => { const d = new Date(); d.setDate(d.getDate() - 6); return [iso(d), iso(new Date())]; },
+  },
+  {
+    label: 'Shu oy',
+    range: () => { const n = new Date(); return [iso(new Date(n.getFullYear(), n.getMonth(), 1)), iso(n)]; },
+  },
+  {
+    label: 'O‘tgan oy',
+    range: () => {
+      const n = new Date();
+      return [iso(new Date(n.getFullYear(), n.getMonth() - 1, 1)), iso(new Date(n.getFullYear(), n.getMonth(), 0))];
+    },
+  },
+  {
+    label: '3 oy',
+    range: () => { const d = new Date(); d.setMonth(d.getMonth() - 3); return [iso(d), iso(new Date())]; },
+  },
+  { label: 'Hammasi', range: () => ['', ''] },
+];
+
+/**
+ * Excel'ni tanlab yuklash. Jadval filtridan MUSTAQIL o'z holati bor (ekrandagi
+ * ko'rinishni buzmasdan boshqa kesimni yuklash mumkin), lekin ochilganda joriy
+ * filtrdan boshlanadi. Yuklashdan OLDIN nechta yozuv va qancha summa chiqishini
+ * ko'rsatadi — «bosdim-u nima keldi bilmadim» bo'lmasin.
+ */
+function ExportModal({
+  open, onClose, ownAmounts, initial,
+}: {
+  open: boolean;
+  onClose: () => void;
+  ownAmounts: number[];
+  initial: { firm: string | null; status: string | null; cat: string; amount: string; from: string; to: string };
+}) {
+  const [firm, setFirm] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [own, setOwn] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [preview, setPreview] = useState<{ total: number; sum: number } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setFirm(initial.firm);
+    setStatus(initial.status);
+    setOwn(initial.amount === 'own' || initial.amount === 'extra' ? initial.amount : '');
+    setFrom(initial.from);
+    setTo(initial.to);
+  }, [open, initial]);
+
+  const params = useCallback(() => {
+    const p = new URLSearchParams();
+    if (firm) p.set('firm', firm);
+    if (status) p.set('status', status);
+    if (own === 'own') p.set('own', '1');
+    if (own === 'extra') p.set('own', '0');
+    if (from) p.set('from', from);
+    if (to) p.set('to', to);
+    return p;
+  }, [firm, status, own, from, to]);
+
+  // Jonli hisob — har o'zgarishda nechta yozuv tushishini ko'rsatadi.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoading(true);
+    const p = params();
+    p.set('size', '1');
+    fetch(`/api/billing-check?${p.toString()}`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (cancelled || !j) return;
+        const sum = (j.stats ?? []).reduce((a: number, x: StatRow) => a + Number(x._sum?.amount ?? 0), 0);
+        setPreview({ total: j.total ?? 0, sum });
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [open, params]);
+
+  const activePreset = DATE_PRESETS.find((p) => { const [a, b] = p.range(); return a === from && b === to; })?.label;
+
+  const download = () => {
+    window.location.href = `/api/billing-check/excel?${params().toString()}`;
+    onClose();
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Excel yuklab olish" size="lg"
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <button className="btn-ghost" onClick={onClose}>Bekor</button>
+          <button className="btn-primary" onClick={download} disabled={!preview || preview.total === 0}>
+            <Ico.download size={14} className="mr-1.5 inline" />Yuklab olish
+          </button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        <div>
+          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">Sana</div>
+          <div className="mb-2 flex flex-wrap gap-2">
+            {DATE_PRESETS.map((p) => (
+              <Chip
+                key={p.label}
+                active={activePreset === p.label}
+                onClick={() => { const [a, b] = p.range(); setFrom(a); setTo(b); }}
+              >
+                {p.label}
+              </Chip>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="w-44"><DateField label="" value={from} onChange={setFrom} /></div>
+            <span className="text-sm text-muted">—</span>
+            <div className="w-44"><DateField label="" value={to} onChange={setTo} /></div>
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">Firma</div>
+          <div className="flex flex-wrap gap-2">
+            <Chip active={firm === null} onClick={() => setFirm(null)}>Barchasi</Chip>
+            {FIRMS.map((f: FirmCfg) => (
+              <Chip key={f.branchCode} active={firm === f.branchCode} onClick={() => setFirm(f.branchCode)}>
+                {f.name.replace(/ MIKROMOLIYA.*$/i, '')}
+              </Chip>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">Holat</div>
+          <div className="flex flex-wrap gap-2">
+            <Chip active={status === null} onClick={() => setStatus(null)}>Barchasi</Chip>
+            {STATUS_ORDER.map((st) => (
+              <Chip key={st} active={status === st} onClick={() => setStatus(st)}>{statusLabel(st)}</Chip>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">Summa</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Chip active={own === ''} onClick={() => setOwn('')}>Barchasi</Chip>
+            <Chip tone="own" active={own === 'own'} onClick={() => setOwn('own')}>Bizniki</Chip>
+            <Chip tone="extra" active={own === 'extra'} onClick={() => setOwn('extra')}>Ortiqcha</Chip>
+            <span className="text-xs text-muted">bizniki: {ownAmounts.map((n) => money(n)).join(' · ') || '—'}</span>
+          </div>
+        </div>
+
+        {/* Yuklashdan oldingi xulosa */}
+        <div className="rounded-xl border border-brand-500/30 bg-brand-500/5 p-3">
+          {loading ? (
+            <div className="text-sm text-muted"><Spinner size={14} className="mr-1.5 inline" />Hisoblanmoqda…</div>
+          ) : preview && preview.total > 0 ? (
+            <>
+              <div className="text-lg font-semibold tabular-nums">
+                {preview.total.toLocaleString('ru-RU')} ta kvitansiya
+              </div>
+              <div className="mt-0.5 text-sm tabular-nums text-muted">{money(preview.sum)} so‘m</div>
+              <div className="mt-1.5 text-xs text-muted">
+                Har firma alohida varaqda + oxirida «Xulosa» varag‘i (firma × holat, ortiqchalar alohida).
+              </div>
+            </>
+          ) : (
+            <div className="text-sm text-amber-600 dark:text-amber-300">
+              Bu shartlarga mos kvitansiya yo‘q — filtrni kengaytiring.
+            </div>
+          )}
+        </div>
+      </div>
+    </Modal>
   );
 }
 
