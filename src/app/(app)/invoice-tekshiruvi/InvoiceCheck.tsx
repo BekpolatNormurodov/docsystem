@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico, Spinner, Modal, Select, useConfirm } from '@/ui';
 import { FIRMS, type FirmCfg } from '@/lib/firms';
+import { isOwnAmount } from '@/lib/billing-check/filters';
 
 const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
 
@@ -263,7 +264,11 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
     if (firmCode) p.set('firm', firmCode);
     if (status) p.set('status', status);
     if (cat) p.set('cat', cat);
-    if (amount) p.set('amount', amount);
+    // «own»/«extra» — summaning aniq qiymati emas, bizning standart summalarimizga
+    // tegishlilik bo'yicha filtr (server tomonda in / notIn ga aylanadi).
+    if (amount === 'own') p.set('own', '1');
+    else if (amount === 'extra') p.set('own', '0');
+    else if (amount) p.set('amount', amount);
     if (dq) p.set('q', dq);
     return p;
   }, [firmCode, status, cat, amount, dq]);
@@ -321,11 +326,12 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
     ...stats.map((s) => s.invoiceStatus).filter((s) => !STATUS_ORDER.includes(s)).sort(),
   ];
 
-  const startSync = useCallback(async () => {
-    if (!activeFirm) return;
+  // `all` — uchala firmani ketma-ket (bittalab bosib chiqmaslik uchun).
+  const startSync = useCallback(async (all = false) => {
+    if (!all && !activeFirm) return;
     setErr(null);
     const { ok, json } = await jpost('/api/billing-check/sync', {
-      firm: activeFirm.branchCode,
+      ...(all ? { all: true } : { firm: activeFirm!.branchCode }),
       ...(syncLimit ? { limit: syncLimit } : {}),
     });
     if (!ok) { setErr(json?.error || 'Boshlab bo‘lmadi'); return; }
@@ -344,8 +350,12 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
       .sort((a, b) => b._count._all - a._count._all)
       .map((c) => ({ value: c.payCategory as string, label: `${c.payCategory} (${c._count._all})` })),
   ];
+  const ownCount = amountFacet.filter((a) => isOwnAmount(a.amount)).reduce((s, a) => s + a._count._all, 0);
+  const extraCount = amountFacet.filter((a) => a.amount !== null && !isOwnAmount(a.amount)).reduce((s, a) => s + a._count._all, 0);
   const amountOptions = [
     { value: '', label: 'Barcha summa' },
+    { value: 'own', label: `Bizniki (${ownCount})` },
+    { value: 'extra', label: `Ortiqcha (${extraCount})` },
     ...amountFacet
       .filter((a) => a.amount !== null)
       .sort((a, b) => Number(b._count._all) - Number(a._count._all))
@@ -403,8 +413,11 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
                   options={SYNC_LIMITS}
                   className="w-40"
                 />
-                <button onClick={() => void startSync()} disabled={!activeFirm} className="btn-primary">
-                  <Ico.refresh size={14} className="mr-1.5 inline" />Hozir yangilash
+                <button onClick={() => void startSync(false)} disabled={!activeFirm} className="btn-ghost">
+                  <Ico.refresh size={14} className="mr-1.5 inline" />Shu firmani
+                </button>
+                <button onClick={() => void startSync(true)} className="btn-primary">
+                  <Ico.refresh size={14} className="mr-1.5 inline" />Hamma firmani yangilash
                 </button>
               </div>
             </>
@@ -511,7 +524,14 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
                     </span>
                   </td>
                   <td className="px-3 py-2 text-muted">{val(row.payCategory ?? row.description)}</td>
-                  <td className="px-3 py-2 tabular-nums">{money(row.amount)}</td>
+                  <td className="px-3 py-2 whitespace-nowrap tabular-nums">
+                    {money(row.amount)}
+                    {!isOwnAmount(row.amount) && (
+                      <span className="badge ml-2 border-orange-500/30 text-orange-600 dark:text-orange-300" title="Bizning standart summalarimizdan emas — odatda bekor qilinadi">
+                        ortiqcha
+                      </span>
+                    )}
+                  </td>
                   <td className="px-3 py-2">{val(row.claimCaseNumber)}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{dt(row.issuedAt)}</td>
                   <td className="px-3 py-2 whitespace-nowrap text-muted">{dt(row.checkedAt)}</td>

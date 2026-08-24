@@ -5,6 +5,7 @@
 import ExcelJS from 'exceljs';
 import type { BillingCheckInvoice } from '@prisma/client';
 import { FIRMS, type FirmCfg } from '@/lib/firms';
+import { isOwnAmount } from './filters';
 
 // billing.sud.uz summalarni TIYINDA qaytaradi (2 060 000 = 20 600,00 so'm). Bazada xom
 // holicha saqlanadi — so'mga bu yerda aylantiriladi, shunda Excel'dagi yig'indilar to'g'ri.
@@ -28,6 +29,7 @@ const COLUMNS = [
   { header: 'STIR/pasport', key: 'tin', width: 16 },
   { header: 'Sud', key: 'court', width: 40 },
   { header: 'Summasi', key: 'amount', width: 16 },
+  { header: 'Bizniki', key: 'own', width: 10 },
   { header: "To'lanmagan", key: 'mustPay', width: 16 },
   { header: "To'langan", key: 'paid', width: 16 },
   { header: 'Qoldiq', key: 'balance', width: 16 },
@@ -49,6 +51,7 @@ function addInvoiceSheet(wb: ExcelJS.Workbook, name: string, rows: BillingCheckI
       tin: r.payerTin ?? '',
       court: r.court ?? '',
       amount: num(r.amount),
+      own: isOwnAmount(r.amount) ? 'Ha' : 'ortiqcha',
       mustPay: num(r.mustPayAmount),
       paid: num(r.paidAmount),
       balance: num(r.balance),
@@ -127,6 +130,15 @@ export async function buildBillingCheckExcel(rows: BillingCheckInvoice[]): Promi
     count: unused.length, sum: unused.reduce((a, r) => a + num(r.amount), 0),
   });
   hi.font = { bold: true };
+  // «Ortiqcha» — bizning standart summalarimizdan boshqasi; odatda bekor qilinadi.
+  const extra = rows.filter((r) => !isOwnAmount(r.amount));
+  if (extra.length) {
+    const ex = s.addRow({
+      firm: 'HAMMASI', status: 'Ortiqcha (bizning summa emas)',
+      count: extra.length, sum: extra.reduce((a, r) => a + num(r.amount), 0),
+    });
+    ex.font = { bold: true };
+  }
   const all = s.addRow({ firm: 'HAMMASI', status: 'Jami kvitansiya', count: rows.length, sum: rows.reduce((a, r) => a + num(r.amount), 0) });
   all.font = { bold: true };
   s.getRow(1).font = { bold: true };
