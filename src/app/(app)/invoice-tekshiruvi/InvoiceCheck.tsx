@@ -226,7 +226,8 @@ function DetailModal({ inv, onClose }: { inv: CheckedInvoice | null; onClose: ()
 
 // ── 2) Baza: avtomatik yangilanadi + qidiruv/sahifalash ─────────────────────
 function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void }) {
-  const [firmCode, setFirmCode] = useState<string | null>(FIRMS[0]?.branchCode ?? null);
+  // Default — BARCHA firmalar: ochilishi bilan umumiy manzara ko'rinsin.
+  const [firmCode, setFirmCode] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   // To'lov turi (payCategory) va summa (tiyinda) — ikkalasi ham '' = barchasi.
   const [cat, setCat] = useState('');
@@ -321,6 +322,10 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
   const activeFirm = FIRMS.find((f: FirmCfg) => f.branchCode === firmCode);
   const activeSync = syncStates.find((s) => s.firmCode === firmCode);
   const runningSync = syncStates.find((s) => s.status === 'RUNNING');
+  // Hech qachon yig'ilmagan firma bo'lsa — null (ya'ni «—»), aks holda eng eskisi.
+  const oldestSync = syncStates.length && syncStates.every((s) => s.finishedAt)
+    ? syncStates.map((s) => s.finishedAt!).sort()[0]
+    : null;
   const countFor = (code: string | null) => summary.find((s) => s.firmCode === code)?._count?._all ?? 0;
   const cachedTotal = summary.reduce((s, r) => s + r._count._all, 0);
   const statFor = (st: string) => stats.find((s) => s.invoiceStatus === st);
@@ -356,17 +361,6 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
   ];
   const ownCount = amountFacet.filter((a) => isOwn(a.amount, ownAmounts)).reduce((s, a) => s + a._count._all, 0);
   const extraCount = amountFacet.filter((a) => a.amount !== null && !isOwn(a.amount, ownAmounts)).reduce((s, a) => s + a._count._all, 0);
-  // «Summa» ro'yxati faqat aniq qiymatlar — bizniki/ortiqcha alohida chiplarda.
-  const amountOptions = [
-    { value: '', label: 'Barchasi' },
-    ...amountFacet
-      .filter((a) => a.amount !== null)
-      .sort((a, b) => Number(b._count._all) - Number(a._count._all))
-      .map((a) => ({ value: String(a.amount), label: `${money(a.amount)} so‘m (${a._count._all})` })),
-  ];
-  // `amount` ikkala boshqaruvni birga saqlaydi ('own'/'extra' yoki aniq summa) — Select'da
-  // faqat aniq summa ko'rinsin, aks holda «Bizniki» tanlanganda ro'yxat bo'sh ko'rinardi.
-  const exactAmount = amount === 'own' || amount === 'extra' ? '' : amount;
   const activeFilters = [status, cat, amount, dq].filter(Boolean).length;
 
   const lastPage = Math.max(0, Math.ceil(total / size) - 1);
@@ -382,12 +376,12 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
 
       {/* firma tanlash */}
       <div className="flex flex-wrap items-center gap-2">
+        <Chip active={firmCode === null} onClick={() => { setFirmCode(null); setPage(0); }}>Barchasi ({cachedTotal})</Chip>
         {FIRMS.map((f: FirmCfg) => (
           <Chip key={f.branchCode} active={firmCode === f.branchCode} onClick={() => { setFirmCode(f.branchCode); setPage(0); }}>
             {f.name.replace(/ MIKROMOLIYA.*$/i, '')} <span className="opacity-60">({countFor(f.branchCode)})</span>
           </Chip>
         ))}
-        <Chip active={firmCode === null} onClick={() => { setFirmCode(null); setPage(0); }}>Barchasi ({cachedTotal})</Chip>
       </div>
 
       {/* yig'ish holati — avtomatik, qo'lda ham majburlash mumkin */}
@@ -408,9 +402,20 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
           ) : (
             <>
               <span className="text-sm text-muted">
-                {activeFirm ? <><b>{activeFirm.name.replace(/ MIKROMOLIYA.*$/i, '')}</b> · oxirgi yangilangan: </> : 'Firmani tanlang · '}
-                <span className="text-fg">{dt(activeSync?.finishedAt ?? null)}</span>
-                {activeSync?.lastCount ? <span className="tabular-nums"> ({activeSync.lastCount} ta)</span> : null}
+                {activeFirm ? (
+                  <>
+                    <b>{activeFirm.name.replace(/ MIKROMOLIYA.*$/i, '')}</b> · oxirgi yangilangan:{' '}
+                    <span className="text-fg">{dt(activeSync?.finishedAt ?? null)}</span>
+                    {activeSync?.lastCount ? <span className="tabular-nums"> ({activeSync.lastCount} ta)</span> : null}
+                  </>
+                ) : (
+                  // «Barchasi» tanlanganda ENG ESKI yangilanish ko'rsatiladi — ma'lumot
+                  // qanchalik eskirgani shu bilan o'lchanadi (eng yangisi bilan emas).
+                  <>
+                    <b>Hamma firma</b> · eng eski yangilanish:{' '}
+                    <span className="text-fg">{dt(oldestSync)}</span>
+                  </>
+                )}
               </span>
               <span className="text-sm text-muted">· har 30 daqiqada avtomatik</span>
               <div className="ml-auto flex items-center gap-2">
@@ -500,10 +505,6 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium uppercase tracking-wide text-muted">Turi</span>
             <Select value={cat} onChange={(v) => { setCat(v); setPage(0); }} options={catOptions} className="w-64" />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-xs font-medium uppercase tracking-wide text-muted">Summa</span>
-            <Select value={exactAmount} onChange={(v) => { setAmount(v); setPage(0); }} options={amountOptions} className="w-52" />
           </label>
           {activeFilters > 0 && (
             <button
@@ -612,8 +613,12 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
 }
 
 /**
- * «Bizning summalarimiz» ni sozlash. Bazadagi mavjud summalar belgilanadi, va ro'yxatda
- * yo'q summani ham qo'lda qo'shish mumkin (hali bironta kvitansiya kelmagan bo'lsa).
+ * «Bizning summalarimiz» ni sozlash.
+ *
+ * Ro'yxat uzun bo'ladi (bitta firmada 20 600 — 2000+ ta, qolgani bittadan uzun quyruq),
+ * shuning uchun ikki guruhga bo'linadi: tanlanganlar tepada, qolgani pastda ENG KO'P
+ * UCHRAGANIDAN boshlab. Har qatorda ulush chizig'i — qaysi summa asosiy ekani darrov
+ * ko'rinsin (2031 ta va 1 ta bir xil ko'rinib turmasin).
  */
 function OwnAmountsModal({
   open, onClose, amountFacet, value, onSaved,
@@ -631,11 +636,16 @@ function OwnAmountsModal({
   // Modal ochilganda joriy tanlovdan boshlanadi.
   useEffect(() => { if (open) { setSel(value); setExtra(''); } }, [open, value]);
 
-  // Bazadagi summalar + tanlanganu bazada yo'qlari (qo'lda qo'shilgan bo'lishi mumkin).
-  const known = amountFacet.map((a) => Number(a.amount)).filter((n) => Number.isFinite(n));
-  const all = [...new Set([...known, ...sel])].sort((a, b) => a - b);
   const countOf = (n: number) => amountFacet.find((a) => Number(a.amount) === n)?._count?._all ?? 0;
   const toggle = (n: number) => setSel((s) => (s.includes(n) ? s.filter((x) => x !== n) : [...s, n]));
+
+  // Bazadagi summalar + tanlangan-u bazada yo'qlari (qo'lda qo'shilgan bo'lishi mumkin).
+  const known = amountFacet.map((a) => Number(a.amount)).filter((n) => Number.isFinite(n));
+  const all = [...new Set([...known, ...sel])];
+  const byCount = (a: number, b: number) => countOf(b) - countOf(a) || a - b;
+  const picked = all.filter((n) => sel.includes(n)).sort(byCount);
+  const rest = all.filter((n) => !sel.includes(n)).sort(byCount);
+  const maxCount = Math.max(1, ...all.map(countOf));
 
   const addExtra = () => {
     // Foydalanuvchi SO'MDA kiritadi, saqlanadigani — tiyinda.
@@ -653,44 +663,91 @@ function OwnAmountsModal({
     if (ok) { onSaved(json.ownAmounts ?? sel); onClose(); }
   };
 
+  const Row = ({ n }: { n: number }) => {
+    const c = countOf(n);
+    const on = sel.includes(n);
+    return (
+      <label
+        className={cx(
+          'flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 transition-colors',
+          on ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-line hover:bg-surface-2',
+        )}
+      >
+        <input
+          type="checkbox"
+          checked={on}
+          onChange={() => toggle(n)}
+          className="size-4 shrink-0 rounded accent-emerald-600"
+        />
+        <span className={cx('shrink-0 tabular-nums', on && 'font-medium')}>{money(n)} so‘m</span>
+        {/* Ulush chizig'i — eng ko'p uchraganiga nisbatan */}
+        <span className="ml-auto flex items-center gap-2">
+          <span className="hidden h-1.5 w-24 overflow-hidden rounded-full bg-surface-2 sm:block">
+            <span
+              className={cx('block h-full rounded-full', on ? 'bg-emerald-500/70' : 'bg-line')}
+              style={{ width: `${Math.max(3, (c / maxCount) * 100)}%` }}
+            />
+          </span>
+          <span className="w-16 shrink-0 text-right text-xs tabular-nums text-muted">
+            {c ? `${c.toLocaleString('ru-RU')} ta` : 'bazada yo‘q'}
+          </span>
+        </span>
+      </label>
+    );
+  };
+
   return (
-    <Modal open={open} onClose={onClose} title="Bizning summalarimiz" size="md"
+    <Modal open={open} onClose={onClose} title="Bizning summalarimiz" size="lg"
       footer={
-        <div className="flex items-center justify-between gap-2">
-          <button className="btn-ghost" onClick={() => setSel(DEFAULT_OWN_AMOUNTS_TIYIN)}>Standart (20 600 / 22 000)</button>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <button className="btn-ghost" onClick={() => setSel(DEFAULT_OWN_AMOUNTS_TIYIN)}>
+            Standart (20 600 / 22 000)
+          </button>
           <div className="flex gap-2">
             <button className="btn-ghost" onClick={onClose}>Bekor</button>
             <button className="btn-primary" onClick={() => void save()} disabled={saving}>
-              {saving ? <Spinner size={14} className="mr-1.5" /> : null}Saqlash
+              {saving ? <Spinner size={14} className="mr-1.5" /> : null}Saqlash ({sel.length})
             </button>
           </div>
         </div>
       }
     >
-      <p className="mb-3 text-sm text-muted">
+      <p className="mb-4 text-sm text-muted">
         Biz yaratadigan kvitansiyalarning summalarini belgilang. Belgilanmaganlari
-        «ortiqcha» deb ko'rsatiladi — summa xato kiritilgan yoki sud qo'shimcha qo'ygan bo'ladi.
+        «ortiqcha» deb ko‘rsatiladi — summa xato kiritilgan yoki sud qo‘shimcha qo‘ygan bo‘ladi.
       </p>
-      <div className="space-y-1.5">
-        {all.map((n) => (
-          <label key={n} className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-line px-3 py-2 hover:bg-surface-2">
-            <input type="checkbox" checked={sel.includes(n)} onChange={() => toggle(n)} className="size-4 accent-[var(--brand-600,#2563eb)]" />
-            <span className="tabular-nums">{money(n)} so‘m</span>
-            <span className="ml-auto text-xs text-muted">{countOf(n) ? `${countOf(n)} ta` : 'bazada yo‘q'}</span>
-          </label>
-        ))}
-        {!all.length && <div className="text-sm text-muted">Bazada hali summa yo‘q — pastdan qo‘lda qo‘shing.</div>}
-      </div>
-      <div className="mt-3 flex items-center gap-2">
+
+      {picked.length > 0 && (
+        <>
+          <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+            Bizniki ({picked.length})
+          </div>
+          <div className="mb-4 space-y-1.5">{picked.map((n) => <Row key={n} n={n} />)}</div>
+        </>
+      )}
+
+      {rest.length > 0 && (
+        <>
+          <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted">
+            Qolganlari ({rest.length}) — ortiqcha deb belgilanadi
+          </div>
+          {/* Quyruq uzun bo'lishi mumkin — modal cho'zilib ketmasin. */}
+          <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">{rest.map((n) => <Row key={n} n={n} />)}</div>
+        </>
+      )}
+
+      {!all.length && <div className="text-sm text-muted">Bazada hali summa yo‘q — pastdan qo‘lda qo‘shing.</div>}
+
+      <div className="mt-4 flex items-center gap-2 border-t border-line pt-4">
         <input
           value={extra}
           onChange={(e) => setExtra(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') addExtra(); }}
-          placeholder="Boshqa summa (so‘mda, masalan 25000)"
+          placeholder="Bazada yo‘q summani qo‘shish (so‘mda, masalan 25000)"
           className="field-input flex-1"
           inputMode="numeric"
         />
-        <button className="btn-ghost" onClick={addExtra} disabled={!extra.trim()}>
+        <button className="btn-ghost shrink-0" onClick={addExtra} disabled={!extra.trim()}>
           <Ico.add size={14} className="mr-1 inline" />Qo‘shish
         </button>
       </div>
