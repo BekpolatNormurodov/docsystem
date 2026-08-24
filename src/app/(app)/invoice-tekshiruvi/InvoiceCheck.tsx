@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Ico, Spinner, Modal, useConfirm } from '@/ui';
+import { Ico, Spinner, Modal, Select, useConfirm } from '@/ui';
 import { FIRMS, type FirmCfg } from '@/lib/firms';
 
 const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
@@ -71,6 +71,15 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 const SIZES = [10, 20, 50] as const;
+
+// «Hozir yangilash» nechta kvitansiyani tortsin. 0 = butun ro'yxat.
+const SYNC_LIMITS = [
+  { value: '0', label: 'Hammasi' },
+  { value: '5', label: 'Oxirgi 5 ta' },
+  { value: '10', label: 'Oxirgi 10 ta' },
+  { value: '50', label: 'Oxirgi 50 ta' },
+  { value: '100', label: 'Oxirgi 100 ta' },
+];
 
 // DIQQAT: billing.sud.uz summalarni TIYINDA qaytaradi — 2 060 000 = 20 600,00 so'm
 // (billing.sud.uz sahifasining o'zi ham shunday ko'rsatadi). Bazada xom ko'rinishda
@@ -347,20 +356,14 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
               </span>
               <span className="text-sm text-muted">· har 30 daqiqada avtomatik</span>
               <div className="ml-auto flex items-center gap-2">
-                <select
-                  value={syncLimit}
-                  onChange={(e) => setSyncLimit(Number(e.target.value))}
-                  className="field-input !w-auto !py-1.5 text-sm"
-                  title="Nechta kvitansiya tortilsin"
-                >
-                  <option value={0}>Hammasi</option>
-                  <option value={5}>Oxirgi 5 ta</option>
-                  <option value={10}>Oxirgi 10 ta</option>
-                  <option value={50}>Oxirgi 50 ta</option>
-                  <option value={100}>Oxirgi 100 ta</option>
-                </select>
-                <button onClick={() => void startSync()} disabled={!activeFirm} className="btn-ghost">
-                  <Ico.refresh size={14} className="mr-1 inline" />Hozir yangilash
+                <Select
+                  value={String(syncLimit)}
+                  onChange={(v) => setSyncLimit(Number(v))}
+                  options={SYNC_LIMITS}
+                  className="w-40"
+                />
+                <button onClick={() => void startSync()} disabled={!activeFirm} className="btn-primary">
+                  <Ico.refresh size={14} className="mr-1.5 inline" />Hozir yangilash
                 </button>
               </div>
             </>
