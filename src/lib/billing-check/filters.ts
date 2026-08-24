@@ -36,6 +36,16 @@ export function buildInvoiceWhere(sp: URLSearchParams, ownAmounts: number[] = []
   // own=1 → faqat bizning standart summalarimiz; own=0 → faqat «ortiqcha»lar.
   const own = sp.get('own');
   const q = (sp.get('q') || '').trim();
+  // Yaratilgan sana oralig'i (YYYY-MM-DD). `to` — shu kunning OXIRIGACHA.
+  const from = sp.get('from') || '';
+  const to = sp.get('to') || '';
+  const issuedAt: Prisma.DateTimeNullableFilter | undefined =
+    from || to
+      ? {
+          ...(from ? { gte: new Date(`${from}T00:00:00`) } : {}),
+          ...(to ? { lte: new Date(`${to}T23:59:59.999`) } : {}),
+        }
+      : undefined;
 
   return {
     ...(firmCode ? { firmCode } : {}),
@@ -44,7 +54,9 @@ export function buildInvoiceWhere(sp: URLSearchParams, ownAmounts: number[] = []
     ...(amount !== undefined ? { amount } : {}),
     ...(own === '1' ? { amount: { in: ownAmounts } } : {}),
     ...(own === '0' ? { amount: { notIn: ownAmounts } } : {}),
-    // Qidiruv: kvitansiya raqami, egasi (firma nomi), STIR yoki da'vo raqami bo'yicha.
+    ...(issuedAt ? { issuedAt } : {}),
+    // Matn qidiruvi — yozuvning ko'zga ko'rinadigan hamma maydoni bo'yicha, shunda
+    // «nimani qidirsam bo'ladi» degan savol tug'ilmaydi.
     ...(q
       ? {
           OR: [
@@ -52,6 +64,10 @@ export function buildInvoiceWhere(sp: URLSearchParams, ownAmounts: number[] = []
             { payer: { contains: q } },
             { payerTin: { contains: q } },
             { claimCaseNumber: { contains: q } },
+            { court: { contains: q } },
+            { description: { contains: q } },
+            { payCategory: { contains: q } },
+            { forAccount: { contains: q } },
           ],
         }
       : {}),

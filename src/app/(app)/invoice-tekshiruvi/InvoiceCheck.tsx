@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Ico, Spinner, Modal, Select, useConfirm } from '@/ui';
+import { Ico, Spinner, Modal, Select, DateField, useConfirm } from '@/ui';
 import { FIRMS, type FirmCfg } from '@/lib/firms';
 import { isOwn, DEFAULT_OWN_AMOUNTS_TIYIN } from '@/lib/billing-check/filters';
 
@@ -234,6 +234,9 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
   const [amount, setAmount] = useState('');
   const [q, setQ] = useState('');
   const [dq, setDq] = useState('');
+  // Yaratilgan sana oralig'i (YYYY-MM-DD, bo'sh = cheklovsiz).
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
   const [page, setPage] = useState(0);
   const [size, setSize] = useState<number>(20);
 
@@ -274,8 +277,10 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
     else if (amount === 'extra') p.set('own', '0');
     else if (amount) p.set('amount', amount);
     if (dq) p.set('q', dq);
+    if (from) p.set('from', from);
+    if (to) p.set('to', to);
     return p;
-  }, [firmCode, status, cat, amount, dq]);
+  }, [firmCode, status, cat, amount, dq, from, to]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -361,7 +366,7 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
   ];
   const ownCount = amountFacet.filter((a) => isOwn(a.amount, ownAmounts)).reduce((s, a) => s + a._count._all, 0);
   const extraCount = amountFacet.filter((a) => a.amount !== null && !isOwn(a.amount, ownAmounts)).reduce((s, a) => s + a._count._all, 0);
-  const activeFilters = [status, cat, amount, dq].filter(Boolean).length;
+  const activeFilters = [status, cat, amount, dq, from, to].filter(Boolean).length;
 
   const lastPage = Math.max(0, Math.ceil(total / size) - 1);
 
@@ -468,7 +473,7 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { setDq(q.trim()); setPage(0); } if (e.key === 'Escape') setQ(''); }}
-            placeholder="Qidirish: raqam, egasi, STIR, da'vo…"
+            placeholder="Qidirish: raqam, egasi, STIR, da'vo, sud, hisob raqami…"
             className="field-input w-full pl-9 pr-8"
           />
           {q && (
@@ -514,12 +519,19 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
           </span>
         </FilterRow>
 
+        <FilterRow label="Sana">
+          <div className="w-44"><DateField label="" value={from} onChange={(v) => { setFrom(v); setPage(0); }} /></div>
+          <span className="text-sm text-muted">—</span>
+          <div className="w-44"><DateField label="" value={to} onChange={(v) => { setTo(v); setPage(0); }} /></div>
+          <span className="text-xs text-muted">kvitansiya yaratilgan sana</span>
+        </FilterRow>
+
         <FilterRow label="Turi">
           <Select value={cat} onChange={(v) => { setCat(v); setPage(0); }} options={catOptions} className="w-64" />
           {activeFilters > 0 && (
             <button
               className="btn-ghost !py-1.5 !px-3 text-sm"
-              onClick={() => { setCat(''); setAmount(''); setStatus(null); setQ(''); setPage(0); }}
+              onClick={() => { setCat(''); setAmount(''); setStatus(null); setQ(''); setFrom(''); setTo(''); setPage(0); }}
             >
               <Ico.close size={14} className="mr-1 inline" />Tozalash ({activeFilters})
             </button>
