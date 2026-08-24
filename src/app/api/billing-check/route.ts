@@ -1,22 +1,51 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import type { Prisma } from '@prisma/client';
 
 export const runtime = 'nodejs';
 
-// GET ?firm=<code>&status=<CREATED|PAID|USED> — tarix (so'nggi qidiruvlar) + shu firma/holatga
-// (yoki umuman) tegishli keshdagi kvitansiyalar + firma bo'yicha son taqsimoti.
+// Keshdagi kvitansiyalar ro'yxati — firma/holat bo'yicha filtr, matn qidiruv, sahifalab.
+// Bitta firmada 2000+ yozuv bo'lishi mumkin, shuning uchun hammasi birdan qaytarilmaydi.
+// GET ?firm=<code>&status=<CREATED|PAID|USED>&q=<matn>&page=<0..>&size=<1..200>
 export async function GET(req: NextRequest) {
   await requireAdmin();
-  const firmCode = req.nextUrl.searchParams.get('firm') || undefined;
-  const status = req.nextUrl.searchParams.get('status') || undefined;
-  const where = { ...(firmCode ? { firmCode } : {}), ...(status ? { invoiceStatus: status } : {}) };
+  const sp = req.nextUrl.searchParams;
+  const firmCode = sp.get('firm') || undefined;
+  const status = sp.get('status') || undefined;
+  const q = (sp.get('q') || '').trim();
+  const page = Math.max(0, Number(sp.get('page')) || 0);
+  const size = Math.min(200, Math.max(1, Number(sp.get('size')) || 20));
 
-  const [queries, invoices, summary] = await Promise.all([
-    prisma.billingCheckQuery.findMany({ orderBy: { createdAt: 'desc' }, take: 100 }),
-    prisma.billingCheckInvoice.findMany({ where, orderBy: { checkedAt: 'desc' }, take: 200 }),
+  const where: Prisma.BillingCheckInvoiceWhereInput = {
+    ...(firmCode ? { firmCode } : {}),
+    ...(status ? { invoiceStatus: status } : {}),
+    // Qidiruv: kvitansiya raqami, egasi (firma nomi), STIR yoki da'vo raqami bo'yicha.
+    ...(q
+      ? {
+          OR: [
+            { number: { contains: q } },
+            { payer: { contains: q } },
+            { payerTin: { contains: q } },
+            { claimCaseNumber: { contains: q } },
+          ],
+        }
+      : {}),
+  };
+
+  const [invoices, total, summary] = await Promise.all([
+    prisma.billingCheckInvoice.findMany({
+      where,
+      // Yangi kvitansiyalar tepada. issuedAt faqat ro'yxatdan kelganda to'ladi (bitta raqam
+      // bo'yicha checkStatus uni qaytarmaydi) — shunday yozuvlar uchun checkedAt zaxira tartib.
+      orderBy: [{ issuedAt: 'desc' }, { checkedAt: 'desc' }],
+      skip: page * size,
+      take: size,
+    }),
+    prisma.billingCheckInvoice.count({ where }),
+    // Chip'lardagi sonlar — qidiruv/holat filtridan MUSTAQIL, faqat firma kesimida.
     prisma.billingCheckInvoice.groupBy({ by: ['firmCode'], _count: { _all: true } }),
   ]);
 
-  return NextResponse.json({ queries, invoices, summary });
+  return NextResponse.json({ invoices, total, page, size, summary });
 }

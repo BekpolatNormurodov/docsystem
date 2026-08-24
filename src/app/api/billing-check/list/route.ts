@@ -19,6 +19,9 @@ export async function POST(req: NextRequest) {
   const page = Number.isFinite(body?.page) ? Number(body.page) : 0;
   const size = Number.isFinite(body?.size) ? Number(body.size) : 10;
   const query = inn || passportNumber || '';
+  // Ommaviy yig'ishda bu route o'nlab marta chaqiriladi — har sahifa uchun tarix yozuvi
+  // yaratilsa jurnal ko'milib ketardi. Mijoz oxirida BITTA umumiy yozuv qo'shadi (POST /history).
+  const silent = body?.silent === true;
 
   if (!inn && !passportNumber) return NextResponse.json({ error: 'STIR yoki pasport kerak' }, { status: 400 });
 
@@ -46,9 +49,11 @@ export async function POST(req: NextRequest) {
         raw: row.raw,
       });
     }
-    await prisma.billingCheckQuery.create({
-      data: { createdBy: user.username, mode: 'LIST', query, page: result.pageNumber, resultCount: result.content.length, status: 'OK' },
-    });
+    if (!silent) {
+      await prisma.billingCheckQuery.create({
+        data: { createdBy: user.username, mode: 'LIST', query, page: result.pageNumber, resultCount: result.content.length, status: 'OK' },
+      });
+    }
     return NextResponse.json(result);
   } catch (e: any) {
     const message = e?.message || 'Qidirishda xato';
