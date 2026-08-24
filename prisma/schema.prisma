@@ -564,6 +564,55 @@ model ClientCaseStatus {
   @@index([snapshotId, branchCode])
 }
 
+// billing.sud.uz kvitansiya tekshiruvi — standalone modul (pastki sidebar, snapshot/step
+// pipeline'dan mustaqil). Ikki qidiruv rejimi bitta keshga tushadi: (1) bitta kvitansiya
+// raqami — GET /api/invoice/checkStatus, captchasiz, ochiq; (2) STIR/pasport bo'yicha
+// ro'yxat («my-checks» sahifasi) — GET /api/invoice/captcha/search, sahifalab, har so'rov
+// bitta bir martalik captcha token (recaptcha.sud.uz) talab qiladi. src/lib/billing-check/.
+model BillingCheckInvoice {
+  id              Int      @id @default(autoincrement())
+  number          String   @unique // kvitansiya raqami
+  invoiceStatus   String // CREATED (to'lanmagan) | PAID (to'liq to'langan) | USED (ishlatilgan) | ...
+  amount          Decimal? @db.Decimal(20, 2)
+  paidAmount      Decimal? @db.Decimal(20, 2)
+  mustPayAmount   Decimal? @db.Decimal(20, 2)
+  balance         Decimal? @db.Decimal(20, 2)
+  payer           String? // kvitansiya egasi (firma yoki shaxs to'liq nomi)
+  payerTin        String? // egasining STIR/pasporti
+  firmCode        String? // payerTin bizning 3 firmadan biriga mos kelsa (firmByStir)
+  court           String?
+  courtId         Int?
+  forAccount      String? // shaxsiy hisob raqami
+  description     String?
+  payCategory     String?
+  claimCaseNumber String? // agar da'vo ishiga ishlatilgan bo'lsa
+  issuedAt        DateTime? // yaratilgan sana
+  expiresAt       DateTime? // amal qilish muddati
+  source          String   @default("SINGLE") // SINGLE | LIST — oxirgi marta qayerdan yangilangan
+  raw             Json?
+  checkedAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([payerTin])
+  @@index([firmCode])
+  @@index([invoiceStatus])
+}
+
+// Har bir qidiruv/yangilash amali — tarix uchun (kim, qachon, nima qidirdi, natija).
+model BillingCheckQuery {
+  id          Int      @id @default(autoincrement())
+  createdAt   DateTime @default(now())
+  createdBy   String?
+  mode        String // SINGLE | LIST
+  query       String // kvitansiya raqami YOKI STIR/pasport
+  page        Int?
+  resultCount Int      @default(0)
+  status      String   @default("OK") // OK | FAILED
+  message     String?  @db.Text
+
+  @@index([createdAt])
+}
+
 // A file uploaded/attached to a case (e.g. the signed scanned ariza, a receipt).
 model CaseDocument {
   id         Int       @id @default(autoincrement())

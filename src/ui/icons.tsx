@@ -104,4 +104,5 @@ export const NAV_ICONS: Record<string, React.ComponentType<IconProps>> = {
   judge: Ico.judge,
   court: Ico.court,
   shield: Ico.shield,
+  receipt: Ico.receipt,
 };

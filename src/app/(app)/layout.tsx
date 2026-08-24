@@ -73,6 +73,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         { href: '/talabnoma-shakllantirish', label: 'Talabnoma shakllantirish', icon: 'sms', bottom: true },
         // MIB hisoboti — HISOBOT excel yuklab, «Holat» bo'yicha (MIBda) mib.uz dan avtomat tekshiradi.
         { href: '/mib-hisoboti', label: 'MIB hisoboti', icon: 'judge', bottom: true },
+        // Invoice tekshiruvi — billing.sud.uz: bitta kvitansiya raqami bo'yicha yoki
+        // STIR/pasport bo'yicha ro'yxat (pagination) tekshirish/yangilash.
+        { href: '/invoice-tekshiruvi', label: 'Invoice tekshiruvi', icon: 'receipt', bottom: true },
       ]
     : [
         // Yurist: their granted steps + Mijozlar (clients are visible to everyone) + their own log.
