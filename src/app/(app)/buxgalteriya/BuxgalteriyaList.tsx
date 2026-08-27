@@ -99,17 +99,45 @@ function FirmCard({ firm, amount }: { firm: BxFirm; amount: number }) {
 }
 
 export function BuxgalteriyaList({ data }: { data: BxData }) {
+  const [sel, setSel] = useState<number | 'all'>('all');
   if (data.firms.length === 0) {
     return <div className="card grid h-40 place-items-center text-center text-sm text-muted">Bu sana bo‘yicha yaratilgan invoice yo‘q.<br />Mohigul «Invoice yaratish»da boji yaratgach shu yerda ko‘rinadi.</div>;
   }
+  const shown = sel === 'all' ? data.firms : data.firms.filter((f) => f.firmId === sel);
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="card p-4"><div className="text-xs text-muted">Jami kvitansiya</div><div className="mt-0.5 text-xl font-bold tabular-nums">{n(data.total)}</div></div>
-        <div className="card p-4"><div className="text-xs text-muted">To‘langan</div><div className="mt-0.5 text-xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{n(data.paidCount)}</div></div>
-        <div className="card p-4"><div className="text-xs text-muted">To‘lanmagan</div><div className="mt-0.5 text-xl font-bold tabular-nums text-amber-600 dark:text-amber-400">{n(data.unpaidCount)}</div></div>
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_15rem]">
+      {/* Chap: umumiy hisob + firma kartalari */}
+      <div className="min-w-0 space-y-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="card p-4"><div className="text-xs text-muted">Jami kvitansiya</div><div className="mt-0.5 text-xl font-bold tabular-nums">{n(data.total)}</div></div>
+          <div className="card p-4"><div className="text-xs text-muted">To‘langan</div><div className="mt-0.5 text-xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{n(data.paidCount)}</div></div>
+          <div className="card p-4"><div className="text-xs text-muted">To‘lanmagan</div><div className="mt-0.5 text-xl font-bold tabular-nums text-amber-600 dark:text-amber-400">{n(data.unpaidCount)}</div></div>
+        </div>
+        {shown.map((f) => <FirmCard key={f.firmId} firm={f} amount={data.amount} />)}
       </div>
-      {data.firms.map((f) => <FirmCard key={f.firmId} firm={f} amount={data.amount} />)}
+
+      {/* O'ng: firmalar ro'yxati (filtr) — sanoq bilan */}
+      <aside className="lg:sticky lg:top-4 lg:self-start">
+        <div className="card p-2">
+          <div className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">Firmalar</div>
+          <ul className="space-y-0.5">
+            <li>
+              <button onClick={() => setSel('all')} className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] transition-colors ${sel === 'all' ? 'bg-brand-500/10 font-semibold text-brand-700 dark:text-brand-300' : 'hover:bg-surface-2'}`}>
+                <span>Hammasi</span>
+                <span className="text-[11px] tabular-nums text-muted">{n(data.paidCount)}/{n(data.total)}</span>
+              </button>
+            </li>
+            {data.firms.map((f) => (
+              <li key={f.firmId}>
+                <button onClick={() => setSel(f.firmId)} className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] transition-colors ${sel === f.firmId ? 'bg-brand-500/10 font-semibold text-brand-700 dark:text-brand-300' : 'hover:bg-surface-2'}`}>
+                  <span className="truncate">{f.firmName}</span>
+                  <span className="shrink-0 text-[11px] tabular-nums text-muted">{n(f.paid)}/{n(f.total)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </aside>
     </div>
   );
 }
