@@ -13,7 +13,7 @@ export const CHAMBER = {
    *  boshqarma's real address (Mirobod tumani, A.Temur shox koʻchasi 4 — same as the «Arizachi:»
    *  block), not the old «Bobur koʻchasi 30». */
   contact: [
-    'Toshkent sh., Mirobod tumani, A.Temur shox koʻchasi 4-uy',
+    'Toshkent sh, Mirobod tumani, A.Temur shox koʻchasi 4-uy',
     'tel.: (+998) 95-144-24-00, (+998) 95-144-27-00, 1094',
     'e-mail: th@chamber.uz, www.chamber.uz',
   ],
