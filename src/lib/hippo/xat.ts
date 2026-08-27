@@ -155,16 +155,24 @@ export async function resolveContext(s: HippoSession, templateNameHint = 'talabn
   }
 
   // A firm with NO existing registry (fresh account, e.g. Bright's first send) has no reyestr to read
-  // branchId from → «filial ulanmagan». Fall back to the org's branch list directly. Tolerant of the
-  // response-shape variants; picks the first active branch (and its org, if the template lacked one).
+  // branchId from → «filial ulanmagan» / «Invalid targeting setup». Fall back to the org's branch list.
+  // The branch MUST belong to the template's organization, else hippo rejects the targeting — so filter
+  // by organizationId and prefer a default/main branch. Tolerant of the response-shape variants.
   if (!branchId || !organizationId) {
     try {
       const br = await getMyBranches(s);
       const arr: any[] = Array.isArray(br.json) ? br.json : br.json?.data?.items ?? br.json?.items ?? br.json?.data ?? [];
-      const first = arr.find((b) => (b?.active ?? b?.isActive ?? true)) ?? arr[0];
-      if (first) {
-        if (!branchId) branchId = Number(first.id ?? first.branchId ?? 0);
-        if (!organizationId) organizationId = Number(first.organizationId ?? first.orgId ?? 0);
+      const orgOf = (b: any) => Number(b?.organizationId ?? b?.orgId ?? b?.organization?.id ?? 0);
+      console.log('[hippo ctx] getMyBranches=%s branches=%j', br.status,
+        arr.slice(0, 15).map((b) => ({ id: b?.id ?? b?.branchId, org: orgOf(b), name: b?.name ?? b?.shortName, def: b?.isDefault ?? b?.isMain ?? b?.default })));
+      // Prefer a branch under the template's org; within that, a default/main one; else first active.
+      const pool = organizationId ? arr.filter((b) => orgOf(b) === organizationId) : arr;
+      const cand = pool.find((b) => b?.isDefault ?? b?.isMain ?? b?.default)
+        ?? pool.find((b) => (b?.active ?? b?.isActive ?? true))
+        ?? pool[0] ?? arr[0];
+      if (cand) {
+        if (!branchId) branchId = Number(cand.id ?? cand.branchId ?? 0);
+        if (!organizationId) organizationId = orgOf(cand) || organizationId;
       }
     } catch (e) { console.error('[hippo ctx] getMyBranches fallback failed', e); }
   }
