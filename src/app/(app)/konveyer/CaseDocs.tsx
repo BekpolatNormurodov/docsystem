@@ -10,7 +10,7 @@ const rk = (s: string) => STAGE_ORDER.indexOf(s);
 // Packet slots — kind is the upload/download key; ready = generated/expected by
 // stage. `bulk` slots (palata scans) are uploaded as one long PDF and split
 // across cases, not attached one-by-one here. `gen` = system generates it.
-function slots(stage: string, receipt: string | null, talabnomaSent: boolean) {
+function slots(stage: string, receipt: string | null, talabnomaSent: boolean, ofertaMade: boolean) {
   const R = rk(stage);
   // gen:true = system auto-generates (no manual upload). ONLY the palata scan and
   // the firm-library docs are manual — everything else is system-generated.
@@ -26,7 +26,7 @@ function slots(stage: string, receipt: string | null, talabnomaSent: boolean) {
     // so it's not listed here either — the per-client set is talabnoma/ariza/oferta/invoice + scan + firm docs.
     // Oferta is generated per CONTRACT (one per shartnoma) — system-generated on demand, NOT a firm
     // library template. The count («Oferta (N)») is filled in the render from the contract count.
-    { name: 'Oferta', tag: 'mijoz', kind: 'OFERTA', ready: false, bulk: false, gen: true },
+    { name: 'Oferta', tag: 'mijoz', kind: 'OFERTA', ready: ofertaMade, bulk: false, gen: true },
     { name: 'Invoice / kvitansiya', tag: 'mijoz', kind: 'INVOICE', ready: !!receipt, bulk: false, gen: true },
     { name: 'Imzolangan ariza (palatadan, skan)', tag: 'palata', kind: 'SIGNED_ARIZA', ready: R >= rk('SIGNED_SCANNED'), bulk: true, gen: false },
     { name: 'Guvohnoma', tag: 'firma', kind: 'GUVOHNOMA', ready: false, bulk: false, gen: false },
@@ -139,6 +139,7 @@ function CourtReadyBar({ flags }: { flags: CourtFlags }) {
 export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, onChange, courtFlags }: { caseId: number; firmId: number; stage: string; receiptNumber: string | null; talabnomaSent: boolean; onChange?: () => void; courtFlags?: CourtFlags }) {
   const [docs, setDocs] = useState<UpDoc[]>([]);
   const [contracts, setContracts] = useState(0); // shartnoma soni → «Oferta (N)»
+  const [ofertaMade, setOfertaMade] = useState(false); // oferta yaratilganmi → slot «bor» bo'ladi
   const [firmLib, setFirmLib] = useState<{ id: number; kind: string }[]>([]);
   const [busyKind, setBusyKind] = useState<string | null>(null);
   const [genBusy, setGenBusy] = useState(false);
@@ -161,6 +162,7 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, 
       if (token !== reqRef.current) return;
       setDocs(data.docs ?? []);
       setContracts(data.contracts ?? 0);
+      setOfertaMade(!!data.ofertaMade);
       setLoadErr(false);
     } catch { if (token === reqRef.current) setLoadErr(true); }
   };
@@ -239,7 +241,7 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, 
   const byKind = (k: string) => docs.find((d) => d.kind === k);
   const firmDoc = (k: string) => firmLib.find((d) => d.kind === k);
 
-  const all = slots(stage, receiptNumber, talabnomaSent);
+  const all = slots(stage, receiptNumber, talabnomaSent, ofertaMade);
   const groups = [
     { label: 'Mijoz hujjatlari', tag: 'mijoz' },
     { label: 'Palatadan', tag: 'palata' },

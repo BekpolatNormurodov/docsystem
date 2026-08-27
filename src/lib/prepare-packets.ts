@@ -25,6 +25,15 @@ const EXPORTS_DIR = path.join(process.cwd(), 'exports');
 // it also raises peak chromium RAM, so give the worker container matching memory + /dev/shm. Default 5.
 const PDF_CONCURRENCY = Math.max(1, Number(process.env.WORKER_CONCURRENCY) || 5);
 
+/** Per-batch checkpoint: did the operator request «Bekor» on this job? One tiny indexed read per
+ *  render batch (batches are seconds apart under chromium), so the added cost is negligible. When it
+ *  returns true the loop stops rendering and BREAKS — the archive is still finalized, so whatever was
+ *  produced so far is KEPT as a downloadable ZIP (a cancel must not throw away finished work). */
+async function cancelRequested(jobId: number): Promise<boolean> {
+  const j = await prisma.job.findUnique({ where: { id: jobId }, select: { cancelRequested: true } });
+  return j?.cancelRequested === true;
+}
+
 export interface PacketJobOpts {
   snapshotId?: number;
   firmId?: number;
@@ -46,6 +55,7 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
   const withPdf = !arizaOnly && opts.talabnomaPdf !== false;
   let browser: Browser | null = null;
   let output: fs.WriteStream | null = null;
+  const zipPath = path.join(EXPORTS_DIR, `${jobId}.zip`);
   try {
     // Explicit case list (sudga-yuborish) wins; otherwise the scope query.
     let caseIds: number[];
@@ -67,7 +77,6 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
     if (opts.limit && opts.limit > 0 && opts.limit < caseIds.length) caseIds = caseIds.slice(0, opts.limit);
 
     await fsp.mkdir(EXPORTS_DIR, { recursive: true });
-    const zipPath = path.join(EXPORTS_DIR, `${jobId}.zip`);
     output = fs.createWriteStream(zipPath);
     const out = output; // non-null local
     // store: true → no DEFLATE. Every payload here (chromium PDFs, xlsx, docx) is already
@@ -106,6 +115,7 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
     // instead of duplicating multi-MB scans into all thousands of client folders.
     const firmsSeen = new Map<number, string>();
     let done = 0;
+    let canceled = false; // «Bekor» → break the loop, keep+finalize what's built so far
     // Chromium PDF rendering (talabnoma + per-loan oferta) dominates the wall clock, so
     // BUILD cases in concurrent batches — up to CONCURRENCY buildCasePacket calls in
     // flight, each holding at most one chromium page → ≤CONCURRENCY pages open at once.
@@ -114,6 +124,7 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
     const CONCURRENCY = PDF_CONCURRENCY;
     for (let i = 0; i < caseIds.length; i += CONCURRENCY) {
       if (streamErr) throw streamErr; // sink died (disk full/locked) → abort before spawning more work
+      if (await cancelRequested(jobId)) { canceled = true; break; } // «Bekor» → stop; keep what's built
       const batch = caseIds.slice(i, i + CONCURRENCY);
       // Only a per-CASE failure (bad data, doc build) is swallowed here; a sink error is not.
       const packets = await Promise.all(
@@ -174,14 +185,23 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
     await archive.finalize();
     await closed;
 
-    // ZIP is on disk — now advance the cases (idempotent guards make a retry safe).
-    for (const m of toMark) await markPacketGenerated(m.id, m.talabnomaMade, m.arizaMade).catch(() => {});
-    // Sudga-yuborish: stamp exportedAt so «chiqarilganlar» counters exclude them next time.
-    if (opts.markExported) await markCasesExported(toMark.map((m) => m.id)).catch(() => {});
+    // ZIP is on disk. On a clean finish advance the cases (idempotent). On «Bekor» we KEEP the partial
+    // ZIP for download but do NOT advance the funnel — a cancelled run must not mark work as done.
+    if (!canceled) {
+      for (const m of toMark) await markPacketGenerated(m.id, m.talabnomaMade, m.arizaMade).catch(() => {});
+      // Sudga-yuborish: stamp exportedAt so «chiqarilganlar» counters exclude them next time.
+      if (opts.markExported) await markCasesExported(toMark.map((m) => m.id)).catch(() => {});
+    }
 
+    // Recorded count = files ACTUALLY written, not cases processed. A 0-debt case is legitimately
+    // skipped (no «0 soʻm» petition) and produces no file, so counting processed cases inflated the
+    // «N ariza» label (history showed «5 ariza» for a ZIP that held 2). Use the real written count.
+    const writtenCount = arizaOnly ? usedArizaPaths.size : usedFolders.size;
     await prisma.job.updateMany({
       where: { id: jobId },
-      data: { status: 'DONE', progress: done, total: done, resultPath: `exports/${jobId}.zip` },
+      data: canceled
+        ? { status: 'CANCELED', progress: writtenCount, total: writtenCount, resultPath: `exports/${jobId}.zip`, message: `Bekor qilindi — ${writtenCount} ta tayyor`, cancelRequested: false }
+        : { status: 'DONE', progress: writtenCount, total: writtenCount, resultPath: `exports/${jobId}.zip` },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -204,6 +224,7 @@ export async function runOfertaJobByLoans(jobId: number, loanIds: number[], insu
   await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING' } });
   let browser: Browser | null = null;
   let output: fs.WriteStream | null = null;
+  const zipPath = path.join(EXPORTS_DIR, `${jobId}.zip`);
   try {
     const loans = await prisma.loan.findMany({ where: { id: { in: loanIds } }, orderBy: [{ clientName: 'asc' }, { id: 'asc' }] });
     const codes = [...new Set(loans.map((l) => l.branchCode).filter((c): c is string => !!c))];
@@ -211,7 +232,6 @@ export async function runOfertaJobByLoans(jobId: number, loanIds: number[], insu
     const firmByCode = new Map(firms.map((f) => [f.code, f]));
 
     await fsp.mkdir(EXPORTS_DIR, { recursive: true });
-    const zipPath = path.join(EXPORTS_DIR, `${jobId}.zip`);
     output = fs.createWriteStream(zipPath);
     const out = output;
     const archive = archiver('zip', { store: true });
@@ -232,9 +252,11 @@ export async function runOfertaJobByLoans(jobId: number, loanIds: number[], insu
 
     const usedPaths = new Set<string>();
     let done = 0;
+    let canceled = false; // «Bekor» → break the loop, keep+finalize what's built so far
     const CONCURRENCY = PDF_CONCURRENCY;
     for (let i = 0; i < loans.length; i += CONCURRENCY) {
       if (streamErr) throw streamErr;
+      if (await cancelRequested(jobId)) { canceled = true; break; } // «Bekor» → stop; keep what's built
       const batch = loans.slice(i, i + CONCURRENCY);
       const rendered = await Promise.all(batch.map(async (l) => {
         if (Number(l.summKr) <= 0) return null;
@@ -273,7 +295,10 @@ export async function runOfertaJobByLoans(jobId: number, loanIds: number[], insu
     await closed;
     await prisma.job.updateMany({
       where: { id: jobId },
-      data: { status: 'DONE', progress: done, total: done, resultPath: `exports/${jobId}.zip`, message: `${usedPaths.size} oferta` },
+      // «Bekor» keeps the partial ZIP (downloadable) and reports CANCELED — never discards finished work.
+      data: canceled
+        ? { status: 'CANCELED', progress: done, total: done, resultPath: `exports/${jobId}.zip`, message: `Bekor qilindi — ${usedPaths.size} oferta`, cancelRequested: false }
+        : { status: 'DONE', progress: done, total: done, resultPath: `exports/${jobId}.zip`, message: `${usedPaths.size} oferta` },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -294,12 +319,12 @@ export async function runTalabnomaJob(jobId: number, opts: TalabnomaScope, singl
   await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING' } });
   let browser: Browser | null = null;
   let output: fs.WriteStream | null = null;
+  const zipPath = path.join(EXPORTS_DIR, `${jobId}.zip`);
   try {
     const { rows, firm, paidPinfls } = await loadTalabnomaRowsForScope(opts);
     if (rows.length === 0) throw new Error('Talabnoma qatori yoʻq (qarzdorlik 0 yoki maʼlumot yoʻq)');
 
     await fsp.mkdir(EXPORTS_DIR, { recursive: true });
-    const zipPath = path.join(EXPORTS_DIR, `${jobId}.zip`);
     output = fs.createWriteStream(zipPath);
     const out = output;
     const archive = archiver('zip', { store: true });
@@ -326,9 +351,11 @@ export async function runTalabnomaJob(jobId: number, opts: TalabnomaScope, singl
 
     const usedNames = new Set<string>();
     let done = 0;
+    let canceled = false; // «Bekor» → break the loop, keep+finalize what's built so far
     const CONCURRENCY = PDF_CONCURRENCY;
     for (let i = 0; i < rows.length; i += CONCURRENCY) {
       if (streamErr) throw streamErr;
+      if (await cancelRequested(jobId)) { canceled = true; break; } // «Bekor» → stop; keep what's built
       const batch = rows.slice(i, i + CONCURRENCY);
       const rendered = await Promise.all(batch.map(async (row) => {
         try {
@@ -376,7 +403,9 @@ export async function runTalabnomaJob(jobId: number, opts: TalabnomaScope, singl
     // success: hippo sends from the reyestr we just guaranteed, so a client whose local PDF failed
     // to render is still genuinely "talabnoma sent". Parity with the single-case gen routes;
     // idempotent (fills nulls only, never overwrites a real earlier send date); non-fatal.
-    if (paidPinfls.length) {
+    // On «Bekor» we KEEP the partial ZIP (reyestr + rendered letters) for download, but do NOT advance
+    // the talabnoma track — only some clients were processed, so marking everyone «sent» would be wrong.
+    if (!canceled && paidPinfls.length) {
       await prisma.arizaCase.updateMany({
         where: { snapshotId: opts.snapshotId, firmId: opts.firmId, pinfl: { in: paidPinfls }, talabnomaAt: null },
         data: { talabnomaAt: new Date() },
@@ -387,7 +416,9 @@ export async function runTalabnomaJob(jobId: number, opts: TalabnomaScope, singl
       where: { id: jobId },
       // progress = PDFs actually rendered, total = clients expected (rows are pre-filtered to
       // debt>0), so made < expected == a genuine render failure the UI flags red as «yuklanmadi».
-      data: { status: 'DONE', progress: usedNames.size, total: rows.length, resultPath: `exports/${jobId}.zip`, message: `${usedNames.size} talabnoma` },
+      data: canceled
+        ? { status: 'CANCELED', progress: usedNames.size, total: rows.length, resultPath: `exports/${jobId}.zip`, message: `Bekor qilindi — ${usedNames.size} talabnoma`, cancelRequested: false }
+        : { status: 'DONE', progress: usedNames.size, total: rows.length, resultPath: `exports/${jobId}.zip`, message: `${usedNames.size} talabnoma` },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -415,6 +446,7 @@ export async function runOfertaJob(jobId: number, opts: OfertaJobOpts): Promise<
   await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING' } });
   let browser: Browser | null = null;
   let output: fs.WriteStream | null = null;
+  const zipPath = path.join(EXPORTS_DIR, `${jobId}.zip`);
   try {
     // Explicit case list (single-case gen-oferta) wins; otherwise the scope query.
     let caseIds: number[];
@@ -437,7 +469,6 @@ export async function runOfertaJob(jobId: number, opts: OfertaJobOpts): Promise<
     if (!opts.caseIds?.length && opts.limit && opts.limit > 0 && opts.limit < caseIds.length) caseIds = caseIds.slice(0, opts.limit);
 
     await fsp.mkdir(EXPORTS_DIR, { recursive: true });
-    const zipPath = path.join(EXPORTS_DIR, `${jobId}.zip`);
     output = fs.createWriteStream(zipPath);
     const out = output;
     // store: true → payloads are already-compressed chromium PDFs; deflate would just burn
@@ -462,18 +493,22 @@ export async function runOfertaJob(jobId: number, opts: OfertaJobOpts): Promise<
 
     const pct = opts.insurancePct ?? 0;
     const usedPaths = new Set<string>();
+    const producedCaseIds: number[] = []; // cases whose oferta(s) we actually rendered → stamp ofertaAt
     let done = 0;
+    let canceled = false; // «Bekor» → break the loop, keep+finalize what's built so far
     let ofertaCount = 0;
     const CONCURRENCY = PDF_CONCURRENCY;
     for (let i = 0; i < caseIds.length; i += CONCURRENCY) {
+      if (await cancelRequested(jobId)) { canceled = true; break; } // «Bekor» → stop; keep what's built
       if (streamErr) throw streamErr;
       const batch = caseIds.slice(i, i + CONCURRENCY);
       const results = await Promise.all(
-        batch.map((id) => buildCaseOfertas(id, browser as Browser, pct).catch(() => null)),
+        batch.map(async (id) => ({ id, res: await buildCaseOfertas(id, browser as Browser, pct).catch(() => null) })),
       );
-      for (const r of results) {
+      for (const { id, res: r } of results) {
         if (streamErr) throw streamErr;
         if (r && r.files.length) {
+          producedCaseIds.push(id); // ≥1 oferta made for this client → «Oferta: bor» on the card
           for (const f of r.files) {
             // Dedupe the FULL path (folder is shared across a client's firms → co-located),
             // so two same-named files never silently overwrite each other in the ZIP.
@@ -500,9 +535,18 @@ export async function runOfertaJob(jobId: number, opts: OfertaJobOpts): Promise<
     await archive.finalize();
     await closed;
 
+    // Mark every client whose oferta(s) we actually produced (even on «Bekor» — they WERE generated),
+    // so the doc card shows «Oferta: bor». Fill-null-only, never overwrites an earlier stamp; non-fatal.
+    if (producedCaseIds.length) {
+      await prisma.arizaCase.updateMany({ where: { id: { in: producedCaseIds }, ofertaAt: null }, data: { ofertaAt: new Date() } }).catch(() => {});
+    }
+
     await prisma.job.updateMany({
       where: { id: jobId },
-      data: { status: 'DONE', progress: done, total: done, resultPath: `exports/${jobId}.zip`, message: `${ofertaCount} oferta / ${done} case` },
+      // «Bekor» keeps the partial ZIP (downloadable) and reports CANCELED — never throws the work away.
+      data: canceled
+        ? { status: 'CANCELED', progress: done, total: done, resultPath: `exports/${jobId}.zip`, message: `Bekor qilindi — ${ofertaCount} oferta / ${done} case`, cancelRequested: false }
+        : { status: 'DONE', progress: done, total: done, resultPath: `exports/${jobId}.zip`, message: `${ofertaCount} oferta / ${done} case` },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

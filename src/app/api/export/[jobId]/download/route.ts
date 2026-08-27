@@ -2,12 +2,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireAdmin } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
+// requireUser (not requireAdmin): a yurist who was granted a bulk step (e.g. «sud:oferta») generates
+// the ZIP via the requireUser prepare-* routes, so they must also be allowed to download the result —
+// otherwise the «yuklab olish» link 403s for the yurist and the feature is unusable for them.
 export async function GET(_req: NextRequest, { params }: { params: { jobId: string } }) {
-  await requireAdmin();
+  await requireUser();
 
   const id = Number(params.jobId);
   if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });

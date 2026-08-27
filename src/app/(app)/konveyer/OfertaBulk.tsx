@@ -33,6 +33,7 @@ export function OfertaBulk({ firms, snapshotId }: { firms: Firm[]; snapshotId?: 
   const [modalOpen, setModalOpen] = useState(false);
   const [all, setAll] = useState(true);
   const [num, setNum] = useState('');
+  const [canceling, setCanceling] = useState(false);
 
   const loadCount = useCallback(async () => {
     if (snapshotId == null) { setCount(null); return; }
@@ -47,7 +48,7 @@ export function OfertaBulk({ firms, snapshotId }: { firms: Firm[]; snapshotId?: 
     finally { setCountBusy(false); }
   }, [firmId, snapshotId]);
 
-  useEffect(() => { setJobId(null); setJob(null); setErr(null); setCount(null); }, [firmId, snapshotId]);
+  useEffect(() => { setJobId(null); setJob(null); setErr(null); setCount(null); setCanceling(false); }, [firmId, snapshotId]);
   useEffect(() => { loadCount(); }, [loadCount]);
 
   useEffect(() => {
@@ -60,9 +61,12 @@ export function OfertaBulk({ firms, snapshotId }: { firms: Firm[]; snapshotId?: 
         const s: JobState = await res.json();
         if (!alive) return;
         setJob(s);
-        if (s.status === 'DONE' || s.status === 'FAILED') {
+        if (s.status === 'DONE' || s.status === 'FAILED' || s.status === 'CANCELED') {
           if (timer.current) clearInterval(timer.current);
           if (s.status === 'FAILED') setErr(s.message || 'Xatolik');
+          // «Bekor»: the job KEPT its partial ZIP — stop the spinner and show it as a (cancelled)
+          // download (handled by the `done` branch below), never discard what was already generated.
+          if (s.status === 'CANCELED') setCanceling(false);
         }
       } catch { /* keep polling */ }
     };
@@ -78,10 +82,20 @@ export function OfertaBulk({ firms, snapshotId }: { firms: Firm[]; snapshotId?: 
 
   const openModal = () => { setErr(null); setAll(true); setNum(String(total || '')); setModalOpen(true); };
 
+  // «Bekor» — signal the running job to stop; polling flips it to CANCELED and resets the UI. A PENDING
+  // job is cancelled outright server-side, a RUNNING one aborts + deletes its half-built ZIP at the next
+  // batch checkpoint. Keep the button in «Bekor qilinmoqda…» until the poll confirms CANCELED.
+  const cancel = async () => {
+    if (jobId == null || canceling) return;
+    setCanceling(true);
+    try { await fetch(`/api/jobs/${jobId}`, { method: 'POST' }); }
+    catch { setCanceling(false); }
+  };
+
   const start = async () => {
     if (snapshotId == null || inFlight.current) return;
     inFlight.current = true;
-    setStarting(true); setErr(null); setJob(null); setJobId(null);
+    setStarting(true); setErr(null); setJob(null); setJobId(null); setCanceling(false);
     try {
       const res = await fetch('/konveyer/prepare-oferta', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -97,7 +111,8 @@ export function OfertaBulk({ firms, snapshotId }: { firms: Firm[]; snapshotId?: 
   };
 
   const running = jobId != null && (job?.status === 'PENDING' || job?.status === 'RUNNING' || (!job && !err));
-  const done = job?.status === 'DONE';
+  const canceled = job?.status === 'CANCELED';
+  const done = job?.status === 'DONE' || canceled; // «Bekor» keeps a partial ZIP → treat as a download too
   const pct = job && job.total ? Math.min(100, Math.round((job.progress / job.total) * 100)) : 0;
   const scopeLabel = firm ? firm.firmName : 'Hamma firma';
 
@@ -153,10 +168,22 @@ export function OfertaBulk({ firms, snapshotId }: { firms: Firm[]; snapshotId?: 
             <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-surface-2" aria-hidden>
               <span className="block h-full rounded-full bg-brand-500 transition-all" style={{ width: `${pct}%` }} />
             </div>
+            <div className="mt-2.5 flex justify-end">
+              <button onClick={cancel} disabled={canceling} aria-busy={canceling}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/[0.06] px-2.5 py-1 text-xs font-medium text-rose-600 outline-none transition-colors hover:bg-rose-500/12 focus-visible:ring-2 focus-visible:ring-rose-500/30 disabled:opacity-60 dark:text-rose-400"
+                title="Yaratishni to‘xtatib, yarim tayyor faylni o‘chirish">
+                {canceling
+                  ? <><span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> Bekor qilinmoqda…</>
+                  : <><Ico.close size={13} /> Bekor qilish</>}
+              </button>
+            </div>
           </div>
         ) : done ? (
           <div className="flex flex-wrap items-center gap-2">
-            <a href={`/api/export/${jobId}/download`} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-700 outline-none transition-colors hover:bg-emerald-500/15 focus-visible:ring-2 focus-visible:ring-emerald-500/40 dark:text-emerald-300">
+            <a href={`/api/export/${jobId}/download`}
+              className={canceled
+                ? 'inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-700 outline-none transition-colors hover:bg-amber-500/15 focus-visible:ring-2 focus-visible:ring-amber-500/40 dark:text-amber-300'
+                : 'inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-700 outline-none transition-colors hover:bg-emerald-500/15 focus-visible:ring-2 focus-visible:ring-emerald-500/40 dark:text-emerald-300'}>
               <Ico.download size={14} /> {job?.message || `${n(job?.total ?? 0)} tayyor`} — yuklab olish
             </a>
             <button onClick={() => { setJobId(null); setJob(null); loadCount(); }} className="rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-2">Yana</button>

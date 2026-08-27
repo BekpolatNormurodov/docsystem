@@ -150,13 +150,16 @@ model Setting {
 model Job {
   id         Int      @id @default(autoincrement())
   type       String   // IMPORT | EXPORT
-  status     String   @default("PENDING") // PENDING | RUNNING | DONE | FAILED
+  status     String   @default("PENDING") // PENDING | RUNNING | DONE | FAILED | CANCELED
   progress   Int      @default(0)
   total      Int      @default(0)
   message    String?  @db.Text
   resultPath String?
   params     Json?
   snapshotId Int?
+  // Operator pressed «Bekor» on a running bulk job. The batch loop checks this between renders and,
+  // when set, stops rendering but KEEPS+finalizes what's built (downloadable ZIP) and marks CANCELED.
+  cancelRequested Boolean @default(false)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 }
@@ -495,6 +498,9 @@ model ArizaCase {
   // Parallel track: talabnoma (hippo) runs independently of the ariza→palata
   // stage track; both converge at Sud. Set when the talabnoma is sent.
   talabnomaAt   DateTime?
+  // Set when this client's oferta(s) were generated (bulk «Oferta tayyorlash» or the per-card
+  // «Yaratish»), so the doc card shows «bor» instead of «avto». Fill-null-only (never overwritten).
+  ofertaAt      DateTime?
   slaDays       Int       @default(3) // working-day budget for the current stage
   dueAt         DateTime? // deadline for the current stage; past due => "osilgan"
   invoiceNo     String? // davlat-boji invoice number

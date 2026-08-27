@@ -1,7 +1,15 @@
 import {
   Document, Packer, Paragraph, TextRun, ImageRun, Table, TableRow, TableCell,
-  BorderStyle, WidthType, AlignmentType, VerticalAlign,
+  BorderStyle, WidthType, AlignmentType, VerticalAlign, TableLayoutType,
 } from 'docx';
+
+// A4 usable text width (twips) with the default 1" margins — the two tables below pin their column
+// widths to this so renderers keep the columns; without a fixed grid some viewers collapse a cell to
+// one-character width (every letter on its own line — the «dabdala» look).
+const CONTENT_W = 9026;
+const COLS_HEADER = [Math.round(CONTENT_W * 0.4), CONTENT_W - Math.round(CONTENT_W * 0.4)]; // 40 / 60
+const COLS_PARTY = [Math.round(CONTENT_W * 0.4), Math.round(CONTENT_W * 0.05), 0]; // 40 / 5 / rest
+COLS_PARTY[2] = CONTENT_W - COLS_PARTY[0] - COLS_PARTY[1];
 import { dmy, formatSumDecimal, uzLongDateLatin, arizaHeaderDate } from '@/core/document';
 import { CHAMBER } from '@/core/chamber';
 import { CHAMBER_EMBLEM_DATA_URL } from '@/ui/chamber-emblem.data';
@@ -64,13 +72,15 @@ export async function buildArizaDocx(props: CourtArizaDocumentProps): Promise<Bu
   const emblemBuffer = Buffer.from(emblemBase64, 'base64');
 
   const headerTable = new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
+    width: { size: CONTENT_W, type: WidthType.DXA },
+    columnWidths: COLS_HEADER,
+    layout: TableLayoutType.FIXED,
     borders: NO_BORDER,
     rows: [
       new TableRow({
         children: [
           new TableCell({
-            width: { size: 40, type: WidthType.PERCENTAGE },
+            width: { size: COLS_HEADER[0], type: WidthType.DXA },
             borders: NO_BORDER,
             verticalAlign: VerticalAlign.TOP,
             children: [
@@ -86,7 +96,7 @@ export async function buildArizaDocx(props: CourtArizaDocumentProps): Promise<Bu
             ],
           }),
           new TableCell({
-            width: { size: 60, type: WidthType.PERCENTAGE },
+            width: { size: COLS_HEADER[1], type: WidthType.DXA },
             borders: NO_BORDER,
             verticalAlign: VerticalAlign.TOP,
             children: [
@@ -117,19 +127,21 @@ export async function buildArizaDocx(props: CourtArizaDocumentProps): Promise<Bu
     new TableRow({
       children: [
         new TableCell({
-          width: { size: 40, type: WidthType.PERCENTAGE }, borders: NO_BORDER, verticalAlign: VerticalAlign.TOP,
+          width: { size: COLS_PARTY[0], type: WidthType.DXA }, borders: NO_BORDER, verticalAlign: VerticalAlign.TOP,
           children: [new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { line: 264, lineRule: 'auto' }, children: label ? [run(label, { size: 22 })] : [] })],
         }),
-        new TableCell({ width: { size: 5, type: WidthType.PERCENTAGE }, borders: NO_BORDER, children: [new Paragraph({ children: [] })] }),
+        new TableCell({ width: { size: COLS_PARTY[1], type: WidthType.DXA }, borders: NO_BORDER, children: [new Paragraph({ children: [] })] }),
         new TableCell({
-          width: { size: 55, type: WidthType.PERCENTAGE }, borders: NO_BORDER, verticalAlign: VerticalAlign.TOP,
+          width: { size: COLS_PARTY[2], type: WidthType.DXA }, borders: NO_BORDER, verticalAlign: VerticalAlign.TOP,
           children: lines.map((l) => valuePara(l.text, l.opts)),
         }),
       ],
     });
 
   const partyTable = new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
+    width: { size: CONTENT_W, type: WidthType.DXA },
+    columnWidths: COLS_PARTY,
+    layout: TableLayoutType.FIXED,
     borders: NO_BORDER,
     rows: [
       partyRow('', [{ text: props.courtName, opts: { bold: true, italics: true } }]),

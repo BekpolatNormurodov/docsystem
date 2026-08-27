@@ -8,7 +8,8 @@ export async function awaitJob(jobId: number, timeoutMs = 280_000): Promise<'DON
   for (;;) {
     const j = await prisma.job.findUnique({ where: { id: jobId }, select: { status: true } });
     if (j?.status === 'DONE') return 'DONE';
-    if (j?.status === 'FAILED') return 'FAILED';
+    // CANCELED is terminal too — treat as failure so the waiting route returns promptly, never hangs to timeout.
+    if (j?.status === 'FAILED' || j?.status === 'CANCELED') return 'FAILED';
     if (Date.now() > deadline) return 'TIMEOUT';
     await new Promise((r) => setTimeout(r, 500));
   }

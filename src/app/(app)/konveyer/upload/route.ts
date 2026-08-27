@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { requireAdmin } from '@/lib/auth';
+import { requireAdmin, requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { dueForStage } from '@/lib/konveyer-sla';
 import type { CaseStage } from '@prisma/client';
@@ -14,7 +14,9 @@ const safe = (s: string) => s.replace(/[^\p{L}\p{N}._-]+/gu, '_').slice(0, 120);
 // GET ?caseId= — list a case's uploaded documents + the contract (shartnoma) count, so the doc panel
 // can show «Oferta (N)» (one oferta per contract).
 export async function GET(req: NextRequest) {
-  await requireAdmin();
+  // requireUser (not requireAdmin): a yurist granted a step (e.g. «sud:send») opens the per-client doc
+  // card in CourtManager, so reading a case's docs/status must work for them too — else the card 403s.
+  await requireUser();
   const caseId = Number(req.nextUrl.searchParams.get('caseId'));
   if (!caseId) return NextResponse.json({ error: 'caseId kerak' }, { status: 400 });
   const [docs, ac] = await Promise.all([
@@ -23,7 +25,7 @@ export async function GET(req: NextRequest) {
       orderBy: { uploadedAt: 'desc' },
       select: { id: true, kind: true, fileName: true, size: true, uploadedAt: true },
     }),
-    prisma.arizaCase.findUnique({ where: { id: caseId }, select: { pinfl: true, snapshotId: true, kod: true } }),
+    prisma.arizaCase.findUnique({ where: { id: caseId }, select: { pinfl: true, snapshotId: true, kod: true, ofertaAt: true } }),
   ]);
   // Ofertalar soni = summasi > 0 bo'lgan shartnomalar (buildCaseOfertas ham shu loanlarni oladi).
   let contracts = 0;
@@ -32,7 +34,8 @@ export async function GET(req: NextRequest) {
       where: { snapshotId: ac.snapshotId, pinfl: ac.pinfl, ...(ac.kod ? { branchCode: ac.kod } : {}), summKr: { gt: 0 } },
     });
   }
-  return NextResponse.json({ docs, contracts });
+  // ofertaMade → the doc card shows «Oferta: bor» once the oferta(s) were generated (bulk or per-card).
+  return NextResponse.json({ docs, contracts, ofertaMade: !!ac?.ofertaAt });
 }
 
 // POST multipart (caseId, kind, file) — store the file and record it.

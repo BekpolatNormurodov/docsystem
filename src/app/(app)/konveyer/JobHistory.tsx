@@ -24,6 +24,7 @@ const STATUS: Record<string, { label: string; tone: string }> = {
   RUNNING: { label: 'Yaratilmoqda', tone: 'bg-amber-500/15 text-amber-700 dark:text-amber-300' },
   PENDING: { label: 'Navbatda', tone: 'bg-slate-500/15 text-slate-600 dark:text-slate-300' },
   FAILED: { label: 'Xato', tone: 'bg-rose-500/15 text-rose-600 dark:text-rose-300' },
+  CANCELED: { label: 'Bekor qilindi', tone: 'bg-slate-500/15 text-slate-500 dark:text-slate-400' },
 };
 
 /** Windowed page list: 1 … (cur-1) cur (cur+1) … last, with `null` marking an ellipsis gap. */
