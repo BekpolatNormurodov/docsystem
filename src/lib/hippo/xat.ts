@@ -143,7 +143,7 @@ export async function resolveContext(s: HippoSession, templateNameHint = 'talabn
   const t = byId ?? tplArr.find((x) => String(x?.name ?? '').toLowerCase().includes(templateNameHint.toLowerCase()));
   const templateName: string = t?.name ?? templateNameHint;
   const resolvedTemplateId = Number(t?.id ?? templateId ?? 0);
-  const organizationId = Number(t?.organizationId ?? 0);
+  let organizationId = Number(t?.organizationId ?? 0);
 
   let branchId = 0;
   const list = await listRegistries(s, { PageIndex: 1, PageSize: 1 });
@@ -153,6 +153,30 @@ export async function resolveContext(s: HippoSession, templateNameHint = 'talabn
     const det = await getRegistry(s, refId);
     branchId = Number(det.json?.branchId ?? det.json?.data?.branchId ?? 0);
   }
+
+  // A firm with NO existing registry (fresh account, e.g. Bright's first send) has no reyestr to read
+  // branchId from → «filial ulanmagan». Fall back to the org's branch list directly. Tolerant of the
+  // response-shape variants; picks the first active branch (and its org, if the template lacked one).
+  if (!branchId || !organizationId) {
+    try {
+      const br = await getMyBranches(s);
+      const arr: any[] = Array.isArray(br.json) ? br.json : br.json?.data?.items ?? br.json?.items ?? br.json?.data ?? [];
+      const first = arr.find((b) => (b?.active ?? b?.isActive ?? true)) ?? arr[0];
+      if (first) {
+        if (!branchId) branchId = Number(first.id ?? first.branchId ?? 0);
+        if (!organizationId) organizationId = Number(first.organizationId ?? first.orgId ?? 0);
+      }
+    } catch (e) { console.error('[hippo ctx] getMyBranches fallback failed', e); }
+  }
+  if (!organizationId) {
+    try {
+      const orgs = await getMyOrganizations(s);
+      const arr: any[] = Array.isArray(orgs.json) ? orgs.json : orgs.json?.data?.items ?? orgs.json?.items ?? orgs.json?.data ?? [];
+      organizationId = Number(arr?.[0]?.id ?? arr?.[0]?.organizationId ?? 0);
+    } catch (e) { console.error('[hippo ctx] getMyOrganizations fallback failed', e); }
+  }
+
+  console.log('[hippo ctx] templates=%d template=%s(id=%s) org=%s branch=%s', tplArr.length, templateName, resolvedTemplateId, organizationId, branchId);
   return { templateName, templateId: resolvedTemplateId, organizationId, branchId };
 }
 
