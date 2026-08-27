@@ -15,6 +15,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // get a smaller nav. Role decides what the sidebar offers.
   const user = await requireUser();
   const isAdmin = user.role === 'ADMIN';
+  // Buxgalteriya («Invoice») ruxsati — endi Sud step ostidagi sub-item; faqat ruxsatlilar kiradi.
+  const hasBux = canAccess(user, 'buxgalteriya');
 
   // The pipeline steps this user may open, as stepper items (DRY with access.ts).
   // Sidebar sub-items nested under a step (route-based, NOT in-page tabs).
@@ -39,10 +41,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     section: 'Boshqaruv',
     step: STEP_META[k].step,
     // Sub-item'lar: ruxsat bo'lmasa `locked` (sidebar'da X, bosib bo'lmaydi).
-    children: SUB_ITEMS[STEP_META[k].href]?.map((c) => {
-      const sk = subKeyByHref.get(c.href);
-      return { ...c, locked: sk ? !canAccess(user, sk) : false };
-    }),
+    children: (() => {
+      const base = SUB_ITEMS[STEP_META[k].href]?.map((c) => {
+        const sk = subKeyByHref.get(c.href);
+        return { ...c, locked: sk ? !canAccess(user, sk) : false };
+      }) ?? [];
+      // Sud step ostiga «Buxgalteriya-invoice» — faqat buxgalteriya ruxsati bo'lsa ko'rinadi.
+      if (k === 'sud' && hasBux) base.push({ href: '/buxgalteriya', label: 'Buxgalteriya-invoice', locked: false });
+      return base.length ? base : undefined;
+    })(),
   }));
 
   // Shared pipeline date: rendered once in the sidebar (Boshqaruv), driven by the konv_s cookie —
@@ -65,28 +72,25 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   // «Alohida» modullar — endi ruxsatga bog'liq: ADMIN hammasini, YURIST faqat berilganini ko'radi
   // (foydalanuvchi so'rovi). Sidebar eng pastida (bottom: true).
-  // Buxgalteriya — «Alohida»da EMAS, «Menyu»da alohida band (quyida), shuning uchun bu ro'yxatdan chiqarib turamiz.
-  const modules = allowedModules(user);
-  const moduleNav: NavItem[] = modules
+  // Buxgalteriya — «Alohida»da ham, «Menyu»da ham EMAS: u Sud step ostidagi sub-item (yuqorida qo'shildi).
+  const moduleNav: NavItem[] = allowedModules(user)
     .filter((k) => k !== 'buxgalteriya')
     .map((k) => ({ href: MODULE_META[k].href, label: MODULE_META[k].label, icon: MODULE_META[k].icon, bottom: true }));
 
-  // Buxgalteriya — «Menyu» bo'limida (step ham, eng past ham emas). Admin: «Invoice», buxgalter: «Hisobot».
-  // Yonida sanoq: kelgan/jami (to'langan/kvitansiya) — tanlangan snapshot bo'yicha.
-  const hasBux = modules.includes('buxgalteriya');
-  let buxgalteriyaNav: NavItem | null = null;
-  if (hasBux) {
+  // Faqat buxgalteriya ruxsatiga ega YURIST (Ulugbek) — boshqa hech nima yo'q. Uning uchun Sud step
+  // ochilmaydi, shuning uchun «Buxgalteriya-invoice»ni alohida band qilib beramiz (sanoq badge bilan).
+  const onlyBux = user.role === 'YURIST' && user.steps.length > 0 && user.steps.every((k) => k === 'buxgalteriya');
+  let buxSoloNav: NavItem | null = null;
+  if (onlyBux) {
     const bx = await buxgalteriyaCounts(selectedSnap).catch(() => ({ total: 0, paid: 0 }));
-    buxgalteriyaNav = {
+    buxSoloNav = {
       href: '/buxgalteriya',
-      label: 'Invoice', // admin va buxgalterda bir xil — «Invoice» + sanoq (masalan 130/1000)
+      label: 'Buxgalteriya-invoice',
       icon: 'sheet',
-      section: 'Menyu',
+      section: 'Boshqaruv',
       badgeText: bx.total > 0 ? `${bx.paid}/${bx.total}` : '',
     };
   }
-  // Faqat buxgalteriya ruxsatiga ega YURIST (Ulugbek) — Hujjatlar/Mijozlar ko'rinmaydi, faqat Buxgalteriya.
-  const onlyBux = user.role === 'YURIST' && user.steps.length > 0 && user.steps.every((k) => k === 'buxgalteriya');
 
   // Hujjatlar — HAMMAGA ko'rinadi (portfel/sana ko'rish), lekin yuklash/o'zgartirish faqat adminda
   // (sahifa ichida guard). Step'lar eng tepasida (step: 0).
@@ -94,8 +98,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   // Admin: full app + user/audit management. Yurist: only their granted steps, nothing else.
   const nav: NavItem[] = onlyBux
-    ? // Faqat buxgalter (Ulugbek): yolg'iz Buxgalteriya («Hisobot»), Menyu bo'limida.
-      (buxgalteriyaNav ? [buxgalteriyaNav] : [])
+    ? // Faqat buxgalter (Ulugbek): yolg'iz «Buxgalteriya-invoice».
+      (buxSoloNav ? [buxSoloNav] : [])
     : isAdmin
     ? [
         // Hisobot (dashboard) — sidebardan olib turildi (foydalanuvchi so'rovi). Sahifa /konveyer'da
@@ -107,17 +111,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         { href: '/firms', label: 'Firmalar', icon: 'building', section: 'Menyu' },
         { href: '/foydalanuvchilar', label: 'Foydalanuvchilar', icon: 'user', section: 'Menyu' },
         { href: '/jurnal', label: 'Amaliyotlar', icon: 'calendar', section: 'Menyu' },
-        // Buxgalteriya («Invoice» + sanoq) — Menyu bo'limida.
-        ...(buxgalteriyaNav ? [buxgalteriyaNav] : []),
-        // «Alohida» modullar (bottom) — buxgalteriyasiz.
+        // «Alohida» modullar (bottom) — buxgalteriyasiz (u Sud ostida).
         ...moduleNav,
       ]
     : [
-        // Yurist: Hujjatlar (ko'rish) + granted steps + Mijozlar + granted modules.
+        // Yurist: Hujjatlar (ko'rish) + granted steps (Buxgalteriya Sud ostida) + Mijozlar + modules.
         hujjatlarNav,
         ...withBadges(stepNav),
         { href: '/mijozlar', label: 'Mijozlar', icon: 'users', section: 'Menyu' },
-        ...(buxgalteriyaNav ? [buxgalteriyaNav] : []),
         ...moduleNav,
       ];
 
