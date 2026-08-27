@@ -157,26 +157,28 @@ export async function resolveContext(s: HippoSession, templateNameHint = 'talabn
       branchesArr.slice(0, 20).map((b) => ({ id: b?.id ?? b?.branchId, org: orgOf(b), name: b?.name ?? b?.shortName, def: b?.isDefault ?? b?.isMain ?? b?.default })));
   } catch (e) { console.error('[hippo ctx] getMyBranches failed', e); }
 
+  // /my-organization-branches 404s here, so the only reliable branch source is an existing registry.
+  // But the login sees MULTIPLE orgs — the newest registry may be another org's (branch 12) → «Invalid
+  // targeting setup». So scan a page of registries and take the branchId of one that belongs to the
+  // TEMPLATE's org. Log each registry's {id,org,branch} so the topology is visible.
   let branchId = 0;
-  const list = await listRegistries(s, { PageIndex: 1, PageSize: 1 });
-  const listArr: any[] = Array.isArray(list.json) ? list.json : list.json?.data ?? list.json?.items ?? [];
-  const refId = listArr?.[0]?.id;
-  if (refId) {
-    const det = await getRegistry(s, refId);
-    branchId = Number(det.json?.branchId ?? det.json?.data?.branchId ?? 0);
+  const list = await listRegistries(s, { PageIndex: 1, PageSize: 50 });
+  const listArr: any[] = Array.isArray(list.json) ? list.json : list.json?.data?.items ?? list.json?.items ?? list.json?.data ?? [];
+  const regOrg = (r: any) => Number(r?.organizationId ?? r?.organization?.id ?? r?.orgId ?? 0);
+  console.log('[hippo ctx] registries=%d sample=%j raw0=%s', listArr.length,
+    listArr.slice(0, 12).map((r) => ({ id: r?.id, org: regOrg(r), branch: Number(r?.branchId ?? 0), name: r?.name })),
+    (() => { try { return JSON.stringify(listArr[0])?.slice(0, 350); } catch { return ''; } })());
+  // Prefer a registry under the template's org; fall back to the newest if none carries an org field.
+  const ref = (organizationId ? listArr.find((r) => regOrg(r) === organizationId) : null) ?? listArr[0];
+  if (ref?.id) {
+    branchId = Number(ref?.branchId ?? 0);
+    if (!branchId) {
+      const det = await getRegistry(s, ref.id);
+      branchId = Number(det.json?.branchId ?? det.json?.data?.branchId ?? 0);
+    }
   }
-
-  // The branch MUST belong to the template's org. If the registry gave a branch from another org (or
-  // none), replace it with a branch under `organizationId` — a default/main one first.
-  const orgBranches = organizationId ? branchesArr.filter((b) => orgOf(b) === organizationId) : branchesArr;
-  const validIds = new Set(orgBranches.map((b) => Number(b?.id ?? b?.branchId)));
-  if (!branchId || (orgBranches.length > 0 && !validIds.has(branchId))) {
-    const cand = orgBranches.find((b) => b?.isDefault ?? b?.isMain ?? b?.default)
-      ?? orgBranches.find((b) => (b?.active ?? b?.isActive ?? true))
-      ?? orgBranches[0];
-    if (cand) branchId = Number(cand.id ?? cand.branchId ?? branchId);
-  }
-  if (!organizationId && branchesArr.length) organizationId = orgOf(branchesArr[0]) || organizationId;
+  if (!organizationId && ref) organizationId = regOrg(ref) || organizationId;
+  void branchesArr; // (kept for the getMyBranches diagnostic log above)
 
   if (!organizationId) {
     try {
