@@ -24,13 +24,14 @@ export const STEP_META: Record<StepKey, StepMeta> = {
 // «Alohida» modullar — pipeline bosqichi EMAS, lekin ular ham YURISTga alohida berilishi mumkin
 // (foydalanuvchi so'rovi). Grant Admin.steps ichida SHU kalitlar bilan saqlanadi (StepKey bilan bir
 // jadval). Sidebar pastida ko'rinadi, guardlari requireAccess(key) bilan tekshiriladi.
-export const MODULE_KEYS = ['talabnoma-form', 'mib-report', 'invoice-check'] as const;
+export const MODULE_KEYS = ['talabnoma-form', 'mib-report', 'invoice-check', 'buxgalteriya'] as const;
 export type ModuleKey = (typeof MODULE_KEYS)[number];
 export interface ModuleMeta { label: string; href: string; icon: string }
 export const MODULE_META: Record<ModuleKey, ModuleMeta> = {
   'talabnoma-form': { label: 'Talabnoma shakllantirish', href: '/talabnoma-shakllantirish', icon: 'sms' },
   'mib-report': { label: 'MIB hisoboti', href: '/mib-hisoboti', icon: 'judge' },
   'invoice-check': { label: 'Invoice tekshiruvi', href: '/invoice-tekshiruvi', icon: 'receipt' },
+  'buxgalteriya': { label: 'Buxgalteriya', href: '/buxgalteriya', icon: 'sheet' },
 };
 
 // Ko'p sahifali bosqich ichidagi SUB-ITEM'lar — nozik ruxsat (foydalanuvchi so'rovi): yurist stepga
