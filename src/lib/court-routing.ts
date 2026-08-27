@@ -145,18 +145,48 @@ export async function releaseCourtSend(caseIds: number[]): Promise<void> {
 // ── Admin (Sozlamalar) ──────────────────────────────────────────────────────────────────────
 const DEFAULT_COURT_NAME = 'Fuqarolik ishlari boʻyicha Uchtepa tumanlararo sudiga';
 
-/** Birinchi ochilishda default Uchtepa sudini yaratadi (jadval bo'sh bo'lsa). Non-breaking seed. */
+/** Birinchi ochilishda default Uchtepa sudini yaratadi (jadval bo'sh bo'lsa) + bir marta Bright'ning
+ *  2-sudini (kechki yo'lak) seed qiladi va Bright'ni ikkala sudga biriktiradi. Non-breaking. */
 export async function ensureSeedCourt(): Promise<void> {
   const n = await prisma.court.count();
-  if (n > 0) return;
-  await prisma.court.create({
-    data: {
-      billingCourtId: '525', courtType: 'CITIZEN',
-      nameUz: DEFAULT_COURT_NAME, shortName: 'Uchtepa tumanlararo sudi',
-      dailyQuota: 200, cutoffMinutes: 840, weekdays: [1, 2, 3, 4, 5],
-      active: true, isDefault: true, sortOrder: 0,
-    },
-  });
+  if (n === 0) {
+    await prisma.court.create({
+      data: {
+        billingCourtId: '525', courtType: 'CITIZEN',
+        nameUz: DEFAULT_COURT_NAME, shortName: 'Uchtepa tumanlararo sudi',
+        dailyQuota: 200, cutoffMinutes: 840, weekdays: [1, 2, 3, 4, 5],
+        active: true, isDefault: true, sortOrder: 0,
+      },
+    });
+  }
+
+  // Bir martalik: Bright uchun 2-sud (500/18:00) + ikkala sudga ruxsat. `court_seed_bright` bayrog'i
+  // bilan qo'riqlanadi — qayta ishlamaydi, admin qo'lda o'zgartirsa ustidan yozmaydi.
+  const flag = await prisma.setting.findUnique({ where: { key: 'court_seed_bright' } });
+  if (flag) return;
+  const bright = await prisma.firm.findFirst({ where: { OR: [{ code: '12842' }, { shortName: { contains: 'BRIGHT' } }] }, select: { id: true } });
+  const defCourt = await defaultCourt();
+  if (bright && defCourt) {
+    const already = await prisma.courtFirmAccess.count({ where: { firmId: bright.id } });
+    if (already === 0) {
+      let second = await prisma.court.findFirst({ where: { shortName: { contains: 'Yuqorichirchiq' } } });
+      if (!second) {
+        // billingCourtId — VAQTINCHALIK, admin «Sudlar»da haqiqiy billing.sud.uz Sud id bilan almashtiradi.
+        second = await prisma.court.create({
+          data: {
+            billingCourtId: 'SET-ME-YUQORICHIRCHIQ', courtType: 'CITIZEN',
+            nameUz: 'Fuqarolik ishlari boʻyicha Yuqorichirchiq tumanlararo sudiga', shortName: 'Yuqorichirchiq tumanlararo sudi',
+            dailyQuota: 500, cutoffMinutes: 1080, weekdays: [1, 2, 3, 4, 5], active: true, isDefault: false, sortOrder: 1,
+          },
+        });
+      }
+      await prisma.courtFirmAccess.createMany({ data: [
+        { courtId: defCourt.id, firmId: bright.id, order: 0 },
+        { courtId: second.id, firmId: bright.id, order: 1 },
+      ] });
+    }
+  }
+  await prisma.setting.upsert({ where: { key: 'court_seed_bright' }, create: { key: 'court_seed_bright', value: '1' }, update: {} });
 }
 
 export interface CourtAdminRow {

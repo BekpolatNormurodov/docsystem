@@ -417,7 +417,9 @@ export async function startRestBatch(input: StartRestInput): Promise<{ batchId: 
   if (hasActiveBatchForFirm(input.firmId)) throw new Error('Bu firma uchun paket allaqachon ishlayapti — tugashini kuting.');
   const amount = await getBojiAmount();
   const court = await firmPrimaryCourt(firm.id).catch(() => null);
-  const payload = buildRestPayload(firm, { amount, courtId: court?.billingCourtId, courtType: court?.courtType });
+  // Faqat RAQAMLI billing Sud id ishlatiladi (placeholder/bo'sh bo'lsa — eski default 525).
+  const billingCourtId = court && /^\d+$/.test(court.billingCourtId) ? court.billingCourtId : undefined;
+  const payload = buildRestPayload(firm, { amount, courtId: billingCourtId, courtType: court?.courtType });
   if (!payload.juridicalEntity.name) throw new Error('Firma nomi yo‘q');
   if (!payload.juridicalEntity.tin) throw new Error('Firma STIR raqami yo‘q');
   if (!payload.juridicalEntity.address) {
@@ -475,7 +477,9 @@ export async function startRestBatchForCases(
 
   const amount = await getBojiAmount();
   const court = await firmPrimaryCourt(firm.id).catch(() => null);
-  const payload = buildRestPayload(firm, { amount, courtId: court?.billingCourtId, courtType: court?.courtType });
+  // Faqat RAQAMLI billing Sud id ishlatiladi (placeholder/bo'sh bo'lsa — eski default 525).
+  const billingCourtId = court && /^\d+$/.test(court.billingCourtId) ? court.billingCourtId : undefined;
+  const payload = buildRestPayload(firm, { amount, courtId: billingCourtId, courtType: court?.courtType });
   if (!payload.juridicalEntity.name) throw new Error('Firma nomi yo‘q');
   if (!payload.juridicalEntity.tin) throw new Error('Firma STIR raqami yo‘q');
   if (!payload.juridicalEntity.address) {
