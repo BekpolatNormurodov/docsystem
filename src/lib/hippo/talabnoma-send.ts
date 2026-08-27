@@ -207,6 +207,12 @@ export async function sendTalabnomaToHippo(opts: SendTalabnomaOpts): Promise<Sen
   const bodyCode = res.json && typeof res.json === 'object' ? Number((res.json as any).code) : NaN;
   const bodyErr = Number.isFinite(bodyCode) && bodyCode >= 400;
   if (!res.ok || bodyErr) {
+    // FULL request + response dump — «Invalid targeting setup» when org/branch/template are proven-good
+    // means the culprit is in the payload; log every mail's targeting fields and the raw error body.
+    console.error('[hippo send] REJECT status=%s org=%s branch=%s tpl=%j mails=%j resp=%s',
+      res.status, ctx.organizationId, ctx.branchId, ctx.templateName,
+      mails.map((m) => ({ receiver: m.receiver, region: m.regionId, area: m.areaId, address: m.address, custom_id: m.custom_id })),
+      (() => { try { return JSON.stringify(res.json)?.slice(0, 600); } catch { return String(res.json); } })());
     const msg = typeof res.json === 'string' ? res.json : res.json?.message ?? res.json?.error;
     return fail(mode, `xat.hippo rad etdi (${res.status}${bodyErr ? `/code ${bodyCode}` : ''})${msg ? `: ${String(msg).slice(0, 160)}` : ''}`, {
       firmName, balance: bal.balance, required: bal.required, enough: bal.enough, free,
