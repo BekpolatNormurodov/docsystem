@@ -1,46 +1,24 @@
-// Parse the two uploaded Excels into a reduced candidates.json:
-//   · source (20.08…): Лист1 = per-person aggregate (total overdue + firm list), Лист2 = per-firm
-//     overdue, Лист3 = firm code→name. Full-loaded (a few MB).
-//   · портфель: 185k loan rows — STREAMED, keeping only rows whose pinfl is a Лист1 candidate, to
-//     bound memory. Each kept row → contract detail for that person's letter/reyestr (via the shared
-//     mapRowToLoan, so parsing matches the main portfolio import exactly).
+// Parse the uploaded Excels into a reduced candidates.json. Data model (foydalanuvchi so'rovi):
+//   · talabnoma manba: JUST a PINFL list (Latin PNFL/PINFL or Cyrillic, any case — the same tiny
+//     file the istisno slot takes). It supplies ONLY the pinfl set; nothing else is read from it.
+//   · portfel: 185k loan rows — STREAMED, keeping only rows whose pinfl is in that set, to bound
+//     memory. EVERY other field (FIO, address, region, district, per-firm & total debt) is derived
+//     from the portfolio via the shared mapRowToLoan, so it matches the main import exactly.
+//   · firm names: from the DB Firm table (the letters already use DB letterhead), so no Лист3.
 import fs from 'node:fs/promises';
+import { prisma } from '@/lib/db';
 import Excel from 'exceljs';
 import { mapRowToLoan } from '@/core/portfolio';
+import { parseExclusionPinfls } from '@/lib/parse-exclusion';
 import { canonCode, DEFAULT_THRESHOLD, evaluate } from './filter';
 import type { CandidatePerson, CandidatesFile } from './types';
 
-function unwrap(v: unknown): unknown {
-  if (v !== null && typeof v === 'object') {
-    const o = v as any;
-    if (Array.isArray(o.richText)) return o.richText.map((r: any) => r?.text ?? '').join('');
-    if (o.result !== undefined) return o.result;
-    if (o.text !== undefined && !(v instanceof Date)) return o.text;
-  }
-  return v;
-}
-function num(v: unknown): number {
-  v = unwrap(v);
-  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
-  const n = Number(String(v ?? '').trim().replace(/[\s ']/g, '').replace(',', '.'));
-  return Number.isFinite(n) ? n : 0;
-}
-function str(v: unknown): string | null {
-  v = unwrap(v);
-  if (v === '' || v === null || v === undefined) return null;
-  const s = String(v).trim();
-  return s === '' ? null : s;
-}
-
-/** Pick worksheets by name, falling back to positional order (Лист1/2/3 ≈ sheet 0/1/2). */
-function pickSheets(wb: Excel.Workbook) {
-  const ws = wb.worksheets;
-  const byName = (n: string) => wb.getWorksheet(n);
-  return {
-    l1: byName('Лист1') ?? ws[0],
-    l2: byName('Лист2') ?? ws[1],
-    l3: byName('Лист3') ?? ws[2],
-  };
+/** Prefer the FULLEST address seen for a person (portfolio rows vary: some carry the full street,
+ *  some collapse to «X tumani»). Longest non-empty wins. */
+function fullest(...candidates: (string | null | undefined)[]): string | null {
+  const cleaned = candidates.map((c) => (c ?? '').trim()).filter(Boolean);
+  if (!cleaned.length) return null;
+  return cleaned.reduce((best, c) => (c.length > best.length ? c : best));
 }
 
 export interface ParseSummary {
@@ -57,65 +35,43 @@ export interface ParseOutput {
   summary: ParseSummary;
 }
 
-/** Read the source + stream the portfolio into a CandidatesFile. `docDate` = the talabnoma date. */
+/** Read the talabnoma PINFL list + stream the portfolio into a CandidatesFile. `docDate` = the
+ *  talabnoma document date. Person identity/amounts come entirely from the portfolio. */
 export async function parseTalabnomaForm(
   sourcePath: string,
   portfolioPath: string,
   docDate: Date,
   onProgress?: (rowsStreamed: number) => void | Promise<void>,
 ): Promise<ParseOutput> {
-  const wb = new Excel.Workbook();
-  await wb.xlsx.readFile(sourcePath);
-  const { l1, l2, l3 } = pickSheets(wb);
+  // 1) Talabnoma manba → just the set of PINFLs to build letters for (robust Latin/Cyrillic header
+  //    detection, reused from the istisno parser). No FIO/amount is taken from here.
+  const wanted = await parseExclusionPinfls(sourcePath);
 
-  // Лист3 — firm code → name.
-  const firmNameByCode: Record<string, string> = {};
-  l3?.eachRow((row) => {
-    const code = str(row.getCell(1).value);
-    const name = str(row.getCell(2).value);
-    if (code && name) firmNameByCode[canonCode(code)] = name;
-  });
-
-  // Лист1 — one person per row (header on row 1).
+  // Seed a person per wanted pinfl so nobody is silently dropped even if the portfolio has no match.
   const byPinfl = new Map<string, CandidatePerson>();
-  l1?.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return;
-    const pinfl = str(row.getCell(1).value);
-    if (!pinfl) return;
-    const person: CandidatePerson = {
+  for (const pinfl of wanted) {
+    byPinfl.set(pinfl, {
       pinfl,
-      fio: str(row.getCell(2).value),
-      totalOverdue: Math.abs(num(row.getCell(6).value)), // «12405%+16377%»
-      address: str(row.getCell(7).value),
-      phone: str(row.getCell(8).value),
-      region: str(row.getCell(9).value),
-      district: str(row.getCell(10).value),
-      firmsText: str(row.getCell(11).value),
+      fio: null,
+      totalOverdue: 0,
+      address: null,
+      phone: null,
+      region: null,
+      district: null,
+      firmsText: null,
       perFirm: {},
       loans: [],
-    };
-    byPinfl.set(pinfl, person);
-  });
+    });
+  }
 
-  // Лист2 — per (firm × loan) overdue → accumulate per firm for each person.
-  l2?.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return;
-    const pinfl = str(row.getCell(10).value);
-    if (!pinfl) return;
-    const person = byPinfl.get(pinfl);
-    if (!person) return;
-    const code = canonCode(row.getCell(2).value);
-    const overdue = Math.abs(num(row.getCell(9).value));
-    person.perFirm[code] = (person.perFirm[code] ?? 0) + overdue;
-  });
-
-  // Портфель — STREAM; keep only candidate rows, extract contract detail via mapRowToLoan.
+  // 2) Портфель — STREAM; keep only wanted rows, and derive ALL person detail from them.
   const reader = new Excel.stream.xlsx.WorkbookReader(portfolioPath, {
     worksheets: 'emit',
     sharedStrings: 'cache',
     entries: 'emit',
   });
   const matched = new Set<string>();
+  const firmCodes = new Set<string>();
   let foundWorksheet = false;
   let streamed = 0;
   for await (const worksheet of reader) {
@@ -136,6 +92,8 @@ export async function parseTalabnomaForm(
       if (!loan.pinfl) continue;
       const person = byPinfl.get(loan.pinfl);
       if (!person) continue;
+
+      const distrName = (loan.raw as any)?.distr_name != null ? String((loan.raw as any).distr_name) : null;
       person.loans.push({
         branch: loan.branchCode,
         clientName: loan.clientName,
@@ -146,11 +104,24 @@ export async function parseTalabnomaForm(
         postAddress: loan.postAddress,
         postAddressUz: loan.postAddressUz,
         regionName: loan.regionName,
-        distrName: (loan.raw as any)?.distr_name != null ? String((loan.raw as any).distr_name) : null,
+        distrName,
       });
+
+      // Identity / amounts — all from portfel.
+      person.fio = person.fio ?? loan.clientName;
+      person.address = fullest(person.address, loan.postAddressUz, loan.postAddress);
+      person.region = person.region ?? loan.regionName;
+      person.district = person.district ?? distrName;
+      const code = canonCode(loan.branchCode);
+      person.perFirm[code] = (person.perFirm[code] ?? 0) + Math.abs(loan.totalDebt);
+      person.totalOverdue += Math.abs(loan.totalDebt);
+      firmCodes.add(code);
       matched.add(loan.pinfl);
     }
   }
+
+  // 3) Firm names from the DB (code → shortName/legalName), so the summary UI shows real names.
+  const firmNameByCode = await firmNamesByCode(firmCodes);
 
   const people = [...byPinfl.values()];
   const file: CandidatesFile = { docDate: docDate.toISOString(), firmNameByCode, people };
@@ -165,6 +136,17 @@ export async function parseTalabnomaForm(
     portfolioMatched: matched.size,
   };
   return { file, summary };
+}
+
+/** DB Firm rows → canonical-code → display name map (shortName preferred, else legalName). */
+async function firmNamesByCode(codes: Set<string>): Promise<Record<string, string>> {
+  const firms = await prisma.firm.findMany({ select: { code: true, shortName: true, legalName: true } });
+  const map: Record<string, string> = {};
+  for (const f of firms) {
+    const c = canonCode(f.code);
+    if (codes.size === 0 || codes.has(c)) map[c] = f.shortName || f.legalName || c;
+  }
+  return map;
 }
 
 export async function writeCandidates(path: string, file: CandidatesFile): Promise<void> {

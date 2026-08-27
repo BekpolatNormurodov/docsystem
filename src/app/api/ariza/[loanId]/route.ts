@@ -4,6 +4,7 @@ import { requireAdmin } from '@/lib/auth';
 import { getSettings } from '@/lib/settings';
 import { loansToAriza } from '@/core/ariza';
 import { buildArizaDocx } from '@/lib/ariza-docx';
+import { firmPrimaryCourt } from '@/lib/court-routing';
 
 export const runtime = 'nodejs';
 
@@ -48,7 +49,8 @@ export async function GET(_req: Request, { params }: { params: { loanId: string 
   };
 
   const reportDate = snapshot?.reportDate ?? new Date();
-  const props = loansToAriza(groupLoans.length ? groupLoans : [loan], arizaFirm, settings, reportDate);
+  const courtName = firm ? (await firmPrimaryCourt(firm.id).catch(() => null))?.nameUz : undefined;
+  const props = loansToAriza(groupLoans.length ? groupLoans : [loan], arizaFirm, settings, reportDate, courtName);
   // A ≤ 0 demand is a void petition («0 soʻm undirish») — refuse to generate it.
   if (Number(props.debtTotal) <= 0) return NextResponse.json({ error: 'Qarzdorlik 0 — ariza yaratilmaydi' }, { status: 422 });
   const buffer = await buildArizaDocx({ ...props });

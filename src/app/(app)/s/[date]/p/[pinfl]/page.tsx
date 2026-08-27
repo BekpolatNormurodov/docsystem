@@ -4,6 +4,7 @@ import { getSettings } from '@/lib/settings';
 import { loansToAriza } from '@/core/ariza';
 import { formatSumDecimal, dmy } from '@/core/document';
 import { fillOferta } from '@/lib/oferta-pdf';
+import { firmPrimaryCourt } from '@/lib/court-routing';
 import { PageHeader, StatCard } from '@/ui';
 import { ArizaPreview } from './ArizaPreview';
 import { OfertaPreview } from './OfertaPreview';
@@ -102,6 +103,12 @@ export default async function PersonPage({
     byFirm.get(key)!.push(loan);
   }
 
+  // Har firmaning asosiy sudi (ariza murojaati shundan; topilmasa settings default).
+  const presentFirmIds = [...new Set([...byFirm.keys()].map((code) => firmByCode.get(code)?.id).filter((x): x is number => !!x))];
+  const courtNameByFirm = new Map<number, string | undefined>(
+    await Promise.all(presentFirmIds.map(async (id) => [id, (await firmPrimaryCourt(id).catch(() => null))?.nameUz] as const)),
+  );
+
   return (
     <div>
       <PageHeader
@@ -197,7 +204,7 @@ export default async function PersonPage({
                         </div>
                       );
                     })()}
-                    <ArizaPreview props={loansToAriza(firmLoans, firm, settings, snapshot.reportDate)} />
+                    <ArizaPreview props={loansToAriza(firmLoans, firm, settings, snapshot.reportDate, courtNameByFirm.get(firm.id))} />
 
                     {/* Oferta — har shartnomaga alohida (chromiumsiz HTML «view»). */}
                     <div className="mt-3 space-y-1.5">

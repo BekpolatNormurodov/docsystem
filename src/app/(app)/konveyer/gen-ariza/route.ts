@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { requireUser } from '@/lib/auth';
 import { getSettings } from '@/lib/settings';
 import { loansToAriza } from '@/core/ariza';
+import { firmPrimaryCourt } from '@/lib/court-routing';
 import { buildArizaDocx } from '@/lib/ariza-docx';
 import { audit, AuditAction } from '@/lib/audit';
 
@@ -43,9 +44,10 @@ export async function GET(req: NextRequest) {
     stir: firm?.stir ?? null,
   };
   const reportDate = snapshot?.reportDate ?? new Date();
+  const courtName = firm ? (await firmPrimaryCourt(firm.id).catch(() => null))?.nameUz : undefined;
   let buffer: Awaited<ReturnType<typeof buildArizaDocx>>;
   try {
-    const props = loansToAriza(groupLoans, arizaFirm, settings, reportDate);
+    const props = loansToAriza(groupLoans, arizaFirm, settings, reportDate, courtName);
     // A ≤ 0 demand is a void petition («0 soʻm undirish») — refuse to generate it.
     if (Number(props.debtTotal) <= 0) return NextResponse.json({ error: 'Qarzdorlik 0 — ariza yaratilmaydi' }, { status: 422 });
     buffer = await buildArizaDocx({ ...props });

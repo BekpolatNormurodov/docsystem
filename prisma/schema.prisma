@@ -66,6 +66,7 @@ model Firm {
   documents   FirmDocument[]
   batches     InvoiceBatch[]
   restBatches InvoiceRestBatch[]
+  courtAccess CourtFirmAccess[]
   updatedAt   DateTime @updatedAt
 }
 
@@ -440,11 +441,52 @@ enum CaseStage {
 
 // One debtor (pinfl) x firm x cycle moving through the pipeline. Counts on the
 // Konveyer dashboard aggregate ArizaCase.stage per firm and overall.
+// Sud yo'naltirish jadvali: har sud uchun kunlik limit + vaqt chegarasi (cutoff) + ish kunlari.
+// Sudga yuborishda shu limit ishlaydi; oshgani keyingi ish kuniga suriladi. Firma bo'yicha ruxsat
+// CourtFirmAccess orqali (Bright ikkala sudga ham kiradi). Konfiguratsiya bo'lmasa — eski xatti-harakat.
+model Court {
+  id             Int      @id @default(autoincrement())
+  billingCourtId String   @unique // billing.sud.uz Sud id (invoice payload courtId), masalan "525"
+  courtType      String   @default("CITIZEN") // invoice payload courtType
+  nameUz         String // arizadagi murojaat, masalan "Fuqarolik ishlari boʻyicha Uchtepa tumanlararo sudiga"
+  shortName      String // farmoyish/UI uchun qisqa nom, masalan "Uchtepa tumanlararo sudi"
+  dailyQuota     Int      @default(200) // kunlik limit
+  cutoffMinutes  Int      @default(840) // yarim tundan daqiqa; 14:00=840, 18:00=1080 (Asia/Tashkent)
+  weekdays       Json     @default("[1,2,3,4,5]") // getDay(): Yak=0..Shan=6; default Dush–Juma
+  active         Boolean  @default(true)
+  isDefault      Boolean  @default(false) // ruxsati aniqlanmagan firmalar shu sudga ketadi
+  sortOrder      Int      @default(0)
+  access         CourtFirmAccess[]
+  cases          ArizaCase[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([active])
+}
+
+// Qaysi firma qaysi sud(lar)ga chiqa oladi + tartibi (birinchi = asosiy). Bright → 2 sud.
+// Firma uchun yozuv bo'lmasa — default (isDefault) sudga ketadi.
+model CourtFirmAccess {
+  id      Int   @id @default(autoincrement())
+  courtId Int
+  firmId  Int
+  order   Int   @default(0) // 0 = asosiy sud (ariza/invoice shundan), keyin to'lib borgan sari keyingilari
+  court   Court @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  firm    Firm  @relation(fields: [firmId], references: [id], onDelete: Cascade)
+
+  @@unique([courtId, firmId])
+  @@index([firmId])
+}
+
 model ArizaCase {
   id            Int       @id @default(autoincrement())
   firmId        Int
   firm          Firm      @relation(fields: [firmId], references: [id])
   snapshotId    Int?
+  // Sud yo'naltirish: qaysi sudga yuborilgani + qachon (kunlik limit sanog'i uchun). Send paytida yoziladi.
+  courtId       Int?
+  court         Court?    @relation(fields: [courtId], references: [id])
+  courtSentAt   DateTime?
   pinfl         String?
   clientName    String?
   kod           String? // client code from the source Excel, e.g. 60123092
@@ -478,6 +520,7 @@ model ArizaCase {
   @@index([stage, dueAt])
   @@index([pinfl])
   @@index([batchId])
+  @@index([courtId, courtSentAt])
 }
 
 enum FirmDocKind {

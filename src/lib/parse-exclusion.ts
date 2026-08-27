@@ -1,28 +1,31 @@
 // Parses the exclusion/problem-clients xlsx uploaded alongside the portfolio on import. Its
 // pinfls are excluded from Hujjatlar/ariza export only (they still appear in Mijozlar/Portfel).
 import Excel from 'exceljs';
+import { isPinflHeader, pinflColumnIndex } from './pinfl-header';
 
 /**
  * Opens the (small, ~180KB) exclusion xlsx and returns the Set of pinfl strings found in its
- * `Pnfl` worksheet (case-insensitive match on the sheet name containing "pnfl"/"pinfl"; falls
- * back to the sheet whose first header cell reads `ПНФЛ`/`ПИНФЛ` with the most rows). Only column 1
- * (exceljs is 1-indexed) is read; every other column is ignored.
+ * PINFL worksheet. Detection is script- and case-insensitive (Latin PINFL/PNFL and Cyrillic
+ * ПИНФЛ/ПНФЛ, any case, decorated or not — see `pinfl-header.ts`): first a sheet whose NAME reads
+ * like PINFL, else the sheet whose header row carries a PINFL column (most rows wins). The matched
+ * column is read (not blindly column 1), so a list with leading «№» columns still works.
  */
 export async function parseExclusionPinfls(filePath: string): Promise<Set<string>> {
   const workbook = new Excel.Workbook();
   await workbook.xlsx.readFile(filePath);
 
-  const worksheet = pickWorksheet(workbook);
+  const found = pickWorksheet(workbook);
   const pinfls = new Set<string>();
-  if (!worksheet) {
-    // NEVER silently return an empty set — that would treat "PINFL sheet not found" as "nobody is
+  if (!found) {
+    // NEVER silently return an empty set — that would treat "PINFL column not found" as "nobody is
     // excluded", and every do-not-sue client would be sued. Fail loud so the operator rechecks.
-    throw new Error('Istisno faylida «ПНФЛ» ustuni topilmadi — fayl formatini tekshiring');
+    throw new Error('Istisno faylida «PINFL» / «ПНФЛ» ustuni topilmadi — fayl formatini tekshiring');
   }
 
+  const { worksheet, col } = found;
   worksheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return; // header
-    const str = cellStr(row.getCell(1)).trim();
+    const str = cellStr(row.getCell(col)).trim();
     if (str) pinfls.add(str);
   });
 
@@ -42,21 +45,32 @@ function cellStr(cell: Excel.Cell): string {
   return cell.text ?? '';                          // last resort (Date, etc.)
 }
 
-function pickWorksheet(workbook: Excel.Workbook): Excel.Worksheet | undefined {
-  const byName = workbook.worksheets.find((ws) => {
-    const name = ws.name.toLowerCase();
-    return name.includes('pnfl') || name.includes('pinfl');
-  });
-  if (byName) return byName;
+function pickWorksheet(workbook: Excel.Workbook): { worksheet: Excel.Worksheet; col: number } | undefined {
+  // 1) A sheet whose NAME reads like PINFL (either script/case) — its list is in column 1.
+  const byName = workbook.worksheets.find((ws) => isPinflHeader(ws.name));
+  if (byName) {
+    const named = columnFromHeader(byName);
+    return { worksheet: byName, col: named > 0 ? named : 1 };
+  }
 
-  // Fallback: the sheet whose row-1 first cell reads ПНФЛ/ПИНФЛ, preferring the one with the most
-  // rows. Read via cellStr (rich-text/formula aware) and match by substring, not a raw value / exact
-  // compare — a bold/rich-text header deserializes to an OBJECT (not a string), and «ПИНФЛ» / «№ ПНФЛ»
-  // spellings occur; missing them here would silently drop the entire exclusion list.
-  const candidates = workbook.worksheets.filter((ws) => {
-    const first = cellStr(ws.getRow(1).getCell(1)).trim().toUpperCase();
-    return first.includes('ПНФЛ') || first.includes('ПИНФЛ');
-  });
+  // 2) Fallback: any sheet whose header ROW carries a PINFL column (Latin PINFL/PNFL or Cyrillic
+  //    ПИНФЛ/ПНФЛ, any case, decorated or not), preferring the one with the most rows. Read the header
+  //    via cellStr (rich-text/formula aware) — a bold/rich-text header deserializes to an OBJECT, and
+  //    missing it would silently drop the entire exclusion list.
+  const candidates = workbook.worksheets
+    .map((ws) => ({ ws, col: columnFromHeader(ws) }))
+    .filter((c) => c.col > 0);
   if (candidates.length === 0) return undefined;
-  return candidates.reduce((best, ws) => (ws.rowCount > best.rowCount ? ws : best));
+  const best = candidates.reduce((a, b) => (b.ws.rowCount > a.ws.rowCount ? b : a));
+  return { worksheet: best.ws, col: best.col };
+}
+
+/** 1-based index of the PINFL column in a sheet's header row (exceljs is 1-indexed), or -1. Scans the
+ *  first ~40 header cells so a PINFL column past leading «№»/name columns is still found. */
+function columnFromHeader(ws: Excel.Worksheet): number {
+  const header = ws.getRow(1);
+  const cells: string[] = [];
+  for (let c = 1; c <= 40; c += 1) cells.push(cellStr(header.getCell(c)));
+  const idx = pinflColumnIndex(cells); // 0-based
+  return idx < 0 ? -1 : idx + 1; // → 1-based for exceljs
 }

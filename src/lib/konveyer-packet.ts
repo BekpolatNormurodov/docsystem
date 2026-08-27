@@ -10,6 +10,7 @@ import type { Browser } from 'playwright';
 import { prisma } from './db';
 import { getSettings } from './settings';
 import { buildArizaDocx } from './ariza-docx';
+import { firmPrimaryCourt } from './court-routing';
 import { loansToAriza, type ArizaFirm } from '@/core/ariza';
 import { buildTalabnomaRows, type TalabnomaLoan } from './hippo/talabnoma-excel';
 import { renderTalabnomaPdf } from './hippo/talabnoma-pdf';
@@ -108,7 +109,8 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
       stir: firm?.stir ?? null,
     };
     try {
-      const props = loansToAriza(loans, arizaFirm, settings, reportDate);
+      const courtName = (await firmPrimaryCourt(ac.firmId).catch(() => null))?.nameUz;
+      const props = loansToAriza(loans, arizaFirm, settings, reportDate, courtName);
       // Skip a void petition: a group whose debt sums to ≤ 0 (e.g. a paid-off client
       // still on the exclusion list) would demand «0 soʻm» — never file that.
       if (Number(props.debtTotal) > 0) {

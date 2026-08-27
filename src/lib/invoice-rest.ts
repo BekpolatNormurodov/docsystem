@@ -8,6 +8,7 @@ import type { Firm } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getBojiAmount } from './konveyer-buxgalter';
 import { dueForStage } from './konveyer-sla';
+import { firmPrimaryCourt } from './court-routing';
 
 const CAPTCHA_API = 'https://recaptcha.sud.uz/api/v1/captcha';
 const INVOICE_API = 'https://billing.sud.uz/api/invoice/captcha/create';
@@ -102,15 +103,16 @@ export function buildFirmAddress(firm: Pick<Firm, 'region' | 'district' | 'addre
 
 // Summa har doim chaqiruvchidan (getBojiAmount — davlat boji, default 20 600) keladi;
 // bu yerda default yo'q — noto'g'ri summa (masalan eski 2 060 000) tasodifan ketmasin.
-export function buildRestPayload(firm: Firm, opts: { amount: number }): RestPayload {
+export function buildRestPayload(firm: Firm, opts: { amount: number; courtId?: string; courtType?: string }): RestPayload {
   const name = firm.shortName?.trim() || firm.legalName?.trim() || '';
   const tin = (firm.stir ?? '').replace(/\D/g, '');
   const address = buildFirmAddress(firm);
   return {
     amount: opts.amount,
     captchaToken: '',
-    courtId: '525',
-    courtType: 'CITIZEN',
+    // Sud — firmaning asosiy sudidan (court-routing); topilmasa eski default 525/CITIZEN.
+    courtId: opts.courtId || '525',
+    courtType: opts.courtType || 'CITIZEN',
     description: '',
     entityType: 'JURIDICAL',
     isInFavor: true,
@@ -414,7 +416,8 @@ export async function startRestBatch(input: StartRestInput): Promise<{ batchId: 
   // Takroriy start qulfi — bir firmaga bir vaqtda ikki paket = ikki marta kvitansiya (pul).
   if (hasActiveBatchForFirm(input.firmId)) throw new Error('Bu firma uchun paket allaqachon ishlayapti — tugashini kuting.');
   const amount = await getBojiAmount();
-  const payload = buildRestPayload(firm, { amount });
+  const court = await firmPrimaryCourt(firm.id).catch(() => null);
+  const payload = buildRestPayload(firm, { amount, courtId: court?.billingCourtId, courtType: court?.courtType });
   if (!payload.juridicalEntity.name) throw new Error('Firma nomi yo‘q');
   if (!payload.juridicalEntity.tin) throw new Error('Firma STIR raqami yo‘q');
   if (!payload.juridicalEntity.address) {
@@ -471,7 +474,8 @@ export async function startRestBatchForCases(
   if (picked.length === 0) return { restBatchId: null, invoiceBatchId: null, total: 0 };
 
   const amount = await getBojiAmount();
-  const payload = buildRestPayload(firm, { amount });
+  const court = await firmPrimaryCourt(firm.id).catch(() => null);
+  const payload = buildRestPayload(firm, { amount, courtId: court?.billingCourtId, courtType: court?.courtType });
   if (!payload.juridicalEntity.name) throw new Error('Firma nomi yo‘q');
   if (!payload.juridicalEntity.tin) throw new Error('Firma STIR raqami yo‘q');
   if (!payload.juridicalEntity.address) {

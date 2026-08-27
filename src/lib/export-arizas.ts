@@ -9,6 +9,7 @@ import { getSettings } from './settings';
 import { buildArizaDocx } from './ariza-docx';
 import { arizaZipPath, uniqueZipPath } from './export-paths';
 import { loansToAriza, type ArizaFirm } from '@/core/ariza';
+import { firmPrimaryCourt } from './court-routing';
 import { buildLoanWhere, type LoanFilters } from '@/core/loan-filters';
 
 const EXPORTS_DIR = path.join(process.cwd(), 'exports');
@@ -63,6 +64,12 @@ export async function runExportJob(jobId: number, filters: ExportFilters): Promi
 
     const firmRows = await prisma.firm.findMany();
     const firmsByCode = new Map(firmRows.map((f) => [f.code, f]));
+    // firmId → asosiy sud nomi (lazy cache; bulk eksportda firmalar kam).
+    const courtNameByFirm = new Map<number, string | undefined>();
+    const courtNameFor = async (firmId: number): Promise<string | undefined> => {
+      if (!courtNameByFirm.has(firmId)) courtNameByFirm.set(firmId, (await firmPrimaryCourt(firmId).catch(() => null))?.nameUz);
+      return courtNameByFirm.get(firmId);
+    };
 
     await fsp.mkdir(EXPORTS_DIR, { recursive: true });
     const zipPath = path.join(EXPORTS_DIR, `${jobId}.zip`);
@@ -101,7 +108,8 @@ export async function runExportJob(jobId: number, filters: ExportFilters): Promi
         mfo: firmRow?.mfo ?? null,
         stir: firmRow?.stir ?? null,
       };
-      const props = loansToAriza(group, firm, settings, snapshot.reportDate);
+      const courtName = firmRow ? await courtNameFor(firmRow.id) : undefined;
+      const props = loansToAriza(group, firm, settings, snapshot.reportDate, courtName);
       // Debt gate — never emit a «0 soʻm» petition for a paid-off / zero-debt group
       // (mirrors the single-ariza route and the packet builder). The optional minDebt
       // filter above is a user threshold; this is the hard floor that always applies.

@@ -322,6 +322,8 @@ export async function markCasesExported(caseIds: number[]): Promise<void> {
  *  return to «Tayyor». Undo of a real send OR a qoralama. Returns how many were actually reverted. */
 export async function undoCaseState(caseIds: number[]): Promise<number> {
   if (!caseIds.length) return 0;
+  // Sud kunlik limitini ham qaytaramiz — bekor qilingan yuborish quotani band qilib qolmasin.
+  await prisma.arizaCase.updateMany({ where: { id: { in: caseIds.slice(0, 200) } }, data: { courtSentAt: null } }).catch(() => {});
   const rows = await prisma.arizaCase.findMany({ where: { id: { in: caseIds.slice(0, 200) } }, select: { id: true, meta: true } });
   let reverted = 0;
   await Promise.all(rows.map((r) => {

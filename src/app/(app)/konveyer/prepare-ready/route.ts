@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import { konveyerSnapshots } from '@/lib/konveyer';
 import { enqueueJob } from '@/lib/job-dispatch';
 import { selectReadyCaseIds, validateSelectedCaseIds } from '@/lib/court-ready';
+import { allocateFirmCases, consumeCourtSend, firmCourtBudgets } from '@/lib/court-routing';
 
 export const runtime = 'nodejs';
 
@@ -52,18 +53,47 @@ export async function POST(req: NextRequest) {
   }
   const skipped = uniqIds ? uniqIds.length - caseIds.length : 0;
 
+  // ── Sud yo'naltirish + kunlik limit ─────────────────────────────────────────────────────────
+  // Firmaning sud(lar)i bo'yicha taqsimlaymiz: har sud kunlik limiti/cutoff/ish-kuni bilan.
+  // Limitdan oshgani BUGUN yuborilmaydi (keyingi ish kuniga suriladi). Konfiguratsiya bo'lmasa
+  // (Court jadvali bo'sh) — alloc=null, hech narsa cheklanmaydi (eski xatti-harakat).
+  let sendIds = caseIds;
+  let deferred = 0;
+  const alloc = await allocateFirmCases(firmId, caseIds);
+  if (alloc) {
+    sendIds = alloc.assignments.map((a) => a.caseId);
+    deferred = alloc.deferred.length;
+    if (sendIds.length === 0) {
+      // Bugun hech nima ketmaydi — sababini tushuntiramiz (yopiq oyna yoki limit tugagan).
+      const budgets = await firmCourtBudgets(firmId);
+      const parts = budgets.map((b) => {
+        const w = b.window.reason === 'weekend' ? 'ish kuni emas'
+          : b.window.reason === 'past-cutoff' ? 'vaqt tugagan'
+          : b.window.reason === 'inactive' ? 'o‘chirilgan'
+          : `${b.remaining}/${b.court.dailyQuota} qoldi`;
+        return `${b.court.shortName}: ${w}`;
+      });
+      return NextResponse.json(
+        { error: `Bugun sudga yuborib bo‘lmaydi (keyingi ish kuniga suriladi). ${parts.join(' · ')}` },
+        { status: 400 },
+      );
+    }
+    // Limitni darhol iste'mol qilamiz (count-at-write) — courtId + courtSentAt yoziladi.
+    await consumeCourtSend(alloc.assignments);
+  }
+
   // Store the FULL packet options (grafik yoʻq, mark exported) so the worker reconstructs the job
   // identically to the inline path — not just the case ids.
   const job = await prisma.job.create({
     data: {
-      type: 'PACKET', status: 'PENDING', snapshotId: snapshotId ?? null, total: caseIds.length,
-      params: { firmId, snapshotId, caseIds, ready: true, talabnomaPdf, includeGrafik: false, markExported: true },
+      type: 'PACKET', status: 'PENDING', snapshotId: snapshotId ?? null, total: sendIds.length,
+      params: { firmId, snapshotId, caseIds: sendIds, ready: true, talabnomaPdf, includeGrafik: false, markExported: true },
     },
   });
 
   // Run inline (default) or leave PENDING for the Docker worker (JOB_MODE=worker).
   enqueueJob(job.id);
 
-  // `skipped` is additive — existing callers read only jobId/total.
-  return NextResponse.json({ jobId: job.id, total: caseIds.length, skipped });
+  // `skipped`/`deferred` additive — existing callers read only jobId/total.
+  return NextResponse.json({ jobId: job.id, total: sendIds.length, skipped, deferred });
 }

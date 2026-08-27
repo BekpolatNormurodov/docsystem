@@ -50,6 +50,7 @@ export function loansToAriza(
   firm: ArizaFirm,
   settings: Settings,
   reportDate: Date,
+  courtName?: string, // firmaning asosiy sudi (court-routing); berilmasa settings.courtName
 ): LoanArizaProps {
   const first = loans[0]!;
   // The contracts in one ariza can carry DIFFERENT annual rates (foiz). Stating
@@ -76,7 +77,7 @@ export function loansToAriza(
   return {
     number: '',
     issueDate: reportDate,
-    courtName: settings.courtName,
+    courtName: courtName || settings.courtName,
     personFullName: first.clientName ?? '',
     personPinfl: first.pinfl ?? '',
     personAddress: first.postAddressUz || first.postAddress || '',
