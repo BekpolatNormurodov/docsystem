@@ -36,21 +36,22 @@ function Provider({ label, p, extra, onConnect, busy }: { label: string; p: Prov
       </span>
       {extra && <span className="text-[11px] font-medium tabular-nums">{extra}</span>}
       {timeNote && <span className="truncate text-[10px] tabular-nums text-muted">{timeNote}</span>}
-      {p.state !== 'ACTIVE' && (
-        <button
-          onClick={onConnect}
-          disabled={busy}
-          aria-label={p.state === 'NONE' ? 'Ula' : 'Qayta ula'}
-          title={p.state === 'NONE' ? 'Kalitni ula (E-IMZO)' : 'Qayta ula — token eskirgan (E-IMZO)'}
-          className={`ml-auto grid h-6 w-6 shrink-0 place-items-center rounded-md outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50 ${p.state === 'NONE' ? 'text-brand-600 hover:bg-brand-500/12 dark:text-brand-400' : 'text-amber-600 hover:bg-amber-500/15 dark:text-amber-400'}`}
-        >
-          {busy
-            ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            : p.state === 'NONE'
-              ? <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" /><path d="M6 7h12l-1 9a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L6 7Z" /><path d="M12 12v3" /></svg>
-              : <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /><path d="M3 21v-5h5" /></svg>}
-        </button>
-      )}
+      {/* Always show a connect affordance: NONE → «Ula», EXPIRED → «Qayta ula» (amber), and ACTIVE too
+          → «Qayta ula» (muted) so admin can re-sign with a DIFFERENT key/account (e.g. an account that
+          actually holds the talabnoma template) without first disconnecting. */}
+      <button
+        onClick={onConnect}
+        disabled={busy}
+        aria-label={p.state === 'NONE' ? 'Ula' : 'Qayta ula'}
+        title={p.state === 'NONE' ? 'Kalitni ula (E-IMZO)' : p.state === 'EXPIRED' ? 'Qayta ula — token eskirgan (E-IMZO)' : 'Qayta ula — boshqa kalit/akkaunt bilan (E-IMZO)'}
+        className={`ml-auto grid h-6 w-6 shrink-0 place-items-center rounded-md outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50 ${p.state === 'NONE' ? 'text-brand-600 hover:bg-brand-500/12 dark:text-brand-400' : p.state === 'EXPIRED' ? 'text-amber-600 hover:bg-amber-500/15 dark:text-amber-400' : 'text-muted hover:bg-surface-2 hover:text-brand-600 dark:hover:text-brand-400'}`}
+      >
+        {busy
+          ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          : p.state === 'NONE'
+            ? <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" /><path d="M6 7h12l-1 9a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L6 7Z" /><path d="M12 12v3" /></svg>
+            : <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /><path d="M3 21v-5h5" /></svg>}
+      </button>
     </div>
   );
 }
