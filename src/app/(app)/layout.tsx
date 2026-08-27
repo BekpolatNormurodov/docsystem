@@ -46,8 +46,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         const sk = subKeyByHref.get(c.href);
         return { ...c, locked: sk ? !canAccess(user, sk) : false };
       }) ?? [];
-      // Sud step ostiga «Buxgalteriya-invoice» — faqat buxgalteriya ruxsati bo'lsa ko'rinadi.
-      if (k === 'sud' && hasBux) base.push({ href: '/buxgalteriya', label: 'Buxgalteriya-invoice', locked: false });
+      // Sud ostiga «Buxgalteriya-invoice» — «Invoice yaratish» yonidan (undan keyin). Faqat ruxsatlilar.
+      if (k === 'sud' && hasBux) {
+        const at = base.findIndex((c) => c.href === '/sud/invoice');
+        base.splice(at >= 0 ? at + 1 : base.length, 0, { href: '/buxgalteriya', label: 'Buxgalteriya-invoice', locked: false });
+      }
       return base.length ? base : undefined;
     })(),
   }));
