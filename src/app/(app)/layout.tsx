@@ -79,7 +79,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     const bx = await buxgalteriyaCounts(selectedSnap).catch(() => ({ total: 0, paid: 0 }));
     buxgalteriyaNav = {
       href: '/buxgalteriya',
-      label: isAdmin ? 'Invoice' : 'Hisobot',
+      label: 'Invoice', // admin va buxgalterda bir xil — «Invoice» + sanoq (masalan 130/1000)
       icon: 'sheet',
       section: 'Menyu',
       badgeText: bx.total > 0 ? `${bx.paid}/${bx.total}` : '',
