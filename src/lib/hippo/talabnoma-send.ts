@@ -164,6 +164,12 @@ export async function sendTalabnomaToHippo(opts: SendTalabnomaOpts): Promise<Sen
   }
 
   const mails = talabnomaRowsToMails(batch, ctx.templateName);
+  // Log a sample of the OUTGOING request so a hippo-side rejection («Xatolar bilan yakunlandi») is
+  // diagnosable — region/area/address/content are the usual culprits when every row errors.
+  const sample = mails[0];
+  console.log('[hippo send] req firm=%s template=%s org=%s branch=%s count=%d sample=%j',
+    firmName, ctx.templateName, ctx.organizationId, ctx.branchId, mails.length,
+    sample ? { receiver: sample.receiver, regionId: sample.regionId, areaId: sample.areaId, address: sample.address, content: sample.content } : null);
   let res;
   try {
     res = await createRegistryInternal(session, {
