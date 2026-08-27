@@ -177,8 +177,11 @@ export async function resolveContext(s: HippoSession, templateNameHint = 'talabn
   }
 
   // /template status distinguishes an EXPIRED token (401 → reconnect) from an empty account (200).
-  console.log('[hippo ctx] getTemplates=%s(ok=%s) templates=%d template=%s(id=%s) org=%s branch=%s',
-    tpl.status, tpl.ok, tplArr.length, templateName, resolvedTemplateId, organizationId, branchId);
+  // Log the ids we see + the raw response so a shape mismatch vs a genuinely template-less account
+  // (wrong org connected) is distinguishable.
+  console.log('[hippo ctx] getTemplates=%s(ok=%s) templates=%d ids=%j org=%s branch=%s raw=%s',
+    tpl.status, tpl.ok, tplArr.length, tplArr.slice(0, 12).map((x) => ({ id: x?.id, name: x?.name, org: x?.organizationId })),
+    organizationId, branchId, (() => { try { return JSON.stringify(tpl.json)?.slice(0, 300); } catch { return String(tpl.json); } })());
   return { templateName, templateId: resolvedTemplateId, organizationId, branchId };
 }
 
