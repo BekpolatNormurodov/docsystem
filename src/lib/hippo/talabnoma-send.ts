@@ -9,7 +9,7 @@ import { prisma } from '@/lib/db';
 import { hippoTemplateIdByStir } from '@/lib/firms';
 import { getStoredHippoSession } from './session';
 import { loadTalabnomaRowsForScope } from './talabnoma-bulk';
-import { resolveContext, checkBalanceFor, createRegistryInternal, listRegistries, listRegistryMails, getRegistry, type InternalMail } from './xat';
+import { resolveContext, checkBalanceFor, createRegistryInternal, createRegistryExternal, listRegistries, listRegistryMails, getRegistry, type InternalMail } from './xat';
 import { getSentTalabnomaPinfls, splitBySent, recordSentTalabnomas } from './talabnoma-trace';
 import type { TalabnomaRow } from './talabnoma-excel';
 
@@ -191,16 +191,30 @@ export async function sendTalabnomaToHippo(opts: SendTalabnomaOpts): Promise<Sen
   const badGeo = mails.filter((m) => !m.regionId || !m.areaId);
   if (badGeo.length) console.warn('[hippo send] %d/%d rows have region/area=0 (hippo will reject): %j',
     badGeo.length, mails.length, badGeo.slice(0, 15).map((m) => ({ receiver: m.receiver, region: m.regionId, area: m.areaId, address: m.address })));
+  const payload = {
+    organizationId: ctx.organizationId,
+    branchId: ctx.branchId,
+    templateId: ctx.templateId,     // pin the exact template (Bright has «Talabnoma » AND «Talabnoma 3»)
+    templateName: ctx.templateName,
+    autoSend: mode === 'send',
+    mails,
+  };
   let res;
   try {
-    res = await createRegistryInternal(session, {
-      organizationId: ctx.organizationId,
-      branchId: ctx.branchId,
-      templateId: ctx.templateId,     // pin the exact template (Bright has «Talabnoma » AND «Talabnoma 3»)
-      templateName: ctx.templateName,
-      autoSend: mode === 'send',
-      mails,
-    });
+    res = await createRegistryInternal(session, payload);
+    // Some orgs are configured for the EXTERNAL (Pinfl/Inn) targeting flow and reject the internal
+    // endpoint with «Invalid targeting setup». Retry the external endpoint with the same payload
+    // before giving up (Bright org 3).
+    const errText = res.json && typeof res.json === 'object' ? String((res.json as any).error ?? (res.json as any).message ?? '') : String(res.json ?? '');
+    if (!res.ok && /invalid targeting/i.test(errText)) {
+      console.warn('[hippo send] internal rejected «%s» — retrying /process-mails/external', errText);
+      const ext = await createRegistryExternal(session, payload);
+      const extCode = ext.json && typeof ext.json === 'object' ? Number((ext.json as any).code) : NaN;
+      const extOk = ext.ok && !(Number.isFinite(extCode) && extCode >= 400);
+      console.warn('[hippo send] external status=%s ok=%s resp=%s', ext.status, extOk,
+        (() => { try { return JSON.stringify(ext.json)?.slice(0, 300); } catch { return String(ext.json); } })());
+      if (extOk) res = ext; // external accepted — use it
+    }
   } catch {
     return fail(mode, 'xat.hippo ga yuborishda xatolik', { firmName, balance: bal.balance, required: bal.required, enough: bal.enough, free });
   }
