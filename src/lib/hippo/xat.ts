@@ -176,7 +176,9 @@ export async function resolveContext(s: HippoSession, templateNameHint = 'talabn
     } catch (e) { console.error('[hippo ctx] getMyOrganizations fallback failed', e); }
   }
 
-  console.log('[hippo ctx] templates=%d template=%s(id=%s) org=%s branch=%s', tplArr.length, templateName, resolvedTemplateId, organizationId, branchId);
+  // /template status distinguishes an EXPIRED token (401 → reconnect) from an empty account (200).
+  console.log('[hippo ctx] getTemplates=%s(ok=%s) templates=%d template=%s(id=%s) org=%s branch=%s',
+    tpl.status, tpl.ok, tplArr.length, templateName, resolvedTemplateId, organizationId, branchId);
   return { templateName, templateId: resolvedTemplateId, organizationId, branchId };
 }
 
