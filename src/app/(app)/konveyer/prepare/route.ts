@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { enqueueJob } from '@/lib/job-dispatch';
+import { firmCourtBudgets } from '@/lib/court-routing';
 import type { CaseStage } from '@prisma/client';
 
 export const runtime = 'nodejs';
@@ -24,7 +25,16 @@ export async function GET(req: NextRequest) {
     ...(stages.length ? { stage: { in: stages } } : {}),
   };
   const total = await prisma.arizaCase.count({ where });
-  return NextResponse.json({ total });
+  // Firma tanlangan bo'lsa — uning sud(lar)i (ariza yaratishda sudni tanlab, sonlarini belgilash uchun).
+  // Bir nechta sud bo'lsa (Bright) — UI har biriga son kiritish maydonini ko'rsatadi.
+  let courts: { id: number; shortName: string; dailyQuota: number; cutoffMinutes: number; remaining: number; open: boolean }[] = [];
+  if (firmId) {
+    courts = (await firmCourtBudgets(firmId).catch(() => [])).map((b) => ({
+      id: b.court.id, shortName: b.court.shortName, dailyQuota: b.court.dailyQuota,
+      cutoffMinutes: b.court.cutoffMinutes, remaining: b.remaining, open: b.window.open,
+    }));
+  }
+  return NextResponse.json({ total, courts });
 }
 
 // POST { snapshotId?, firmId?, stages?, talabnomaPdf? } — «Tayyorlash»: start a
@@ -55,11 +65,33 @@ export async function POST(req: NextRequest) {
   };
   const scopeTotal = await prisma.arizaCase.count({ where });
   if (scopeTotal === 0) return NextResponse.json({ error: 'Bu tanlovda case yoʻq' }, { status: 400 });
-  // The job builds at most `limit` cases — reflect that in the reported/stored total.
-  const total = limit && limit < scopeTotal ? limit : scopeTotal;
+
+  // ── Sud bo'yicha taqsimlash (ariza yaratishda sudni tanlab, son belgilash) ─────────────────────
+  // courtCounts=[{courtId, count}] berilsa: eng eski case'larni tanlab, har sudga o'z sonicha
+  // courtId biriktiramiz (ariza o'sha sud nomiga chiqadi). Aynan shu case'lar ZIP'ga yig'iladi.
+  const rawCounts = Array.isArray(body?.courtCounts) ? body.courtCounts : [];
+  const counts = rawCounts
+    .map((c: unknown) => ({ courtId: Number((c as { courtId?: unknown })?.courtId), count: Math.max(0, Math.floor(Number((c as { count?: unknown })?.count)) || 0) }))
+    .filter((c: { courtId: number; count: number }) => Number.isInteger(c.courtId) && c.courtId > 0 && c.count > 0);
+
+  let jobParams: Record<string, unknown> = { snapshotId, firmId, stages, talabnomaPdf, limit, arizaOnly };
+  let total = limit && limit < scopeTotal ? limit : scopeTotal;
+
+  if (counts.length) {
+    const need = counts.reduce((s: number, c: { count: number }) => s + c.count, 0);
+    const picked = await prisma.arizaCase.findMany({ where, orderBy: [{ dueAt: 'asc' }, { id: 'asc' }], take: need, select: { id: true } });
+    const q = picked.map((p) => p.id);
+    const assignments: { caseId: number; courtId: number }[] = [];
+    for (const c of counts) { let take = Math.min(c.count, q.length); while (take-- > 0) assignments.push({ caseId: q.shift()!, courtId: c.courtId }); }
+    if (assignments.length === 0) return NextResponse.json({ error: 'Tanlangan sonlar bo‘yicha case yo‘q' }, { status: 400 });
+    await prisma.$transaction(assignments.map((a) => prisma.arizaCase.update({ where: { id: a.caseId }, data: { courtId: a.courtId } })));
+    const caseIds = assignments.map((a) => a.caseId);
+    total = caseIds.length;
+    jobParams = { snapshotId, firmId, caseIds, talabnomaPdf, arizaOnly };
+  }
 
   const job = await prisma.job.create({
-    data: { type: 'PACKET', status: 'PENDING', snapshotId: snapshotId ?? null, total, params: { snapshotId, firmId, stages, talabnomaPdf, limit, arizaOnly } },
+    data: { type: 'PACKET', status: 'PENDING', snapshotId: snapshotId ?? null, total, params: jobParams as never },
   });
 
   // Run inline (default) or leave PENDING for the Docker worker (JOB_MODE=worker); the client polls the Job.

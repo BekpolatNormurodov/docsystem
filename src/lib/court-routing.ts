@@ -106,13 +106,26 @@ export interface Allocation { assignments: { caseId: number; courtId: number }[]
 export async function allocateFirmCases(firmId: number, caseIds: number[], now: Date = new Date()): Promise<Allocation | null> {
   const budgets = await firmCourtBudgets(firmId, now);
   if (budgets.length === 0) return null; // konfiguratsiya yo'q — cheklovsiz (eski xatti-harakat)
-  const assignments: { caseId: number; courtId: number }[] = [];
-  const queue = [...caseIds];
-  for (const b of budgets) {
-    let take = Math.min(b.remaining, queue.length);
-    while (take-- > 0) assignments.push({ caseId: queue.shift()!, courtId: b.court.id });
+  const budgetByCourt = new Map(budgets.map((b) => [b.court.id, b]));
+  const primaryId = budgets[0].court.id;
+
+  // Ariza bosqichida biriktirilgan sudni HURMAT qilamiz: case'ning courtId'si bo'lsa — o'shani ishlatamiz,
+  // yo'q bo'lsa firma asosiy sudi. So'ng har sudning bugungi limiti/oynasi bo'yicha kesamiz (oshgani deferred).
+  const rows = await prisma.arizaCase.findMany({ where: { id: { in: caseIds } }, select: { id: true, courtId: true } });
+  const wantByCourt = new Map<number, number[]>();
+  for (const r of rows) {
+    const cid = r.courtId && budgetByCourt.has(r.courtId) ? r.courtId : primaryId;
+    if (!wantByCourt.has(cid)) wantByCourt.set(cid, []);
+    wantByCourt.get(cid)!.push(r.id);
   }
-  return { assignments, deferred: queue };
+  const assignments: { caseId: number; courtId: number }[] = [];
+  const deferred: number[] = [];
+  for (const [cid, ids] of wantByCourt) {
+    const rem = budgetByCourt.get(cid)?.remaining ?? 0;
+    assignments.push(...ids.slice(0, rem).map((caseId) => ({ caseId, courtId: cid })));
+    deferred.push(...ids.slice(rem));
+  }
+  return { assignments, deferred };
 }
 
 /** Taqsimlangan case'larni «yuborilgan» deb belgilaydi: courtId + courtSentAt=now (limit sanog'i). */

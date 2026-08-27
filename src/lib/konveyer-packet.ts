@@ -42,9 +42,10 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
   const ac = await prisma.arizaCase.findUnique({
     where: { id: caseId },
     select: {
-      pinfl: true, snapshotId: true, kod: true, clientName: true, firmId: true, receiptNumber: true,
+      pinfl: true, snapshotId: true, kod: true, clientName: true, firmId: true, receiptNumber: true, courtId: true,
       stageEnteredAt: true, batch: { select: { createdAt: true } },
       documents: { select: { kind: true, fileName: true, filePath: true } },
+      court: { select: { nameUz: true } },
     },
   });
   if (!ac?.pinfl || !ac.snapshotId) return null;
@@ -109,7 +110,8 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
       stir: firm?.stir ?? null,
     };
     try {
-      const courtName = (await firmPrimaryCourt(ac.firmId).catch(() => null))?.nameUz;
+      // Ariza o'z case'iga biriktirilgan sud nomiga chiqadi (courtId); yo'q bo'lsa firma asosiy sudi.
+      const courtName = ac.court?.nameUz ?? (await firmPrimaryCourt(ac.firmId).catch(() => null))?.nameUz;
       const props = loansToAriza(loans, arizaFirm, settings, reportDate, courtName);
       // Skip a void petition: a group whose debt sums to ≤ 0 (e.g. a paid-off client
       // still on the exclusion list) would demand «0 soʻm» — never file that.

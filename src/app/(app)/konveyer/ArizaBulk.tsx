@@ -5,6 +5,8 @@ import { Ico } from '@/ui';
 
 interface JobState { status: string; progress: number; total: number; message?: string | null }
 interface HistItem { id: number; total: number; createdAt: string; firmName: string; size: number }
+interface CourtOpt { id: number; shortName: string; dailyQuota: number; cutoffMinutes: number; remaining: number; open: boolean }
+const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 
 const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
 const fmtSize = (b: number) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : b >= 1024 ? `${Math.round(b / 1024)} KB` : `${b} B`);
@@ -23,6 +25,8 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
   const n = (x: number) => x.toLocaleString('ru-RU');
 
   const [count, setCount] = useState<number | null>(null);
+  const [courts, setCourts] = useState<CourtOpt[]>([]);
+  const [courtNums, setCourtNums] = useState<Record<number, string>>({}); // ko'p sudli firma: har sudga son
   const [countBusy, setCountBusy] = useState(false);
   const countReqRef = useRef(0); // out-of-order guard: a stale firm/snapshot count must not overwrite the current
 
@@ -54,6 +58,7 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
       const d = res.ok ? await res.json() : null;
       if (my !== countReqRef.current) return; // a newer firm/snapshot superseded this response
       if (d && typeof d.total === 'number') setCount(d.total);
+      if (d && Array.isArray(d.courts)) setCourts(d.courts);
     } catch { /* best-effort */ }
     finally { if (my === countReqRef.current) setCountBusy(false); }
   }, [firmId, snapshotId]);
@@ -99,19 +104,39 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
 
   const total = count ?? 0;
   const parsed = Math.max(1, Math.min(total || 1, Math.floor(Number(num)) || 0));
-  const valid = all || (Number.isFinite(Number(num)) && parsed >= 1 && parsed <= total);
-  const batchN = all ? total : parsed;
+  const multiCourt = courts.length > 1;
+  const courtSum = courts.reduce((s, c) => s + (Math.max(0, Math.floor(Number(courtNums[c.id])) || 0)), 0);
+  const valid = multiCourt
+    ? courtSum >= 1 && courtSum <= total
+    : all || (Number.isFinite(Number(num)) && parsed >= 1 && parsed <= total);
+  const batchN = multiCourt ? courtSum : all ? total : parsed;
 
-  const openModal = () => { setErr(null); setAll(true); setNum(String(total || '')); setModalOpen(true); };
+  const openModal = () => {
+    setErr(null); setAll(true); setNum(String(total || ''));
+    // Ko'p sudli firma: har sudga bugungi qolgan limitni default qilamiz (jami scopedan oshmasin).
+    if (courts.length > 1) {
+      const init: Record<number, string> = {}; let left = total;
+      for (const c of courts) { const v = Math.max(0, Math.min(left, c.open ? c.remaining : 0)); init[c.id] = String(v); left -= v; }
+      setCourtNums(init);
+    }
+    setModalOpen(true);
+  };
 
   const start = async () => {
     if (snapshotId == null || inFlight.current) return;
     inFlight.current = true;
     setStarting(true); setErr(null); setJob(null); setJobId(null);
     try {
+      // Sud bo'yicha taqsimot: ko'p sudli firma → har sudga o'z soni; bitta sud → hammasi/son shu sudga;
+      // sud yo'q (konfiguratsiyasiz) → eski xatti-harakat (courtCounts'siz).
+      const courtCounts = multiCourt
+        ? courts.map((c) => ({ courtId: c.id, count: Math.max(0, Math.floor(Number(courtNums[c.id])) || 0) })).filter((c) => c.count > 0)
+        : courts.length === 1
+          ? [{ courtId: courts[0].id, count: batchN }]
+          : [];
       const res = await fetch('/konveyer/prepare', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ snapshotId, firmId, arizaOnly: true, ...(all ? {} : { limit: parsed }) }),
+        body: JSON.stringify({ snapshotId, firmId, arizaOnly: true, ...(all && !multiCourt ? {} : { limit: parsed }), ...(courtCounts.length ? { courtCounts } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) { setErr(data?.error || 'Xatolik'); setModalOpen(false); return; }
@@ -246,7 +271,29 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
               <span>«{firmName ?? 'Hamma firma'}» · faqat ariza — orqada yaratiladi, tayyor boʻlgach ZIP yuklab olasiz.</span>
             </div>
 
+            {multiCourt ? (
+              <div className="space-y-2">
+                <div className="text-xs text-muted">Har sudga nechtadan ariza chiqarilsin — sonini belgilang. Tanlangan case'lar shu sud nomiga chiqadi va bitta ZIP'ga yig'iladi.</div>
+                {courts.map((c) => (
+                  <div key={c.id} className="flex items-center gap-3 rounded-xl border border-line p-3">
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold">{c.shortName}</span>
+                      <span className="block text-[11px] tabular-nums text-muted">
+                        limit {n(c.dailyQuota)}/kun · {hhmm(c.cutoffMinutes)} gacha · {c.open ? `bugun ${n(c.remaining)} qoldi` : 'bugun yopiq'}
+                      </span>
+                    </span>
+                    <input type="number" min={0} value={courtNums[c.id] ?? ''} onChange={(e) => setCourtNums((m) => ({ ...m, [c.id]: e.target.value }))}
+                      className="w-24 rounded-lg border border-line bg-bg px-2.5 py-1.5 text-sm font-semibold tabular-nums outline-none focus-visible:border-brand-500/50 focus-visible:ring-2 focus-visible:ring-brand-500/25" />
+                  </div>
+                ))}
+                <div className="flex items-center justify-between px-1 text-[11px] tabular-nums text-muted">
+                  <span>Jami: <b className={courtSum > total ? 'text-rose-500' : 'text-fg'}>{n(courtSum)}</b> / {n(total)} mijoz</span>
+                  {courtSum > total && <span className="text-rose-500">Scopedan oshib ketdi</span>}
+                </div>
+              </div>
+            ) : (
             <div className="space-y-2">
+              {courts.length === 1 && <div className="rounded-lg bg-surface-2 px-3 py-1.5 text-[11px] text-muted">Sud: <b className="text-fg">{courts[0].shortName}</b> · limit {n(courts[0].dailyQuota)}/kun, {hhmm(courts[0].cutoffMinutes)} gacha</div>}
               <div role="radio" aria-checked={all} tabIndex={0} onClick={() => setAll(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setAll(true); } }}
                 className={cx('flex cursor-pointer items-center gap-3 rounded-xl border p-3 outline-none transition-all', all ? 'border-brand-500 bg-brand-500/[0.06] ring-1 ring-brand-500/30' : 'border-line hover:border-brand-500/30 hover:bg-surface-2')}>
                 <span className={cx('grid h-9 w-9 shrink-0 place-items-center rounded-lg transition-colors', all ? 'bg-brand-500 text-white' : 'bg-surface-2 text-muted')}>
@@ -271,6 +318,7 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
                 <span className={cx('grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 transition-colors', !all ? 'border-brand-500' : 'border-line')}>{!all && <span className="h-2.5 w-2.5 rounded-full bg-brand-500" />}</span>
               </div>
             </div>
+            )}
 
             <div className="mt-4 flex items-center justify-end gap-2">
               <button onClick={() => setModalOpen(false)} disabled={starting} className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-2 disabled:opacity-50">Bekor</button>
