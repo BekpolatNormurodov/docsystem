@@ -42,7 +42,9 @@ function bodyPara(runs: TextRun[]): Paragraph {
   return new Paragraph({
     alignment: AlignmentType.JUSTIFIED,
     indent: { firstLine: 709 },
-    spacing: { after: 120 },
+    // Tight inter-paragraph gap (was 120) — the ideal HTML has no margin between body paragraphs, so
+    // a large «after» here bloated the doc to 3 pages and pushed the signature onto a near-empty page.
+    spacing: { after: 60 },
     children: runs,
   });
 }
@@ -125,7 +127,7 @@ export async function buildArizaDocx(props: CourtArizaDocumentProps): Promise<Bu
     new Paragraph({ spacing: { after: 30, line: 276, lineRule: 'auto' }, children: [run(text, opts)] });
   // Cell padding (twips) — mirrors the ideal HTML's 8pt/6pt cell padding: vertical breathing room
   // between the Arizachi / Palata / Qarzdor groups, and a gap between the label and value columns.
-  const CELL_M = { top: 90, bottom: 150, left: 0, right: 140 };
+  const CELL_M = { top: 50, bottom: 80, left: 0, right: 140 };
   const partyRow = (label: string, lines: { text: string; opts?: LineOpt }[]): TableRow =>
     new TableRow({
       children: [
@@ -187,13 +189,13 @@ export async function buildArizaDocx(props: CourtArizaDocumentProps): Promise<Bu
 
     // Title
     new Paragraph({
-      spacing: { before: 320 },
+      spacing: { before: 180 },
       alignment: AlignmentType.CENTER,
       children: [run('A R I Z A', { bold: true })],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      spacing: { after: 200 },
+      spacing: { after: 120 },
       children: [run('(Sud buyrugʻi berish haqida)', { size: 24 })],
     }),
 
@@ -238,7 +240,7 @@ export async function buildArizaDocx(props: CourtArizaDocumentProps): Promise<Bu
     new Paragraph({
       alignment: AlignmentType.JUSTIFIED,
       indent: { firstLine: 709 },
-      spacing: { before: 160, after: 200 },
+      spacing: { before: 100, after: 120 },
       children: [
         run('Jami qarzdorligi  '),
         run(`${formatSumDecimal(props.debtTotal)} soʻm`, { bold: true }),
@@ -256,7 +258,7 @@ export async function buildArizaDocx(props: CourtArizaDocumentProps): Promise<Bu
 
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      spacing: { before: 160, after: 160 },
+      spacing: { before: 100, after: 100 },
       children: [run('S Oʻ R A Y M I Z:')],
     }),
 
@@ -284,7 +286,7 @@ export async function buildArizaDocx(props: CourtArizaDocumentProps): Promise<Bu
 
     // Signature row
     new Paragraph({
-      spacing: { before: 480 },
+      spacing: { before: 300 },
       tabStops: [{ type: 'right', position: 9026 }],
       children: [
         run(props.chamberSignerPosition, { bold: true }),
@@ -295,7 +297,7 @@ export async function buildArizaDocx(props: CourtArizaDocumentProps): Promise<Bu
 
     // Ijrochi footer
     new Paragraph({
-      spacing: { before: 280 },
+      spacing: { before: 180 },
       children: [run(`Ijrochi: ${props.chamberExecutorName}`, { size: 20 })],
     }),
     new Paragraph({
