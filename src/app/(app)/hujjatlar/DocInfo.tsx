@@ -86,7 +86,7 @@ export function DocInfo({ kind }: { kind: DocInfoKind }) {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} aria-hidden />
-          <div className="absolute left-0 top-full z-50 mt-1.5 flex max-h-[60vh] w-80 max-w-[85vw] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-xl">
+          <div className="absolute left-0 top-full z-50 mt-1.5 flex max-h-[60vh] w-[32rem] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-xl">
             <div className="border-b border-line px-3 py-2">
               <div className="text-xs font-semibold">{d.title}</div>
               <p className="mt-1 text-[11px] leading-relaxed text-muted">{d.intro}</p>
@@ -97,8 +97,8 @@ export function DocInfo({ kind }: { kind: DocInfoKind }) {
                 <tbody className="divide-y divide-line">
                   {d.rows.map(([col, mean]) => (
                     <tr key={col}>
-                      <td className="whitespace-nowrap px-2 py-1 font-mono font-medium text-fg">{col}</td>
-                      <td className="px-2 py-1 text-muted">{mean}</td>
+                      <td className="w-1/2 px-2 py-1 align-top font-mono font-medium text-fg">{col}</td>
+                      <td className="px-2 py-1 align-top text-muted">{mean}</td>
                     </tr>
                   ))}
                 </tbody>
