@@ -6,8 +6,8 @@ import { useState } from 'react';
  * «Izoh» — har bir excel yuklash yonida bosiladigan kichik tugma; ochilganda o'sha fayl qaysi
  * ustunlardan iborat bo'lishi kerakligini tushuntiradi. Ma'lumot parserlardan olingan:
  *  · portfel  → src/core/portfolio.ts (mapRowToLoan)
- *  · sud      → src/lib/parse-exclusion.ts («ПНФЛ» varag'i, 1-ustun)
- *  · talabnoma→ src/lib/talabnoma-form/parse.ts (Лист1)
+ *  · sud      → src/lib/parse-exclusion.ts (PINFL ustuni — lotin/kirill, ideal aniqlash)
+ *  · talabnoma→ src/lib/talabnoma-form/parse.ts (faqat PINFL ro'yxati; qolgani portfeldan)
  */
 export type DocInfoKind = 'portfel' | 'sud' | 'talabnoma';
 
@@ -36,27 +36,20 @@ const INFO: Record<DocInfoKind, { title: string; intro: string; rows: [string, s
     ],
   },
   sud: {
-    title: 'Sud (muammoli / istisno) ro‘yxati — ustunlar',
-    intro: 'Eng oddiy fayl. Varaq nomi «ПНФЛ» yoki «ПИНФЛ» bo‘lsin (yoki 1-ustun sarlavhasi shunday). Faqat A ustuni (1-ustun) o‘qiladi — har qatorda bitta PINFL.',
+    title: 'Sud (muammoli / istisno) ro‘yxati — faqat PINFL',
+    intro: 'Eng oddiy fayl. Sarlavha «PINFL», «PNFL», «ПНФЛ» yoki «ПИНФЛ» bo‘lsin (lotin/kirill, katta-kichik farqi yo‘q). PINFL ustuni qayerda bo‘lsa ham topiladi — har qatorda bitta PINFL.',
     rows: [
-      ['A (1-ustun)', 'PINFL — sudga chiqadigan mijozlar ro‘yxati'],
+      ['PINFL (bitta ustun)', 'Sudga chiqadigan mijozlar ro‘yxati'],
     ],
     note: '1-qator sarlavha, ma’lumot 2-qatordan. Boshqa ustunlar e’tiborga olinmaydi. Bu fayl endi IXTIYORIY — keyin ham qo‘shsa bo‘ladi.',
   },
   talabnoma: {
-    title: 'Talabnoma ro‘yxati — ustunlar (Лист1)',
-    intro: 'Har qatorda bitta odam, 1-qator sarlavha. Ustunlar tartibi (A→K):',
+    title: 'Talabnoma ro‘yxati — faqat PINFL',
+    intro: 'Endi faqat bitta PINFL ustuni yetarli — F.I.Sh, manzil, viloyat/tuman, summa va firmalar hammasi PORTFELdan olinadi. Sarlavha «PINFL», «PNFL», «ПНФЛ» yoki «ПИНФЛ» bo‘lishi mumkin (lotin/kirill, katta-kichik farqi yo‘q).',
     rows: [
-      ['1 (A)', 'PINFL'],
-      ['2 (B)', 'F.I.Sh'],
-      ['6 (F)', 'Umumiy muddati o‘tgan qarz'],
-      ['7 (G)', 'Manzil'],
-      ['8 (H)', 'Telefon'],
-      ['9 (I)', 'Viloyat'],
-      ['10 (J)', 'Tuman'],
-      ['11 (K)', 'Firmalar (matn)'],
+      ['PINFL (bitta ustun)', 'Talabnoma yuboriladigan mijozlar — har qatorda bitta PINFL'],
     ],
-    note: 'Лист2 — har (firma × kredit): 2-ustun = firma kodi, 10-ustun (J) = PINFL.',
+    note: '1-qator sarlavha, ma’lumot 2-qatordan. Boshqa ustunlar e’tiborga olinmaydi — qolgan barcha ma’lumot portfel bo‘yicha PINFL orqali topiladi. Bu fayl IXTIYORIY.',
   },
 };
 

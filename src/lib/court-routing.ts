@@ -203,6 +203,15 @@ export async function saveCourt(input: SaveCourtInput): Promise<number> {
   return court.id;
 }
 
+/** Firma-markazli biriktirish: bitta firma qaysi sud(lar)ga chiqishini to'liq qayta yozadi (tartib = index). */
+export async function setFirmCourtsAccess(firmId: number, courtIds: number[]): Promise<void> {
+  const uniq = [...new Set(courtIds.map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  await prisma.courtFirmAccess.deleteMany({ where: { firmId } });
+  if (uniq.length) {
+    await prisma.courtFirmAccess.createMany({ data: uniq.map((courtId, i) => ({ courtId, firmId, order: i })) });
+  }
+}
+
 /** Sud o'chirish — case'lar bog'langan bo'lsa faqat o'chirmaymiz (active=false qiling). */
 export async function deleteCourt(id: number): Promise<{ ok: boolean; reason?: string }> {
   const used = await prisma.arizaCase.count({ where: { courtId: id } });

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
-import { courtsForAdmin, ensureSeedCourt, saveCourt, deleteCourt } from '@/lib/court-routing';
+import { courtsForAdmin, ensureSeedCourt, saveCourt, deleteCourt, setFirmCourtsAccess } from '@/lib/court-routing';
 
 export const runtime = 'nodejs';
 
@@ -22,6 +22,12 @@ export async function POST(req: NextRequest) {
       if (!id) return NextResponse.json({ error: 'id kerak' }, { status: 400 });
       const r = await deleteCourt(id);
       if (!r.ok) return NextResponse.json({ error: r.reason }, { status: 409 });
+      return NextResponse.json(await courtsForAdmin());
+    }
+    if (action === 'firmCourts') {
+      const firmId = Number(body?.firmId);
+      if (!firmId) return NextResponse.json({ error: 'firmId kerak' }, { status: 400 });
+      await setFirmCourtsAccess(firmId, Array.isArray(body?.courtIds) ? body.courtIds.map(Number) : []);
       return NextResponse.json(await courtsForAdmin());
     }
     // save

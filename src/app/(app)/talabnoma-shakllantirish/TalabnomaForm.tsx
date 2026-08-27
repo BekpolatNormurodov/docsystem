@@ -133,7 +133,7 @@ function UploadCard({ onDone }: { onDone: (batchId: number) => void }) {
     <div className="card p-5">
       <div className="grid gap-3 sm:grid-cols-2">
         <FileField step={1} label="Портфель (умумий)" hint="То‘лиқ портфель — shartnoma tafsilotlari" file={portfolio} onPick={setPortfolio} />
-        <FileField step={2} label="Talabnoma Excel (List 1)" hint="20.08…xlsx — PNFL · прострочка · firmalar" file={source} onPick={setSource} />
+        <FileField step={2} label="Talabnoma PINFL ro‘yxati" hint="Faqat PINFL ustuni (PNFL/PINFL/ПНФЛ) — qolgani portfeldan olinadi" file={source} onPick={setSource} />
       </div>
       <div className="mt-4 flex flex-wrap items-end gap-3">
         <div className="min-w-[200px] flex-1">

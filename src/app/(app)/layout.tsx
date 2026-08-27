@@ -112,6 +112,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         ...withBadges(stepNav),
         { href: '/mijozlar', label: 'Mijozlar', icon: 'users', section: 'Menyu' },
         { href: '/firms', label: 'Firmalar', icon: 'building', section: 'Menyu' },
+        { href: '/sudlar', label: 'Sudlar', icon: 'court', section: 'Menyu' },
         { href: '/foydalanuvchilar', label: 'Foydalanuvchilar', icon: 'user', section: 'Menyu' },
         { href: '/jurnal', label: 'Amaliyotlar', icon: 'calendar', section: 'Menyu' },
         // «Alohida» modullar (bottom) — buxgalteriyasiz (u Sud ostida).
