@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { requireAdmin } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { PageHeader, EmptyState } from '@/ui';
 import { formatSumDecimal } from '@/core/document';
@@ -23,7 +23,9 @@ function when(d: Date) {
 }
 
 export default async function HujjatlarPage() {
-  await requireAdmin();
+  // HAMMA ko'radi (portfel/sana ko'rish); yuklash/o'zgartirish faqat adminda (pastda isAdmin bilan).
+  const user = await requireUser();
+  const isAdmin = user.role === 'ADMIN';
 
   // One fetch drives both sections: every snapshot feeds the import history (any status),
   // and the READY ones also become the date cards below.
@@ -96,7 +98,7 @@ export default async function HujjatlarPage() {
     }),
   );
 
-  const docs = await appDocsStatus();
+  const docs = isAdmin ? await appDocsStatus() : null;
 
   return (
     <div>
@@ -105,20 +107,21 @@ export default async function HujjatlarPage() {
         subtitle="Portfel yuklang, soʻng sanani tanlab sud roʻyxatidagilarga ariza (.docx) ZIP qilib oling"
       />
 
-      {/* Bitta layout: Portfel + Sud ro'yxati (istisno) + Talabnoma ro'yxati — hammasi .xlsx.
-          Talabnoma ro'yxati import formasi ichida (mustaqil app-doc dropzone). */}
-      <ImportPanel defaultOpen count={rows.length}>
-        <ImportForm>
-          <AppDocDropzone
-            k="talabnoma"
-            label="Talabnoma roʻyxati (.xlsx)"
-            hint="Talabnoma yuboriladigan mijozlar roʻyxati"
-            accent="brand"
-            initial={docs.talabnoma}
-          />
-        </ImportForm>
-        <ImportHistory rows={rows} />
-      </ImportPanel>
+      {/* Yuklash/o'zgartirish — FAQAT admin. Yuristlar quyidagi sana kartalarini ko'radi (ko'rish). */}
+      {isAdmin && docs && (
+        <ImportPanel defaultOpen count={rows.length}>
+          <ImportForm>
+            <AppDocDropzone
+              k="talabnoma"
+              label="Talabnoma roʻyxati (.xlsx)"
+              hint="Talabnoma yuboriladigan mijozlar roʻyxati"
+              accent="brand"
+              initial={docs.talabnoma}
+            />
+          </ImportForm>
+          <ImportHistory rows={rows} />
+        </ImportPanel>
+      )}
 
       <h2 className="mb-3 mt-8 text-sm font-semibold text-muted">Sana boʻyicha hujjatlar</h2>
 

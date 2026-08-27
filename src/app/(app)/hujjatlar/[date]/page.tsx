@@ -3,7 +3,7 @@ import path from 'node:path';
 import Link from 'next/link';
 import { Prisma } from '@prisma/client';
 import { notFound } from 'next/navigation';
-import { requireAdmin } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { PageHeader, EmptyState, Pagination } from '@/ui';
 import { formatSumDecimal } from '@/core/document';
@@ -36,7 +36,7 @@ export default async function HujjatlarDatePage({
   params: { date: string };
   searchParams: Record<string, string | string[] | undefined>;
 }) {
-  await requireAdmin();
+  await requireUser();
   const date = params.date;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) notFound();
   // Shape alone isn't enough: 2024-13-45 is an Invalid Date and 2024-02-30 rolls

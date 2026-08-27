@@ -65,15 +65,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     bottom: true,
   }));
 
+  // Hujjatlar — HAMMAGA ko'rinadi (portfel/sana ko'rish), lekin yuklash/o'zgartirish faqat adminda
+  // (sahifa ichida guard). Step'lar eng tepasida (step: 0).
+  const hujjatlarNav: NavItem = { href: '/hujjatlar', label: 'Hujjatlar', icon: 'files', section: 'Boshqaruv', step: 0 };
+
   // Admin: full app + user/audit management. Yurist: only their granted steps, nothing else.
   const nav: NavItem[] = isAdmin
     ? [
         // Hisobot (dashboard) — sidebardan olib turildi (foydalanuvchi so'rovi). Sahifa /konveyer'da
         // qoladi, faqat menyuda ko'rinmaydi. Qaytarish: quyidagi qatorni oching.
         // { href: '/konveyer', label: 'Hisobot', icon: 'dashboard', section: 'Boshqaruv' },
-        // Hujjatlar (portfel import) — voronka ILDIZI: step'larning eng tepasida, Talabnoma'dan oldin
-        // (portfel = asosiy fayl, oqim shundan boshlanadi). step:0 → stepper rail'ida birinchi.
-        { href: '/hujjatlar', label: 'Hujjatlar', icon: 'files', section: 'Boshqaruv', step: 0 },
+        hujjatlarNav,
         ...withBadges(stepNav),
         { href: '/mijozlar', label: 'Mijozlar', icon: 'users', section: 'Menyu' },
         { href: '/firms', label: 'Firmalar', icon: 'building', section: 'Menyu' },
@@ -83,7 +85,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         ...moduleNav,
       ]
     : [
-        // Yurist: their granted steps + Mijozlar (clients are visible to everyone) + granted modules.
+        // Yurist: Hujjatlar (ko'rish) + granted steps + Mijozlar + granted modules.
+        hujjatlarNav,
         ...withBadges(stepNav),
         { href: '/mijozlar', label: 'Mijozlar', icon: 'users', section: 'Menyu' },
         ...moduleNav,
