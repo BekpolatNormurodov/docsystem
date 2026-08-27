@@ -3,8 +3,10 @@ import { prisma } from '@/lib/db';
 import { getSettings } from '@/lib/settings';
 import { loansToAriza } from '@/core/ariza';
 import { formatSumDecimal, dmy } from '@/core/document';
+import { fillOferta } from '@/lib/oferta-pdf';
 import { PageHeader, StatCard } from '@/ui';
 import { ArizaPreview } from './ArizaPreview';
+import { OfertaPreview } from './OfertaPreview';
 import { PersonFilters } from './PersonFilters';
 
 export const dynamic = 'force-dynamic';
@@ -196,6 +198,17 @@ export default async function PersonPage({
                       );
                     })()}
                     <ArizaPreview props={loansToAriza(firmLoans, firm, settings, snapshot.reportDate)} />
+
+                    {/* Oferta — har shartnomaga alohida (chromiumsiz HTML «view»). */}
+                    <div className="mt-3 space-y-1.5">
+                      {firmLoans.map((loan) => (
+                        <OfertaPreview
+                          key={loan.id}
+                          label={loan.ldId || `#${loan.id}`}
+                          html={fillOferta(loan as never, firm as never, loan.clientName, loan.pinfl, 0)}
+                        />
+                      ))}
+                    </div>
                   </div>
                 )}
               </section>
