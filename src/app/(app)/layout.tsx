@@ -91,7 +91,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   // Date picker + connections/settings now live in the header top-right (frees the sidebar so it
   // fits without a scrollbar). topActions are admin-only; the picker shows whenever there are steps.
-  const showPicker = snaps.length > 0 && stepNav.length > 0;
+  // Sana/snapshot filtri — endi HAR bir foydalanuvchiga (snapshot bo'lsa), faqat bosqichlilarga emas
+  // (foydalanuvchi so'rovi: narigi userlar ham umumiy sana bo'yicha filterни tanlay olsin).
+  const showPicker = snaps.length > 0;
   const topActions: NavItem[] = isAdmin
     ? [
         { href: '/ulanishlar', label: 'Ulanishlar', icon: 'link' },
