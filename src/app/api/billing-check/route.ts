@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import type { Prisma } from '@prisma/client';
 import { buildInvoiceWhere } from '@/lib/billing-check/filters';
@@ -11,7 +11,7 @@ export const runtime = 'nodejs';
 // sahifalab. Bitta firmada 2000+ yozuv bo'lishi mumkin, hammasi birdan qaytarilmaydi.
 // GET ?firm=&status=&cat=&amount=&q=&page=&size=
 export async function GET(req: NextRequest) {
-  await requireAdmin();
+  await requireAccess('invoice-check');
   const sp = req.nextUrl.searchParams;
   const page = Math.max(0, Number(sp.get('page')) || 0);
   const size = Math.min(200, Math.max(1, Number(sp.get('size')) || 20));

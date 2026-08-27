@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { getMibConfig, setMibConfig, MIN_INTERVAL_SEC } from '@/lib/mib/config';
 
 export const runtime = 'nodejs';
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 // GET — current MIB config + the webhook URL to paste into the Android SMS forwarder (derived from the
 // request origin so it works on localhost and in prod).
 export async function GET(req: NextRequest) {
-  await requireAdmin();
+  await requireAccess('mib-report');
   const cfg = await getMibConfig();
   // Public webhook origin: explicit env → COOKIE_DOMAIN (prod: .yuristsystem.uz) → the real domain.
   // The Android forwarder must reach a PUBLIC URL, never the internal 0.0.0.0:5200 the app binds to.
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
 // left in the field — would silently break every OTP-gated MIB lookup. baseUrl/interval save
 // normally; interval is floored at MIN_INTERVAL_SEC.
 export async function POST(req: NextRequest) {
-  await requireAdmin();
+  await requireAccess('mib-report');
   const body = await req.json().catch(() => ({}));
   const patch: { phonePending?: string; baseUrl?: string; intervalSec?: number } = {};
   const current = await getMibConfig();

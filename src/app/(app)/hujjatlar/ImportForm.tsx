@@ -122,7 +122,7 @@ function Dropzone({
  * Two-file importer (portfolio + exclusion list). A plain file input is used instead of the shared
  * `FilePicker` (which caps at 10 MB) because the portfolio spreadsheet regularly runs past 100 MB.
  */
-export function ImportForm() {
+export function ImportForm({ children }: { children?: React.ReactNode }) {
   const [file, setFile] = useState<File | null>(null);
   const [excludeFile, setExcludeFile] = useState<File | null>(null);
   const [date, setDate] = useState('');
@@ -238,6 +238,9 @@ export function ImportForm() {
         onPick={onExcludeFileChosen}
         onClear={() => setExcludeFile(null)}
       />
+
+      {/* 3-fayl: Talabnoma ro'yxati (.xlsx) — mustaqil app-doc dropzone, shu layoutda. */}
+      {children}
 
       <div className="max-w-[220px]">
         <DateField

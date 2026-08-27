@@ -4,14 +4,14 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Ico } from '@/ui/icons';
 import { useConfirm } from '@/ui';
-import { STEP_KEYS, STEP_META, type StepKey } from '@/lib/access';
+import { STEP_KEYS, STEP_META, MODULE_KEYS, MODULE_META, type StepKey, type ModuleKey, type AccessKey } from '@/lib/access';
 
 export interface UserRow {
   id: number;
   username: string;
   role: 'ADMIN' | 'YURIST';
   fullName: string;
-  steps: StepKey[];
+  steps: AccessKey[]; // bosqichlar + «Alohida» modullar
   active: boolean;
   createdAt: string;
   lastLoginAt: string | null;
@@ -23,6 +23,29 @@ const initials = (name: string) =>
 
 const AV = ['bg-rose-500', 'bg-amber-500', 'bg-emerald-500', 'bg-cyan-500', 'bg-brand-500', 'bg-indigo-500', 'bg-fuchsia-500'];
 const avColor = (s: string) => AV[[...s].reduce((a, c) => a + c.charCodeAt(0), 0) % AV.length];
+
+// Avto login/parol (foydalanuvchi so'rovi): login = ismning birinchi so'zi (kichik harf), band bo'lsa
+// oxiriga raqam; parol = 7–8 ta random kichik harf.
+const genPassword = () => {
+  const n = 7 + Math.floor(Math.random() * 2); // 7–8 belgi
+  const digits = '23456789'; // 0/1/o/l chalkashmasin
+  const nd = 1 + Math.floor(Math.random() * 2); // 1–2 raqam (asosan harf, ozроq son)
+  const ch: string[] = [];
+  for (let i = 0; i < n - nd; i++) ch.push(String.fromCharCode(97 + Math.floor(Math.random() * 26)));
+  for (let i = 0; i < nd; i++) ch.push(digits[Math.floor(Math.random() * digits.length)]);
+  for (let i = ch.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ch[i], ch[j]] = [ch[j], ch[i]]; }
+  return ch.join('');
+};
+const slugName = (name: string) =>
+  (name || '').trim().toLowerCase().replace(/['`ʻ‘’]/g, '').replace(/[^a-z0-9\s]/g, '').split(/\s+/)[0] || '';
+const uniqueLogin = (name: string, taken: Set<string>) => {
+  const base = slugName(name);
+  if (!base) return '';
+  if (!taken.has(base)) return base;
+  let i = 1;
+  while (taken.has(`${base}${i}`)) i++;
+  return `${base}${i}`;
+};
 
 // Human "last seen" from an ISO timestamp (client-side; recomputed each render).
 const relLogin = (iso: string | null) => {
@@ -40,14 +63,23 @@ const Spinner = ({ className }: { className?: string }) => (
   <span className={cx('inline-block animate-spin rounded-full border-2 border-t-transparent', className)} />
 );
 
-// ── The galochka grid: admin ticks which pipeline steps a yurist may open ────
-function StepToggles({ value, onChange, disabled }: { value: StepKey[]; onChange: (v: StepKey[]) => void; disabled?: boolean }) {
-  const toggle = (k: StepKey) =>
-    onChange(value.includes(k) ? value.filter((x) => x !== k) : STEP_KEYS.filter((x) => x === k || value.includes(x)));
+// ── The galochka grid: admin ticks which steps/modules a yurist may open ────
+// Bosqichlar va «Alohida» modullar bitta `value` massivida (AccessKey[]) yashaydi; toggle boshqa
+// berilgan kalitlarni saqlaydi (biri boshqasini o'chirmaydi).
+function AccessToggles({ keys, value, onChange, disabled, label, badge }: {
+  keys: readonly AccessKey[];
+  value: AccessKey[];
+  onChange: (v: AccessKey[]) => void;
+  disabled?: boolean;
+  label: (k: AccessKey) => string;
+  badge?: (k: AccessKey) => number | null;
+}) {
+  const toggle = (k: AccessKey) => onChange(value.includes(k) ? value.filter((x) => x !== k) : [...value, k]);
   return (
     <div className="grid gap-2 sm:grid-cols-2">
-      {STEP_KEYS.map((k) => {
+      {keys.map((k) => {
         const on = value.includes(k);
+        const bd = badge?.(k) ?? null;
         return (
           <button
             type="button"
@@ -64,8 +96,8 @@ function StepToggles({ value, onChange, disabled }: { value: StepKey[]; onChange
             <span className={cx('grid h-5 w-5 shrink-0 place-items-center rounded-md border transition-colors', on ? 'border-brand-500 bg-brand-500 text-white' : 'border-line text-transparent')}>
               <Ico.check size={13} />
             </span>
-            <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-surface-2 text-[10px] font-semibold tabular-nums">{STEP_META[k].step}</span>
-            <span className="truncate">{STEP_META[k].label}</span>
+            {bd != null && <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-surface-2 text-[10px] font-semibold tabular-nums">{bd}</span>}
+            <span className="truncate">{label(k)}</span>
           </button>
         );
       })}
@@ -85,13 +117,16 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 const inputCls =
   'w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15';
 
-function UserForm({ mode, initial, onDone, onCancel }: { mode: 'add' | 'edit'; initial?: UserRow; onDone: () => void; onCancel: () => void }) {
+function UserForm({ mode, initial, existingUsernames = [], onDone, onCancel }: { mode: 'add' | 'edit'; initial?: UserRow; existingUsernames?: string[]; onDone: () => void; onCancel: () => void }) {
+  const taken = React.useMemo(() => new Set(existingUsernames.map((u) => u.toLowerCase())), [existingUsernames]);
   const [newUsername, setNewUsername] = useState('');
+  const [loginTouched, setLoginTouched] = useState(false); // admin login'ni qo'lda o'zgartirsa — avto to'xtaydi
   const [fullName, setFullName] = useState(initial?.fullName ?? '');
-  const [password, setPassword] = useState('');
-  const [showPw, setShowPw] = useState(false);
+  // Add rejimida parol avto: 7–8 kichik harf, darrov ko'rinadi (admin nusxa oladi).
+  const [password, setPassword] = useState(() => (mode === 'add' ? genPassword() : ''));
+  const [showPw, setShowPw] = useState(mode === 'add');
   const [role, setRole] = useState<'ADMIN' | 'YURIST'>(initial?.role ?? 'YURIST');
-  const [steps, setSteps] = useState<StepKey[]>(initial?.steps ?? []);
+  const [steps, setSteps] = useState<AccessKey[]>(initial?.steps ?? []);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -124,26 +159,37 @@ function UserForm({ mode, initial, onDone, onCancel }: { mode: 'add' | 'edit'; i
   return (
     <div className="rounded-xl border border-line bg-surface-2/40 p-4">
       <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="F.I.Sh">
+          <input
+            className={inputCls}
+            value={fullName}
+            onChange={(e) => { const v = e.target.value; setFullName(v); if (mode === 'add' && !loginTouched) setNewUsername(uniqueLogin(v, taken)); }}
+            placeholder="Mahmudov Akmal"
+            autoFocus={mode === 'add'}
+          />
+        </Field>
         <Field label="Login">
           {mode === 'add' ? (
-            <input className={inputCls} value={newUsername} onChange={(e) => setNewUsername(e.target.value)} placeholder="masalan: mahmud" autoFocus />
+            <input className={inputCls} value={newUsername} onChange={(e) => { setNewUsername(e.target.value); setLoginTouched(true); }} placeholder="ismdan avto" />
           ) : (
             <input className={cx(inputCls, 'cursor-not-allowed opacity-60')} value={initial?.username ?? ''} readOnly />
           )}
         </Field>
-        <Field label="F.I.Sh (ixtiyoriy)">
-          <input className={inputCls} value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Mahmudov Akmal" />
-        </Field>
-        <Field label={mode === 'add' ? 'Parol' : 'Yangi parol'}>
+        <Field label={mode === 'add' ? 'Parol (avto — 7–8 belgi)' : 'Yangi parol'}>
           <div className="relative">
             <input
-              className={cx(inputCls, 'pr-10')}
+              className={cx(inputCls, mode === 'add' ? 'pr-16' : 'pr-10')}
               type={showPw ? 'text' : 'password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder={mode === 'add' ? 'Kamida 4 belgi' : 'Bo‘sh — o‘zgarmaydi'}
+              placeholder={mode === 'add' ? 'avto yaratildi' : 'Bo‘sh — o‘zgarmaydi'}
               autoComplete="new-password"
             />
+            {mode === 'add' && (
+              <button type="button" onClick={() => setPassword(genPassword())} aria-label="Boshqa parol" title="Boshqa parol yaratish" className="absolute right-8 top-1/2 -translate-y-1/2 rounded p-1 text-muted transition-colors hover:text-fg">
+                <Ico.refresh size={15} />
+              </button>
+            )}
             <button type="button" onClick={() => setShowPw((v) => !v)} aria-label={showPw ? 'Yashirish' : 'Ko‘rsatish'} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted transition-colors hover:text-fg">
               {showPw ? <Ico.eyeOff size={16} /> : <Ico.eye size={16} />}
             </button>
@@ -166,11 +212,32 @@ function UserForm({ mode, initial, onDone, onCancel }: { mode: 'add' | 'edit'; i
       </div>
 
       {role === 'YURIST' ? (
-        <div className="mt-4">
-          <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted">
-            <Ico.check size={14} /> Bosqich ruxsatlari — galochka qo‘ying
+        <div className="mt-4 space-y-4">
+          <div>
+            <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted">
+              <Ico.check size={14} /> Bosqich ruxsatlari — galochka qo‘ying
+            </div>
+            <AccessToggles
+              keys={STEP_KEYS}
+              value={steps}
+              onChange={setSteps}
+              disabled={busy}
+              label={(k) => STEP_META[k as StepKey].label}
+              badge={(k) => STEP_META[k as StepKey].step}
+            />
           </div>
-          <StepToggles value={steps} onChange={setSteps} disabled={busy} />
+          <div>
+            <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted">
+              <Ico.check size={14} /> Alohida modullar
+            </div>
+            <AccessToggles
+              keys={MODULE_KEYS}
+              value={steps}
+              onChange={setSteps}
+              disabled={busy}
+              label={(k) => MODULE_META[k as ModuleKey].label}
+            />
+          </div>
         </div>
       ) : (
         <div className="mt-4 flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
@@ -309,7 +376,7 @@ export function UsersManager({ users, meId }: { users: UserRow[]; meId: number }
 
       {adding && (
         <div className="animate-fade-in">
-          <UserForm mode="add" onDone={() => { setAdding(false); refresh(); }} onCancel={() => setAdding(false)} />
+          <UserForm mode="add" existingUsernames={users.map((x) => x.username)} onDone={() => { setAdding(false); refresh(); }} onCancel={() => setAdding(false)} />
         </div>
       )}
 
@@ -375,16 +442,23 @@ export function UsersManager({ users, meId }: { users: UserRow[]; meId: number }
               {!editing && (
                 <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-line/60 pt-3">
                   {u.role === 'ADMIN' ? (
-                    <span className="inline-flex items-center gap-1.5 text-xs text-muted"><Ico.check size={13} /> Barcha bosqichlar · to‘liq ruxsat</span>
+                    <span className="inline-flex items-center gap-1.5 text-xs text-muted"><Ico.check size={13} /> Barcha bosqich va modullar · to‘liq ruxsat</span>
                   ) : u.steps.length ? (
-                    STEP_KEYS.filter((k) => u.steps.includes(k)).map((k) => (
-                      <span key={k} className="inline-flex items-center gap-1 rounded-md bg-surface-2 px-2 py-1 text-[11px] font-medium">
-                        <span className="grid h-4 w-4 place-items-center rounded-full bg-brand-500/15 text-[9px] font-semibold tabular-nums text-brand-600 dark:text-brand-300">{STEP_META[k].step}</span>
-                        {STEP_META[k].label}
-                      </span>
-                    ))
+                    <>
+                      {STEP_KEYS.filter((k) => u.steps.includes(k)).map((k) => (
+                        <span key={k} className="inline-flex items-center gap-1 rounded-md bg-surface-2 px-2 py-1 text-[11px] font-medium">
+                          <span className="grid h-4 w-4 place-items-center rounded-full bg-brand-500/15 text-[9px] font-semibold tabular-nums text-brand-600 dark:text-brand-300">{STEP_META[k].step}</span>
+                          {STEP_META[k].label}
+                        </span>
+                      ))}
+                      {MODULE_KEYS.filter((k) => u.steps.includes(k)).map((k) => (
+                        <span key={k} className="inline-flex items-center gap-1 rounded-md bg-brand-500/10 px-2 py-1 text-[11px] font-medium text-brand-700 dark:text-brand-300">
+                          {MODULE_META[k].label}
+                        </span>
+                      ))}
+                    </>
                   ) : (
-                    <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400"><Ico.info size={13} /> Hech qanday bosqich berilmagan</span>
+                    <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400"><Ico.info size={13} /> Hech qanday ruxsat berilmagan</span>
                   )}
                 </div>
               )}

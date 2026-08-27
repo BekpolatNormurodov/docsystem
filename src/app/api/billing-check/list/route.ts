@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { searchMyChecks } from '@/lib/billing-check/search';
 import { upsertCheckedInvoice } from '@/lib/billing-check/store';
 import { prisma } from '@/lib/db';
@@ -12,7 +12,7 @@ export const maxDuration = 30;
 // sahifalab. Har chaqiruv o'z (bir martalik) captcha tokenini oladi. Har bir qatordagi
 // kvitansiya keshga upsert qilinadi.
 export async function POST(req: NextRequest) {
-  const user = await requireAdmin();
+  const user = await requireAccess('invoice-check');
   const body = await req.json().catch(() => ({}));
   const inn = body?.inn ? String(body.inn).trim() : undefined;
   const passportNumber = body?.passportNumber ? String(body.passportNumber).trim() : undefined;

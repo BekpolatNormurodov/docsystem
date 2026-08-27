@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireAdmin } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { enqueueJob } from '@/lib/job-dispatch';
 
 export const runtime = 'nodejs';
@@ -8,7 +8,7 @@ export const runtime = 'nodejs';
 // POST — re-run the parse for a batch whose analysis stalled (e.g. the dev server reloaded mid-parse).
 // The uploaded Excels are already on disk, so this just resets progress and enqueues a fresh parse job.
 export async function POST(_req: NextRequest, { params }: { params: { batchId: string } }) {
-  await requireAdmin();
+  await requireAccess('talabnoma-form');
   const id = Number(params.batchId);
   if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'batchId noto‘g‘ri' }, { status: 400 });
   const batch = await prisma.talabnomaFormBatch.findUnique({ where: { id }, select: { id: true, status: true } });

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 
 export const runtime = 'nodejs';
@@ -7,7 +7,7 @@ export const runtime = 'nodejs';
 // Qidiruv tarixi — keshdagi kvitansiyalardan alohida (u endi sahifalanadi, har poll'da
 // 2000 qatorni qayta o'qimaslik uchun ajratildi).
 export async function GET(_req: NextRequest) {
-  await requireAdmin();
+  await requireAccess('invoice-check');
   const queries = await prisma.billingCheckQuery.findMany({ orderBy: { createdAt: 'desc' }, take: 100 });
   return NextResponse.json({ queries });
 }
@@ -15,7 +15,7 @@ export async function GET(_req: NextRequest) {
 // POST { query, resultCount, status?, message? } — ommaviy yig'ish tugagach BITTA umumiy
 // tarix yozuvi. Sahifalar `silent` rejimda tortilgani uchun ular alohida yozilmaydi.
 export async function POST(req: NextRequest) {
-  const user = await requireAdmin();
+  const user = await requireAccess('invoice-check');
   const body = await req.json().catch(() => ({}));
   const query = String(body?.query ?? '').trim();
   if (!query) return NextResponse.json({ error: 'query kerak' }, { status: 400 });

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { buildBillingCheckExcel } from '@/lib/billing-check/excel';
 import { buildInvoiceWhere } from '@/lib/billing-check/filters';
@@ -12,7 +12,7 @@ export const maxDuration = 60;
 // Filtrlar ro'yxat so'rovi bilan BIR XIL manbadan (buildInvoiceWhere) olinadi, shuning
 // uchun yuklangan fayl ekranda ko'rinayotgan ro'yxatga aynan mos tushadi.
 export async function GET(req: NextRequest) {
-  await requireAdmin();
+  await requireAccess('invoice-check');
   const sp = req.nextUrl.searchParams;
   const ownAmounts = await getOwnAmounts();
   const rows = await prisma.billingCheckInvoice.findMany({

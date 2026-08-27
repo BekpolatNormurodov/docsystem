@@ -3,7 +3,7 @@ import { requireUser } from '@/lib/auth';
 import { konveyerSnapshots, konveyerStageBadges } from '@/lib/konveyer';
 import { AppShell, ConfirmProvider } from '@/ui';
 import type { NavItem } from '@/ui/AppShell';
-import { STEP_META, allowedSteps, roleLabel } from '@/lib/access';
+import { STEP_META, allowedSteps, allowedModules, MODULE_META, roleLabel } from '@/lib/access';
 import { SnapshotPicker } from './konveyer/SnapshotPicker';
 import { LanguageSwitcher } from './LanguageSwitcher';
 
@@ -56,31 +56,37 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   };
   const withBadges = (items: NavItem[]) => items.map((i) => (badgeByHref[i.href] ? { ...i, badgeText: badgeByHref[i.href] } : i));
 
+  // «Alohida» modullar — endi ruxsatga bog'liq: ADMIN hammasini, YURIST faqat berilganini ko'radi
+  // (foydalanuvchi so'rovi). Sidebar eng pastida (bottom: true).
+  const moduleNav: NavItem[] = allowedModules(user).map((k) => ({
+    href: MODULE_META[k].href,
+    label: MODULE_META[k].label,
+    icon: MODULE_META[k].icon,
+    bottom: true,
+  }));
+
   // Admin: full app + user/audit management. Yurist: only their granted steps, nothing else.
   const nav: NavItem[] = isAdmin
     ? [
         // Hisobot (dashboard) — sidebardan olib turildi (foydalanuvchi so'rovi). Sahifa /konveyer'da
         // qoladi, faqat menyuda ko'rinmaydi. Qaytarish: quyidagi qatorni oching.
         // { href: '/konveyer', label: 'Hisobot', icon: 'dashboard', section: 'Boshqaruv' },
+        // Hujjatlar (portfel import) — voronka ILDIZI: step'larning eng tepasida, Talabnoma'dan oldin
+        // (portfel = asosiy fayl, oqim shundan boshlanadi). step:0 → stepper rail'ida birinchi.
+        { href: '/hujjatlar', label: 'Hujjatlar', icon: 'files', section: 'Boshqaruv', step: 0 },
         ...withBadges(stepNav),
-        { href: '/hujjatlar', label: 'Hujjatlar', icon: 'files', section: 'Menyu' },
         { href: '/mijozlar', label: 'Mijozlar', icon: 'users', section: 'Menyu' },
         { href: '/firms', label: 'Firmalar', icon: 'building', section: 'Menyu' },
         { href: '/foydalanuvchilar', label: 'Foydalanuvchilar', icon: 'user', section: 'Menyu' },
         { href: '/jurnal', label: 'Amaliyotlar', icon: 'calendar', section: 'Menyu' },
-        // Step'lardan ALOHIDA — sidebar eng pastida (bottom). 2 ta Excel'dan talabnoma reyestr/xatlar
-        // shakllantirish (umumiy qarzdorlik 2mln + firma bo'yicha filtr; Bright/Urban/Community tayyor).
-        { href: '/talabnoma-shakllantirish', label: 'Talabnoma shakllantirish', icon: 'sms', bottom: true },
-        // MIB hisoboti — HISOBOT excel yuklab, «Holat» bo'yicha (MIBda) mib.uz dan avtomat tekshiradi.
-        { href: '/mib-hisoboti', label: 'MIB hisoboti', icon: 'judge', bottom: true },
-        // Invoice tekshiruvi — billing.sud.uz: bitta kvitansiya raqami bo'yicha yoki
-        // STIR/pasport bo'yicha ro'yxat (pagination) tekshirish/yangilash.
-        { href: '/invoice-tekshiruvi', label: 'Invoice tekshiruvi', icon: 'receipt', bottom: true },
+        // «Alohida» modullar (bottom) — allowedModules'dan (admin uchun hammasi).
+        ...moduleNav,
       ]
     : [
-        // Yurist: their granted steps + Mijozlar (clients are visible to everyone) + their own log.
+        // Yurist: their granted steps + Mijozlar (clients are visible to everyone) + granted modules.
         ...withBadges(stepNav),
         { href: '/mijozlar', label: 'Mijozlar', icon: 'users', section: 'Menyu' },
+        ...moduleNav,
       ];
 
   // Date picker + connections/settings now live in the header top-right (frees the sidebar so it

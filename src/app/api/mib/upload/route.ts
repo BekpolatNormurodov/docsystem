@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireAdmin } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { parseHisobot } from '@/lib/mib/parse';
 import { mibReportDir, mibSourceXlsxPath } from '@/lib/mib/store';
 
@@ -11,7 +11,7 @@ export const maxDuration = 120;
 // POST multipart { file, label? } — save a HISOBOT .xlsx, parse it, and return the distinct «Holat»
 // values (with counts) so the operator can pick which status to run (e.g. «MIBda»).
 export async function POST(req: NextRequest) {
-  const user = await requireAdmin();
+  const user = await requireAccess('mib-report');
   const form = await req.formData();
   const file = form.get('file') as File | null;
   const label = (String(form.get('label') ?? '').trim() || null) as string | null;

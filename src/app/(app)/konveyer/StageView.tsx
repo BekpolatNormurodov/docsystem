@@ -9,6 +9,7 @@ import { ClientsExcel } from './ClientsExcel';
 import { BuxgalterPanel } from './BuxgalterPanel';
 import { HippoStatusPanel } from './HippoStatusPanel';
 import { MibPanel } from './MibPanel';
+import { KonveyerMibMonitor } from './KonveyerMibMonitor';
 import { TalabnomaBulk } from './TalabnomaBulk';
 import { ArizaBulk } from './ArizaBulk';
 
@@ -128,6 +129,10 @@ export function StageView({
               <AdvanceControls firmId={firmId} transitions={transitions} />
             </div>
           )}
+
+          {/* MIB monitoring — step qatoridan TASHQARI, eng pastda: sudda yutib ijroga chiqqanlar uchun
+              standalone «MIB hisoboti»ning to'liq mib.uz ko'rinishi (konveyerdan urug'lanadi). */}
+          {phaseKey === 'EXEC' && <KonveyerMibMonitor snapshotId={selectedId} />}
         </>
       )}
     </div>

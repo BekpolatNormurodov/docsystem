@@ -21,6 +21,22 @@ export const STEP_META: Record<StepKey, StepMeta> = {
   mib: { step: 4, label: 'MIB', href: '/mib', icon: 'shield' },
 };
 
+// «Alohida» modullar — pipeline bosqichi EMAS, lekin ular ham YURISTga alohida berilishi mumkin
+// (foydalanuvchi so'rovi). Grant Admin.steps ichida SHU kalitlar bilan saqlanadi (StepKey bilan bir
+// jadval). Sidebar pastida ko'rinadi, guardlari requireAccess(key) bilan tekshiriladi.
+export const MODULE_KEYS = ['talabnoma-form', 'mib-report', 'invoice-check'] as const;
+export type ModuleKey = (typeof MODULE_KEYS)[number];
+export interface ModuleMeta { label: string; href: string; icon: string }
+export const MODULE_META: Record<ModuleKey, ModuleMeta> = {
+  'talabnoma-form': { label: 'Talabnoma shakllantirish', href: '/talabnoma-shakllantirish', icon: 'sms' },
+  'mib-report': { label: 'MIB hisoboti', href: '/mib-hisoboti', icon: 'judge' },
+  'invoice-check': { label: 'Invoice tekshiruvi', href: '/invoice-tekshiruvi', icon: 'receipt' },
+};
+
+// Har qanday ruxsat kaliti (bosqich yoki modul) — Admin.steps shu qiymatlarni saqlaydi.
+export type AccessKey = StepKey | ModuleKey;
+export const ACCESS_KEYS: AccessKey[] = [...STEP_KEYS, ...MODULE_KEYS];
+
 export type AppRole = 'ADMIN' | 'YURIST';
 
 export interface AppUser {
@@ -28,28 +44,35 @@ export interface AppUser {
   username: string;
   role: AppRole;
   fullName: string;
-  steps: StepKey[]; // YURIST: granted steps; ADMIN: implicitly all
+  steps: AccessKey[]; // YURIST: granted steps + modules; ADMIN: implicitly all
   active: boolean;
 }
 
-/** Normalize whatever is stored in Admin.steps (Json) into a clean StepKey[]. */
-export function parseSteps(raw: unknown): StepKey[] {
+/** Normalize whatever is stored in Admin.steps (Json) into clean access keys (steps + modules). */
+export function parseSteps(raw: unknown): AccessKey[] {
   const arr = Array.isArray(raw) ? raw : [];
-  return STEP_KEYS.filter((k) => arr.includes(k));
+  return ACCESS_KEYS.filter((k) => arr.includes(k));
 }
 
 export function isAdmin(u: Pick<AppUser, 'role'>): boolean {
   return u.role === 'ADMIN';
 }
 
-/** ADMIN may touch every step; a YURIST only the ones granted. */
-export function canStep(u: Pick<AppUser, 'role' | 'steps'>, key: StepKey): boolean {
+/** ADMIN may touch everything; a YURIST only the steps/modules granted. */
+export function canStep(u: Pick<AppUser, 'role' | 'steps'>, key: AccessKey): boolean {
   return u.role === 'ADMIN' || u.steps.includes(key);
 }
+/** Alias — reads clearer for the «Alohida» modules. */
+export const canAccess = canStep;
 
-/** The steps a user may actually open, in pipeline order. */
+/** The pipeline steps a user may actually open, in pipeline order. */
 export function allowedSteps(u: Pick<AppUser, 'role' | 'steps'>): StepKey[] {
   return STEP_KEYS.filter((k) => canStep(u, k));
+}
+
+/** The «Alohida» modules a user may open (bottom of the sidebar). */
+export function allowedModules(u: Pick<AppUser, 'role' | 'steps'>): ModuleKey[] {
+  return MODULE_KEYS.filter((k) => canStep(u, k));
 }
 
 /** Where to send a user who lands somewhere they may not see. Admin → Hisobot;

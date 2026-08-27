@@ -298,7 +298,9 @@ const STATUS_STYLE: Record<string, string> = {
 };
 const STATUS_LABEL: Record<string, string> = { PENDING: 'Navbatda', RUNNING: 'Tekshirilmoqda', DONE: 'Topildi', CLEAN: 'Toza', FAILED: 'Xato' };
 
-function ReportPanel({ reportId, confirm, onChanged }: { reportId: number; confirm: ReturnType<typeof useConfirm>; onChanged: () => Promise<void> }) {
+// Embedded (konveyer MIB monitoring) rejimida: Excel/«Holat» qurish qismi yashiriladi (mijozlar
+// konveyerdan urug'langan), faqat GO + natija ko'rinishi qoladi; `reseed` — «Konveyerdan yangilash».
+export function ReportPanel({ reportId, confirm, onChanged, embedded = false, reseed }: { reportId: number; confirm: ReturnType<typeof useConfirm>; onChanged: () => Promise<void>; embedded?: boolean; reseed?: () => Promise<void> }) {
   const [report, setReport] = useState<Report | null>(null);
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -354,6 +356,23 @@ function ReportPanel({ reportId, confirm, onChanged }: { reportId: number; confi
       {/* filter + build / run controls */}
       <div className="card p-4">
         {!report.autoRun ? (
+          embedded ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span className="text-sm text-muted">
+                Konveyerdan MIBga chiqqanlar · <b className="tabular-nums text-fg">{n(report.total)}</b> ta · mib.uz dan tekshiriladi
+              </span>
+              <div className="flex items-center gap-2">
+                {reseed && (
+                  <button className="btn-ghost shrink-0" disabled={busy === 'reseed'} onClick={async () => { setBusy('reseed'); await reseed?.(); await load(); setBusy(''); }}>
+                    {busy === 'reseed' ? <Spinner size={16} /> : <Ico.refresh size={16} />} Konveyerdan yangilash
+                  </button>
+                )}
+                <button className="btn-primary shrink-0" disabled={!built || busy === 'go'} onClick={go}>
+                  {busy === 'go' ? <Spinner size={16} /> : <Ico.flash size={16} />} GO — tekshirishni boshlash
+                </button>
+              </div>
+            </div>
+          ) : (
           <div className="space-y-4">
             {/* «Holat» as chips */}
             <div>
@@ -381,6 +400,7 @@ function ReportPanel({ reportId, confirm, onChanged }: { reportId: number; confi
               <button className="btn-primary shrink-0" disabled={!built || busy === 'go'} onClick={go}>{busy === 'go' ? <Spinner size={16} /> : <Ico.flash size={16} />} GO — tekshirishni boshlash</button>
             </div>
           </div>
+          )
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="flex items-center gap-2 text-sm font-medium text-emerald-600 dark:text-emerald-300">
@@ -492,7 +512,7 @@ function ReportPanel({ reportId, confirm, onChanged }: { reportId: number; confi
         </div>
       )}
 
-      {!built && (
+      {!built && !embedded && (
         <div className="card p-6 text-sm text-muted">
           Yuklandi. Endi yuqorida «Holat» (masalan <b>MIBda</b>) ni tanlab «Ro‘yxatni qurish» bosing — tekshiriladigan
           mijozlar ro‘yxati shakllanadi, so‘ng GO bosing.

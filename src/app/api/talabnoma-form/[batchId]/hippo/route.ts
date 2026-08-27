@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireAdmin } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { getStoredHippoSession } from '@/lib/hippo/session';
 import { resolveContext, checkBalanceFor, createRegistryInternal } from '@/lib/hippo/xat';
 import { talabnomaRowsToMails } from '@/lib/hippo/talabnoma-send';
@@ -16,7 +16,7 @@ export const maxDuration = 120;
 // Standalone xat.hippo registry from the uploaded data (no snapshot). SAFETY mirrors the pipeline:
 // default mode 'draft' (autoSend:false) — a real dispatch needs mode:'send' AND confirm:true.
 export async function POST(req: NextRequest, { params }: { params: { batchId: string } }) {
-  const user = await requireAdmin();
+  const user = await requireAccess('talabnoma-form');
   const id = Number(params.batchId);
   if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'batchId noto‘g‘ri' }, { status: 400 });
 

@@ -2,7 +2,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { verifySession } from '@/core/session';
 import { prisma } from '@/lib/db';
-import { parseSteps, canStep, landingHref, type AppUser, type StepKey } from '@/lib/access';
+import { parseSteps, canStep, landingHref, type AppUser, type AccessKey } from '@/lib/access';
 
 /**
  * The signed-in user with LIVE authorization loaded from the DB.
@@ -57,10 +57,12 @@ export async function requireAdmin(): Promise<AppUser> {
   return u;
 }
 
-/** ADMIN, or a YURIST who has been granted this step. */
-export async function requireStep(key: StepKey): Promise<AppUser> {
+/** ADMIN, or a YURIST who has been granted this step/module. */
+export async function requireStep(key: AccessKey): Promise<AppUser> {
   const u = await currentUser();
   if (!u) redirect('/login');
   if (!canStep(u, key)) redirect(landingHref(u) ?? '/login');
   return u;
 }
+/** Same as requireStep — reads clearer for the «Alohida» modules (invoice-check, mib-report, …). */
+export const requireAccess = requireStep;

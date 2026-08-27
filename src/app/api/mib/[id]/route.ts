@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireAdmin } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { computeStats } from '@/lib/mib/stats';
 import { parseHisobot } from '@/lib/mib/parse';
 import { mibReportDir } from '@/lib/mib/store';
@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 
 // GET — one report with its clients (+cases) and computed monitoring statistics.
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  await requireAdmin();
+  await requireAccess('mib-report');
   const id = Number(params.id);
   if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'id noto‘g‘ri' }, { status: 400 });
   const report = await prisma.mibReport.findUnique({ where: { id } });
@@ -30,7 +30,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
 // DELETE — remove a report (clients/cases cascade) + its folder.
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
-  await requireAdmin();
+  await requireAccess('mib-report');
   const id = Number(params.id);
   if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'id noto‘g‘ri' }, { status: 400 });
   const report = await prisma.mibReport.findUnique({ where: { id }, select: { autoRun: true } });

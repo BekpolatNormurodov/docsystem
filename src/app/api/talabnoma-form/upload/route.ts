@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireAdmin } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { enqueueJob } from '@/lib/job-dispatch';
 import { audit, AuditAction } from '@/lib/audit';
 import { batchDir, sourceXlsxPath, portfolioXlsxPath } from '@/lib/talabnoma-form/store';
@@ -12,7 +12,7 @@ export const maxDuration = 300;
 // POST multipart { source, portfolio, label? } — save the two Excels on disk, create a batch row that
 // keeps their paths, and enqueue a parse job. Fire-and-forget: the client polls the batch status.
 export async function POST(req: NextRequest) {
-  const user = await requireAdmin();
+  const user = await requireAccess('talabnoma-form');
 
   const form = await req.formData();
   const source = form.get('source') as File | null; // 20.08 talabnoma manba

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireAdmin } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { runMibReportJob, isMibRunActive } from '@/lib/mib/run';
 import { getMibConfig } from '@/lib/mib/config';
 
@@ -11,7 +11,7 @@ export const maxDuration = 300;
 // (long-lived loop), so it doesn't block the shared doc worker. Idempotent-ish: refuses if already
 // running. It processes only PENDING clients, so pressing GO again after a restart resumes cleanly.
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
-  await requireAdmin();
+  await requireAccess('mib-report');
   const id = Number(params.id);
   if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'id noto‘g‘ri' }, { status: 400 });
   const report = await prisma.mibReport.findUnique({ where: { id }, select: { autoRun: true, total: true } });

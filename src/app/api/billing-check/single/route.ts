@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { checkInvoiceStatus } from '@/lib/billing/invoice';
 import { upsertCheckedInvoice } from '@/lib/billing-check/store';
 import { prisma } from '@/lib/db';
@@ -9,7 +9,7 @@ export const runtime = 'nodejs';
 // POST { invoice } — bitta kvitansiya raqamini billing.sud.uzdan tekshiradi/yangilaydi.
 // Captchasiz, ochiq API (checkStatus). Natija keshga upsert qilinadi + qidiruv tarixga yoziladi.
 export async function POST(req: NextRequest) {
-  const user = await requireAdmin();
+  const user = await requireAccess('invoice-check');
   const body = await req.json().catch(() => ({}));
   const invoice = String(body?.invoice ?? '').trim();
   if (!invoice) return NextResponse.json({ error: 'Kvitansiya raqami kerak' }, { status: 400 });

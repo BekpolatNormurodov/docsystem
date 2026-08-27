@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireAdmin } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { buildMibExcel } from '@/lib/mib/excel';
 
 export const runtime = 'nodejs';
@@ -8,7 +8,7 @@ export const maxDuration = 120;
 
 // GET — download the full report as .xlsx (Mijozlar + Ishlar sheets, all Step 19 detail).
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  await requireAdmin();
+  await requireAccess('mib-report');
   const id = Number(params.id);
   if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'id noto‘g‘ri' }, { status: 400 });
   const report = await prisma.mibReport.findUnique({ where: { id } });

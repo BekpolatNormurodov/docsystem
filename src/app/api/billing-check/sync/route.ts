@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { getSyncStates, isSyncRunning, syncFirm, AUTO_EVERY_MS } from '@/lib/billing-check/sync';
 import { FIRMS, type FirmCfg } from '@/lib/firms';
@@ -10,7 +10,7 @@ export const maxDuration = 300;
 // GET — barcha firmalarning yig'ish holati. UI shuni har necha soniyada so'rab, progressni
 // ko'rsatadi va yig'ish ketayotganda tugmalarni bloklaydi.
 export async function GET(_req: NextRequest) {
-  await requireAdmin();
+  await requireAccess('invoice-check');
   const states = await getSyncStates();
   return NextResponse.json({ states, autoEveryMs: AUTO_EVERY_MS, running: states.some((s) => s.status === 'RUNNING') });
 }
@@ -18,7 +18,7 @@ export async function GET(_req: NextRequest) {
 // POST { firm } — qo'lda yig'ishni boshlaydi. Javob DARHOL qaytadi, jarayon fonda davom etadi
 // (foydalanuvchi sahifadan chiqib ketsa ham to'xtamaydi). Boshqa yig'ish ketayotgan bo'lsa — 409.
 export async function POST(req: NextRequest) {
-  const user = await requireAdmin();
+  const user = await requireAccess('invoice-check');
   const body = await req.json().catch(() => ({}));
   const firmCode = String(body?.firm ?? '').trim();
   // all=true → hamma firma ketma-ket (bittalab bosib chiqmaslik uchun).

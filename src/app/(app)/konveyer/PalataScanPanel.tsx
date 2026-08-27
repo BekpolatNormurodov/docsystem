@@ -8,6 +8,8 @@ interface Summary { total: number; matched: number; withCase: number; noCase: nu
 interface OcrJob { id: number; status: string; progress: number; total: number; message: string | null }
 
 const n = (x: number) => x.toLocaleString('ru-RU');
+const fmtWhen = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
 
 // «Palatadan kelgan» — imzolangan arizalar skanini yuklang; server (1) OCR qilib firma +
 // PINFL + F.I.O ajratadi, (2) har arizani ALOHIDA PDF qilib bazaga (case) saqlaydi — shunda
@@ -144,8 +146,12 @@ export function PalataScanPanel() {
       </div>
 
       {/* Re-scan control — overwrite already-saved clients or keep them. */}
-      <label className={`mb-3 flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 transition-colors ${update ? 'border-amber-500/40 bg-amber-500/[0.05]' : 'border-line bg-surface hover:bg-surface-2/50'} ${busy || running ? 'pointer-events-none opacity-60' : ''}`}>
-        <input type="checkbox" checked={update} disabled={busy || running} onChange={(e) => setUpdate(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-amber-500" />
+      <label className={`mb-3 flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 transition-colors ${update ? 'border-amber-500/40 bg-amber-500/[0.05]' : 'border-line bg-surface hover:bg-surface-2/50'} ${busy || running ? 'pointer-events-none opacity-60' : ''}`}>
+        {/* Native checkbox yashirin (ba'zi brauzerlar qora kvadrat chizadi) — o'rniga o'z belgimiz (fokus halqasi saqlanadi). */}
+        <input type="checkbox" checked={update} disabled={busy || running} onChange={(e) => setUpdate(e.target.checked)} className="peer sr-only" />
+        <span aria-hidden className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-md border transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-amber-500/40 ${update ? 'border-amber-500 bg-amber-500 text-white' : 'border-line bg-surface'}`}>
+          {update && <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>}
+        </span>
         <span className="min-w-0">
           <span className="block text-[12px] font-medium">Mavjudlarni yangilash</span>
           <span className="block text-[11px] leading-relaxed text-muted">
@@ -183,6 +189,8 @@ export function PalataScanPanel() {
                   <div>
                     <div className="text-[12px] font-medium text-muted">Palatadan imzolangan boʻlib qaytgan skan</div>
                     <div className="text-2xl font-bold tabular-nums">{n(s.total)}<span className="ml-1 text-xs font-medium text-muted">ta ariza</span></div>
+                    {/* Bu — OXIRGI yuklangan skan roʻyxati (yangi skan qilmaguningizcha shu turadi). */}
+                    {s.updatedAt && <div className="mt-0.5 text-[11px] text-muted">oxirgi skan: <b className="font-medium text-fg">{fmtWhen(s.updatedAt)}</b></div>}
                   </div>
                   {waiting > 0 && (
                     <button type="button" onClick={saveToDb} disabled={saving || running} aria-busy={saving || running}

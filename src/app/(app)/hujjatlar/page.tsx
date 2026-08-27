@@ -6,6 +6,8 @@ import { formatSumDecimal } from '@/core/document';
 import { ImportPanel } from './ImportPanel';
 import { ImportForm } from './ImportForm';
 import { ImportHistory, type HistoryRow } from './ImportHistory';
+import { AppDocDropzone } from './AppDocDropzone';
+import { appDocsStatus } from '@/lib/app-docs';
 
 export const dynamic = 'force-dynamic';
 
@@ -94,6 +96,8 @@ export default async function HujjatlarPage() {
     }),
   );
 
+  const docs = await appDocsStatus();
+
   return (
     <div>
       <PageHeader
@@ -101,8 +105,18 @@ export default async function HujjatlarPage() {
         subtitle="Portfel yuklang, soʻng sanani tanlab sud roʻyxatidagilarga ariza (.docx) ZIP qilib oling"
       />
 
-      <ImportPanel defaultOpen={cards.length === 0} count={rows.length}>
-        <ImportForm />
+      {/* Bitta layout: Portfel + Sud ro'yxati (istisno) + Talabnoma ro'yxati — hammasi .xlsx.
+          Talabnoma ro'yxati import formasi ichida (mustaqil app-doc dropzone). */}
+      <ImportPanel defaultOpen count={rows.length}>
+        <ImportForm>
+          <AppDocDropzone
+            k="talabnoma"
+            label="Talabnoma roʻyxati (.xlsx)"
+            hint="Talabnoma yuboriladigan mijozlar roʻyxati"
+            accent="brand"
+            initial={docs.talabnoma}
+          />
+        </ImportForm>
         <ImportHistory rows={rows} />
       </ImportPanel>
 

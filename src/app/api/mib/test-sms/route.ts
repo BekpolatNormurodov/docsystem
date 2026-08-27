@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireAdmin } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { confirmPendingPhone } from '@/lib/mib/config';
 
 export const runtime = 'nodejs';
@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 
 // POST — start a test: return the current newest MibSms id as the baseline.
 export async function POST() {
-  await requireAdmin();
+  await requireAccess('mib-report');
   const latest = await prisma.mibSms.findFirst({ orderBy: { id: 'desc' }, select: { id: true } });
   return NextResponse.json({ baselineId: latest?.id ?? 0 });
 }
@@ -24,7 +24,7 @@ export async function POST() {
 // so this is where a pending number is promoted to the live one. Saving the field alone never
 // changes it — see the POST in ../config/route.ts.
 export async function GET(req: NextRequest) {
-  await requireAdmin();
+  await requireAccess('mib-report');
   const after = Number(req.nextUrl.searchParams.get('after')) || 0;
   const row = await prisma.mibSms.findFirst({
     where: { id: { gt: after }, consumed: false },

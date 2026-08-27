@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireAdmin } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { enqueueJob } from '@/lib/job-dispatch';
 import { readCandidates } from '@/lib/talabnoma-form/parse';
 import { buildRowsForFirm, writeReyestr } from '@/lib/talabnoma-form/generate';
@@ -15,7 +15,7 @@ export const maxDuration = 300;
 //    shows the «qolgani ketsinmi?» confirm first (returns 409 needsConfirm otherwise).
 //  · REYESTR is built inline (fast); LETTERS goes to a background job (chromium PDF).
 export async function POST(req: NextRequest, { params }: { params: { batchId: string } }) {
-  const user = await requireAdmin();
+  const user = await requireAccess('talabnoma-form');
   const id = Number(params.batchId);
   if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'batchId noto‘g‘ri' }, { status: 400 });
 

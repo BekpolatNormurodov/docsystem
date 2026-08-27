@@ -2,13 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireAdmin } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
 // GET — stream a saved run output (reyestr .xlsx or letters .zip) from disk for the history view.
 export async function GET(_req: NextRequest, { params }: { params: { batchId: string; runId: string } }) {
-  await requireAdmin();
+  await requireAccess('talabnoma-form');
   const runId = Number(params.runId);
   if (!Number.isInteger(runId) || runId <= 0) return NextResponse.json({ error: 'runId noto‘g‘ri' }, { status: 400 });
 
