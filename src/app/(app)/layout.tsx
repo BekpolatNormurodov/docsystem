@@ -3,7 +3,7 @@ import { requireUser } from '@/lib/auth';
 import { konveyerSnapshots, konveyerStageBadges } from '@/lib/konveyer';
 import { AppShell, ConfirmProvider } from '@/ui';
 import type { NavItem } from '@/ui/AppShell';
-import { STEP_META, allowedSteps, allowedModules, MODULE_META, roleLabel } from '@/lib/access';
+import { STEP_META, allowedSteps, allowedModules, MODULE_META, canAccess, SUBITEM_KEYS, SUBITEM_META, roleLabel } from '@/lib/access';
 import { SnapshotPicker } from './konveyer/SnapshotPicker';
 import { LanguageSwitcher } from './LanguageSwitcher';
 
@@ -29,13 +29,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       { href: '/sud/qaytganlar', label: 'Qaytganlar' },
     ],
   };
+  // Sub-item href → ruxsat kaliti (masalan /sud/invoice → 'sud:invoice'); qulflashni shu bilan hisoblaymiz.
+  const subKeyByHref = new Map(SUBITEM_KEYS.map((k) => [SUBITEM_META[k].href, k]));
   const stepNav: NavItem[] = allowedSteps(user).map((k) => ({
     href: STEP_META[k].href,
     label: STEP_META[k].label,
     icon: STEP_META[k].icon,
     section: 'Boshqaruv',
     step: STEP_META[k].step,
-    children: SUB_ITEMS[STEP_META[k].href],
+    // Sub-item'lar: ruxsat bo'lmasa `locked` (sidebar'da X, bosib bo'lmaydi).
+    children: SUB_ITEMS[STEP_META[k].href]?.map((c) => {
+      const sk = subKeyByHref.get(c.href);
+      return { ...c, locked: sk ? !canAccess(user, sk) : false };
+    }),
   }));
 
   // Shared pipeline date: rendered once in the sidebar (Boshqaruv), driven by the konv_s cookie —

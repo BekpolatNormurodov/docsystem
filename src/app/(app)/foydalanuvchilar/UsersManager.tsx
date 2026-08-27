@@ -4,7 +4,14 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Ico } from '@/ui/icons';
 import { useConfirm } from '@/ui';
-import { STEP_KEYS, STEP_META, MODULE_KEYS, MODULE_META, type StepKey, type ModuleKey, type AccessKey } from '@/lib/access';
+import { STEP_KEYS, STEP_META, MODULE_KEYS, MODULE_META, STEP_SUBITEMS, SUBITEM_META, type StepKey, type ModuleKey, type SubItemKey, type AccessKey } from '@/lib/access';
+
+// Har qanday ruxsat kaliti uchun yorliq (bosqich / sub-item / modul).
+const accessLabel = (k: AccessKey): string => {
+  if ((STEP_KEYS as readonly string[]).includes(k)) return STEP_META[k as StepKey].label;
+  if ((MODULE_KEYS as readonly string[]).includes(k)) return MODULE_META[k as ModuleKey].label;
+  return SUBITEM_META[k as SubItemKey]?.label ?? k;
+};
 
 export interface UserRow {
   id: number;
@@ -215,16 +222,26 @@ function UserForm({ mode, initial, existingUsernames = [], onDone, onCancel }: {
         <div className="mt-4 space-y-4">
           <div>
             <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted">
-              <Ico.check size={14} /> Bosqich ruxsatlari — galochka qo‘ying
+              <Ico.check size={14} /> Bosqich ruxsatlari — galochka qo‘ying (ichki sahifagacha)
             </div>
-            <AccessToggles
-              keys={STEP_KEYS}
-              value={steps}
-              onChange={setSteps}
-              disabled={busy}
-              label={(k) => STEP_META[k as StepKey].label}
-              badge={(k) => STEP_META[k as StepKey].step}
-            />
+            <div className="space-y-3">
+              {STEP_KEYS.map((sk) => {
+                const subs = STEP_SUBITEMS[sk];
+                if (subs && subs.length) {
+                  // Ko'p sahifali bosqich — har sub-item alohida galochka.
+                  return (
+                    <div key={sk}>
+                      <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">{STEP_META[sk].label}</div>
+                      <AccessToggles keys={subs} value={steps} onChange={setSteps} disabled={busy} label={(k) => SUBITEM_META[k as SubItemKey].label} />
+                    </div>
+                  );
+                }
+                // Bitta sahifali bosqich — butun-bosqich galochka.
+                return (
+                  <AccessToggles key={sk} keys={[sk]} value={steps} onChange={setSteps} disabled={busy} label={(k) => STEP_META[k as StepKey].label} badge={(k) => STEP_META[k as StepKey].step} />
+                );
+              })}
+            </div>
           </div>
           <div>
             <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted">
@@ -445,17 +462,14 @@ export function UsersManager({ users, meId }: { users: UserRow[]; meId: number }
                     <span className="inline-flex items-center gap-1.5 text-xs text-muted"><Ico.check size={13} /> Barcha bosqich va modullar · to‘liq ruxsat</span>
                   ) : u.steps.length ? (
                     <>
-                      {STEP_KEYS.filter((k) => u.steps.includes(k)).map((k) => (
-                        <span key={k} className="inline-flex items-center gap-1 rounded-md bg-surface-2 px-2 py-1 text-[11px] font-medium">
-                          <span className="grid h-4 w-4 place-items-center rounded-full bg-brand-500/15 text-[9px] font-semibold tabular-nums text-brand-600 dark:text-brand-300">{STEP_META[k].step}</span>
-                          {STEP_META[k].label}
-                        </span>
-                      ))}
-                      {MODULE_KEYS.filter((k) => u.steps.includes(k)).map((k) => (
-                        <span key={k} className="inline-flex items-center gap-1 rounded-md bg-brand-500/10 px-2 py-1 text-[11px] font-medium text-brand-700 dark:text-brand-300">
-                          {MODULE_META[k].label}
-                        </span>
-                      ))}
+                      {u.steps.map((k) => {
+                        const isMod = (MODULE_KEYS as readonly string[]).includes(k);
+                        return (
+                          <span key={k} className={cx('inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium', isMod ? 'bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'bg-surface-2')}>
+                            {accessLabel(k)}
+                          </span>
+                        );
+                      })}
                     </>
                   ) : (
                     <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400"><Ico.info size={13} /> Hech qanday ruxsat berilmagan</span>

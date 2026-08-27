@@ -1,4 +1,4 @@
-import { requireStep } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { loadStageData } from '../../konveyer/stage-data';
 import { CabinetReturns } from '../../konveyer/CabinetReturns';
 
@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 // sabab» va tavsiya. Qayta topshirish cabinet.sud.uz da bajariladi. (Avvalgi ikkinchi, stage-asosli
 // CourtManager «returns» bloki olib tashlandi — takror emas, yagona manba.)
 export default async function SudQaytganlarPage({ searchParams }: { searchParams: { s?: string } }) {
-  await requireStep('sud');
+  await requireAccess('sud:returns');
   const d = await loadStageData('COURT', searchParams.s);
   return (
     <div className="space-y-5">

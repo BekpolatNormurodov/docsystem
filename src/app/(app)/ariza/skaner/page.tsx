@@ -1,4 +1,4 @@
-import { requireStep } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { PalataScanPanel } from '../../konveyer/PalataScanPanel';
 
 export const dynamic = 'force-dynamic';
@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 // lives on the sibling «Arizani tayyorlash» page (/ariza) — only the ariza is sent to
 // the chamber, so this page stays focused on the scan-back step.
 export default async function ArizaSkanerPage() {
-  await requireStep('ariza');
+  await requireAccess('ariza:scan');
   return (
     <div className="space-y-5">
       <h1 className="text-2xl font-bold tracking-tight">Sanoat palatasi — arizalarni skanerlash</h1>

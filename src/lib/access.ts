@@ -33,9 +33,33 @@ export const MODULE_META: Record<ModuleKey, ModuleMeta> = {
   'invoice-check': { label: 'Invoice tekshiruvi', href: '/invoice-tekshiruvi', icon: 'receipt' },
 };
 
-// Har qanday ruxsat kaliti (bosqich yoki modul) — Admin.steps shu qiymatlarni saqlaydi.
-export type AccessKey = StepKey | ModuleKey;
-export const ACCESS_KEYS: AccessKey[] = [...STEP_KEYS, ...MODULE_KEYS];
+// Ko'p sahifali bosqich ichidagi SUB-ITEM'lar — nozik ruxsat (foydalanuvchi so'rovi): yurist stepga
+// to'liq ega bo'lmasa, faqat berilgan sub-item'ga kiradi; qolgani sidebar'da X (qulf). Kalit = 'step:sub'.
+export const SUBITEM_KEYS = [
+  'ariza:prepare', 'ariza:scan',
+  'sud:invoice', 'sud:oferta', 'sud:send', 'sud:returns',
+] as const;
+export type SubItemKey = (typeof SUBITEM_KEYS)[number];
+export const SUBITEM_META: Record<SubItemKey, { step: StepKey; href: string; label: string }> = {
+  'ariza:prepare': { step: 'ariza', href: '/ariza', label: 'Arizani tayyorlash' },
+  'ariza:scan': { step: 'ariza', href: '/ariza/skaner', label: 'Arizalarni skanerlash' },
+  'sud:invoice': { step: 'sud', href: '/sud/invoice', label: 'Invoice yaratish' },
+  'sud:oferta': { step: 'sud', href: '/sud/oferta', label: 'Oferta tayyorlash' },
+  'sud:send': { step: 'sud', href: '/sud', label: 'Sudga yuborish' },
+  'sud:returns': { step: 'sud', href: '/sud/qaytganlar', label: 'Qaytganlar' },
+};
+// Qaysi bosqich sub-item darajasida beriladi (talabnoma/mib — bitta sahifa, butun-bosqich grant).
+export const STEP_SUBITEMS: Partial<Record<StepKey, SubItemKey[]>> = {
+  ariza: ['ariza:prepare', 'ariza:scan'],
+  sud: ['sud:invoice', 'sud:oferta', 'sud:send', 'sud:returns'],
+};
+
+// Har qanday ruxsat kaliti — Admin.steps shu qiymatlarni saqlaydi (bosqich / sub-item / modul).
+export type AccessKey = StepKey | ModuleKey | SubItemKey;
+export const ACCESS_KEYS: AccessKey[] = [...STEP_KEYS, ...MODULE_KEYS, ...SUBITEM_KEYS];
+const SUBITEM_PARENT: Record<string, StepKey | undefined> = Object.fromEntries(
+  SUBITEM_KEYS.map((k) => [k, SUBITEM_META[k].step]),
+);
 
 export type AppRole = 'ADMIN' | 'YURIST';
 
@@ -58,31 +82,43 @@ export function isAdmin(u: Pick<AppUser, 'role'>): boolean {
   return u.role === 'ADMIN';
 }
 
-/** ADMIN may touch everything; a YURIST only the steps/modules granted. */
-export function canStep(u: Pick<AppUser, 'role' | 'steps'>, key: AccessKey): boolean {
-  return u.role === 'ADMIN' || u.steps.includes(key);
+/** ADMIN — hammasi. YURIST — kalit berilgan bo'lsa, YOKI (sub-item bo'lsa) ota-bosqichi berilgan bo'lsa. */
+export function canAccess(u: Pick<AppUser, 'role' | 'steps'>, key: AccessKey): boolean {
+  if (u.role === 'ADMIN') return true;
+  if (u.steps.includes(key)) return true;
+  const parent = SUBITEM_PARENT[key]; // sub-item bo'lsa — ota-bosqich to'liq berilsa ham ochiladi
+  return parent ? u.steps.includes(parent) : false;
 }
-/** Alias — reads clearer for the «Alohida» modules. */
-export const canAccess = canStep;
+/** Alias — bosqich guardlari uchun. */
+export const canStep = canAccess;
 
-/** The pipeline steps a user may actually open, in pipeline order. */
+/** Bosqich sidebar'da OCHILADIMI: butun-bosqich berilgan yoki uning bironta sub-item'i berilgan. */
+export function canOpenStep(u: Pick<AppUser, 'role' | 'steps'>, step: StepKey): boolean {
+  if (u.role === 'ADMIN' || u.steps.includes(step)) return true;
+  return (STEP_SUBITEMS[step] ?? []).some((k) => u.steps.includes(k));
+}
+
+/** Foydalanuvchi ko'radigan bosqichlar (pipeline tartibida). */
 export function allowedSteps(u: Pick<AppUser, 'role' | 'steps'>): StepKey[] {
-  return STEP_KEYS.filter((k) => canStep(u, k));
+  return STEP_KEYS.filter((k) => canOpenStep(u, k));
 }
 
 /** The «Alohida» modules a user may open (bottom of the sidebar). */
 export function allowedModules(u: Pick<AppUser, 'role' | 'steps'>): ModuleKey[] {
-  return MODULE_KEYS.filter((k) => canStep(u, k));
+  return MODULE_KEYS.filter((k) => u.role === 'ADMIN' || u.steps.includes(k));
 }
 
 /** Where to send a user who lands somewhere they may not see. Admin → Hisobot;
  *  yurist → their first granted step; nobody-granted → null (caller decides). */
 export function landingHref(u: Pick<AppUser, 'role' | 'steps'>): string | null {
   if (u.role === 'ADMIN') return '/konveyer';
-  const step = allowedSteps(u)[0];
-  if (step) return STEP_META[step].href;
-  // Faqat «Alohida» modul berilgan YURIST (masalan invoice-check — bosqichsiz) o'sha modulga tushadi,
-  // aks holda login → landing yo'q → qayta login'ga tashlanardi.
+  // Birinchi KIRA OLADIGAN sahifa: butun-bosqich bo'lsa o'z sahifasi, aks holda birinchi berilgan sub-item.
+  for (const step of STEP_KEYS) {
+    if (u.steps.includes(step)) return STEP_META[step].href;
+    const sub = (STEP_SUBITEMS[step] ?? []).find((k) => u.steps.includes(k));
+    if (sub) return SUBITEM_META[sub].href;
+  }
+  // Faqat «Alohida» modul berilgan YURIST (masalan invoice-check) — o'sha modulga tushadi.
   const mod = allowedModules(u)[0];
   return mod ? MODULE_META[mod].href : null;
 }

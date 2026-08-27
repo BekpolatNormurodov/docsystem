@@ -104,7 +104,9 @@ export default async function HujjatlarPage() {
     <div>
       <PageHeader
         title="Hujjatlar"
-        subtitle="Portfel yuklang, soʻng sanani tanlab sud roʻyxatidagilarga ariza (.docx) ZIP qilib oling"
+        subtitle={isAdmin
+          ? 'Portfel yuklang, soʻng sanani tanlab sud roʻyxatidagilarga ariza (.docx) ZIP qilib oling'
+          : 'Sana boʻyicha portfel va sud roʻyxati — koʻrish uchun sanani tanlang'}
       />
 
       {/* Yuklash/o'zgartirish — FAQAT admin. Yuristlar quyidagi sana kartalarini ko'radi (ko'rish). */}

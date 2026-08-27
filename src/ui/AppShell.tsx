@@ -22,8 +22,8 @@ export interface NavItem {
   step?: number;
   /** Small count pill shown at the end of a stepper step (e.g. "34/400" or "320"). */
   badgeText?: string;
-  /** Sub-items shown nested under this stepper item while it is the active route. */
-  children?: { href: string; label: string }[];
+  /** Sub-items shown nested under this stepper item. `locked` → ruxsat yo'q: X bilan, bosib bo'lmaydi. */
+  children?: { href: string; label: string; locked?: boolean }[];
 }
 
 /**
@@ -229,6 +229,20 @@ export function AppShell({
                   <div className="space-y-0.5 pl-[38px]">
                     {item.children.map((c) => {
                       const subActive = pathname === c.href;
+                      // Ruxsat yo'q — bosib bo'lmaydigan X qatori (foydalanuvchi so'rovi).
+                      if (c.locked) {
+                        return (
+                          <div
+                            key={c.href}
+                            title="Ruxsat berilmagan"
+                            aria-disabled
+                            className="flex cursor-not-allowed items-center gap-2.5 rounded-lg py-1.5 pl-2.5 pr-3 text-[13px] text-muted/45"
+                          >
+                            <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" aria-hidden><path d="M18 6 6 18M6 6l12 12" /></svg>
+                            <span className="truncate line-through decoration-muted/40">{c.label}</span>
+                          </div>
+                        );
+                      }
                       return (
                         <Link
                           key={c.href}

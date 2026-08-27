@@ -1,4 +1,4 @@
-import { requireStep } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { loadStageData } from '../konveyer/stage-data';
 import { CourtManager } from '../konveyer/CourtManager';
 import { courtReadiness, courtStatusBoard, courtReturns } from '@/lib/court-ready';
@@ -6,7 +6,7 @@ import { courtReadiness, courtStatusBoard, courtReturns } from '@/lib/court-read
 export const dynamic = 'force-dynamic';
 
 export default async function SudPage({ searchParams }: { searchParams: { s?: string } }) {
-  await requireStep('sud');
+  await requireAccess('sud:send');
   const d = await loadStageData('COURT', searchParams.s);
 
   // Server-render the initial (firm=all) court-ready payload so CourtManager paints with

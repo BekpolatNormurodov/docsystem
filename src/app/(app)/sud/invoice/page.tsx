@@ -1,4 +1,4 @@
-import { requireStep } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { loadStageData } from '../../konveyer/stage-data';
 import { BuxgalterPanel } from '../../konveyer/BuxgalterPanel';
 
@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 // buxgalterga ZIP (PDF'lar + Hisobot.xlsx) boʻlib beriladi — buxgalter toʻlaydi. Ariza bojisiz
 // qoladi; invoice raqami ariza bilan sudga ketadi.
 export default async function SudInvoicePage() {
-  await requireStep('sud');
+  await requireAccess('sud:invoice');
   const d = await loadStageData('COURT');
 
   return (

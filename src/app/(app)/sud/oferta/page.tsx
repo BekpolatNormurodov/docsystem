@@ -1,4 +1,4 @@
-import { requireStep } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { loadStageData } from '../../konveyer/stage-data';
 import { OfertaBulk } from '../../konveyer/OfertaBulk';
 
@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 // Sud → «Oferta tayyorlash» sub-item — like Ariza yaratish (Sanoat palatasi), but renders the OFERTA
 // (mikroqarz shartnomasi) PDFs: one per contract, grouped by client, into one ZIP. Firma yoki umumiy.
 export default async function SudOfertaPage() {
-  await requireStep('sud');
+  await requireAccess('sud:oferta');
   const d = await loadStageData('COURT');
   return (
     <div className="space-y-4">
