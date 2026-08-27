@@ -75,3 +75,36 @@ export async function clearSentByRegistry(registryId: string): Promise<number> {
   });
   return res.count;
 }
+
+/** Self-heal the «iz» against the live hippo registry list: drop any «TLB:» trace row whose registry
+ *  (claimId) no longer exists on hippo — the reyestr was deleted there (often by a delete whose HTTP
+ *  reply hung, so clearSentByRegistry never ran), leaving a ghost «jo'natilgan» count.
+ *
+ *  CONSERVATIVE, so a genuine old send is never wrongly cleared:
+ *   - needs a non-empty live list (an empty/transient pull judges nothing);
+ *   - only prunes an id that is >= the smallest live id we saw (i.e. within/after the fetched window,
+ *     where a missing id really means «deleted»); ids older than the window are left untouched;
+ *   - non-numeric / null claimIds are left alone.
+ *  Reconciles across ALL snapshots for the branch — a dead reyestr is dead everywhere. Returns pruned count. */
+export async function reconcileTraceAgainstLive(branchCode: string, liveRegistryIds: Array<string | number>): Promise<number> {
+  if (!branchCode) return 0;
+  const liveNums = liveRegistryIds.map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0);
+  if (liveNums.length === 0) return 0;              // nothing to compare against → don't nuke on a transient empty pull
+  const liveSet = new Set(liveNums.map((n) => String(n)));
+  const minLive = Math.min(...liveNums);
+  const rows = await prisma.clientCaseStatus.findMany({
+    where: { source: 'HIPPO', category: 'talabnoma', branchCode, caseNumber: { startsWith: 'TLB:' }, claimId: { not: null } },
+    select: { id: true, claimId: true },
+  });
+  const orphanIds: number[] = [];
+  for (const r of rows) {
+    const rid = Number(r.claimId);
+    if (!Number.isFinite(rid) || rid <= 0) continue; // non-numeric id → leave alone
+    if (liveSet.has(String(rid))) continue;          // still live → keep
+    if (rid >= minLive) orphanIds.push(r.id);        // within/after the fetched range but gone → orphan
+    // rid < minLive → older than the fetched window; can't confirm → keep
+  }
+  if (orphanIds.length === 0) return 0;
+  const res = await prisma.clientCaseStatus.deleteMany({ where: { id: { in: orphanIds } } });
+  return res.count;
+}

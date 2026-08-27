@@ -3,6 +3,8 @@ import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { getStoredHippoSession } from '@/lib/hippo/session';
 import { ingestHippoStatuses } from '@/lib/hippo/status-ingest';
+import { liveRegistryIds } from '@/lib/hippo/xat';
+import { reconcileTraceAgainstLive } from '@/lib/hippo/talabnoma-trace';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -29,7 +31,11 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await ingestHippoStatuses(session, firm.code);
-    return NextResponse.json({ ok: true, ...result });
+    // Also self-heal the «iz»: drop trace rows pointing at reyestrs that no longer exist on hippo.
+    let pruned = 0;
+    try { pruned = await reconcileTraceAgainstLive(firm.code, await liveRegistryIds(session)); }
+    catch (e) { console.error('reconcileTraceAgainstLive (sync) failed', e); }
+    return NextResponse.json({ ok: true, ...result, pruned });
   } catch (e) {
     console.error('hippo sync failed', e);
     return NextResponse.json({ error: 'Sinxronlab boʻlmadi' }, { status: 502 });

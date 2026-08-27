@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { getStoredHippoSession } from '@/lib/hippo/session';
-import { deleteRegistry } from '@/lib/hippo/xat';
+import { deleteRegistry, registryExists } from '@/lib/hippo/xat';
 import { clearSentByRegistry } from '@/lib/hippo/talabnoma-trace';
 
 export const runtime = 'nodejs';
@@ -28,15 +28,33 @@ export async function POST(req: NextRequest) {
   catch { return NextResponse.json({ error: 'Firma xat.hippo ga ulanmagan' }, { status: 409 }); }
 
   try {
-    const res = await deleteRegistry(session, registryId);
-    // Log the raw hippo reply so a silent-refusal (200 + failure envelope) is diagnosable from the server log.
-    console.log('[hippo cancel] registry=%s ok=%s status=%s json=%s', registryId, res.ok, res.status,
-      (() => { try { return JSON.stringify(res.json)?.slice(0, 500); } catch { return String(res.json); } })());
-    if (!res.ok) {
-      const j: any = res.json;
-      const msg = typeof j === 'string' ? j : j?.message ?? j?.error ?? null;
-      return NextResponse.json({ error: `xat.hippo rad etdi (${res.status})${msg ? `: ${String(msg).slice(0, 160)}` : ''}` }, { status: 502 });
+    let deleted = false;
+    let lastErr: string | null = null;
+    try {
+      const res = await deleteRegistry(session, registryId);
+      // Log the raw hippo reply so a silent-refusal (200 + failure envelope) is diagnosable from the log.
+      console.log('[hippo cancel] registry=%s ok=%s status=%s json=%s', registryId, res.ok, res.status,
+        (() => { try { return JSON.stringify(res.json)?.slice(0, 500); } catch { return String(res.json); } })());
+      if (res.ok) deleted = true;
+      else {
+        const j: any = res.json;
+        const msg = typeof j === 'string' ? j : j?.message ?? j?.error ?? null;
+        lastErr = `xat.hippo rad etdi (${res.status})${msg ? `: ${String(msg).slice(0, 160)}` : ''}`;
+      }
+    } catch (e) {
+      // Timeout/abort: hippo frequently deletes server-side but STALLS the reply — don't give up, confirm below.
+      lastErr = e instanceof Error && /abort/i.test(e.message) ? 'xat.hippo javob bermadi (timeout)' : 'Bekor qilib boʻlmadi';
+      console.warn('[hippo cancel] delete threw, will confirm by re-list:', lastErr);
     }
+
+    // Confirm even after a "failure": if the reyestr is gone from the live list, the delete DID land.
+    if (!deleted) {
+      try { if (!(await registryExists(session, registryId))) { deleted = true; console.log('[hippo cancel] registry=%s confirmed gone via re-list', registryId); } }
+      catch (e) { console.error('[hippo cancel] confirm re-list failed', e); }
+    }
+
+    if (!deleted) return NextResponse.json({ error: lastErr ?? 'Bekor qilib boʻlmadi' }, { status: 502 });
+
     // Un-trace the cancelled registry so its clients become «remaining» again (re-sendable). Non-fatal.
     let untraced = 0;
     try { untraced = await clearSentByRegistry(String(registryId)); } catch (e) { console.error('clearSentByRegistry failed', e); }

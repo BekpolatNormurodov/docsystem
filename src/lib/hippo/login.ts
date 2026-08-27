@@ -84,10 +84,10 @@ const HIPPO_TIMEOUT_MS = 30_000;
 
 // Authenticated fetch helper for subsequent hippo API calls. Hard 30s timeout so a
 // hung xat.hippo endpoint can't stall an ingest loop forever (matches cabinet fetchT).
-export function hippoFetch(session: HippoSession, path: string, init: RequestInit = {}) {
+export function hippoFetch(session: HippoSession, path: string, init: RequestInit = {}, timeoutMs = HIPPO_TIMEOUT_MS) {
   const url = path.startsWith('http') ? path : HIPPO.apiBase + path;
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), HIPPO_TIMEOUT_MS);
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
   return fetch(url, {
     ...init,
     signal: ctrl.signal,

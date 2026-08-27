@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import { getStoredHippoSession } from '@/lib/hippo/session';
 import { getBalance, listRegistries } from '@/lib/hippo/xat';
 import { summarizeRegistryMails } from '@/lib/hippo/mail-status';
+import { reconcileTraceAgainstLive } from '@/lib/hippo/talabnoma-trace';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -50,7 +51,7 @@ async function computeOverall() {
 
 // ONE firm: wallet balance + the most recent reyestrs with delivery tallies. Read-only.
 async function computeFirmStatus(firmId: number) {
-  const firm = await prisma.firm.findUnique({ where: { id: firmId }, select: { shortName: true, stir: true } });
+  const firm = await prisma.firm.findUnique({ where: { id: firmId }, select: { shortName: true, stir: true, code: true } });
   if (!firm) return { notFound: true as const };
 
   let session;
@@ -67,6 +68,16 @@ async function computeFirmStatus(firmId: number) {
     // Newest reyestrs first (old ones included but compact) — a just-created reyestr must be visible.
     const reg = await listRegistries(session, { PageIndex: 1, PageSize: 100 });
     const regRaw = asArray(reg.json);
+
+    // Self-heal the «iz»: drop trace rows whose reyestr no longer exists on hippo (e.g. a delete whose
+    // response hung, so its un-trace never ran) — otherwise «jo'natilgan» keeps counting a ghost reyestr.
+    if (firm.code) {
+      try {
+        const liveIds = regRaw.map((r) => Number(r?.id)).filter((n) => Number.isFinite(n) && n > 0);
+        const pruned = await reconcileTraceAgainstLive(firm.code, liveIds);
+        if (pruned) console.log('[hippo status] reconcile pruned %d orphan trace rows for %s', pruned, firm.code);
+      } catch (e) { console.error('reconcileTraceAgainstLive failed', e); }
+    }
     const regTime = (r: any) => { const d = regDate(r); const t = d ? Date.parse(String(d)) : NaN; return Number.isFinite(t) ? t : (Number(r?.id) || 0); };
     const recent = [...regRaw].sort((a, b) => regTime(b) - regTime(a)).slice(0, 6);
     const registries = await Promise.all(

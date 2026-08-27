@@ -6,11 +6,11 @@ import { HIPPO, hippoFetch, type HippoSession } from './login';
 
 // ---- low-level helpers -------------------------------------------------
 
-export async function api(session: HippoSession, path: string, init: RequestInit = {}) {
+export async function api(session: HippoSession, path: string, init: RequestInit = {}, timeoutMs?: number) {
   const res = await hippoFetch(session, path, {
     ...init,
     headers: { 'ngrok-skip-browser-warning': 'true', accept: '*/*', ...(init.headers || {}) },
-  });
+  }, timeoutMs);
   const text = await res.text();
   let json: any;
   try { json = text ? JSON.parse(text) : null; } catch { json = text; }
@@ -20,7 +20,7 @@ export async function api(session: HippoSession, path: string, init: RequestInit
 const jget = (s: HippoSession, path: string) => api(s, path);
 const jpost = (s: HippoSession, path: string, body: unknown) =>
   api(s, path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-const jdelete = (s: HippoSession, path: string) => api(s, path, { method: 'DELETE' });
+const jdelete = (s: HippoSession, path: string, timeoutMs?: number) => api(s, path, { method: 'DELETE' }, timeoutMs);
 
 // Binary GET (PDF/xlsx blobs) -> Buffer.
 async function apiBlob(session: HippoSession, path: string): Promise<Buffer> {
@@ -51,12 +51,32 @@ export const getRegistry = (s: HippoSession, id: string | number) => jget(s, `/R
 // (2) some deploys route the resource lowercase. Try /Registry/{id}; on 404/405 retry /registry/{id};
 // fold the envelope into `ok` so callers get the TRUE result (and the body for the real message).
 export async function deleteRegistry(s: HippoSession, id: string | number) {
-  let res = await jdelete(s, `/Registry/${id}`);
-  if (!res.ok && (res.status === 404 || res.status === 405)) res = await jdelete(s, `/registry/${id}`);
+  // Shorter per-attempt ceiling than the 30s default — hippo's DELETE often stalls the RESPONSE even
+  // when it deletes server-side; a 15s abort keeps the UI from spinning half a minute (the caller then
+  // confirms by re-listing). ~404/405 → retry the lowercase route.
+  const DEL_TIMEOUT = 15_000;
+  let res = await jdelete(s, `/Registry/${id}`, DEL_TIMEOUT);
+  if (!res.ok && (res.status === 404 || res.status === 405)) res = await jdelete(s, `/registry/${id}`, DEL_TIMEOUT);
   const j: any = res.json;
   const code = j && typeof j === 'object' ? Number(j.code) : NaN;
   const envelopeErr = (Number.isFinite(code) && code >= 400) || j?.success === false;
   return { ok: res.ok && !envelopeErr, status: res.status, json: res.json, envelopeErr };
+}
+
+// Is a registry still present in the firm's live list? Used to CONFIRM a delete whose HTTP response
+// hung/aborted (hippo deletes server-side but stalls the reply) — if it's gone, the delete landed.
+export async function registryExists(s: HippoSession, id: string | number): Promise<boolean> {
+  const target = String(Number(id));
+  const { json } = await listRegistries(s, { PageIndex: 1, PageSize: 100 });
+  const arr: any[] = Array.isArray(json) ? json : json?.data?.items ?? json?.items ?? json?.data ?? [];
+  return arr.some((r) => String(Number(r?.id)) === target);
+}
+
+// Live registry ids (newest page) for trace reconciliation — the set the «iz» is checked against.
+export async function liveRegistryIds(s: HippoSession, pageSize = 100): Promise<number[]> {
+  const { json } = await listRegistries(s, { PageIndex: 1, PageSize: pageSize });
+  const arr: any[] = Array.isArray(json) ? json : json?.data?.items ?? json?.items ?? json?.data ?? [];
+  return arr.map((r) => Number(r?.id)).filter((n) => Number.isFinite(n) && n > 0);
 }
 export const getAutoSendStatus = (s: HippoSession, id: string | number) => jget(s, `/registry/${id}/auto-send-status`);
 export const listRegistryMails = (s: HippoSession, registryId: string | number, pageIndex = 1, pageSize = 50) =>
