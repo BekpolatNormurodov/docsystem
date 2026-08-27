@@ -122,17 +122,22 @@ export async function buildArizaDocx(props: CourtArizaDocumentProps): Promise<Bu
   // look. Borders are all NONE; the faint on-screen gridline Word may show is non-printing.
   type LineOpt = { bold?: boolean; size?: number; italics?: boolean };
   const valuePara = (text: string, opts?: LineOpt) =>
-    new Paragraph({ spacing: { after: 20, line: 264, lineRule: 'auto' }, children: [run(text, opts)] });
+    new Paragraph({ spacing: { after: 30, line: 276, lineRule: 'auto' }, children: [run(text, opts)] });
+  // Cell padding (twips) — mirrors the ideal HTML's 8pt/6pt cell padding: vertical breathing room
+  // between the Arizachi / Palata / Qarzdor groups, and a gap between the label and value columns.
+  const CELL_M = { top: 90, bottom: 150, left: 0, right: 140 };
   const partyRow = (label: string, lines: { text: string; opts?: LineOpt }[]): TableRow =>
     new TableRow({
       children: [
         new TableCell({
           width: { size: COLS_PARTY[0], type: WidthType.DXA }, borders: NO_BORDER, verticalAlign: VerticalAlign.TOP,
-          children: [new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { line: 264, lineRule: 'auto' }, children: label ? [run(label, { size: 22 })] : [] })],
+          margins: { top: CELL_M.top, bottom: CELL_M.bottom, left: 0, right: CELL_M.right },
+          children: [new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { line: 276, lineRule: 'auto' }, children: label ? [run(label, { size: 22 })] : [] })],
         }),
         new TableCell({ width: { size: COLS_PARTY[1], type: WidthType.DXA }, borders: NO_BORDER, children: [new Paragraph({ children: [] })] }),
         new TableCell({
           width: { size: COLS_PARTY[2], type: WidthType.DXA }, borders: NO_BORDER, verticalAlign: VerticalAlign.TOP,
+          margins: { top: CELL_M.top, bottom: CELL_M.bottom, left: 0, right: 0 },
           children: lines.map((l) => valuePara(l.text, l.opts)),
         }),
       ],

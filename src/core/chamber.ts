@@ -9,9 +9,11 @@
 export const CHAMBER = {
   /** Letterhead line 1 (bold). The blank prints «...boshqarmasi»; «hududiy» is the correct form. */
   branchName: 'Toshkent shahar hududiy boshqarmasi',
-  /** Letterhead contact lines, right-aligned under the branch name — verbatim from the blank's masthead. */
+  /** Letterhead contact lines, right-aligned under the branch name. The masthead address is the
+   *  boshqarma's real address (Mirobod tumani, A.Temur shox koʻchasi 4 — same as the «Arizachi:»
+   *  block), not the old «Bobur koʻchasi 30». */
   contact: [
-    'Toshkent sh., Bobur koʻchasi 30-uy',
+    'Toshkent sh., Mirobod tumani, A.Temur shox koʻchasi 4-uy',
     'tel.: (+998) 95-144-24-00, (+998) 95-144-27-00, 1094',
     'e-mail: th@chamber.uz, www.chamber.uz',
   ],
