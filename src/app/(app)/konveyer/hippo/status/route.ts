@@ -4,7 +4,7 @@ import { prisma } from '@/lib/db';
 import { getStoredHippoSession } from '@/lib/hippo/session';
 import { getBalance, listRegistries } from '@/lib/hippo/xat';
 import { summarizeRegistryMails } from '@/lib/hippo/mail-status';
-import { reconcileTraceAgainstLive, clearSentByRegistry } from '@/lib/hippo/talabnoma-trace';
+import { reconcileTraceAgainstLive } from '@/lib/hippo/talabnoma-trace';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -96,21 +96,6 @@ async function computeFirmStatus(firmId: number) {
         };
       }),
     );
-
-    // «Jo'natilgan» halolligi: a reyestr that materialized ZERO mails means hippo rejected every row
-    // («Xatolar bilan yakunlandi») — those clients never went out, so drop their «iz» and let them be
-    // re-sent once the data is fixed. Age-guarded so a still-processing fresh reyestr isn't cleared early.
-    if (firm.code) {
-      const EMPTY_MIN_AGE_MS = 10 * 60 * 1000;
-      for (const r of registries) {
-        const created = r.createdAt ? Date.parse(String(r.createdAt)) : NaN;
-        const aged = Number.isFinite(created) && Date.now() - created > EMPTY_MIN_AGE_MS;
-        if (r.total === 0 && aged) {
-          try { const c = await clearSentByRegistry(String(r.id)); if (c) console.log('[hippo status] un-traced %d client(s) of empty/errored reyestr %s', c, r.id); }
-          catch (e) { console.error('clear empty reyestr trace failed', e); }
-        }
-      }
-    }
     return { connected: true, firmName: firm.shortName, balance, free, registries, checkedAt: new Date().toISOString() };
   } catch (e) {
     console.error('hippo status failed', e);

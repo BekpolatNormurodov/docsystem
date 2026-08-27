@@ -67,7 +67,11 @@ export interface SendTalabnomaOpts {
 export interface SendTalabnomaResult {
   ok: boolean;
   mode: SendMode;
-  count: number;               // mails put into the registry (this batch)
+  count: number;               // on hippo this batch = queued + duplicates
+  queued?: number;             // newly accepted (navbatga qo'shildi)
+  duplicates?: number;         // rejected as «already exists» — already sent before (not an error)
+  failed?: number;             // rejected for a real reason (bad data) — stay «remaining»
+  failedMessages?: string[];   // hippo's reason for the genuine failures (first few)
   balance: number;             // wallet balance (so'm) at send time
   free: boolean;               // tariff makes sending free (pricePerMail === 0)
   required: number;            // pricePerMail * count
@@ -207,11 +211,34 @@ export async function sendTalabnomaToHippo(opts: SendTalabnomaOpts): Promise<Sen
     } catch (e) { console.error('[hippo send] listRegistries fallback failed', e); }
   }
 
-  // Leave the «iz» so the next batch skips these clients. Non-fatal: a trace-write hiccup must not
-  // fail a send that already landed on hippo.
-  if (branchCode) {
+  // ── Outcome split (from hippo's create envelope) ─────────────────────────────────────────────
+  // hippo returns { data: { queuedCount, errorCount, errorMessages:[ "ClientCustomId 'X' already
+  // exists for this account." ] } }. A DUPLICATE is a client already on hippo — a re-send after the
+  // «iz» was cleared; it IS sent, so it's still traced (only genuine bad-data errors stay «remaining»).
+  // Match each rejected message back to its row by contract_id (= custom_id).
+  const data: any = (res.json && typeof res.json === 'object' ? (res.json as any).data : null) ?? {};
+  const errorMessages: string[] = Array.isArray(data.errorMessages) ? data.errorMessages.map(String) : [];
+  const rejected = new Map<string, boolean>(); // custom_id → isDuplicate
+  for (const m of errorMessages) {
+    const id = /ClientCustomId '([^']+)'/i.exec(m)?.[1];
+    if (id) rejected.set(id.trim(), /already exists/i.test(m));
+  }
+  const queued: TalabnomaRow[] = [];
+  const duplicates: TalabnomaRow[] = [];
+  const failed: TalabnomaRow[] = [];
+  for (const r of batch) {
+    const cid = String(r.contract_id ?? '').trim();
+    if (cid && rejected.has(cid)) (rejected.get(cid) ? duplicates : failed).push(r);
+    else queued.push(r);
+  }
+  console.log('[hippo send] outcome reyestr=%s queued=%d duplicates=%d failed=%d', registryId, queued.length, duplicates.length, failed.length);
+
+  // Trace the ones that are ON hippo (queued now + duplicates from before). Non-fatal: a trace-write
+  // hiccup must not fail a send that already landed. Genuine failures are NOT traced → stay «remaining».
+  const traced = [...queued, ...duplicates];
+  if (branchCode && traced.length) {
     try {
-      await recordSentTalabnomas(batch, {
+      await recordSentTalabnomas(traced, {
         snapshotId: opts.snapshotId, branchCode,
         registryId: registryId != null ? String(registryId) : '',
         status: mode === 'send' ? 'SENT' : 'DRAFT',
@@ -219,9 +246,11 @@ export async function sendTalabnomaToHippo(opts: SendTalabnomaOpts): Promise<Sen
     } catch (e) { console.error('recordSentTalabnomas failed', e); }
   }
   return {
-    ok: true, mode, count: batch.length,
+    ok: true, mode, count: traced.length,
+    queued: queued.length, duplicates: duplicates.length, failed: failed.length,
+    failedMessages: failed.length ? errorMessages.filter((m) => !/already exists/i.test(m)).slice(0, 5) : [],
     balance: bal.balance, required: bal.required, enough: bal.enough, free,
-    registryId, firmName, remaining: Math.max(0, remaining.length - batch.length),
+    registryId, firmName, remaining: Math.max(0, remaining.length - traced.length),
   };
   } finally {
     inFlightSends.delete(lockKey);

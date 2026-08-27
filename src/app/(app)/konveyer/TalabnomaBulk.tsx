@@ -154,9 +154,18 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
       if (!res.ok || !data?.ok) throw new Error(data?.error || 'xat.hippo ga yuborilmadi');
       setModalOpen(false);
       const rem = typeof data.remaining === 'number' ? ` · ${n(data.remaining)} qoldi` : '';
+      const reg = data.registryId ? ` · reyestr #${data.registryId}` : '';
+      // Clear split: yangi (queued) / dublikat (already sent before) / xato (real failures).
+      const parts: string[] = [];
+      if (data.queued) parts.push(`${n(data.queued)} yangi joʻnatildi`);
+      if (data.duplicates) parts.push(`${n(data.duplicates)} avval joʻnatilgan (dublikat)`);
+      if (data.failed) parts.push(`${n(data.failed)} xato`);
+      const head = parts.length ? parts.join(' · ') : `${n(data.count)} ta talabnoma ${real ? 'joʻnatildi' : 'yuklandi'}`;
+      const fails = Array.isArray(data.failedMessages) && data.failedMessages.length
+        ? ` — ${data.failedMessages.slice(0, 2).join('; ')}` : '';
       setSendMsg(real
-        ? `${n(data.count)} ta talabnoma joʻnatildi${data.registryId ? ` · reyestr #${data.registryId}` : ''}${rem}.`
-        : `${n(data.count)} ta talabnoma yuklandi (qoralama${data.registryId ? ` · reyestr #${data.registryId}` : ''})${rem}. «Bekor / holat»ni pastdan koʻring.`);
+        ? `${head}${reg}${rem}.${fails}`
+        : `${head} (qoralama${reg})${rem}. «Bekor / holat»ni pastdan koʻring.${fails}`);
       // Refresh the summary + nudge the status panel (sibling) so the new reyestr / qoralama shows.
       window.dispatchEvent(new CustomEvent('hippo:refresh'));
     } catch (e) { setSendErr(e instanceof Error ? e.message : 'xat.hippo ga yuborilmadi'); }
