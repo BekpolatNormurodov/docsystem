@@ -6,6 +6,7 @@
 // (dates → YYYY-MM-DD, numbers as plain strings) so a direct send and an Excel upload are
 // byte-identical on hippo's side.
 import { prisma } from '@/lib/db';
+import { hippoTemplateIdByStir } from '@/lib/firms';
 import { getStoredHippoSession } from './session';
 import { loadTalabnomaRowsForScope } from './talabnoma-bulk';
 import { resolveContext, checkBalanceFor, createRegistryInternal, listRegistries, type InternalMail } from './xat';
@@ -132,15 +133,21 @@ export async function sendTalabnomaToHippo(opts: SendTalabnomaOpts): Promise<Sen
   let batch = remaining;
   if (opts.limit && opts.limit > 0 && opts.limit < batch.length) batch = batch.slice(0, opts.limit);
 
+  // Pin this firm's own talabnoma template (Urban 119 / Bright 42 / Community 123). The shared
+  // hippo account lists all three, so without the id the name match would send every firm on the
+  // first «Talabnoma» it finds.
+  const templateId = hippoTemplateIdByStir(firm.stir ?? '');
   let ctx;
   try {
-    ctx = await resolveContext(session, 'talabnoma');
+    ctx = await resolveContext(session, 'talabnoma', templateId);
   } catch {
     return fail(mode, 'xat.hippo shabloni topilmadi', { firmName });
   }
   if (!ctx.organizationId || !ctx.branchId) {
     return fail(mode, 'xat.hippo konteksti topilmadi (shablon yoki filial ulanmagan)', { firmName });
   }
+  console.log('[hippo send] firm=%s templateId=%s templateName=%s org=%s branch=%s',
+    firmName, ctx.templateId, ctx.templateName, ctx.organizationId, ctx.branchId);
 
   let bal;
   try {

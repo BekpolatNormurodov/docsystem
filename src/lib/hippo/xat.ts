@@ -46,7 +46,18 @@ export const listRegistries = (s: HippoSession, params: Record<string, any> = {}
   return jget(s, '/Registry' + (qs ? `?${qs}` : ''));
 };
 export const getRegistry = (s: HippoSession, id: string | number) => jget(s, `/Registry/${id}`);
-export const deleteRegistry = (s: HippoSession, id: string | number) => jdelete(s, `/Registry/${id}`);
+// DELETE a reyestr. Two traps hippo sets: (1) it can answer HTTP 200 with a FAILURE envelope
+// ({code>=400} / {success:false}) — so a naive res.ok check reports success while nothing is deleted;
+// (2) some deploys route the resource lowercase. Try /Registry/{id}; on 404/405 retry /registry/{id};
+// fold the envelope into `ok` so callers get the TRUE result (and the body for the real message).
+export async function deleteRegistry(s: HippoSession, id: string | number) {
+  let res = await jdelete(s, `/Registry/${id}`);
+  if (!res.ok && (res.status === 404 || res.status === 405)) res = await jdelete(s, `/registry/${id}`);
+  const j: any = res.json;
+  const code = j && typeof j === 'object' ? Number(j.code) : NaN;
+  const envelopeErr = (Number.isFinite(code) && code >= 400) || j?.success === false;
+  return { ok: res.ok && !envelopeErr, status: res.status, json: res.json, envelopeErr };
+}
 export const getAutoSendStatus = (s: HippoSession, id: string | number) => jget(s, `/registry/${id}/auto-send-status`);
 export const listRegistryMails = (s: HippoSession, registryId: string | number, pageIndex = 1, pageSize = 50) =>
   jget(s, `/mail/all?${new URLSearchParams({ RegistryId: String(registryId), PageIndex: String(pageIndex), PageSize: String(pageSize) })}`);
@@ -102,11 +113,16 @@ export async function checkBalanceFor(s: HippoSession, count: number, pagesPerMa
 // (the org requires a valid branch or the server returns "Invalid targeting
 // setup."). templateNameHint is matched case-insensitively (note: the real
 // name is "Talabnoma " with a trailing space).
-export async function resolveContext(s: HippoSession, templateNameHint = 'talabnoma') {
+export async function resolveContext(s: HippoSession, templateNameHint = 'talabnoma', templateId?: number) {
   const tpl = await getTemplates(s);
   const tplArr: any[] = Array.isArray(tpl.json) ? tpl.json : tpl.json?.data ?? tpl.json?.items ?? [];
-  const t = tplArr.find((x) => String(x?.name ?? '').toLowerCase().includes(templateNameHint.toLowerCase()));
+  // Pin the EXACT template per firm when an id is given — the account's list holds several
+  // «Talabnoma» entries (Urban 119 / Bright 42 / Community 123) so a name match alone is ambiguous
+  // and would pick the first one for every firm. Fall back to the name hint when no id (or not found).
+  const byId = templateId ? tplArr.find((x) => Number(x?.id) === Number(templateId)) : undefined;
+  const t = byId ?? tplArr.find((x) => String(x?.name ?? '').toLowerCase().includes(templateNameHint.toLowerCase()));
   const templateName: string = t?.name ?? templateNameHint;
+  const resolvedTemplateId = Number(t?.id ?? templateId ?? 0);
   const organizationId = Number(t?.organizationId ?? 0);
 
   let branchId = 0;
@@ -117,7 +133,7 @@ export async function resolveContext(s: HippoSession, templateNameHint = 'talabn
     const det = await getRegistry(s, refId);
     branchId = Number(det.json?.branchId ?? det.json?.data?.branchId ?? 0);
   }
-  return { templateName, organizationId, branchId };
+  return { templateName, templateId: resolvedTemplateId, organizationId, branchId };
 }
 
 // ---- sent mails + kvitansiya (receipt) ---------------------------------

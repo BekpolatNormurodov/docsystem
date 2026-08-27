@@ -29,7 +29,14 @@ export async function POST(req: NextRequest) {
 
   try {
     const res = await deleteRegistry(session, registryId);
-    if (!res.ok) return NextResponse.json({ error: `xat.hippo rad etdi (${res.status})` }, { status: 502 });
+    // Log the raw hippo reply so a silent-refusal (200 + failure envelope) is diagnosable from the server log.
+    console.log('[hippo cancel] registry=%s ok=%s status=%s json=%s', registryId, res.ok, res.status,
+      (() => { try { return JSON.stringify(res.json)?.slice(0, 500); } catch { return String(res.json); } })());
+    if (!res.ok) {
+      const j: any = res.json;
+      const msg = typeof j === 'string' ? j : j?.message ?? j?.error ?? null;
+      return NextResponse.json({ error: `xat.hippo rad etdi (${res.status})${msg ? `: ${String(msg).slice(0, 160)}` : ''}` }, { status: 502 });
+    }
     // Un-trace the cancelled registry so its clients become «remaining» again (re-sendable). Non-fatal.
     let untraced = 0;
     try { untraced = await clearSentByRegistry(String(registryId)); } catch (e) { console.error('clearSentByRegistry failed', e); }

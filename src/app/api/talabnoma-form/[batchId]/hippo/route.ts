@@ -50,7 +50,8 @@ export async function POST(req: NextRequest, { params }: { params: { batchId: st
     return NextResponse.json({ error: 'xat.hippo ga ulanmagan — E-IMZO orqali ulang' }, { status: 409 });
   }
 
-  const ctx = await resolveContext(session, 'talabnoma');
+  // Pin this firm's exact talabnoma template (Urban 119 / Bright 42 / Community 123) — see firms.ts.
+  const ctx = await resolveContext(session, 'talabnoma', firm.hippoTemplateId);
   if (!ctx.organizationId) return NextResponse.json({ error: 'hippo konteksti aniqlanmadi (organizationId yo‘q)' }, { status: 422 });
 
   const mode = body?.mode === 'send' && body?.confirm === true ? 'send' : 'draft';
