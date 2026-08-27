@@ -130,13 +130,22 @@ function editDistance(a: string, b: string): number {
 // un-deduped warn floods the log and buries the [hippo send] lines). One line per district keeps the
 // audit signal without the noise.
 const warnedFuzzyAreas = new Set<string>();
+const warnedUnresolved = new Set<string>();
 
 export function resolveHippoRegionArea(regionName: string, districtName: string): { regionId: number; areaId: number; areaConfidence: AreaConfidence } {
   const regionId = resolveRegionId(regionName);
   const { id: areaId, confidence: areaConfidence } = resolveAreaMatch(regionId, districtName);
-  // A fuzzy/edit-distance guess can route a talabnoma to the WRONG district court —
-  // leave an audit line so the operator can spot-check these before filing (once per district).
-  if (areaConfidence === 'fuzzy' && !warnedFuzzyAreas.has(districtName)) {
+  // region/area = 0 → hippo REJECTS the mail during processing («Xatolar bilan yakunlandi»). Surface
+  // exactly which viloyat/tuman inputs fail to resolve so the mapping gap can be closed. Deduped.
+  if (!regionId || !areaId) {
+    const key = `${regionName}|${districtName}`;
+    if (!warnedUnresolved.has(key)) {
+      warnedUnresolved.add(key);
+      console.warn(`resolveHippoRegionArea: UNRESOLVED — region="${regionName}" district="${districtName}" → regionId=${regionId} areaId=${areaId} (hippo will reject)`);
+    }
+  } else if (areaConfidence === 'fuzzy' && !warnedFuzzyAreas.has(districtName)) {
+    // A fuzzy/edit-distance guess can route a talabnoma to the WRONG district court —
+    // leave an audit line so the operator can spot-check these before filing (once per district).
     warnedFuzzyAreas.add(districtName);
     console.warn(`resolveHippoRegionArea: FUZZY area match — "${districtName}" → "${areaName(areaId)}" (id ${areaId}); verify the court district.`);
   }

@@ -186,6 +186,11 @@ export async function sendTalabnomaToHippo(opts: SendTalabnomaOpts): Promise<Sen
   console.log('[hippo send] req firm=%s template=%s org=%s branch=%s count=%d sample=%j',
     firmName, ctx.templateName, ctx.organizationId, ctx.branchId, mails.length,
     sample ? { receiver: sample.receiver, regionId: sample.regionId, areaId: sample.areaId, address: sample.address, content: sample.content } : null);
+  // region/area = 0 → hippo processing REJECTS these («Xatolar bilan yakunlandi»). Surface exactly WHO
+  // so the mapping gap is fixable, and so the count doesn't silently overstate what will land.
+  const badGeo = mails.filter((m) => !m.regionId || !m.areaId);
+  if (badGeo.length) console.warn('[hippo send] %d/%d rows have region/area=0 (hippo will reject): %j',
+    badGeo.length, mails.length, badGeo.slice(0, 15).map((m) => ({ receiver: m.receiver, region: m.regionId, area: m.areaId, address: m.address })));
   let res;
   try {
     res = await createRegistryInternal(session, {
