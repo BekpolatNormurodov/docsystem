@@ -104,6 +104,10 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
 
   const total = count ?? 0;
   const parsed = Math.max(1, Math.min(total || 1, Math.floor(Number(num)) || 0));
+  // Ariza SUDGA bog'lanadi va sud FIRMAGA bog'liq (Bright'da 2 ta) — «Hamma firma» ko'rinishida sudni
+  // biriktirib bo'lmaydi, shuning uchun blanket «Hammasi» yo'q: avval firmani tanlash shart.
+  const noFirm = firmId == null;
+  const firmNoCourt = !noFirm && count != null && courts.length === 0;
   const multiCourt = courts.length > 1;
   const courtSum = courts.reduce((s, c) => s + (Math.max(0, Math.floor(Number(courtNums[c.id])) || 0)), 0);
   const valid = multiCourt
@@ -123,7 +127,7 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
   };
 
   const start = async () => {
-    if (snapshotId == null || inFlight.current) return;
+    if (snapshotId == null || inFlight.current || noFirm || firmNoCourt) return; // ariza sudga bog'lanadi — firma+sud shart
     inFlight.current = true;
     setStarting(true); setErr(null); setJob(null); setJobId(null);
     try {
@@ -175,7 +179,18 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {!done ? (
+        {!done && noFirm ? (
+          // «Hamma firma» — sud biriktirib bo'lmaydi (sud firmaga bog'liq, Bright'da 2 ta). Firmani tanlash shart.
+          <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2 text-xs font-medium text-amber-700 dark:text-amber-300">
+            <Ico.info size={14} className="shrink-0" />
+            <span>Ariza sudga bogʻlanadi — avval yuqoridan <b>firmani tanlang</b> (Bright'da 2 sud).</span>
+          </div>
+        ) : !done && firmNoCourt ? (
+          <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2 text-xs font-medium text-amber-700 dark:text-amber-300">
+            <Ico.info size={14} className="shrink-0" />
+            <span>Bu firmaga sud biriktirilmagan — «Sudlar» boʻlimida biriktiring.</span>
+          </div>
+        ) : !done ? (
           <button
             onClick={openModal}
             disabled={!!running || starting || total === 0}
