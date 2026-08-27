@@ -21,8 +21,15 @@ const ymd = (d: Date | null): string => (d ? `${d.getFullYear()}-${pad(d.getMont
  * Build one InternalMail per talabnoma row for `createRegistryInternal`.
  * `templateName` must be the hippo template name (resolved via `resolveContext`).
  * Rows are assumed already debt-gated (total_debt > 0) by loadTalabnomaRowsForScope.
+ *
+ * `idSuffix` (per-send nonce) is appended to the hippo clientCustomId so every send gets a FRESH id
+ * — hippo's clientCustomId is unique-per-account, and `contract_id` (=`<date>/<seq>`) is positional,
+ * so without a suffix a re-send collides and hippo answers «already exists». The suffix affects ONLY
+ * the hippo dedup key; the human-readable `contract_id` inside `content` (the «№» on the talabnoma)
+ * stays clean.
  */
-export function talabnomaRowsToMails(rows: TalabnomaRow[], templateName: string): InternalMail[] {
+export function talabnomaRowsToMails(rows: TalabnomaRow[], templateName: string, idSuffix?: string): InternalMail[] {
+  const suffix = (idSuffix ?? '').trim();
   return rows.map((r) => {
     // Non-SPECIAL template variables — the same set the Excel importer keeps in `content`.
     const content: Record<string, string> = {
@@ -35,7 +42,8 @@ export function talabnomaRowsToMails(rows: TalabnomaRow[], templateName: string)
       total_debt: String(r.total_debt),
       total_debt_words: r.total_debt_words,
     };
-    const customId = String(r.contract_id ?? '').trim();
+    const base = String(r.contract_id ?? '').trim();
+    const customId = base ? (suffix ? `${base}-${suffix}` : base) : '';
     return {
       receiver: r.receiver,
       regionId: r.region,
@@ -48,6 +56,9 @@ export function talabnomaRowsToMails(rows: TalabnomaRow[], templateName: string)
     };
   });
 }
+
+// Short unique-per-send token (base36 time + random) for the hippo clientCustomId suffix.
+export const sendNonce = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 const digits = (s?: string | null) => (s ?? '').replace(/\D+/g, '');
 
@@ -167,7 +178,8 @@ export async function sendTalabnomaToHippo(opts: SendTalabnomaOpts): Promise<Sen
     });
   }
 
-  const mails = talabnomaRowsToMails(batch, ctx.templateName);
+  // Fresh per-send id suffix so «doim ketsin» — hippo never rejects as a duplicate (user's choice).
+  const mails = talabnomaRowsToMails(batch, ctx.templateName, sendNonce());
   // Log a sample of the OUTGOING request so a hippo-side rejection («Xatolar bilan yakunlandi») is
   // diagnosable — region/area/address/content are the usual culprits when every row errors.
   const sample = mails[0];

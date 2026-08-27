@@ -3,7 +3,7 @@ import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
 import { getStoredHippoSession } from '@/lib/hippo/session';
 import { resolveContext, checkBalanceFor, createRegistryInternal } from '@/lib/hippo/xat';
-import { talabnomaRowsToMails } from '@/lib/hippo/talabnoma-send';
+import { talabnomaRowsToMails, sendNonce } from '@/lib/hippo/talabnoma-send';
 import { FIRMS } from '@/lib/firms';
 import { readCandidates } from '@/lib/talabnoma-form/parse';
 import { buildRowsForFirm } from '@/lib/talabnoma-form/generate';
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest, { params }: { params: { batchId: st
     }
   }
 
-  const mails = talabnomaRowsToMails(rows, ctx.templateName);
+  const mails = talabnomaRowsToMails(rows, ctx.templateName, sendNonce());
   const res = await createRegistryInternal(session, {
     organizationId: ctx.organizationId,
     branchId: ctx.branchId,
