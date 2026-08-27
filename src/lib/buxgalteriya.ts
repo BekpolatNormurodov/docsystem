@@ -14,6 +14,7 @@ export interface BxRow {
   kod: string | null;
   receiptNumber: string | null; // noyob kvitansiya raqami (shot id)
   invoiceNo: string | null;
+  amount: number; // shu invoice'ning HAQIQIY summasi (narx o'zgaruvchi)
   paid: boolean;
   locked: boolean; // bosqich INVOICE_PAID'dan o'tib ketgan — belgilashni qaytarib bo'lmaydi
 }
@@ -24,13 +25,19 @@ export interface BxFirm {
   total: number;
   paid: number;
   unpaid: number;
+  sum: number;
+  paidSum: number;
+  unpaidSum: number;
 }
 export interface BxData {
-  amount: number; // bitta boji summasi (so'm)
+  amount: number; // fallback boji summasi (invoice summasi topilmasa)
   firms: BxFirm[];
   total: number;
   paidCount: number;
   unpaidCount: number;
+  sum: number;
+  paidSum: number;
+  unpaidSum: number;
 }
 
 /** Sidebar badge uchun yengil sanoq: jami kvitansiya va to'langan (kelgan) soni. */
@@ -45,29 +52,35 @@ export async function buxgalteriyaCounts(snapshotId?: number): Promise<{ total: 
 
 /** Firmalar bo'yicha boji invoice ro'yxati + holati (tanlangan snapshot uchun). */
 export async function buxgalteriyaData(snapshotId?: number): Promise<BxData> {
-  const amount = await getBojiAmount();
+  const fallback = await getBojiAmount();
   const cases = await prisma.arizaCase.findMany({
     where: { receiptNumber: { not: null }, ...(snapshotId ? { snapshotId } : {}) },
     orderBy: [{ firmId: 'asc' }, { clientName: 'asc' }],
     select: {
       id: true, firmId: true, clientName: true, kod: true, receiptNumber: true, invoiceNo: true, stage: true,
       firm: { select: { shortName: true } },
+      // Haqiqiy invoice summasi — narx o'zgaruvchi; kvitansiyaga bog'langan yozuvdan olamiz.
+      invoiceRecords: { select: { amount: true }, take: 1 },
     },
   });
 
   const byFirm = new Map<number, BxFirm>();
   let paidCount = 0;
   let unpaidCount = 0;
+  let paidSum = 0;
+  let unpaidSum = 0;
   for (const c of cases) {
     const paid = PAID_STAGES.includes(c.stage);
     const locked = paid && c.stage !== 'INVOICE_PAID'; // sud/MIB'ga o'tgan — qulf
-    if (paid) paidCount += 1; else unpaidCount += 1;
+    const amount = c.invoiceRecords[0]?.amount != null ? Number(c.invoiceRecords[0].amount) : fallback;
+    if (paid) { paidCount += 1; paidSum += amount; } else { unpaidCount += 1; unpaidSum += amount; }
     let f = byFirm.get(c.firmId);
-    if (!f) { f = { firmId: c.firmId, firmName: c.firm.shortName, rows: [], total: 0, paid: 0, unpaid: 0 }; byFirm.set(c.firmId, f); }
-    f.rows.push({ caseId: c.id, clientName: c.clientName, kod: c.kod, receiptNumber: c.receiptNumber, invoiceNo: c.invoiceNo, paid, locked });
+    if (!f) { f = { firmId: c.firmId, firmName: c.firm.shortName, rows: [], total: 0, paid: 0, unpaid: 0, sum: 0, paidSum: 0, unpaidSum: 0 }; byFirm.set(c.firmId, f); }
+    f.rows.push({ caseId: c.id, clientName: c.clientName, kod: c.kod, receiptNumber: c.receiptNumber, invoiceNo: c.invoiceNo, amount, paid, locked });
     f.total += 1;
-    if (paid) f.paid += 1; else f.unpaid += 1;
+    f.sum += amount;
+    if (paid) { f.paid += 1; f.paidSum += amount; } else { f.unpaid += 1; f.unpaidSum += amount; }
   }
   const firms = [...byFirm.values()].sort((a, b) => b.total - a.total);
-  return { amount, firms, total: cases.length, paidCount, unpaidCount };
+  return { amount: fallback, firms, total: cases.length, paidCount, unpaidCount, sum: paidSum + unpaidSum, paidSum, unpaidSum };
 }
