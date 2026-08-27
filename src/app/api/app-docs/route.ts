@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { requireAdmin } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { APP_DOCS_DIR, appDocsStatus, getAppDoc, setAppDoc, clearAppDoc, isAppDocKey } from '@/lib/app-docs';
 
 export const runtime = 'nodejs';
@@ -15,7 +15,7 @@ const MIME: Record<string, string> = {
 
 // GET — barcha kerakli hujjatlar holati; GET ?download=talabnoma|sud → faylni oqim qilib beradi.
 export async function GET(req: NextRequest) {
-  await requireAdmin();
+  await requireAccess('docs-manage');
   const dl = req.nextUrl.searchParams.get('download');
   if (dl) {
     if (!isAppDocKey(dl)) return NextResponse.json({ error: 'kind notoʻgʻri' }, { status: 400 });
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
 
 // POST multipart (kind: talabnoma|sud, file) — ixtiyoriy hujjatni yuklaydi/almashtiradi.
 export async function POST(req: NextRequest) {
-  await requireAdmin();
+  await requireAccess('docs-manage');
   const form = await req.formData();
   const kind = String(form.get('kind') || '');
   const file = form.get('file');
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
 
 // DELETE ?kind=talabnoma|sud — ixtiyoriy hujjatni olib tashlaydi.
 export async function DELETE(req: NextRequest) {
-  await requireAdmin();
+  await requireAccess('docs-manage');
   const kind = String(req.nextUrl.searchParams.get('kind') || '');
   if (!isAppDocKey(kind)) return NextResponse.json({ error: 'kind notoʻgʻri' }, { status: 400 });
   await clearAppDoc(kind);

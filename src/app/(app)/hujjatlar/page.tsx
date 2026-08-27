@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { requireUser } from '@/lib/auth';
+import { canManageDocs } from '@/lib/access';
 import { prisma } from '@/lib/db';
 import { PageHeader, EmptyState } from '@/ui';
 import { formatSumDecimal } from '@/core/document';
@@ -23,9 +24,10 @@ function when(d: Date) {
 }
 
 export default async function HujjatlarPage() {
-  // HAMMA ko'radi (portfel/sana ko'rish); yuklash/o'zgartirish faqat adminda (pastda isAdmin bilan).
+  // HAMMA ko'radi (portfel/sana ko'rish); yuklash/o'zgartirish — admin YOKI «Hujjatlar boshqaruvi»
+  // ruxsatli user (masalan Toirov Bilol).
   const user = await requireUser();
-  const isAdmin = user.role === 'ADMIN';
+  const canManage = canManageDocs(user);
 
   // One fetch drives both sections: every snapshot feeds the import history (any status),
   // and the READY ones also become the date cards below.
@@ -98,27 +100,29 @@ export default async function HujjatlarPage() {
     }),
   );
 
-  const docs = isAdmin ? await appDocsStatus() : null;
+  const docs = canManage ? await appDocsStatus() : null;
 
   return (
     <div>
       <PageHeader
         title="Hujjatlar"
-        subtitle={isAdmin
+        subtitle={canManage
           ? 'Portfel yuklang, soʻng sanani tanlab sud roʻyxatidagilarga ariza (.docx) ZIP qilib oling'
           : 'Sana boʻyicha portfel va sud roʻyxati — koʻrish uchun sanani tanlang'}
       />
 
-      {/* Yuklash/o'zgartirish — FAQAT admin. Yuristlar quyidagi sana kartalarini ko'radi (ko'rish). */}
-      {isAdmin && docs && (
+      {/* Yuklash/o'zgartirish — admin YOKI «Hujjatlar boshqaruvi» ruxsatli user. Qolganlar quyidagi
+          sana kartalarini ko'radi (ko'rish). */}
+      {canManage && docs && (
         <ImportPanel defaultOpen count={rows.length}>
           <ImportForm>
             <AppDocDropzone
               k="talabnoma"
               label="Talabnoma roʻyxati (.xlsx)"
-              hint="Talabnoma yuboriladigan mijozlar roʻyxati"
+              hint="Talabnoma yuboriladigan mijozlar roʻyxati · ixtiyoriy"
               accent="brand"
               initial={docs.talabnoma}
+              info="talabnoma"
             />
           </ImportForm>
           <ImportHistory rows={rows} />

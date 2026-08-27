@@ -3,6 +3,7 @@
 import React, { useRef, useState } from 'react';
 import Link from 'next/link';
 import { DateField, Ico } from '@/ui';
+import { DocInfo, type DocInfoKind } from './DocInfo';
 
 const KB = 1024;
 const fileSize = (b: number) =>
@@ -41,6 +42,7 @@ function Dropzone({
   disabled,
   onPick,
   onClear,
+  info,
 }: {
   label: string;
   hint: string;
@@ -49,6 +51,7 @@ function Dropzone({
   disabled: boolean;
   onPick: (files: FileList | null) => void;
   onClear: () => void;
+  info?: DocInfoKind;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
@@ -56,7 +59,7 @@ function Dropzone({
 
   return (
     <div>
-      <span className="field-label">{label}</span>
+      <span className="field-label flex items-center gap-2">{label}{info && <DocInfo kind={info} />}</span>
       <input
         ref={inputRef}
         type="file"
@@ -186,7 +189,7 @@ export function ImportForm({ children }: { children?: React.ReactNode }) {
   }
 
   async function onUpload() {
-    if (!file || !excludeFile || !date) return;
+    if (!file || !date) return;
     setPhase('uploading');
     setError(null);
     setProgress(0);
@@ -194,7 +197,7 @@ export function ImportForm({ children }: { children?: React.ReactNode }) {
     try {
       const form = new FormData();
       form.append('file', file);
-      form.append('exclude', excludeFile);
+      if (excludeFile) form.append('exclude', excludeFile); // sud ro'yxati — ixtiyoriy
       form.append('date', date);
       const res = await fetch('/api/import', { method: 'POST', body: form });
       if (!res.ok) {
@@ -213,7 +216,8 @@ export function ImportForm({ children }: { children?: React.ReactNode }) {
   }
 
   const busy = phase === 'uploading' || phase === 'running';
-  const ready = !!file && !!excludeFile && !!date;
+  // Faqat Portfel + sana majburiy; sud (istisno) ro'yxati ixtiyoriy.
+  const ready = !!file && !!date;
   // Capped at 99% mid-stream because `total` is an estimate; the DONE state shows completion.
   const pct = total > 0 ? Math.min(99, Math.round((progress / total) * 100)) : 0;
 
@@ -221,22 +225,24 @@ export function ImportForm({ children }: { children?: React.ReactNode }) {
     <div className="card max-w-md space-y-4 p-6">
       <Dropzone
         label="Portfel fayli (.xlsx)"
-        hint="Ensay portfeli — .xlsx (100 MB dan katta boʻlishi mumkin)"
+        hint="Ensay portfeli — .xlsx (100 MB dan katta boʻlishi mumkin) · majburiy"
         accent="brand"
         file={file}
         disabled={busy}
         onPick={onFileChosen}
         onClear={() => setFile(null)}
+        info="portfel"
       />
 
       <Dropzone
         label="Muammoli / istisno roʻyxati — sud roʻyxati (.xlsx)"
-        hint="«Pnfl» varagʻidagi mijozlar — ularga ariza yaratiladi"
+        hint="«Pnfl» varagʻidagi mijozlar — ularga ariza yaratiladi · ixtiyoriy"
         accent="amber"
         file={excludeFile}
         disabled={busy}
         onPick={onExcludeFileChosen}
         onClear={() => setExcludeFile(null)}
+        info="sud"
       />
 
       {/* 3-fayl: Talabnoma ro'yxati (.xlsx) — mustaqil app-doc dropzone, shu layoutda. */}
@@ -262,7 +268,7 @@ export function ImportForm({ children }: { children?: React.ReactNode }) {
       </button>
 
       {phase === 'idle' && !ready && (
-        <p className="text-center text-[11px] text-muted">Ikkala fayl va sanani tanlang.</p>
+        <p className="text-center text-[11px] text-muted">Portfel fayli va sanani tanlang (sud roʻyxati ixtiyoriy).</p>
       )}
 
       {phase === 'uploading' && (

@@ -4,12 +4,13 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Ico } from '@/ui/icons';
 import { useConfirm } from '@/ui';
-import { STEP_KEYS, STEP_META, MODULE_KEYS, MODULE_META, STEP_SUBITEMS, SUBITEM_META, type StepKey, type ModuleKey, type SubItemKey, type AccessKey } from '@/lib/access';
+import { STEP_KEYS, STEP_META, MODULE_KEYS, MODULE_META, EXTRA_KEYS, EXTRA_META, STEP_SUBITEMS, SUBITEM_META, type StepKey, type ModuleKey, type ExtraKey, type SubItemKey, type AccessKey } from '@/lib/access';
 
 // Har qanday ruxsat kaliti uchun yorliq (bosqich / sub-item / modul).
 const accessLabel = (k: AccessKey): string => {
   if ((STEP_KEYS as readonly string[]).includes(k)) return STEP_META[k as StepKey].label;
   if ((MODULE_KEYS as readonly string[]).includes(k)) return MODULE_META[k as ModuleKey].label;
+  if ((EXTRA_KEYS as readonly string[]).includes(k)) return EXTRA_META[k as ExtraKey].label;
   return SUBITEM_META[k as SubItemKey]?.label ?? k;
 };
 
@@ -253,6 +254,18 @@ function UserForm({ mode, initial, existingUsernames = [], onDone, onCancel }: {
               onChange={setSteps}
               disabled={busy}
               label={(k) => MODULE_META[k as ModuleKey].label}
+            />
+          </div>
+          <div>
+            <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted">
+              <Ico.check size={14} /> Maxsus ruxsatlar
+            </div>
+            <AccessToggles
+              keys={EXTRA_KEYS}
+              value={steps}
+              onChange={setSteps}
+              disabled={busy}
+              label={(k) => EXTRA_META[k as ExtraKey].label}
             />
           </div>
         </div>

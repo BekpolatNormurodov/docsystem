@@ -54,9 +54,18 @@ export const STEP_SUBITEMS: Partial<Record<StepKey, SubItemKey[]>> = {
   sud: ['sud:invoice', 'sud:oferta', 'sud:send', 'sud:returns'],
 };
 
-// Har qanday ruxsat kaliti — Admin.steps shu qiymatlarni saqlaydi (bosqich / sub-item / modul).
-export type AccessKey = StepKey | ModuleKey | SubItemKey;
-export const ACCESS_KEYS: AccessKey[] = [...STEP_KEYS, ...MODULE_KEYS, ...SUBITEM_KEYS];
+// «Extra» ruxsatlar — bosqich ham, «Alohida» modul ham EMAS: Hujjatlar boshqaruvi kabi maxsus
+// vazifalar. Sidebar'da alohida nav bermaydi (Hujjatlar hammaga ko'rinadi); faqat yuklash/boshqaruv
+// huquqini ochadi. Grant Admin.steps ichida shu kalit bilan saqlanadi.
+export const EXTRA_KEYS = ['docs-manage'] as const;
+export type ExtraKey = (typeof EXTRA_KEYS)[number];
+export const EXTRA_META: Record<ExtraKey, { label: string }> = {
+  'docs-manage': { label: 'Hujjatlar boshqaruvi (3 excel yuklash)' },
+};
+
+// Har qanday ruxsat kaliti — Admin.steps shu qiymatlarni saqlaydi (bosqich / sub-item / modul / extra).
+export type AccessKey = StepKey | ModuleKey | SubItemKey | ExtraKey;
+export const ACCESS_KEYS: AccessKey[] = [...STEP_KEYS, ...MODULE_KEYS, ...SUBITEM_KEYS, ...EXTRA_KEYS];
 const SUBITEM_PARENT: Record<string, StepKey | undefined> = Object.fromEntries(
   SUBITEM_KEYS.map((k) => [k, SUBITEM_META[k].step]),
 );
@@ -108,6 +117,11 @@ export function allowedModules(u: Pick<AppUser, 'role' | 'steps'>): ModuleKey[] 
   return MODULE_KEYS.filter((k) => u.role === 'ADMIN' || u.steps.includes(k));
 }
 
+/** Hujjatlar bo'limida 3 ta excelni (Portfel / Sud ro'yxati / Talabnoma) yuklash-boshqarish huquqi. */
+export function canManageDocs(u: Pick<AppUser, 'role' | 'steps'>): boolean {
+  return u.role === 'ADMIN' || u.steps.includes('docs-manage');
+}
+
 /** Where to send a user who lands somewhere they may not see. Admin → Hisobot;
  *  yurist → their first granted step; nobody-granted → null (caller decides). */
 export function landingHref(u: Pick<AppUser, 'role' | 'steps'>): string | null {
@@ -120,7 +134,10 @@ export function landingHref(u: Pick<AppUser, 'role' | 'steps'>): string | null {
   }
   // Faqat «Alohida» modul berilgan YURIST (masalan invoice-check) — o'sha modulga tushadi.
   const mod = allowedModules(u)[0];
-  return mod ? MODULE_META[mod].href : null;
+  if (mod) return MODULE_META[mod].href;
+  // Faqat Hujjatlar boshqaruvi berilgan (Toirov Bilol kabi) — Hujjatlarga tushadi.
+  if (canManageDocs(u)) return '/hujjatlar';
+  return null;
 }
 
 /** Map a pathname back to the step it belongs to (for route-level guards). */

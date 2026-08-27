@@ -17,7 +17,7 @@ export async function runImportJob(
   jobId: number,
   portfolioPath: string,
   snapshotId: number,
-  exclusionPath: string,
+  exclusionPath: string | null,
 ): Promise<void> {
   // updateMany (not update) throughout: if the Job/Snapshot was deleted mid-import (e.g. a replace
   // for the same date), update() would throw "record not found" and — since callers fire-and-forget
@@ -25,7 +25,8 @@ export async function runImportJob(
   await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING' } });
 
   try {
-    const excluded = await parseExclusionPinfls(exclusionPath);
+    // Sud (istisno) fayli ixtiyoriy — berilmasa hech kim istisno qilinmaydi (bo'sh to'plam).
+    const excluded = exclusionPath ? await parseExclusionPinfls(exclusionPath) : new Set<string>();
 
     const result = await importPortfolio(
       portfolioPath,
