@@ -242,6 +242,8 @@ export interface InternalMail {
   templateName: string;
   custom_id: string | null;
   clientCustomId?: string;
+  PinflOrInn?: string;   // REQUIRED by the external (Pinfl/Inn) flow — /registry/process-mails/external.
+                         // The internal endpoint ignores it, so it's safe to always include.
 }
 
 export interface CreateRegistryPayload {

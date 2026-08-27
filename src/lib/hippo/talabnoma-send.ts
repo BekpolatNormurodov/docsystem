@@ -44,6 +44,7 @@ export function talabnomaRowsToMails(rows: TalabnomaRow[], templateName: string,
     };
     const base = String(r.contract_id ?? '').trim();
     const customId = base ? (suffix ? `${base}-${suffix}` : base) : '';
+    const pinfl = String(r.pinfl ?? '').trim();
     return {
       receiver: r.receiver,
       regionId: r.region,
@@ -53,6 +54,7 @@ export function talabnomaRowsToMails(rows: TalabnomaRow[], templateName: string,
       templateName,
       custom_id: customId || null,
       ...(customId ? { clientCustomId: customId } : {}),
+      ...(pinfl ? { PinflOrInn: pinfl } : {}), // required by the external flow (Bright); ignored by internal
     };
   });
 }
