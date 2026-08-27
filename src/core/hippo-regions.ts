@@ -13,14 +13,20 @@ function cyrUpper(s: string): string {
     .replace(/H/g, 'Н').replace(/h/g, 'н')
     .replace(/I/g, 'И').replace(/i/g, 'и')
     .replace(/P/g, 'Р').replace(/C/g, 'С').replace(/O/g, 'О').replace(/A/g, 'А').replace(/E/g, 'Е')
-    .toUpperCase();
+    .toUpperCase()
+    // Uzbek Cyrillic → Russian core so region/area rules (written in Russian Cyrillic) match
+    // Uzbek-spelled inputs: Қашқадарё→КАШКАДАРЕ, Фарғона→ФАРГОНА, Сурхондарё→СУРХОНДАРЕ, Бўстонлиқ→БУСТОНЛИК.
+    .replace(/Қ/g, 'К').replace(/Ғ/g, 'Г').replace(/Ҳ/g, 'Х').replace(/Ў/g, 'У').replace(/Ё/g, 'Е');
 }
 
 // 14 regions — match the Russian/Uzbek region name to a hippo region id.
+// Region names in the portfolio are informal: Russian oblast style, Uzbek short forms, and even a
+// district/city standing in for its region (Термиз/Денов→Сурхондарё, Нукус→Коракалпогистон). Order
+// matters — Toshkent CITY (shahar) must be tested before the oblast/bare fallback.
 const REGION_RULES: [RegExp, number][] = [
-  [/КАРАКАЛПАК|КОРАКАЛПОГ/, 13],
-  [/ГОРОД\s*ТАШКЕН|ТАШКЕН.*ГОРОД|Г\.?\s*ТАШКЕН/, 1],
-  [/ТАШКЕН/, 2],          // Ташкентская область (after the city rule)
+  [/КАРАКАЛПАК|КОРАКАЛПОГ|КОРАКАЛПАК|НУКУС/, 13],
+  [/ГОРОД\s*ТАШКЕН|ТАШКЕН.*ГОРОД|Г\.?\s*ТАШКЕН|ТОШКЕНТ?\s*ШАХ/, 1],  // Toshkent shahri (город/шахар)
+  [/ТАШКЕН|ТОШ\s*ОБЛ|ТОШКЕН/, 2],                                     // Toshkent viloyati (obl / bare Тошкент)
   [/САМАРКАН/, 3],
   [/ДЖИЗАК|ЖИЗЗАХ|ЖИЗАХ/, 4],
   [/СЫРДАР|СИРДАР/, 5],
@@ -28,7 +34,7 @@ const REGION_RULES: [RegExp, number][] = [
   [/АНДИЖАН|АНДИЖОН/, 7],
   [/НАМАНГАН/, 8],
   [/КАШКАДАР/, 9],
-  [/СУРХАНДАР|СУРХОНДАР/, 10],
+  [/СУРХАНДАР|СУРХОНДАР|ТЕРМИЗ|ТЕРМЕЗ|ДЕНОВ/, 10],                    // + Termiz/Denov standing in for the region
   [/БУХАР|БУХОР/, 11],
   [/НАВОИ/, 12],
   [/ХОРЕЗМ|ХОРАЗМ/, 14],
