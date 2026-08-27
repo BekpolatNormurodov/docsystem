@@ -404,6 +404,7 @@ export interface OfertaJobOpts {
   stages?: CaseStage[];
   insurancePct?: number; // таъминот % of principal (0 → policy text, no invented sum)
   caseIds?: number[];    // explicit case list (single-case gen-oferta) — overrides snapshot/firm/stages
+  limit?: number;        // «belgilangan son» — render only the first N cases of the scope (0/omitted → all)
 }
 
 /** Background «Oferta» job: render ONLY the ofertas — one PDF per loan (contract) — for
@@ -431,6 +432,9 @@ export async function runOfertaJob(jobId: number, opts: OfertaJobOpts): Promise<
       });
       caseIds = rows.map((r) => r.id);
     }
+    // «Belgilangan son» — build only the first N of the scope (ordered by id for a stable slice).
+    // Skipped when an explicit caseIds list was given (single-case gen-oferta already picks its set).
+    if (!opts.caseIds?.length && opts.limit && opts.limit > 0 && opts.limit < caseIds.length) caseIds = caseIds.slice(0, opts.limit);
 
     await fsp.mkdir(EXPORTS_DIR, { recursive: true });
     const zipPath = path.join(EXPORTS_DIR, `${jobId}.zip`);

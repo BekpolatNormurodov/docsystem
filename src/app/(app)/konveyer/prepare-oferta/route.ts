@@ -19,6 +19,8 @@ export async function POST(req: NextRequest) {
   const num = (v: unknown): number | undefined => { const n = Number(v); return v != null && v !== '' && Number.isInteger(n) && n > 0 ? n : undefined; };
   const snapshotId = num(body?.snapshotId);
   const firmId = num(body?.firmId);
+  // «Belgilangan son» — build only the first N cases of the scope (undefined → all).
+  const limit = num(body?.limit);
   const stages = (Array.isArray(body?.stages) ? body.stages : []).filter((s: unknown) => typeof s === 'string' && VALID_STAGES.has(s)) as CaseStage[];
   const insP = Number(body?.insurancePct);
   const insurancePct = Number.isFinite(insP) && insP >= 0 && insP <= 100 ? insP : 0;
@@ -61,11 +63,13 @@ export async function POST(req: NextRequest) {
     ...(firmId ? { firmId } : {}),
     ...(stages.length ? { stage: { in: stages } } : {}),
   };
-  const total = await prisma.arizaCase.count({ where });
-  if (total === 0) return NextResponse.json({ error: 'Bu tanlovda case yoʻq' }, { status: 400 });
+  const scopeTotal = await prisma.arizaCase.count({ where });
+  if (scopeTotal === 0) return NextResponse.json({ error: 'Bu tanlovda case yoʻq' }, { status: 400 });
+  // «Belgilangan son»: cap the job to the first N cases so pressing «1» renders 1, not the whole scope.
+  const total = limit && limit < scopeTotal ? limit : scopeTotal;
 
   const job = await prisma.job.create({
-    data: { type: 'OFERTA', status: 'PENDING', snapshotId: snapshotId ?? null, total, params: { snapshotId, firmId, stages, insurancePct } },
+    data: { type: 'OFERTA', status: 'PENDING', snapshotId: snapshotId ?? null, total, params: { snapshotId, firmId, stages, insurancePct, ...(limit ? { limit } : {}) } },
   });
 
   // Run inline (default) or leave PENDING for the Docker worker (JOB_MODE=worker).

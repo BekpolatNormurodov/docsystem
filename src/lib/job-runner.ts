@@ -48,6 +48,7 @@ export async function runJobById(jobId: number): Promise<void> {
         firmId: p.firmId != null ? Number(p.firmId) : undefined,
         stages: Array.isArray(p.stages) ? (p.stages as CaseStage[]) : undefined,
         insurancePct,
+        limit: p.limit != null ? Number(p.limit) : undefined,
       };
       await runOfertaJob(jobId, opts);
     }
