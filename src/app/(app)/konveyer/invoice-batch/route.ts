@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
   try {
     const result = await startRestBatchForCases({ firmId, count, snapshotId });
     if (result.total === 0) {
-      return NextResponse.json({ error: 'Imzodan oʻtgan (kvitansiyasiz) case yoʻq' }, { status: 400 });
+      return NextResponse.json({ error: 'Kvitansiyasiz case yoʻq' }, { status: 400 });
     }
     await audit(AuditAction.INVOICE_BATCH, { target: `firm:${firmId}`, detail: { count, total: result.total } });
     return NextResponse.json(result);

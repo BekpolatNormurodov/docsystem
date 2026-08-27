@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/db';
 import { getSettings } from '@/lib/settings';
@@ -34,17 +33,43 @@ export default async function PersonPage({
       ? [searchParams.firm]
       : [];
 
-  const [allLoans, firms, settings] = await Promise.all([
+  const [allLoans, firms, settings, cases] = await Promise.all([
     prisma.loan.findMany({
       where: { snapshotId: snapshot.id, pinfl: params.pinfl },
       orderBy: { totalDebt: 'desc' },
     }),
     prisma.firm.findMany(),
     getSettings(),
+    // Shu mijozning (pinfl) konveyer case'lari — shakllangan hujjatlarni ko'rsatish uchun.
+    prisma.arizaCase.findMany({
+      where: { snapshotId: snapshot.id, pinfl: params.pinfl },
+      include: {
+        documents: { orderBy: { uploadedAt: 'asc' } },
+        invoiceRecords: { where: { pdfPath: { not: null } }, select: { id: true, invoiceNo: true } },
+      },
+    }),
   ]);
   if (allLoans.length === 0) notFound();
 
   const firmByCode = new Map(firms.map((fr) => [fr.code, fr]));
+  // firmId → shakllangan hujjatlar ro'yxati (kvitansiya PDF + yuklangan case hujjatlari).
+  const DOC_KIND_LABEL: Record<string, string> = {
+    TALABNOMA: 'Talabnoma', ARIZA: 'Ariza', SIGNED_ARIZA: 'Imzolangan ariza',
+    INVOICE: 'Kvitansiya', OFERTA: 'Oferta', GUVOHNOMA: 'Guvohnoma',
+    ISHONCHNOMA: 'Ishonchnoma', SHARTNOMA: 'Shartnoma', BOSHQA: 'Boshqa hujjat',
+  };
+  type FormedDoc = { href: string; label: string };
+  const docsByFirm = new Map<number, FormedDoc[]>();
+  for (const cs of cases) {
+    const list = docsByFirm.get(cs.firmId) ?? [];
+    for (const inv of cs.invoiceRecords) {
+      list.push({ href: `/api/invoices/${inv.id}/download`, label: `Kvitansiya ${inv.invoiceNo}` });
+    }
+    for (const d of cs.documents) {
+      list.push({ href: `/api/case-doc/${d.id}`, label: DOC_KIND_LABEL[d.kind] ?? d.fileName });
+    }
+    if (list.length) docsByFirm.set(cs.firmId, list);
+  }
 
   // The person's own firms (for the filter chips), with a per-firm contract count.
   const personFirmsMap = new Map<string, number>();
@@ -80,11 +105,6 @@ export default async function PersonPage({
       <PageHeader
         title={first.clientName || params.pinfl}
         subtitle={`PINFL: ${params.pinfl} · Sana: ${params.date.split('-').reverse().join('.')}`}
-        action={
-          <Link href={`/s/${params.date}`} className="btn-ghost text-xs">
-            ← Portfelga qaytish
-          </Link>
-        }
       />
 
       {isExcluded && (
@@ -153,11 +173,28 @@ export default async function PersonPage({
 
                 {firm && (
                   <div>
-                    <div className="mb-2 flex justify-end">
-                      <a href={`/api/ariza/${firmLoans[0]!.id}`} className="btn-primary text-xs">
-                        .docx — birlashtirilgan ariza
-                      </a>
-                    </div>
+                    {(() => {
+                      const formed = docsByFirm.get(firm.id) ?? [];
+                      return (
+                        <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+                          <a href={`/api/ariza/${firmLoans[0]!.id}`} className="btn-primary text-xs">
+                            .docx — birlashtirilgan ariza
+                          </a>
+                          {formed.map((d, i) => (
+                            <a
+                              key={i}
+                              href={d.href}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:border-brand-500/40 hover:text-fg"
+                            >
+                              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
+                              {d.label}
+                            </a>
+                          ))}
+                        </div>
+                      );
+                    })()}
                     <ArizaPreview props={loansToAriza(firmLoans, firm, settings, snapshot.reportDate)} />
                   </div>
                 )}

@@ -124,7 +124,7 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
         <span className="truncate text-[13px] font-semibold">{f.firmName}</span>
         <span className="shrink-0 text-[11px] tabular-nums text-muted">
           {n(f.withInvoice)}/{n(f.total)}
-          {f.eligible > 0 && <span className="font-medium text-emerald-600 dark:text-emerald-400"> · {n(f.eligible)} imzodan o'tgan</span>}
+          {f.eligible > 0 && <span className="font-medium text-emerald-600 dark:text-emerald-400"> · {n(f.eligible)} boji tayyor</span>}
           {!done && f.eligible === 0 && <span className="text-muted"> · {n(f.remaining)} qoldi</span>}
         </span>
       </div>
@@ -134,7 +134,7 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
       {done ? (
         <div className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">✓ Hammasiga yaratilgan</div>
       ) : nothingEligible ? (
-        <div className="text-[11px] text-muted">Imzodan o'tgan (skanlangan) case yo'q — avval palatadan imzolangan arizani biriktiring, so'ng boji yaratiladi. <span className="tabular-nums">({n(f.remaining)} ta kvitansiyasiz, hali skansiz)</span></div>
+        <div className="text-[11px] text-muted">Kvitansiyasiz case yo'q — hammasiga boji yaratilgan.</div>
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-1">
@@ -233,7 +233,7 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
       <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center justify-between text-left">
         <div>
           <div className="text-sm font-semibold">Invoice — buxgalteriya</div>
-          <div className="mt-0.5 text-xs tabular-nums text-muted">Har biri {n(amount)} so'm · {n(totalWith)} yaratilgan{totalEligible > 0 && <span className="font-medium text-emerald-600 dark:text-emerald-400"> · {n(totalEligible)} imzodan o'tgan (boji tayyor)</span>} · {n(totalRemaining)} qoldi</div>
+          <div className="mt-0.5 text-xs tabular-nums text-muted">Har biri {n(amount)} so'm · {n(totalWith)} yaratilgan{totalEligible > 0 && <span className="font-medium text-emerald-600 dark:text-emerald-400"> · {n(totalEligible)} boji tayyor</span>} · {n(totalRemaining)} qoldi</div>
         </div>
         <svg className={`h-4 w-4 shrink-0 text-muted transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m9 6 6 6-6 6" /></svg>
       </button>

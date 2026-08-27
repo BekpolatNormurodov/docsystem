@@ -459,9 +459,11 @@ export async function startRestBatchForCases(
   if (hasActiveBatchForFirm(input.firmId)) throw new Error('Bu firma uchun paket allaqachon ishlayapti — tugashini kuting.');
 
   const count = Math.max(1, Math.min(MAX_COUNT, Math.floor(input.count) || 1));
+  // Boji uchun endi imzolangan-skan («SIGNED_SCANNED») sharti YO'Q (foydalanuvchi so'rovi):
+  // firmaning har qanday kvitansiyasiz (receiptNumber: null) case'iga boji yaratiladi.
   const picked = await prisma.arizaCase.findMany({
     where: {
-      firmId: input.firmId, stage: 'SIGNED_SCANNED', receiptNumber: null,
+      firmId: input.firmId, receiptNumber: null,
       ...(input.snapshotId ? { snapshotId: input.snapshotId } : {}),
     },
     orderBy: { id: 'asc' }, take: count, select: { id: true },

@@ -51,7 +51,8 @@ export async function invoiceProgress(snapshotId?: number, firmId?: number): Pro
     prisma.firm.findMany({ where: firmId ? { id: firmId } : {}, select: { id: true, shortName: true } }),
     prisma.arizaCase.groupBy({ by: ['firmId'], where: scope, _count: { _all: true } }),
     prisma.arizaCase.groupBy({ by: ['firmId'], where: { ...scope, receiptNumber: { not: null } }, _count: { _all: true } }),
-    prisma.arizaCase.groupBy({ by: ['firmId'], where: { ...scope, stage: 'SIGNED_SCANNED', receiptNumber: null }, _count: { _all: true } }),
+    // «eligible» = boji yaratsa bo'ladigan pool. Endi skan sharti YO'Q — har qanday kvitansiyasiz case.
+    prisma.arizaCase.groupBy({ by: ['firmId'], where: { ...scope, receiptNumber: null }, _count: { _all: true } }),
   ]);
   const totalBy = new Map(totals.map((t) => [t.firmId, t._count._all]));
   const invBy = new Map(withInv.map((t) => [t.firmId, t._count._all]));
