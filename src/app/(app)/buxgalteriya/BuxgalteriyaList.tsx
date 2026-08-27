@@ -50,6 +50,7 @@ function FirmCard({ firm, query, forceOpen }: { firm: BxFirm; query: string; for
         </div>
         <div className="flex items-center gap-3">
           <span className="whitespace-nowrap text-xs font-bold tabular-nums text-brand-700 dark:text-brand-300">{n(sum)} so‘m</span>
+          <a href={`/buxgalteriya/farmoyish?firmId=${firm.firmId}`} onClick={(e) => e.stopPropagation()} className="hidden rounded-md border border-line px-2 py-1 text-[11px] font-medium text-sky-700 hover:border-sky-500/40 dark:text-sky-300 sm:inline-flex" title="Farmoyish (Word)">Word</a>
           <a href={`/buxgalteriya/excel?firmId=${firm.firmId}`} onClick={(e) => e.stopPropagation()} className="hidden rounded-md border border-line px-2 py-1 text-[11px] font-medium text-emerald-700 hover:border-emerald-500/40 dark:text-emerald-300 sm:inline-flex" title="Excel">Excel</a>
           <svg className={`h-4 w-4 shrink-0 text-muted transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m9 6 6 6-6 6" /></svg>
         </div>
@@ -120,6 +121,19 @@ export function BuxgalteriyaList({ data }: { data: BxData }) {
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_16rem]">
       {/* Chap: umumiy hisobot + qidiruv + firma kartalari */}
       <div className="min-w-0 space-y-3">
+        {/* Hammasi bo'yicha yuklab olish: firma tanlangan bo'lsa — o'sha firma, bo'lmasa hammasi (ZIP/Excel) */}
+        <div className="flex flex-wrap items-center gap-2">
+          <a href={sel === 'all' ? '/buxgalteriya/farmoyish' : `/buxgalteriya/farmoyish?firmId=${sel}`} className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-700 transition-colors hover:bg-sky-500/15 dark:text-sky-300">
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
+            Farmoyish (Word){sel === 'all' ? ' — hammasi (ZIP)' : ''}
+          </a>
+          <a href={sel === 'all' ? '/buxgalteriya/excel' : `/buxgalteriya/excel?firmId=${sel}`} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/15 dark:text-emerald-300">
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 3v12" /><path d="m8 11 4 4 4-4" /></svg>
+            Excel{sel === 'all' ? ' — hammasi' : ''}
+          </a>
+          {sel !== 'all' && <span className="text-[11px] text-muted">(tanlangan firma bo‘yicha)</span>}
+        </div>
+
         {/* Umumiy hisobot — soni va HAQIQIY summasi bilan */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="card p-4"><div className="text-xs text-muted">Jami kvitansiya</div><div className="mt-0.5 text-xl font-bold tabular-nums">{n(data.total)}</div><div className="text-[11px] tabular-nums text-muted">{n(data.sum)} so‘m</div></div>

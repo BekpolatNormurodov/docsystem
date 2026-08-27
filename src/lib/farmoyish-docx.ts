@@ -173,3 +173,39 @@ export async function buildFarmoyishDocx(batchId: number): Promise<{ buffer: Buf
   const safe = firm.shortName.replace(/[^\p{L}\p{N}]+/gu, '_').slice(0, 40);
   return { buffer, fileName: `Farmoyish_${safe}_${batchId}.docx` };
 }
+
+/**
+ * Buxgalteriya moduli uchun: BITTA FIRMANING tanlangan snapshotdagi barcha kvitansiyali case'lari
+ * bo'yicha farmoyish (partiyaga emas, firmaga bog'liq). Har fayl o'z firmasi nomi + sanasi bilan —
+ * fayllar almashib ketmaydi. `null` — shu snapshotda kvitansiya yo'q.
+ */
+export async function buildFarmoyishForFirm(firmId: number, snapshotId?: number): Promise<{ buffer: Buffer; fileName: string } | null> {
+  const [firm, snap, cases] = await Promise.all([
+    prisma.firm.findUnique({ where: { id: firmId } }),
+    snapshotId ? prisma.snapshot.findUnique({ where: { id: snapshotId }, select: { reportDate: true } }) : Promise.resolve(null),
+    prisma.arizaCase.findMany({
+      where: { firmId, receiptNumber: { not: null }, ...(snapshotId ? { snapshotId } : {}) },
+      orderBy: [{ clientName: 'asc' }, { id: 'asc' }],
+      select: { clientName: true, kod: true, receiptNumber: true },
+    }),
+  ]);
+  if (!firm || cases.length === 0) return null;
+  const signers = FARMOYISH_SIGNERS[firm.code];
+  const date = snap?.reportDate ?? new Date();
+  const buffer = await renderFarmoyishDocx({
+    legalName: firm.legalName || firm.shortName,
+    district: firm.district,
+    phone: firm.phone,
+    date,
+    rows: cases,
+    address: firm.address,
+    stir: firm.stir,
+    bankAccount: firm.bankAccount,
+    mfo: firm.mfo,
+    directorName: signers?.director,
+    executorName: signers?.executor,
+  });
+  const safe = firm.shortName.replace(/[^\p{L}\p{N}]+/gu, '_').slice(0, 40);
+  const dstr = `${pad(date.getUTCDate())}.${pad(date.getUTCMonth() + 1)}.${date.getUTCFullYear()}`;
+  return { buffer, fileName: `Farmoyish_${safe}_${dstr}.docx` };
+}
