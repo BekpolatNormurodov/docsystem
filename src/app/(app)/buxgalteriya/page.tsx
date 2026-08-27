@@ -22,7 +22,7 @@ export default async function BuxgalteriyaPage() {
   return (
     <div>
       <PageHeader
-        title="Buxgalteriya"
+        title="Buxgalteriya to‘lovi"
         subtitle={`Yaratilgan boji invoice'lari — firmalar bo'yicha, holati bilan${sel ? ` · ${sel.label}` : ''}`}
       />
       <BuxgalteriyaList data={data} />

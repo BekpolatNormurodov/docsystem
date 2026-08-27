@@ -49,7 +49,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       // Sud ostiga «Buxgalteriya-invoice» — «Invoice yaratish» yonidan (undan keyin). Faqat ruxsatlilar.
       if (k === 'sud' && hasBux) {
         const at = base.findIndex((c) => c.href === '/sud/invoice');
-        base.splice(at >= 0 ? at + 1 : base.length, 0, { href: '/buxgalteriya', label: 'Buxgalteriya-invoice', locked: false });
+        base.splice(at >= 0 ? at + 1 : base.length, 0, { href: '/buxgalteriya', label: 'Buxgalteriya to‘lovi', locked: false });
       }
       return base.length ? base : undefined;
     })(),
@@ -88,7 +88,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     const bx = await buxgalteriyaCounts(selectedSnap).catch(() => ({ total: 0, paid: 0 }));
     buxSoloNav = {
       href: '/buxgalteriya',
-      label: 'Buxgalteriya-invoice',
+      label: 'Buxgalteriya to‘lovi',
       icon: 'sheet',
       section: 'Boshqaruv',
       badgeText: bx.total > 0 ? `${bx.paid}/${bx.total}` : '',
