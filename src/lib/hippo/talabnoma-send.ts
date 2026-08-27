@@ -9,7 +9,7 @@ import { prisma } from '@/lib/db';
 import { hippoTemplateIdByStir } from '@/lib/firms';
 import { getStoredHippoSession } from './session';
 import { loadTalabnomaRowsForScope } from './talabnoma-bulk';
-import { resolveContext, checkBalanceFor, createRegistryInternal, createRegistryExternal, listRegistries, listRegistryMails, getRegistry, type InternalMail } from './xat';
+import { resolveContext, checkBalanceFor, createRegistryInternal, createRegistryExternal, listRegistries, type InternalMail } from './xat';
 import { getSentTalabnomaPinfls, splitBySent, recordSentTalabnomas } from './talabnoma-trace';
 import type { TalabnomaRow } from './talabnoma-excel';
 
@@ -225,27 +225,10 @@ export async function sendTalabnomaToHippo(opts: SendTalabnomaOpts): Promise<Sen
   const bodyCode = res.json && typeof res.json === 'object' ? Number((res.json as any).code) : NaN;
   const bodyErr = Number.isFinite(bodyCode) && bodyCode >= 400;
   if (!res.ok || bodyErr) {
-    // FULL request + response dump — «Invalid targeting setup» when org/branch/template are proven-good
-    // means the culprit is in the payload; log every mail's targeting fields and the raw error body.
-    console.error('[hippo send] REJECT status=%s org=%s branch=%s tpl=%j mails=%j resp=%s',
-      res.status, ctx.organizationId, ctx.branchId, ctx.templateName,
-      mails.map((m) => ({ receiver: m.receiver, region: m.regionId, area: m.areaId, address: m.address, custom_id: m.custom_id })),
-      (() => { try { return JSON.stringify(res.json)?.slice(0, 600); } catch { return String(res.json); } })());
-    // Compare against a KNOWN-GOOD reyestr: dump the registry detail + its first mail's real structure,
-    // so a field/targeting difference between what hippo stored and what we send becomes visible.
-    try {
-      const rl = await listRegistries(session, { PageIndex: 1, PageSize: 5 });
-      const arr: any[] = Array.isArray(rl.json) ? rl.json : rl.json?.data?.items ?? rl.json?.items ?? rl.json?.data ?? [];
-      const good = arr.find((r) => String(r?.status ?? '').toLowerCase() === 'completed') ?? arr[0];
-      if (good?.id) {
-        const det = await getRegistry(session, good.id);
-        const ml = await listRegistryMails(session, good.id, 1, 1);
-        const items: any[] = Array.isArray(ml.json) ? ml.json : ml.json?.data?.items ?? ml.json?.items ?? ml.json?.data ?? [];
-        console.error('[hippo send] GOOD reyestr=%s detail=%s mail0=%s', good.id,
-          (() => { try { return JSON.stringify(det.json)?.slice(0, 500); } catch { return ''; } })(),
-          (() => { try { return JSON.stringify(items[0])?.slice(0, 500); } catch { return ''; } })());
-      }
-    } catch (e) { console.error('[hippo send] GOOD-reyestr probe failed', e); }
+    // One-line reject diagnostic — the org/branch/template we targeted + the raw error body.
+    console.error('[hippo send] REJECT firm=%s status=%s org=%s branch=%s tpl=%j count=%d resp=%s',
+      firmName, res.status, ctx.organizationId, ctx.branchId, ctx.templateName, mails.length,
+      (() => { try { return JSON.stringify(res.json)?.slice(0, 300); } catch { return String(res.json); } })());
     const msg = typeof res.json === 'string' ? res.json : res.json?.message ?? res.json?.error;
     return fail(mode, `xat.hippo rad etdi (${res.status}${bodyErr ? `/code ${bodyCode}` : ''})${msg ? `: ${String(msg).slice(0, 160)}` : ''}`, {
       firmName, balance: bal.balance, required: bal.required, enough: bal.enough, free,

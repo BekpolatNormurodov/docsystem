@@ -145,30 +145,13 @@ export async function resolveContext(s: HippoSession, templateNameHint = 'talabn
   const resolvedTemplateId = Number(t?.id ?? templateId ?? 0);
   let organizationId = Number(t?.organizationId ?? 0);
 
-  const orgOf = (b: any) => Number(b?.organizationId ?? b?.orgId ?? b?.organization?.id ?? 0);
-  // ALWAYS fetch the org's branches — not just as a fallback. The login can see MULTIPLE orgs, so the
-  // newest registry's branch may belong to a DIFFERENT org → «Invalid targeting setup». We use this
-  // list to validate the branch and, when it's wrong-org/missing, pick a branch under the template org.
-  let branchesArr: any[] = [];
-  try {
-    const br = await getMyBranches(s);
-    branchesArr = Array.isArray(br.json) ? br.json : br.json?.data?.items ?? br.json?.items ?? br.json?.data ?? [];
-    console.log('[hippo ctx] getMyBranches=%s branches=%j', br.status,
-      branchesArr.slice(0, 20).map((b) => ({ id: b?.id ?? b?.branchId, org: orgOf(b), name: b?.name ?? b?.shortName, def: b?.isDefault ?? b?.isMain ?? b?.default })));
-  } catch (e) { console.error('[hippo ctx] getMyBranches failed', e); }
-
-  // /my-organization-branches 404s here, so the only reliable branch source is an existing registry.
-  // But the login sees MULTIPLE orgs — the newest registry may be another org's (branch 12) → «Invalid
-  // targeting setup». So scan a page of registries and take the branchId of one that belongs to the
-  // TEMPLATE's org. Log each registry's {id,org,branch} so the topology is visible.
+  // /my-organization-branches 404s on these accounts, so branchId comes from an existing registry.
+  // The login can see MULTIPLE orgs — the newest reyestr may be another org's → «Invalid targeting» —
+  // so scan a page and take the branchId of a registry under the TEMPLATE's org.
+  const regOrg = (r: any) => Number(r?.organizationId ?? r?.organization?.id ?? r?.orgId ?? 0);
   let branchId = 0;
   const list = await listRegistries(s, { PageIndex: 1, PageSize: 50 });
   const listArr: any[] = Array.isArray(list.json) ? list.json : list.json?.data?.items ?? list.json?.items ?? list.json?.data ?? [];
-  const regOrg = (r: any) => Number(r?.organizationId ?? r?.organization?.id ?? r?.orgId ?? 0);
-  console.log('[hippo ctx] registries=%d sample=%j raw0=%s', listArr.length,
-    listArr.slice(0, 12).map((r) => ({ id: r?.id, org: regOrg(r), branch: Number(r?.branchId ?? 0), name: r?.name })),
-    (() => { try { return JSON.stringify(listArr[0])?.slice(0, 350); } catch { return ''; } })());
-  // Prefer a registry under the template's org; fall back to the newest if none carries an org field.
   const ref = (organizationId ? listArr.find((r) => regOrg(r) === organizationId) : null) ?? listArr[0];
   if (ref?.id) {
     branchId = Number(ref?.branchId ?? 0);
@@ -178,22 +161,17 @@ export async function resolveContext(s: HippoSession, templateNameHint = 'talabn
     }
   }
   if (!organizationId && ref) organizationId = regOrg(ref) || organizationId;
-  void branchesArr; // (kept for the getMyBranches diagnostic log above)
-
   if (!organizationId) {
     try {
       const orgs = await getMyOrganizations(s);
       const arr: any[] = Array.isArray(orgs.json) ? orgs.json : orgs.json?.data?.items ?? orgs.json?.items ?? orgs.json?.data ?? [];
       organizationId = Number(arr?.[0]?.id ?? arr?.[0]?.organizationId ?? 0);
-    } catch (e) { console.error('[hippo ctx] getMyOrganizations fallback failed', e); }
+    } catch { /* /my-organizations 404s on some accounts — org already came from the template */ }
   }
 
-  // /template status distinguishes an EXPIRED token (401 → reconnect) from an empty account (200).
-  // Log the ids we see + the raw response so a shape mismatch vs a genuinely template-less account
-  // (wrong org connected) is distinguishable.
-  console.log('[hippo ctx] getTemplates=%s(ok=%s) templates=%d ids=%j org=%s branch=%s raw=%s',
-    tpl.status, tpl.ok, tplArr.length, tplArr.slice(0, 12).map((x) => ({ id: x?.id, name: x?.name, org: x?.organizationId })),
-    organizationId, branchId, (() => { try { return JSON.stringify(tpl.json)?.slice(0, 300); } catch { return String(tpl.json); } })());
+  // getTemplates status distinguishes an EXPIRED token (401 → reconnect) from an empty account (200).
+  console.log('[hippo ctx] getTemplates=%s templates=%d template=%s(id=%s) org=%s branch=%s',
+    tpl.status, tplArr.length, templateName, resolvedTemplateId, organizationId, branchId);
   return { templateName, templateId: resolvedTemplateId, organizationId, branchId };
 }
 
