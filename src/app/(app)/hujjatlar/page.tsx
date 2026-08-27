@@ -123,6 +123,7 @@ export default async function HujjatlarPage() {
               accent="brand"
               initial={docs.talabnoma}
               info="talabnoma"
+              required={false}
             />
           </ImportForm>
           <ImportHistory rows={rows} />

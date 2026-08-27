@@ -6,7 +6,7 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { Ico, Spinner, useConfirm } from '@/ui';
 import type { AppDocFile, AppDocKey } from '@/lib/app-docs';
-import { DocInfo, type DocInfoKind } from './DocInfo';
+import { DocInfo, ReqChip, type DocInfoKind } from './DocInfo';
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
 const KB = 1024;
@@ -19,8 +19,8 @@ const ACCENT: Record<Accent, { ring: string; icon: string; badge: string }> = {
 };
 const XLSX_ACCEPT = '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
-export function AppDocDropzone({ k, label, hint, accent = 'brand', initial, info }: {
-  k: AppDocKey; label: string; hint: string; accent?: Accent; initial: AppDocFile; info?: DocInfoKind;
+export function AppDocDropzone({ k, label, hint, accent = 'brand', initial, info, required }: {
+  k: AppDocKey; label: string; hint: string; accent?: Accent; initial: AppDocFile; info?: DocInfoKind; required?: boolean;
 }) {
   const [file, setFile] = useState<AppDocFile>(initial);
   const confirm = useConfirm();
@@ -55,7 +55,7 @@ export function AppDocDropzone({ k, label, hint, accent = 'brand', initial, info
 
   return (
     <div>
-      <span className="field-label flex items-center gap-2">{label}{info && <DocInfo kind={info} />}</span>
+      <span className="field-label flex flex-wrap items-center gap-2">{label}{required !== undefined && <ReqChip required={required} />}{info && <DocInfo kind={info} />}</span>
       <input ref={ref} type="file" accept={XLSX_ACCEPT} className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); }} />
 
       {file.present ? (

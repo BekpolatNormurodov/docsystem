@@ -3,7 +3,7 @@
 import React, { useRef, useState } from 'react';
 import Link from 'next/link';
 import { DateField, Ico } from '@/ui';
-import { DocInfo, type DocInfoKind } from './DocInfo';
+import { DocInfo, ReqChip, type DocInfoKind } from './DocInfo';
 
 const KB = 1024;
 const fileSize = (b: number) =>
@@ -43,6 +43,7 @@ function Dropzone({
   onPick,
   onClear,
   info,
+  required,
 }: {
   label: string;
   hint: string;
@@ -52,14 +53,15 @@ function Dropzone({
   onPick: (files: FileList | null) => void;
   onClear: () => void;
   info?: DocInfoKind;
+  required?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
   const a = ACCENT[accent];
 
   return (
-    <div>
-      <span className="field-label flex items-center gap-2">{label}{info && <DocInfo kind={info} />}</span>
+    <div className={required ? 'rounded-xl border border-emerald-500/25 bg-emerald-500/[0.03] p-3' : undefined}>
+      <span className="field-label flex flex-wrap items-center gap-2">{label}{required !== undefined && <ReqChip required={required} />}{info && <DocInfo kind={info} />}</span>
       <input
         ref={inputRef}
         type="file"
@@ -232,6 +234,7 @@ export function ImportForm({ children }: { children?: React.ReactNode }) {
         onPick={onFileChosen}
         onClear={() => setFile(null)}
         info="portfel"
+        required
       />
 
       <Dropzone
@@ -243,6 +246,7 @@ export function ImportForm({ children }: { children?: React.ReactNode }) {
         onPick={onExcludeFileChosen}
         onClear={() => setExcludeFile(null)}
         info="sud"
+        required={false}
       />
 
       {/* 3-fayl: Talabnoma ro'yxati (.xlsx) — mustaqil app-doc dropzone, shu layoutda. */}

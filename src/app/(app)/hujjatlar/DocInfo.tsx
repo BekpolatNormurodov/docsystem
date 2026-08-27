@@ -60,6 +60,15 @@ const INFO: Record<DocInfoKind, { title: string; intro: string; rows: [string, s
   },
 };
 
+/** Kichik «majburiy» / «ixtiyoriy» yorlig'i — required va optional fayllar ko'zga farqli tursin. */
+export function ReqChip({ required }: { required: boolean }) {
+  return required ? (
+    <span className="rounded-full bg-emerald-500/12 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">majburiy</span>
+  ) : (
+    <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">ixtiyoriy</span>
+  );
+}
+
 export function DocInfo({ kind }: { kind: DocInfoKind }) {
   const [open, setOpen] = useState(false);
   const d = INFO[kind];
@@ -77,9 +86,12 @@ export function DocInfo({ kind }: { kind: DocInfoKind }) {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} aria-hidden />
-          <div className="absolute left-0 top-full z-50 mt-1.5 w-80 max-w-[85vw] rounded-xl border border-line bg-surface p-3 shadow-xl">
-            <div className="mb-1 text-xs font-semibold">{d.title}</div>
-            <p className="mb-2 text-[11px] leading-relaxed text-muted">{d.intro}</p>
+          <div className="absolute left-0 top-full z-50 mt-1.5 flex max-h-[60vh] w-80 max-w-[85vw] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-xl">
+            <div className="border-b border-line px-3 py-2">
+              <div className="text-xs font-semibold">{d.title}</div>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted">{d.intro}</p>
+            </div>
+            <div className="overflow-y-auto p-3">
             <div className="overflow-hidden rounded-lg border border-line">
               <table className="w-full text-left text-[11px]">
                 <tbody className="divide-y divide-line">
@@ -93,6 +105,7 @@ export function DocInfo({ kind }: { kind: DocInfoKind }) {
               </table>
             </div>
             {d.note && <p className="mt-2 text-[11px] leading-relaxed text-muted">{d.note}</p>}
+            </div>
           </div>
         </>
       )}
