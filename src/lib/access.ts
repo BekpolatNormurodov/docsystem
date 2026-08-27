@@ -79,8 +79,12 @@ export function allowedModules(u: Pick<AppUser, 'role' | 'steps'>): ModuleKey[] 
  *  yurist → their first granted step; nobody-granted → null (caller decides). */
 export function landingHref(u: Pick<AppUser, 'role' | 'steps'>): string | null {
   if (u.role === 'ADMIN') return '/konveyer';
-  const first = allowedSteps(u)[0];
-  return first ? STEP_META[first].href : null;
+  const step = allowedSteps(u)[0];
+  if (step) return STEP_META[step].href;
+  // Faqat «Alohida» modul berilgan YURIST (masalan invoice-check — bosqichsiz) o'sha modulga tushadi,
+  // aks holda login → landing yo'q → qayta login'ga tashlanardi.
+  const mod = allowedModules(u)[0];
+  return mod ? MODULE_META[mod].href : null;
 }
 
 /** Map a pathname back to the step it belongs to (for route-level guards). */
