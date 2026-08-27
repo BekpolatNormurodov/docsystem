@@ -126,12 +126,18 @@ function editDistance(a: string, b: string): number {
   return prev[n];
 }
 
+// Warn ONCE per distinct district (this runs for every talabnoma row — thousands per send — so an
+// un-deduped warn floods the log and buries the [hippo send] lines). One line per district keeps the
+// audit signal without the noise.
+const warnedFuzzyAreas = new Set<string>();
+
 export function resolveHippoRegionArea(regionName: string, districtName: string): { regionId: number; areaId: number; areaConfidence: AreaConfidence } {
   const regionId = resolveRegionId(regionName);
   const { id: areaId, confidence: areaConfidence } = resolveAreaMatch(regionId, districtName);
   // A fuzzy/edit-distance guess can route a talabnoma to the WRONG district court —
-  // leave an audit line so the operator can spot-check these before filing.
-  if (areaConfidence === 'fuzzy') {
+  // leave an audit line so the operator can spot-check these before filing (once per district).
+  if (areaConfidence === 'fuzzy' && !warnedFuzzyAreas.has(districtName)) {
+    warnedFuzzyAreas.add(districtName);
     console.warn(`resolveHippoRegionArea: FUZZY area match — "${districtName}" → "${areaName(areaId)}" (id ${areaId}); verify the court district.`);
   }
   return { regionId, areaId, areaConfidence };
