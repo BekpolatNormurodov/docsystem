@@ -196,6 +196,8 @@ export async function sendTalabnomaToHippo(opts: SendTalabnomaOpts): Promise<Sen
     res = await createRegistryInternal(session, {
       organizationId: ctx.organizationId,
       branchId: ctx.branchId,
+      templateId: ctx.templateId,     // pin the exact template (Bright has «Talabnoma » AND «Talabnoma 3»)
+      templateName: ctx.templateName,
       autoSend: mode === 'send',
       mails,
     });

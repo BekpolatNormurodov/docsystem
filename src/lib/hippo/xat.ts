@@ -247,6 +247,11 @@ export interface InternalMail {
 export interface CreateRegistryPayload {
   organizationId: number;
   branchId: number;
+  // Registry-level template — disambiguates when the account has several «Talabnoma*» templates
+  // (Bright: 42 «Talabnoma », 45 «Talabnoma 3»); a per-mail name alone can be ambiguous → «Invalid
+  // targeting setup». Sent alongside both id and name; hippo ignores whichever it doesn't use.
+  templateId?: number;
+  templateName?: string;
   autoSend: boolean;     // false = drafts only (safe); true = actually dispatch
   mails: InternalMail[];
 }
