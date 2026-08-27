@@ -33,6 +33,16 @@ export interface BxData {
   unpaidCount: number;
 }
 
+/** Sidebar badge uchun yengil sanoq: jami kvitansiya va to'langan (kelgan) soni. */
+export async function buxgalteriyaCounts(snapshotId?: number): Promise<{ total: number; paid: number }> {
+  const scope = { receiptNumber: { not: null }, ...(snapshotId ? { snapshotId } : {}) } as const;
+  const [total, paid] = await Promise.all([
+    prisma.arizaCase.count({ where: scope }),
+    prisma.arizaCase.count({ where: { ...scope, stage: { in: PAID_STAGES } } }),
+  ]);
+  return { total, paid };
+}
+
 /** Firmalar bo'yicha boji invoice ro'yxati + holati (tanlangan snapshot uchun). */
 export async function buxgalteriyaData(snapshotId?: number): Promise<BxData> {
   const amount = await getBojiAmount();

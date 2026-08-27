@@ -4,6 +4,7 @@ import { konveyerSnapshots, konveyerStageBadges } from '@/lib/konveyer';
 import { AppShell, ConfirmProvider } from '@/ui';
 import type { NavItem } from '@/ui/AppShell';
 import { STEP_META, allowedSteps, allowedModules, MODULE_META, canAccess, SUBITEM_KEYS, SUBITEM_META, roleLabel } from '@/lib/access';
+import { buxgalteriyaCounts } from '@/lib/buxgalteriya';
 import { SnapshotPicker } from './konveyer/SnapshotPicker';
 import { LanguageSwitcher } from './LanguageSwitcher';
 
@@ -64,19 +65,38 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   // «Alohida» modullar — endi ruxsatga bog'liq: ADMIN hammasini, YURIST faqat berilganini ko'radi
   // (foydalanuvchi so'rovi). Sidebar eng pastida (bottom: true).
-  const moduleNav: NavItem[] = allowedModules(user).map((k) => ({
-    href: MODULE_META[k].href,
-    label: MODULE_META[k].label,
-    icon: MODULE_META[k].icon,
-    bottom: true,
-  }));
+  // Buxgalteriya — «Alohida»da EMAS, «Menyu»da alohida band (quyida), shuning uchun bu ro'yxatdan chiqarib turamiz.
+  const modules = allowedModules(user);
+  const moduleNav: NavItem[] = modules
+    .filter((k) => k !== 'buxgalteriya')
+    .map((k) => ({ href: MODULE_META[k].href, label: MODULE_META[k].label, icon: MODULE_META[k].icon, bottom: true }));
+
+  // Buxgalteriya — «Menyu» bo'limida (step ham, eng past ham emas). Admin: «Invoice», buxgalter: «Hisobot».
+  // Yonida sanoq: kelgan/jami (to'langan/kvitansiya) — tanlangan snapshot bo'yicha.
+  const hasBux = modules.includes('buxgalteriya');
+  let buxgalteriyaNav: NavItem | null = null;
+  if (hasBux) {
+    const bx = await buxgalteriyaCounts(selectedSnap).catch(() => ({ total: 0, paid: 0 }));
+    buxgalteriyaNav = {
+      href: '/buxgalteriya',
+      label: isAdmin ? 'Invoice' : 'Hisobot',
+      icon: 'sheet',
+      section: 'Menyu',
+      badgeText: bx.total > 0 ? `${bx.paid}/${bx.total}` : '',
+    };
+  }
+  // Faqat buxgalteriya ruxsatiga ega YURIST (Ulugbek) — Hujjatlar/Mijozlar ko'rinmaydi, faqat Buxgalteriya.
+  const onlyBux = user.role === 'YURIST' && user.steps.length > 0 && user.steps.every((k) => k === 'buxgalteriya');
 
   // Hujjatlar — HAMMAGA ko'rinadi (portfel/sana ko'rish), lekin yuklash/o'zgartirish faqat adminda
   // (sahifa ichida guard). Step'lar eng tepasida (step: 0).
   const hujjatlarNav: NavItem = { href: '/hujjatlar', label: 'Hujjatlar', icon: 'files', section: 'Boshqaruv', step: 0 };
 
   // Admin: full app + user/audit management. Yurist: only their granted steps, nothing else.
-  const nav: NavItem[] = isAdmin
+  const nav: NavItem[] = onlyBux
+    ? // Faqat buxgalter (Ulugbek): yolg'iz Buxgalteriya («Hisobot»), Menyu bo'limida.
+      (buxgalteriyaNav ? [buxgalteriyaNav] : [])
+    : isAdmin
     ? [
         // Hisobot (dashboard) — sidebardan olib turildi (foydalanuvchi so'rovi). Sahifa /konveyer'da
         // qoladi, faqat menyuda ko'rinmaydi. Qaytarish: quyidagi qatorni oching.
@@ -87,7 +107,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         { href: '/firms', label: 'Firmalar', icon: 'building', section: 'Menyu' },
         { href: '/foydalanuvchilar', label: 'Foydalanuvchilar', icon: 'user', section: 'Menyu' },
         { href: '/jurnal', label: 'Amaliyotlar', icon: 'calendar', section: 'Menyu' },
-        // «Alohida» modullar (bottom) — allowedModules'dan (admin uchun hammasi).
+        // Buxgalteriya («Invoice» + sanoq) — Menyu bo'limida.
+        ...(buxgalteriyaNav ? [buxgalteriyaNav] : []),
+        // «Alohida» modullar (bottom) — buxgalteriyasiz.
         ...moduleNav,
       ]
     : [
@@ -95,6 +117,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         hujjatlarNav,
         ...withBadges(stepNav),
         { href: '/mijozlar', label: 'Mijozlar', icon: 'users', section: 'Menyu' },
+        ...(buxgalteriyaNav ? [buxgalteriyaNav] : []),
         ...moduleNav,
       ];
 
@@ -116,7 +139,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <AppShell
         appName="Yurist Tizimi"
         nav={nav}
-        user={{ fullName: user.fullName, roleLabel: roleLabel(user.role) }}
+        user={{ fullName: user.fullName, roleLabel: onlyBux ? 'Buxgalter' : roleLabel(user.role) }}
         topActions={topActions}
         headerExtra={
           <div className="flex items-center gap-1.5">

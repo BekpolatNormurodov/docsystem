@@ -48,6 +48,11 @@ function FirmCard({ firm, amount }: { firm: BxFirm; amount: number }) {
 
       {open && (
         <div className="border-t border-line">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-line bg-surface-2/30 px-4 py-2 text-[11px] tabular-nums">
+            <span className="text-emerald-600 dark:text-emerald-400">To‘langan: <b>{n(paid)}</b> · {n(paid * amount)} so‘m</span>
+            <span className="text-amber-600 dark:text-amber-400">To‘lanmagan: <b>{n(unpaid)}</b> · {n(unpaid * amount)} so‘m</span>
+            <span className="ml-auto font-semibold">Jami: {n(rows.length * amount)} so‘m</span>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[36rem] text-sm">
               <thead>
