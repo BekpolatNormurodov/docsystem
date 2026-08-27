@@ -145,6 +145,18 @@ export async function resolveContext(s: HippoSession, templateNameHint = 'talabn
   const resolvedTemplateId = Number(t?.id ?? templateId ?? 0);
   let organizationId = Number(t?.organizationId ?? 0);
 
+  const orgOf = (b: any) => Number(b?.organizationId ?? b?.orgId ?? b?.organization?.id ?? 0);
+  // ALWAYS fetch the org's branches — not just as a fallback. The login can see MULTIPLE orgs, so the
+  // newest registry's branch may belong to a DIFFERENT org → «Invalid targeting setup». We use this
+  // list to validate the branch and, when it's wrong-org/missing, pick a branch under the template org.
+  let branchesArr: any[] = [];
+  try {
+    const br = await getMyBranches(s);
+    branchesArr = Array.isArray(br.json) ? br.json : br.json?.data?.items ?? br.json?.items ?? br.json?.data ?? [];
+    console.log('[hippo ctx] getMyBranches=%s branches=%j', br.status,
+      branchesArr.slice(0, 20).map((b) => ({ id: b?.id ?? b?.branchId, org: orgOf(b), name: b?.name ?? b?.shortName, def: b?.isDefault ?? b?.isMain ?? b?.default })));
+  } catch (e) { console.error('[hippo ctx] getMyBranches failed', e); }
+
   let branchId = 0;
   const list = await listRegistries(s, { PageIndex: 1, PageSize: 1 });
   const listArr: any[] = Array.isArray(list.json) ? list.json : list.json?.data ?? list.json?.items ?? [];
@@ -154,28 +166,18 @@ export async function resolveContext(s: HippoSession, templateNameHint = 'talabn
     branchId = Number(det.json?.branchId ?? det.json?.data?.branchId ?? 0);
   }
 
-  // A firm with NO existing registry (fresh account, e.g. Bright's first send) has no reyestr to read
-  // branchId from → «filial ulanmagan» / «Invalid targeting setup». Fall back to the org's branch list.
-  // The branch MUST belong to the template's organization, else hippo rejects the targeting — so filter
-  // by organizationId and prefer a default/main branch. Tolerant of the response-shape variants.
-  if (!branchId || !organizationId) {
-    try {
-      const br = await getMyBranches(s);
-      const arr: any[] = Array.isArray(br.json) ? br.json : br.json?.data?.items ?? br.json?.items ?? br.json?.data ?? [];
-      const orgOf = (b: any) => Number(b?.organizationId ?? b?.orgId ?? b?.organization?.id ?? 0);
-      console.log('[hippo ctx] getMyBranches=%s branches=%j', br.status,
-        arr.slice(0, 15).map((b) => ({ id: b?.id ?? b?.branchId, org: orgOf(b), name: b?.name ?? b?.shortName, def: b?.isDefault ?? b?.isMain ?? b?.default })));
-      // Prefer a branch under the template's org; within that, a default/main one; else first active.
-      const pool = organizationId ? arr.filter((b) => orgOf(b) === organizationId) : arr;
-      const cand = pool.find((b) => b?.isDefault ?? b?.isMain ?? b?.default)
-        ?? pool.find((b) => (b?.active ?? b?.isActive ?? true))
-        ?? pool[0] ?? arr[0];
-      if (cand) {
-        if (!branchId) branchId = Number(cand.id ?? cand.branchId ?? 0);
-        if (!organizationId) organizationId = orgOf(cand) || organizationId;
-      }
-    } catch (e) { console.error('[hippo ctx] getMyBranches fallback failed', e); }
+  // The branch MUST belong to the template's org. If the registry gave a branch from another org (or
+  // none), replace it with a branch under `organizationId` — a default/main one first.
+  const orgBranches = organizationId ? branchesArr.filter((b) => orgOf(b) === organizationId) : branchesArr;
+  const validIds = new Set(orgBranches.map((b) => Number(b?.id ?? b?.branchId)));
+  if (!branchId || (orgBranches.length > 0 && !validIds.has(branchId))) {
+    const cand = orgBranches.find((b) => b?.isDefault ?? b?.isMain ?? b?.default)
+      ?? orgBranches.find((b) => (b?.active ?? b?.isActive ?? true))
+      ?? orgBranches[0];
+    if (cand) branchId = Number(cand.id ?? cand.branchId ?? branchId);
   }
+  if (!organizationId && branchesArr.length) organizationId = orgOf(branchesArr[0]) || organizationId;
+
   if (!organizationId) {
     try {
       const orgs = await getMyOrganizations(s);
