@@ -1,6 +1,6 @@
 import {
   Document, Packer, Paragraph, TextRun, ImageRun, Table, TableRow, TableCell,
-  BorderStyle, WidthType, AlignmentType, VerticalAlign, TabStopType,
+  BorderStyle, WidthType, AlignmentType, VerticalAlign,
 } from 'docx';
 import { dmy, formatSumDecimal, uzLongDateLatin, arizaHeaderDate } from '@/core/document';
 import { CHAMBER } from '@/core/chamber';
@@ -105,45 +105,51 @@ export async function buildArizaDocx(props: CourtArizaDocumentProps): Promise<Bu
     ],
   });
 
-  // Parties block — NOT a table (Word/WPS draws non-printing gridlines around any table, even a
-  // borderless one). Instead: a right tab stop aligns the label, a left tab stop starts the value
-  // column, and a hanging indent keeps wrapped/subsequent value lines aligned under the value column.
-  // Same two-column look as before, but with zero lines anywhere (editor included).
-  const VALUE_LEFT = 3800; // twips — value column start
-  const LABEL_TAB = 3550; //  twips — label right-aligns here (just left of the value column)
+  // Parties block — a borderless 3-column table (label 40% right-aligned | 5% spacer | value 55%),
+  // 1:1 with the ideal HTML (CourtArizaDocument's parties table). A table (not tab-stops) is required
+  // so a LONG label like «Palata aʼzosi manfaatida undiruvchi:» WRAPS inside its own column instead of
+  // overflowing a fixed tab stop and colliding with the value — that overflow was the garbled («rasvo»)
+  // look. Borders are all NONE; the faint on-screen gridline Word may show is non-printing.
   type LineOpt = { bold?: boolean; size?: number; italics?: boolean };
-  const valueLine = (text: string, opts?: LineOpt) =>
-    new Paragraph({ indent: { left: VALUE_LEFT }, spacing: { after: 40, line: 264, lineRule: 'auto' }, children: [run(text, opts)] });
-  // A party = first line carries the right-aligned label + the (bold) name; the rest hang under the value column.
-  const party = (label: string, lines: { text: string; opts?: LineOpt }[]): Paragraph[] => {
-    const [first, ...rest] = lines;
-    const head = new Paragraph({
-      tabStops: [{ type: TabStopType.RIGHT, position: LABEL_TAB }, { type: TabStopType.LEFT, position: VALUE_LEFT }],
-      indent: { left: VALUE_LEFT, hanging: VALUE_LEFT },
-      spacing: { after: 40, line: 264, lineRule: 'auto' },
-      children: [new TextRun({ text: '\t' }), run(label, { size: 22 }), new TextRun({ text: '\t' }), run(first!.text, first!.opts)],
+  const valuePara = (text: string, opts?: LineOpt) =>
+    new Paragraph({ spacing: { after: 20, line: 264, lineRule: 'auto' }, children: [run(text, opts)] });
+  const partyRow = (label: string, lines: { text: string; opts?: LineOpt }[]): TableRow =>
+    new TableRow({
+      children: [
+        new TableCell({
+          width: { size: 40, type: WidthType.PERCENTAGE }, borders: NO_BORDER, verticalAlign: VerticalAlign.TOP,
+          children: [new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { line: 264, lineRule: 'auto' }, children: label ? [run(label, { size: 22 })] : [] })],
+        }),
+        new TableCell({ width: { size: 5, type: WidthType.PERCENTAGE }, borders: NO_BORDER, children: [new Paragraph({ children: [] })] }),
+        new TableCell({
+          width: { size: 55, type: WidthType.PERCENTAGE }, borders: NO_BORDER, verticalAlign: VerticalAlign.TOP,
+          children: lines.map((l) => valuePara(l.text, l.opts)),
+        }),
+      ],
     });
-    return [head, ...rest.map((l) => valueLine(l.text, l.opts)), new Paragraph({ spacing: { after: 60 }, children: [] })];
-  };
 
-  const partyBlock: Paragraph[] = [
-    ...party('', [{ text: props.courtName, opts: { bold: true, italics: true } }]),
-    ...party('Arizachi:', [
-      { text: CHAMBER.applicantName, opts: { bold: true, italics: true } },
-      ...CHAMBER.applicantAddress.map((l) => ({ text: l, opts: { italics: true, size: 24 } })),
-      { text: `STIR ${CHAMBER.applicantStir}.`, opts: { italics: true, size: 24 } },
-    ]),
-    ...party(CHAMBER.collectorLabel.join(' '), [
-      { text: firmName, opts: { bold: true, italics: true, size: 24 } },
-      ...(collectorRekvizit ? [{ text: collectorRekvizit, opts: { italics: true, size: 24 } }] : []),
-    ]),
-    ...party('Qarzdor:', [
-      { text: props.personFullName, opts: { bold: true, italics: true } },
-      { text: props.personAddress, opts: { italics: true, size: 24 } },
-      { text: `JShShIR: ${props.personPinfl}`, opts: { italics: true, size: 24 } },
-      { text: `Tel:  ${props.personPhone}`, opts: { italics: true, size: 24 } },
-    ]),
-  ];
+  const partyTable = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: NO_BORDER,
+    rows: [
+      partyRow('', [{ text: props.courtName, opts: { bold: true, italics: true } }]),
+      partyRow('Arizachi:', [
+        { text: CHAMBER.applicantName, opts: { bold: true, italics: true } },
+        ...CHAMBER.applicantAddress.map((l) => ({ text: l, opts: { italics: true, size: 24 } })),
+        { text: `STIR ${CHAMBER.applicantStir}.`, opts: { italics: true, size: 24 } },
+      ]),
+      partyRow(CHAMBER.collectorLabel.join(' '), [
+        { text: firmName, opts: { bold: true, italics: true, size: 26 } },
+        ...(collectorRekvizit ? [{ text: collectorRekvizit, opts: { italics: true, size: 24 } }] : []),
+      ]),
+      partyRow('Qarzdor:', [
+        { text: props.personFullName, opts: { bold: true, italics: true } },
+        { text: props.personAddress, opts: { italics: true, size: 24 } },
+        { text: `JShShIR: ${props.personPinfl}`, opts: { italics: true, size: 24 } },
+        { text: `Tel:  ${props.personPhone}`, opts: { italics: true, size: 24 } },
+      ]),
+    ],
+  });
 
   const children: (Paragraph | Table)[] = [
     headerTable,
@@ -157,8 +163,10 @@ export async function buildArizaDocx(props: CourtArizaDocumentProps): Promise<Bu
     // One blank line between the header block and the parties form.
     new Paragraph({ children: [] }),
 
-    // Parties block — tab-aligned label | value paragraphs (no table, so no gridlines).
-    ...partyBlock,
+    // Parties block — borderless label|spacer|value table (1:1 with the ideal HTML).
+    partyTable,
+    // One blank line after the parties form.
+    new Paragraph({ spacing: { after: 60 }, children: [] }),
 
     // Title
     new Paragraph({
