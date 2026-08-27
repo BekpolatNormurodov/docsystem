@@ -231,8 +231,10 @@ export async function buildCaseOfertas(caseId: number, browser: Browser, insuran
     }),
   ]);
 
-  const folder = safe(ac.clientName || `case-${caseId}`);
   const firmShort = firm?.shortName || ac.kod || 'firma';
+  // Group by PINFL: «<FIRM> / <full name> <PINFL>» — two clients sharing a name land in
+  // distinct folders, and every oferta is filed under its owner's PINFL (matches the loans path).
+  const folder = `${safe(firmShort, 45)}/${safe(`${ac.clientName || `case-${caseId}`} ${ac.pinfl}`.trim(), 90)}`;
   const files: PacketFile[] = [];
   const seen = new Set<string>();
   for (const l of loans) {
