@@ -14,7 +14,7 @@ export function Splash({ appName }: { appName: string }) {
         </div>
         <div className="text-center">
           <div className="text-sm font-semibold">{appName}</div>
-          <div className="mt-0.5 text-xs text-muted">Maʼlumotnoma tizimi</div>
+          <div className="mt-0.5 text-xs text-muted">Yurist Tizimi</div>
         </div>
         <div
           className="mt-1 h-1 w-32 overflow-hidden rounded-full bg-surface-2"

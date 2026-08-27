@@ -50,7 +50,7 @@ export default function LoginPage() {
         {/* brand lockup */}
         <div className="mb-6 flex flex-col items-center text-center">
           <Logo size={48} className="mb-3" />
-          <div className="text-lg font-bold tracking-tight">Maʼlumotnoma</div>
+          <div className="text-lg font-bold tracking-tight">Yurist Tizimi</div>
           <div className="text-xs text-muted">tizimi</div>
         </div>
 
@@ -119,7 +119,7 @@ export default function LoginPage() {
           </form>
         </div>
 
-        <p className="mt-5 text-center text-[11px] text-muted">© Maʼlumotnoma boshqaruv tizimi</p>
+        <p className="mt-5 text-center text-[11px] text-muted">© Yurist Tizimi</p>
       </div>
     </div>
   );

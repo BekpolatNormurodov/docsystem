@@ -1,14 +1,11 @@
 import React from 'react';
 
 /**
- * The product mark: a signed maʼlumotnoma — a sheet with a seal check.
+ * The product mark: scales of justice — a lawyer/legal system mark for «Yurist Tizimi».
  *
- * One mark for every app (yurist / admin / rahbar / public) so the sidebar, the splash and
- * the browser tab all read as the same product. Kept to two shapes on a solid tile because
- * it also has to survive being drawn at 16px in a tab strip; the per-app colour that used to
- * distinguish the panels lives in the role label instead.
- *
- * The favicons in each app's `src/app/icon.svg` are the same geometry — edit both together.
+ * One mark for every surface (sidebar, splash, browser tab) so the whole product reads the same.
+ * Kept to simple bold shapes on a solid tile because it also has to survive being drawn at 16px in a
+ * tab strip. The favicon in `src/app/icon.svg` is the same geometry — edit both together.
  */
 export function Logo({ size = 36, className }: { size?: number; className?: string }) {
   return (
@@ -19,29 +16,28 @@ export function Logo({ size = 36, className }: { size?: number; className?: stri
       fill="none"
       className={className}
       role="img"
-      aria-label="Maʼlumotnoma"
+      aria-label="Yurist Tizimi"
     >
       <defs>
-        <linearGradient id="spravka-mark" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+        <linearGradient id="yt-mark" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
           <stop stopColor="#3B82F6" />
           <stop offset="1" stopColor="#1D4ED8" />
         </linearGradient>
       </defs>
-      <rect width="32" height="32" rx="8" fill="url(#spravka-mark)" />
-      {/* Sheet with a folded corner */}
-      <path
-        d="M11 7.5h6.2L22 12.3V22a2.5 2.5 0 0 1-2.5 2.5h-8.5A2.5 2.5 0 0 1 8.5 22V10A2.5 2.5 0 0 1 11 7.5Z"
-        fill="#fff"
-      />
-      <path d="M17.2 7.5 22 12.3h-4.8V7.5Z" fill="#BFDBFE" />
-      {/* Seal check */}
-      <path
-        d="m11.8 17.4 2.6 2.6 5.2-5.4"
-        stroke="#059669"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <rect width="32" height="32" rx="8" fill="url(#yt-mark)" />
+      {/* Adolat tarozisi: ustun + ko'ndalang + ikki tovoq (zanjirli) + poydevor */}
+      <g fill="#fff">
+        <circle cx="16" cy="7" r="1.5" />
+        <rect x="15.2" y="8" width="1.6" height="15" rx="0.8" />
+        <rect x="9" y="9.8" width="14" height="1.5" rx="0.75" />
+        <rect x="11.5" y="22.6" width="9" height="1.7" rx="0.85" />
+      </g>
+      <g stroke="#fff" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9.8 11 L7 15.4M9.8 11 L12.6 15.4" />
+        <path d="M22.2 11 L19.4 15.4M22.2 11 L25 15.4" />
+        <path d="M6.6 15.4a3 3 0 0 0 6.4 0" />
+        <path d="M19 15.4a3 3 0 0 0 6.4 0" />
+      </g>
     </svg>
   );
 }
@@ -53,7 +49,7 @@ export function LogoLockup({ appName, className }: { appName: string; className?
       <Logo size={36} className="shrink-0" />
       <div className="min-w-0">
         <div className="truncate text-sm font-semibold leading-tight">{appName}</div>
-        <div className="text-xs text-muted">Maʼlumotnoma</div>
+        <div className="text-xs text-muted">boshqaruv tizimi</div>
       </div>
     </div>
   );
