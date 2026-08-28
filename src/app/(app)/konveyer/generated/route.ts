@@ -5,11 +5,11 @@ import { prisma } from '@/lib/db';
 export const runtime = 'nodejs';
 
 const numArg = (v: unknown): number | undefined => { const n = Number(v); return v != null && v !== '' && Number.isInteger(n) && n > 0 ? n : undefined; };
-const MAX = 1000;
+const PAGE_SIZE = 50;
 
-// GET ?snapshotId=&firmId=&type=ariza|oferta&q= — «Yaratilganlar»: qaysi mijozларга ariza/oferta
+// GET ?snapshotId=&firmId=&type=ariza|oferta&q=&page= — «Yaratilganlar»: qaysi mijozларга ariza/oferta
 // yaratilgan (arizaAt / ofertaAt belgilangan), PINFL + F.I.O + firma + sud + sana bilan. Qidiruv (q):
-// PINFL yoki ism. Eng ko'p MAX ta (eng yangisi birinchi); undan oshsa `truncated`.
+// PINFL yoki ism. Sahifalab (page, 50 ta) — eng yangisi birinchi.
 export async function GET(req: NextRequest) {
   await requireUser();
   const sp = req.nextUrl.searchParams;
@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
   const firmId = numArg(sp.get('firmId'));
   const isOferta = sp.get('type') === 'oferta';
   const q = (sp.get('q') || '').trim();
+  const page = Math.max(1, Number(sp.get('page')) || 1);
 
   const where = {
     ...(snapshotId ? { snapshotId } : {}),
@@ -30,9 +31,10 @@ export async function GET(req: NextRequest) {
     prisma.arizaCase.findMany({
       where,
       orderBy: isOferta ? [{ ofertaAt: 'desc' }, { id: 'desc' }] : [{ arizaAt: 'desc' }, { id: 'desc' }],
-      take: MAX,
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
       select: {
-        pinfl: true, clientName: true, kod: true, arizaAt: true, ofertaAt: true,
+        id: true, pinfl: true, clientName: true, kod: true, arizaAt: true, ofertaAt: true,
         firm: { select: { shortName: true } },
         court: { select: { shortName: true } },
       },
@@ -40,6 +42,7 @@ export async function GET(req: NextRequest) {
   ]);
 
   const items = rows.map((r) => ({
+    caseId: r.id,
     pinfl: r.pinfl,
     clientName: r.clientName,
     firmName: r.firm?.shortName ?? r.kod ?? null,
@@ -47,5 +50,5 @@ export async function GET(req: NextRequest) {
     at: (isOferta ? r.ofertaAt : r.arizaAt)?.toISOString() ?? null,
   }));
 
-  return NextResponse.json({ total, items, truncated: total > items.length });
+  return NextResponse.json({ total, items, page, pageSize: PAGE_SIZE, pages: Math.max(1, Math.ceil(total / PAGE_SIZE)) });
 }

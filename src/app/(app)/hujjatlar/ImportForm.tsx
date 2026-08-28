@@ -123,6 +123,21 @@ function Dropzone({
   );
 }
 
+/** A numbered step row (left rail: number + connector) — the 3 slots are «one document, 3 parts». */
+function Step({ n, done, last, children }: { n: number; done?: boolean; last?: boolean; children: React.ReactNode }) {
+  return (
+    <div className="flex gap-3">
+      <div className="flex flex-col items-center pt-1">
+        <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] font-bold transition-colors ${done ? 'bg-emerald-500 text-white' : 'bg-brand-500/12 text-brand-600 dark:text-brand-400'}`}>
+          {done ? '✓' : n}
+        </span>
+        {!last && <span className="mt-1.5 w-px flex-1 bg-line" />}
+      </div>
+      <div className="min-w-0 flex-1 pb-3">{children}</div>
+    </div>
+  );
+}
+
 /**
  * Two-file importer (portfolio + exclusion list). A plain file input is used instead of the shared
  * `FilePicker` (which caps at 10 MB) because the portfolio spreadsheet regularly runs past 100 MB.
@@ -224,33 +239,49 @@ export function ImportForm({ children }: { children?: React.ReactNode }) {
   const pct = total > 0 ? Math.min(99, Math.round((progress / total) * 100)) : 0;
 
   return (
-    <div className="card max-w-md space-y-4 p-6">
-      <Dropzone
-        label="Portfel fayli (.xlsx)"
-        hint="Ensay portfeli — .xlsx (100 MB dan katta boʻlishi mumkin) · majburiy"
-        accent="brand"
-        file={file}
-        disabled={busy}
-        onPick={onFileChosen}
-        onClear={() => setFile(null)}
-        info="portfel"
-        required
-      />
+    <div className="card max-w-lg space-y-4 p-6">
+      {/* «Bitta hujjat — 3 qism»: raqamli qadamlar. Faqat 1-qism (Portfel) majburiy. */}
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-semibold">Fayllar</div>
+        <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-muted">
+          {file ? <span className="text-emerald-600 dark:text-emerald-400">Majburiy tayyor ✓</span> : 'Majburiy: Portfel'}
+        </span>
+      </div>
 
-      <Dropzone
-        label="Muammoli / istisno roʻyxati — sud roʻyxati (.xlsx)"
-        hint="«Pnfl» varagʻidagi mijozlar — ularga ariza yaratiladi · ixtiyoriy"
-        accent="amber"
-        file={excludeFile}
-        disabled={busy}
-        onPick={onExcludeFileChosen}
-        onClear={() => setExcludeFile(null)}
-        info="sud"
-        required={false}
-      />
+      <div>
+        <Step n={1} done={!!file}>
+          <Dropzone
+            label="Portfel fayli (.xlsx)"
+            hint="Ensay portfeli — .xlsx (100 MB dan katta boʻlishi mumkin) · majburiy"
+            accent="brand"
+            file={file}
+            disabled={busy}
+            onPick={onFileChosen}
+            onClear={() => setFile(null)}
+            info="portfel"
+            required
+          />
+        </Step>
 
-      {/* 3-fayl: Talabnoma ro'yxati (.xlsx) — mustaqil app-doc dropzone, shu layoutda. */}
-      {children}
+        <Step n={2} done={!!excludeFile}>
+          <Dropzone
+            label="Muammoli / istisno roʻyxati — sud roʻyxati (.xlsx)"
+            hint="«Pnfl» varagʻidagi mijozlar — ularga ariza yaratiladi · ixtiyoriy"
+            accent="amber"
+            file={excludeFile}
+            disabled={busy}
+            onPick={onExcludeFileChosen}
+            onClear={() => setExcludeFile(null)}
+            info="sud"
+            required={false}
+          />
+        </Step>
+
+        {/* 3-qism: Talabnoma ro'yxati (.xlsx) — mustaqil app-doc dropzone, shu layoutda. */}
+        <Step n={3} last>
+          {children}
+        </Step>
+      </div>
 
       <div className="max-w-[220px]">
         <DateField
