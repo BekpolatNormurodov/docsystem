@@ -20,6 +20,39 @@ import { talabnomaExcelBuffer } from './hippo/talabnoma-excel';
 
 const EXPORTS_DIR = path.join(process.cwd(), 'exports');
 
+// Export ZIP retention — these files (ariza/oferta/packet ZIPs) accumulate forever and once filled a
+// 14 GB disk, which blocked every job (no space to write). Before each new export we prune: drop ZIPs
+// older than EXPORT_MAX_AGE, then, if the total still exceeds EXPORT_MAX_TOTAL, delete oldest-first
+// until under the cap. Best-effort — never throws, never blocks the job. History rows for a pruned ZIP
+// simply 404 on download (the work is regenerable); the size cap is what keeps the disk safe.
+const EXPORT_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000; // 3 kun
+const EXPORT_MAX_TOTAL = 4 * 1024 * 1024 * 1024;   // 4 GB jami
+async function pruneOldExports(): Promise<void> {
+  try {
+    const names = await fsp.readdir(EXPORTS_DIR).catch(() => [] as string[]);
+    const now = Date.now();
+    const files: { path: string; size: number; mtime: number }[] = [];
+    for (const name of names) {
+      if (!name.endsWith('.zip')) continue;
+      const p = path.join(EXPORTS_DIR, name);
+      const st = await fsp.stat(p).catch(() => null);
+      if (st?.isFile()) files.push({ path: p, size: st.size, mtime: st.mtimeMs });
+    }
+    let total = 0;
+    const kept: typeof files = [];
+    for (const f of files) {
+      if (now - f.mtime > EXPORT_MAX_AGE_MS) await fsp.unlink(f.path).catch(() => {});
+      else { kept.push(f); total += f.size; }
+    }
+    kept.sort((a, b) => a.mtime - b.mtime); // eng eski birinchi
+    for (const f of kept) {
+      if (total <= EXPORT_MAX_TOTAL) break;
+      await fsp.unlink(f.path).catch(() => {});
+      total -= f.size;
+    }
+  } catch { /* best-effort — tozalash job'ni to'xtatmaydi */ }
+}
+
 // How many chromium pages render in parallel per batch. Each open page ≈ one CPU-bound render, so on a
 // big-CPU backend raise WORKER_CONCURRENCY (e.g. 8–16) to render packets/ofertas/talabnomas much faster;
 // it also raises peak chromium RAM, so give the worker container matching memory + /dev/shm. Default 5.
@@ -77,6 +110,7 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
     if (opts.limit && opts.limit > 0 && opts.limit < caseIds.length) caseIds = caseIds.slice(0, opts.limit);
 
     await fsp.mkdir(EXPORTS_DIR, { recursive: true });
+    await pruneOldExports(); // eski/ortiqcha ZIP'larni tozalab, yangi yozishga joy ochamiz
     output = fs.createWriteStream(zipPath);
     const out = output; // non-null local
     // store: true → no DEFLATE. Every payload here (chromium PDFs, xlsx, docx) is already
@@ -232,6 +266,7 @@ export async function runOfertaJobByLoans(jobId: number, loanIds: number[], insu
     const firmByCode = new Map(firms.map((f) => [f.code, f]));
 
     await fsp.mkdir(EXPORTS_DIR, { recursive: true });
+    await pruneOldExports(); // eski/ortiqcha ZIP'larni tozalab, yangi yozishga joy ochamiz
     output = fs.createWriteStream(zipPath);
     const out = output;
     const archive = archiver('zip', { store: true });
@@ -325,6 +360,7 @@ export async function runTalabnomaJob(jobId: number, opts: TalabnomaScope, singl
     if (rows.length === 0) throw new Error('Talabnoma qatori yoʻq (qarzdorlik 0 yoki maʼlumot yoʻq)');
 
     await fsp.mkdir(EXPORTS_DIR, { recursive: true });
+    await pruneOldExports(); // eski/ortiqcha ZIP'larni tozalab, yangi yozishga joy ochamiz
     output = fs.createWriteStream(zipPath);
     const out = output;
     const archive = archiver('zip', { store: true });
@@ -469,6 +505,7 @@ export async function runOfertaJob(jobId: number, opts: OfertaJobOpts): Promise<
     if (!opts.caseIds?.length && opts.limit && opts.limit > 0 && opts.limit < caseIds.length) caseIds = caseIds.slice(0, opts.limit);
 
     await fsp.mkdir(EXPORTS_DIR, { recursive: true });
+    await pruneOldExports(); // eski/ortiqcha ZIP'larni tozalab, yangi yozishga joy ochamiz
     output = fs.createWriteStream(zipPath);
     const out = output;
     // store: true → payloads are already-compressed chromium PDFs; deflate would just burn
