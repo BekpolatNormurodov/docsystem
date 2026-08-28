@@ -174,7 +174,7 @@ export async function ensureSeedCourt(): Promise<void> {
         // billingCourtId — VAQTINCHALIK, admin «Sudlar»da haqiqiy billing.sud.uz Sud id bilan almashtiradi.
         second = await prisma.court.create({
           data: {
-            billingCourtId: 'SET-ME-YUQORICHIRCHIQ', courtType: 'CITIZEN',
+            billingCourtId: '587', courtType: 'CITIZEN', // billing.sud.uz: Fuqarolik ishlari boʻyicha Yuqorichirchiq tumanlararo sudi (id 587)
             nameUz: 'Fuqarolik ishlari boʻyicha Yuqorichirchiq tumanlararo sudiga', shortName: 'Yuqorichirchiq tumanlararo sudi',
             dailyQuota: 500, cutoffMinutes: 1080, weekdays: [1, 2, 3, 4, 5], active: true, isDefault: false, sortOrder: 1,
           },

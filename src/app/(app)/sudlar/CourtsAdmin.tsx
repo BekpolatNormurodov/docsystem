@@ -227,6 +227,70 @@ function CourtCard({ c, firmName, onEdit, onDelete, busy }: { c: Court; firmName
   );
 }
 
+// ── billing.sud.uz sud katalogidan tanlash (kaskad) — «Sud id» o'zi to'ladi ──────
+interface CatalogCourt { id: number; name: string; address: string | null }
+function CourtPicker({ onPick }: { onPick: (v: { billingCourtId: string; courtType: string; name: string }) => void }) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<CatalogCourt[] | null>(null);
+  const [q, setQ] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+
+  const load = async () => {
+    if (items || err) return;
+    try {
+      const r = await fetch('/api/court-catalog');
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error || 'Katalog olinmadi');
+      setItems(Array.isArray(d.items) ? d.items : []);
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Katalog olinmadi'); }
+  };
+  const filtered = (items ?? []).filter((c) => !q.trim() || c.name.toLowerCase().includes(q.trim().toLowerCase()) || String(c.id).includes(q.trim()));
+
+  return (
+    <div className="relative">
+      <button type="button" onClick={() => { setOpen((v) => !v); load(); }}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-brand-500/30 bg-brand-500/[0.06] px-2.5 py-1.5 text-xs font-medium text-brand-700 transition-colors hover:bg-brand-500/12 dark:text-brand-300">
+        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
+        billing.sud.uz'dan tanlash
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} aria-hidden />
+          <div className="absolute left-0 top-full z-40 mt-1 w-[28rem] max-w-[92vw] overflow-hidden rounded-xl border border-line bg-surface shadow-2xl">
+            <div className="border-b border-line p-2">
+              <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Sud nomi yoki id (masalan «Uchtepa» / «Юқоричирчиқ»)…"
+                className={`${inp} w-full text-sm`} />
+              <div className="mt-1 px-1 text-[10px] text-muted">Faqat fuqarolik (CITIZEN) sudlari — boji shu turga ketadi.</div>
+            </div>
+            {err ? (
+              <div className="p-4 text-xs text-rose-500">{err}</div>
+            ) : items === null ? (
+              <div className="p-4 text-xs text-muted">Yuklanmoqda…</div>
+            ) : filtered.length === 0 ? (
+              <div className="p-4 text-center text-xs text-muted">Topilmadi</div>
+            ) : (
+              <div className="max-h-72 overflow-y-auto divide-y divide-line">
+                {filtered.slice(0, 100).map((c) => (
+                  <button key={c.id} type="button"
+                    onClick={() => { onPick({ billingCourtId: String(c.id), courtType: 'CITIZEN', name: c.name }); setOpen(false); }}
+                    className="flex w-full items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-2">
+                    <span className="mt-0.5 shrink-0 rounded bg-brand-500/10 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-brand-600 dark:text-brand-400">{c.id}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-xs font-medium">{c.name}</span>
+                      {c.address && <span className="block truncate text-[10px] text-muted">{c.address}</span>}
+                    </span>
+                  </button>
+                ))}
+                {filtered.length > 100 && <div className="px-3 py-2 text-center text-[10px] text-muted">Ko‘p natija — nomini aniqroq yozing.</div>}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Edit view ────────────────────────────────────────────────────────────────
 function CourtEditor({ draft, firms, busy, onPatch, onSave, onCancel, isNew }: { draft: Draft; firms: Firm[]; busy: boolean; onPatch: (p: Partial<Draft>) => void; onSave: () => void; onCancel: () => void; isNew?: boolean }) {
   return (
@@ -239,6 +303,15 @@ function CourtEditor({ draft, firms, busy, onPatch, onSave, onCancel, isNew }: {
         <label className="field-label">Qisqa nom
           <input className={`${inp} mt-1 w-full`} value={draft.shortName} onChange={(e) => onPatch({ shortName: e.target.value })} placeholder="Uchtepa tumanlararo sudi" />
         </label>
+      </div>
+      {/* billing.sud.uz katalogidan tanlab, «Sud id» (va turi) o'zi to'ladi — qo'lda topish shart emas. */}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <CourtPicker onPick={(v) => onPatch({ billingCourtId: v.billingCourtId, courtType: v.courtType })} />
+        <span className="text-[11px] text-muted">
+          {draft.billingCourtId && /^\d+$/.test(draft.billingCourtId)
+            ? <span className="text-emerald-600 dark:text-emerald-400">Sud id: {draft.billingCourtId} ✓</span>
+            : 'yoki quyida «Sud id»ni qoʻlda kiriting'}
+        </span>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <label className="field-label">Sud id (billing)
