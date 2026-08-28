@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 import { once } from 'node:events';
 import archiver from 'archiver';
 import type { Browser } from 'playwright';
@@ -53,10 +54,23 @@ async function pruneOldExports(): Promise<void> {
   } catch { /* best-effort — tozalash job'ni to'xtatmaydi */ }
 }
 
-// How many chromium pages render in parallel per batch. Each open page ≈ one CPU-bound render, so on a
-// big-CPU backend raise WORKER_CONCURRENCY (e.g. 8–16) to render packets/ofertas/talabnomas much faster;
-// it also raises peak chromium RAM, so give the worker container matching memory + /dev/shm. Default 5.
-const PDF_CONCURRENCY = Math.max(1, Number(process.env.WORKER_CONCURRENCY) || 5);
+// How many renders run in parallel per batch. Each open chromium page ≈ one CPU-bound render, so this
+// scales throughput with cores. Default now uses the box's CPUs (min 4, capped 12) instead of a flat 5,
+// so a multi-core server generates much faster; override with WORKER_CONCURRENCY. NOTE: more parallelism
+// = more peak chromium RAM, so give the worker container matching memory + /dev/shm when raising it.
+const PDF_CONCURRENCY = Math.max(1, Number(process.env.WORKER_CONCURRENCY) || Math.min(10, Math.max(5, os.cpus().length || 5)));
+
+// Per-item render ceiling. A single hung chromium render (bad page, resource stall) used to freeze the
+// whole Promise.all batch → progress AND «Bekor» both stuck forever. withTimeout caps each item: on
+// timeout it resolves null (that one doc is skipped) so the batch always completes and cancel stays
+// responsive. The abandoned render keeps running in the background but is reaped at browser.close().
+const RENDER_TIMEOUT_MS = Math.max(15_000, Number(process.env.RENDER_TIMEOUT_MS) || 60_000);
+function withTimeout<T>(p: Promise<T>, ms = RENDER_TIMEOUT_MS): Promise<T | null> {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => resolve(null), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, () => { clearTimeout(t); resolve(null); });
+  });
+}
 
 /** Per-batch checkpoint: did the operator request «Bekor» on this job? One tiny indexed read per
  *  render batch (batches are seconds apart under chromium), so the added cost is negligible. When it
@@ -162,9 +176,10 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
       const batch = caseIds.slice(i, i + CONCURRENCY);
       // Only a per-CASE failure (bad data, doc build) is swallowed here; a sink error is not.
       const packets = await Promise.all(
+        // withTimeout: a hung case (chromium stall) is skipped after RENDER_TIMEOUT_MS instead of
+        // freezing the batch — keeps progress moving and «Bekor» responsive.
         batch.map((id) =>
-          buildCasePacket(id, { browser: browser ?? undefined, talabnomaPdf: withPdf, includeFirmDocs: false, includeGrafik: opts.includeGrafik, arizaOnly })
-            .catch(() => null), // skip a failed case, keep the rest of the batch
+          withTimeout(buildCasePacket(id, { browser: browser ?? undefined, talabnomaPdf: withPdf, includeFirmDocs: false, includeGrafik: opts.includeGrafik, arizaOnly })),
         ),
       );
       for (let k = 0; k < packets.length; k++) {
@@ -297,7 +312,8 @@ export async function runOfertaJobByLoans(jobId: number, loanIds: number[], insu
         if (Number(l.summKr) <= 0) return null;
         const firm = l.branchCode ? firmByCode.get(l.branchCode) ?? null : null;
         try {
-          const buf = await renderOfertaPdf(l as never, firm ?? {}, browser as Browser, l.clientName, l.pinfl, insurancePct);
+          const buf = await withTimeout(renderOfertaPdf(l as never, firm ?? {}, browser as Browser, l.clientName, l.pinfl, insurancePct));
+          if (!buf) return null; // timeout/xato — bu PDF tashlab ketiladi, sikl to'xtamaydi
           // 3-level layout: «<FIRM> / <full name> <PINFL> / oferta_<ld_id>.pdf». A client with
           // contracts in several firms appears under each firm folder (that firm's contracts only).
           const firmShort = firm?.shortName || l.branchCode || 'firma';
@@ -395,7 +411,8 @@ export async function runTalabnomaJob(jobId: number, opts: TalabnomaScope, singl
       const batch = rows.slice(i, i + CONCURRENCY);
       const rendered = await Promise.all(batch.map(async (row) => {
         try {
-          const buf = await renderTalabnomaPdf(row, browser as Browser, firm);
+          const buf = await withTimeout(renderTalabnomaPdf(row, browser as Browser, firm));
+          if (!buf) return null; // timeout/xato — tashlab ketiladi
           const name = `${row.contract_id.replace(/\//g, '-')}_${safeName(row.receiver, 60)}.pdf`;
           return { name, buf };
         } catch { return null; }
@@ -540,7 +557,7 @@ export async function runOfertaJob(jobId: number, opts: OfertaJobOpts): Promise<
       if (streamErr) throw streamErr;
       const batch = caseIds.slice(i, i + CONCURRENCY);
       const results = await Promise.all(
-        batch.map(async (id) => ({ id, res: await buildCaseOfertas(id, browser as Browser, pct).catch(() => null) })),
+        batch.map(async (id) => ({ id, res: await withTimeout(buildCaseOfertas(id, browser as Browser, pct)) })),
       );
       for (const { id, res: r } of results) {
         if (streamErr) throw streamErr;
