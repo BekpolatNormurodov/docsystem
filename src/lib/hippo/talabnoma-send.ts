@@ -230,7 +230,12 @@ export async function sendTalabnomaToHippo(opts: SendTalabnomaOpts): Promise<Sen
       firmName, res.status, ctx.organizationId, ctx.branchId, ctx.templateName, mails.length,
       (() => { try { return JSON.stringify(res.json)?.slice(0, 300); } catch { return String(res.json); } })());
     const msg = typeof res.json === 'string' ? res.json : res.json?.message ?? res.json?.error;
-    return fail(mode, `xat.hippo rad etdi (${res.status}${bodyErr ? `/code ${bodyCode}` : ''})${msg ? `: ${String(msg).slice(0, 160)}` : ''}`, {
+    // «Invalid targeting setup» = this firm's hippo org isn't enabled for API sending (both endpoints
+    // rejected). Nothing the operator can fix in-app — point them at the Excel path that DOES work.
+    const friendly = /invalid targeting/i.test(String(msg ?? ''))
+      ? 'Bu firma xat.hippo’da API orqali yuborishga sozlanmagan. «Reyestr (Excel)» tugmasi bilan yuklab olib, hippo saytiga o‘zingiz yuklang (yoki hippo’dan API’ni yoqishni so‘rang).'
+      : `xat.hippo rad etdi (${res.status}${bodyErr ? `/code ${bodyCode}` : ''})${msg ? `: ${String(msg).slice(0, 160)}` : ''}`;
+    return fail(mode, friendly, {
       firmName, balance: bal.balance, required: bal.required, enough: bal.enough, free,
     });
   }
