@@ -226,7 +226,7 @@ export interface InternalMail {
 
 export interface CreateRegistryPayload {
   organizationId: number;
-  branchId: number;
+  branchId: number | null;   // null = no branch (some orgs have branches:null → a stale branch id is rejected)
   // Registry-level template — disambiguates when the account has several «Talabnoma*» templates
   // (Bright: 42 «Talabnoma », 45 «Talabnoma 3»); a per-mail name alone can be ambiguous → «Invalid
   // targeting setup». Sent alongside both id and name; hippo ignores whichever it doesn't use.
