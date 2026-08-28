@@ -8,7 +8,7 @@ import type { Firm } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getBojiAmount } from './konveyer-buxgalter';
 import { dueForStage } from './konveyer-sla';
-import { firmPrimaryCourt } from './court-routing';
+import { firmPrimaryCourt, firmCourtsOrdered } from './court-routing';
 
 const CAPTCHA_API = 'https://recaptcha.sud.uz/api/v1/captcha';
 const INVOICE_API = 'https://billing.sud.uz/api/invoice/captcha/create';
@@ -447,7 +447,7 @@ export async function startRestBatch(input: StartRestInput): Promise<{ batchId: 
   return { batchId: batch.id, total };
 }
 
-export interface StartCasesInput { firmId: number; snapshotId?: number; count: number; }
+export interface StartCasesInput { firmId: number; snapshotId?: number; count: number; courtId?: number; }
 
 /**
  * Konveyer BOJ qadami: firmaning imzodan o'tgan (SIGNED_SCANNED, kvitansiyasiz)
@@ -466,17 +466,33 @@ export async function startRestBatchForCases(
   const count = Math.max(1, Math.min(MAX_COUNT, Math.floor(input.count) || 1));
   // Boji uchun endi imzolangan-skan («SIGNED_SCANNED») sharti YO'Q (foydalanuvchi so'rovi):
   // firmaning har qanday kvitansiyasiz (receiptNumber: null) case'iga boji yaratiladi.
+  //
+  // Sud bo'yicha (courtId berilsa): FAQAT o'sha sudga yo'naltirilgan case'lar olinadi va payload
+  // o'sha sudning billing «Sud id»sidan quriladi (firma asosiy sudidan emas) — ko'p-sudli firmada
+  // har sud o'z Sud id'siga to'g'ri chiqadi. Asosiy (primary) sud hali courtId=null case'larni ham
+  // o'ziga oladi (ular default shu sudga ketadi).
+  let court: Awaited<ReturnType<typeof firmPrimaryCourt>> = null;
+  let courtWhere: Record<string, unknown> = {};
+  if (input.courtId) {
+    const ordered = await firmCourtsOrdered(firm.id).catch(() => []);
+    court = ordered.find((c) => c.id === input.courtId) ?? null;
+    const isPrimary = ordered[0]?.id === input.courtId;
+    courtWhere = isPrimary ? { OR: [{ courtId: input.courtId }, { courtId: null }] } : { courtId: input.courtId };
+  } else {
+    court = await firmPrimaryCourt(firm.id).catch(() => null);
+  }
+
   const picked = await prisma.arizaCase.findMany({
     where: {
       firmId: input.firmId, receiptNumber: null,
       ...(input.snapshotId ? { snapshotId: input.snapshotId } : {}),
+      ...courtWhere,
     },
     orderBy: { id: 'asc' }, take: count, select: { id: true },
   });
   if (picked.length === 0) return { restBatchId: null, invoiceBatchId: null, total: 0 };
 
   const amount = await getBojiAmount();
-  const court = await firmPrimaryCourt(firm.id).catch(() => null);
   // Faqat RAQAMLI billing Sud id ishlatiladi (placeholder/bo'sh bo'lsa — eski default 525).
   const billingCourtId = court && /^\d+$/.test(court.billingCourtId) ? court.billingCourtId : undefined;
   const payload = buildRestPayload(firm, { amount, courtId: billingCourtId, courtType: court?.courtType });

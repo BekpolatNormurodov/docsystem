@@ -49,6 +49,7 @@ export default async function PersonPage({
       include: {
         documents: { orderBy: { uploadedAt: 'asc' } },
         invoiceRecords: { where: { pdfPath: { not: null } }, select: { id: true, invoiceNo: true } },
+        court: { select: { shortName: true, nameUz: true } }, // case'ga tayinlangan sud (bo'lsa)
       },
     }),
   ]);
@@ -103,11 +104,34 @@ export default async function PersonPage({
     byFirm.get(key)!.push(loan);
   }
 
-  // Har firmaning asosiy sudi (ariza murojaati shundan; topilmasa settings default).
+  // Har firmaning sudi: case'ga tayinlangan sud (courtId) bo'lsa o'shani, aks holda firma asosiy sudi.
   const presentFirmIds = [...new Set([...byFirm.keys()].map((code) => firmByCode.get(code)?.id).filter((x): x is number => !!x))];
-  const courtNameByFirm = new Map<number, string | undefined>(
-    await Promise.all(presentFirmIds.map(async (id) => [id, (await firmPrimaryCourt(id).catch(() => null))?.nameUz] as const)),
+  const primaryCourtByFirm = new Map(
+    await Promise.all(presentFirmIds.map(async (id) => [id, await firmPrimaryCourt(id).catch(() => null)] as const)),
   );
+  // case'dan (send/prepare vaqtida tayinlangan) real sud — firma asosiysidan ustun.
+  const caseCourtByFirm = new Map<number, { short: string; full: string }>();
+  for (const cs of cases) if (cs.court) caseCourtByFirm.set(cs.firmId, { short: cs.court.shortName, full: cs.court.nameUz });
+  const courtForFirm = (firmId: number): { short: string; full: string } | undefined => {
+    const c = caseCourtByFirm.get(firmId);
+    if (c) return c;
+    const p = primaryCourtByFirm.get(firmId);
+    return p ? { short: p.shortName, full: p.nameUz } : undefined;
+  };
+  // Ariza uchun (nameUz) — eski foydalanish saqlanadi.
+  const courtNameByFirm = new Map<number, string | undefined>(presentFirmIds.map((id) => [id, courtForFirm(id)?.full]));
+  // Mijozning sudlari: qaysi sud → qaysi firmalar shu sudga chiqadi (badge + nomlar uchun).
+  const courtGroups = new Map<string, string[]>();
+  for (const code of byFirm.keys()) {
+    const firm = firmByCode.get(code);
+    if (!firm) continue;
+    const cc = courtForFirm(firm.id);
+    if (!cc) continue;
+    const arr = courtGroups.get(cc.short) ?? [];
+    if (!arr.includes(firm.shortName)) arr.push(firm.shortName);
+    courtGroups.set(cc.short, arr);
+  }
+  const clientCourts = [...courtGroups.entries()].map(([court, firmsAtCourt]) => ({ court, firms: firmsAtCourt }));
 
   return (
     <div>
@@ -125,11 +149,32 @@ export default async function PersonPage({
 
       <PersonFilters initialC={c} firms={personFirms} initialFirms={firmSel} />
 
-      <div className="mb-4 grid gap-4 sm:grid-cols-3">
+      <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Jami qarz" value={`${formatSumDecimal(String(grandTotal))} soʻm`} />
         <StatCard label="Kreditlar" value={loans.length} />
         <StatCard label="Firmalar" value={byFirm.size} />
+        <StatCard label="Sudlar" value={clientCourts.length} />
       </div>
+
+      {/* Mijozning sudlari — qaysi sud, qaysi firma(lar) shu sudga chiqadi (1 firma → 1 sud, lekin
+          har xil firma har xil sudga). */}
+      {clientCourts.length > 0 && (
+        <div className="card mb-4 p-4">
+          <div className="mb-2 flex items-center gap-2">
+            <svg className="h-4 w-4 text-brand-600 dark:text-brand-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M3 21h18M6 21V10M18 21V10M4 10h16L12 3 4 10Z" /></svg>
+            <span className="text-sm font-semibold">Sudlar</span>
+            <span className="rounded-full bg-brand-500/10 px-2 py-0.5 text-xs font-medium text-brand-600 dark:text-brand-300">{clientCourts.length} ta</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {clientCourts.map(({ court, firms: firmsAtCourt }) => (
+              <div key={court} className="inline-flex items-center gap-2 rounded-lg border border-line bg-surface-2/40 px-2.5 py-1.5">
+                <span className="text-[13px] font-medium">{court}</span>
+                <span className="text-[11px] text-muted">{firmsAtCourt.join(', ')}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="card mb-4 p-5">
         <dl className="grid gap-3 sm:grid-cols-2">
@@ -159,9 +204,15 @@ export default async function PersonPage({
             return (
               <section key={branchCode || 'unknown'} className="card p-5">
                 <header className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-surface-2 px-3 py-2">
-                  <h2 className="font-semibold">
+                  <h2 className="flex flex-wrap items-center gap-x-2 font-semibold">
                     {firm?.shortName ?? branchCode ?? 'Nomaʼlum firma'}
-                    <span className="ml-2 text-xs font-normal text-muted">· {firmLoans.length} ta shartnoma</span>
+                    <span className="text-xs font-normal text-muted">· {firmLoans.length} ta shartnoma</span>
+                    {firm && courtForFirm(firm.id) && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-brand-500/25 bg-brand-500/[0.06] px-2 py-0.5 text-[11px] font-medium text-brand-700 dark:text-brand-300">
+                        <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M3 21h18M6 21V10M18 21V10M4 10h16L12 3 4 10Z" /></svg>
+                        {courtForFirm(firm.id)!.short}
+                      </span>
+                    )}
                   </h2>
                   <span className="rounded-lg bg-brand-600/10 px-3 py-1 text-sm font-bold tabular-nums text-brand-700 dark:text-brand-300">
                     Jami: {formatSumDecimal(String(firmTotal))} soʻm

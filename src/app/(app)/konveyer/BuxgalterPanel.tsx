@@ -4,7 +4,10 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Skeleton } from '@/ui';
 
-interface FirmProg { firmId: number; firmName: string; total: number; withInvoice: number; remaining: number; eligible: number }
+// Per-court eligible bucket under a firm (firm→court is one-to-many).
+interface CourtEligible { courtId: number; courtName: string; billingCourtId: string; billingReady: boolean; isPrimary: boolean; eligible: number }
+interface FirmCourtProg { firmId: number; firmName: string; total: number; withInvoice: number; eligible: number; courts: CourtEligible[] }
+interface CourtTotal { courtId: number; courtName: string; eligible: number; billingReady: boolean }
 interface Batch { id: number; firmName: string; count: number; paid: number; createdAt: string }
 
 const n = (x: number) => x.toLocaleString('ru-RU');
@@ -15,33 +18,31 @@ interface RowProg { done: number; total: number; ok: number; failed: number; pha
 // Bir paketda ko'pi bilan shuncha — backend MAX_COUNT (invoice-rest.ts) bilan mos.
 const ROW_CAP = 100;
 
-function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: number; onDone: () => void; amount: number }) {
-  // Billing FAQAT imzodan o'tgan (SIGNED_SCANNED, kvitansiyasiz) case'larga ishlaydi — shuning uchun
-  // slider «remaining» (barcha kvitansiyasiz) emas, ELIGIBLE bilan cheklanadi (aks holda «100 yarat» bosib 2 ta chiqardi).
-  const cap = Math.min(ROW_CAP, f.eligible);
+/**
+ * One (firm × court) invoice row: creates HAQIQIY billing boji kvitansiyalarini shu sudga
+ * yo'naltirilgan kvitansiyasiz case'larga — payload o'sha sudning billing «Sud id»sidan quriladi.
+ * Jonli progress + reload'da tiklanadi (localStorage). courtId POST'ga qo'shiladi.
+ */
+function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId: number; court: CourtEligible; snapshotId?: number; amount: number; onDone: () => void }) {
+  const cap = Math.min(ROW_CAP, court.eligible);
   const [count, setCount] = useState<number>(cap || 0);
   const [busy, setBusy] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
   const [batchId, setBatchId] = useState<number | null>(null);
-  const [restId, setRestId] = useState<string | null>(null); // REST batch id — PDF (ZIP) download uchun
+  const [restId, setRestId] = useState<string | null>(null);
   const [prog, setProg] = useState<RowProg | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const LS_KEY = `konv_inv_batch_${f.firmId}`; // faol paketni reload'da tiklash uchun
-  const pct = f.total > 0 ? Math.round((f.withInvoice / f.total) * 100) : 0;
+  const LS_KEY = `konv_inv_batch_${firmId}_${court.courtId}`;
 
-  // Buxgalterga: partiyaning barcha PDF'lari (har invoice alohida .pdf) + Excel hisobot bitta ZIP.
-  // Mavjud GET /api/invoices/batch/{restBatchId}/zip route'idan foydalanamiz.
   const downloadZip = (rid: string) => {
     const a = document.createElement('a');
     a.href = `/api/invoices/batch/${rid}/zip`;
     document.body.appendChild(a); a.click(); a.remove();
   };
-  // Re-clamp when the eligible pool shrinks after a refetch (the row isn't remounted).
-  useEffect(() => { setCount((c) => Math.min(c, cap) || cap); }, [f.eligible]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setCount((c) => Math.min(c, cap) || cap); }, [court.eligible]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fon REST jarayonini kuzatadi: jonli sanoq/progress, tugagach yakunlaydi.
   const poll = (restBatchId: string) => {
     if (timer.current) clearInterval(timer.current);
     timer.current = setInterval(async () => {
@@ -53,21 +54,17 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
         clearInterval(timer.current);
         localStorage.removeItem(LS_KEY);
         setBusy(false);
-        if (p.phase === 'BLOCKED') {
-          setOk(false);
-          setMsg(p.error ?? 'IP bloklandi yoki tarmoq ishlamayapti');
-        } else {
+        if (p.phase === 'BLOCKED') { setOk(false); setMsg(p.error ?? 'IP bloklandi yoki tarmoq ishlamayapti'); }
+        else {
           setOk(true);
           setMsg(`${n(p.ok)} ta yaratildi${p.failed ? ` · ${n(p.failed)} xato` : ''}`);
-          if (p.ok > 0) downloadZip(restBatchId); // PDF'lar (ZIP) avtomatik yuklab olinadi
+          if (p.ok > 0) downloadZip(restBatchId);
         }
         onDone();
       }
     }, 1500);
   };
 
-  // Mount: shu firma uchun fon paket ishllayotgan bo'lsa (localStorage) tiklaymiz —
-  // reload/navigatsiyada progress yo'qolmaydi va tugma qayta bosilib ikki batch ketmaydi.
   useEffect(() => {
     let alive = true;
     const raw = typeof window !== 'undefined' ? localStorage.getItem(LS_KEY) : null;
@@ -95,7 +92,7 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
     try {
       const res = await fetch('/konveyer/invoice-batch', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ firmId: f.firmId, count, s: snapshotId }),
+        body: JSON.stringify({ firmId, count, s: snapshotId, courtId: court.courtId || undefined }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? 'Xato');
@@ -108,84 +105,108 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
     } catch (e: any) { setOk(false); setBusy(false); setMsg(e?.message ?? 'Xato'); }
   };
 
-  // «Bekor qilish» — stop the running batch; the runner finalizes with what it made so far and the
-  // poll flips busy off. Keeps whatever invoices already succeeded.
   const cancel = async () => {
     if (!restId || canceling) return;
     setCanceling(true);
     try { await fetch(`/api/invoices/batch/${restId}`, { method: 'DELETE' }); } catch { /* poll still finalizes */ }
   };
 
-  const done = f.remaining === 0;
-  const nothingEligible = !done && f.eligible === 0; // kvitansiyasiz case bor, lekin imzodan o'tgani yo'q
   return (
-    <div className={`rounded-lg border px-2.5 py-1.5 transition-colors ${done ? 'border-emerald-500/25 bg-emerald-500/[0.03]' : 'border-line hover:border-amber-500/30'}`}>
+    <div className="rounded-lg border border-line/70 bg-surface-2/30 px-2.5 py-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-1.5 text-[12px] font-medium">
+          {court.isPrimary && <span title="Asosiy sud" className="text-amber-500">★</span>}
+          <span className="truncate">{court.courtName}</span>
+        </span>
+        <span className="shrink-0 text-[11px] font-medium tabular-nums text-emerald-600 dark:text-emerald-400">{n(court.eligible)} tayyor</span>
+      </div>
+
+      {!court.billingReady && (
+        <div className="mt-1 flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/[0.06] px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+          <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><path d="M12 9v4M12 17h.01" /></svg>
+          «Sud id» yo'q — «Sudlar» bo'limida kiriting (aks holda invoice noto'g'ri sudga ketadi)
+        </div>
+      )}
+
+      <div className="mt-1 flex flex-wrap items-center gap-1">
+        <input
+          type="number" min={1} max={cap} value={count} aria-label={`${court.courtName} invoice soni`}
+          onChange={(e) => setCount(Math.max(1, Math.min(cap, Number(e.target.value) || 0)))}
+          className="w-14 rounded border border-line bg-surface px-1.5 py-0.5 text-center text-[13px] font-medium tabular-nums outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15"
+        />
+        {[25, 50, 100].filter((v) => v <= cap).map((v) => (
+          <button key={v} onClick={() => setCount(v)} aria-pressed={count === v} className={`rounded border px-1.5 py-0.5 text-[10px] font-medium tabular-nums transition-colors ${count === v ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-line text-muted hover:border-amber-500/40'}`}>{v}</button>
+        ))}
+        {cap < ROW_CAP && cap > 0 && (
+          <button onClick={() => setCount(cap)} className="rounded border border-line px-1.5 py-0.5 text-[10px] font-medium text-muted hover:border-amber-500/40">Hammasi ({n(cap)})</button>
+        )}
+        <span className="ml-1 text-[10px] tabular-nums text-muted">= <span className="font-medium text-fg">{n(count * amount)}</span></span>
+        {busy && restId && (
+          <button onClick={cancel} disabled={canceling} className="ml-auto inline-flex items-center gap-1 rounded-md border border-rose-500/40 px-2 py-1 text-[11px] font-semibold text-rose-600 transition-colors hover:bg-rose-500/10 disabled:opacity-50 dark:text-rose-300">
+            {canceling ? 'Toʻxtatilmoqda…' : 'Bekor'}
+          </button>
+        )}
+        <button onClick={create} disabled={busy || !count} aria-busy={busy} className="ml-auto inline-flex items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-amber-600 disabled:opacity-50">
+          {busy ? <><span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" /> {prog ? `${n(prog.done)}/${n(prog.total)}` : '…'}</> : 'Yarat'}
+        </button>
+      </div>
+
+      {busy && prog && (
+        <div className="mt-1 flex items-center gap-2 text-[11px] tabular-nums text-muted">
+          <div className="h-1 flex-1 overflow-hidden rounded-full bg-surface-2">
+            <div className="h-full rounded-full bg-amber-500 transition-all" style={{ width: `${prog.total ? Math.round((prog.done / prog.total) * 100) : 0}%` }} />
+          </div>
+          <span><span className="text-emerald-600 dark:text-emerald-400">✓{n(prog.ok)}</span>{prog.failed ? <span className="text-rose-500"> ✗{n(prog.failed)}</span> : null}</span>
+          <span>{prog.phase === 'PAUSING' ? `⏸ ${Math.ceil(prog.pauseLeftMs / 1000)}s` : 'ishlayapti'}</span>
+        </div>
+      )}
+      {msg && (
+        ok ? (
+          <div role="status" className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-emerald-600 dark:text-emerald-400">
+            <span>{msg}</span>
+            {restId && (
+              <a href={`/api/invoices/batch/${restId}/zip`} className="inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 font-medium text-emerald-700 hover:border-emerald-500/50 dark:text-emerald-300">
+                <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 3v12" /><path d="m8 11 4 4 4-4" /></svg>
+                PDF (ZIP)
+              </a>
+            )}
+            {batchId && <a href={`/konveyer/farmoyish?batchId=${batchId}`} className="rounded border border-line px-1.5 py-0.5 font-medium text-brand-600 hover:border-brand-500/40 dark:text-brand-400">Farmoyish</a>}
+          </div>
+        ) : (
+          <div role="alert" className="mt-1 text-[11px] font-medium text-rose-500">{msg}</div>
+        )
+      )}
+    </div>
+  );
+}
+
+/** A firm card: overall progress + one invoice row per court the firm routes to (one-to-many). */
+function FirmCard({ f, snapshotId, onDone, amount }: { f: FirmCourtProg; snapshotId?: number; onDone: () => void; amount: number }) {
+  const pct = f.total > 0 ? Math.round((f.withInvoice / f.total) * 100) : 0;
+  const done = f.eligible === 0 && f.withInvoice >= f.total;
+  const activeCourts = f.courts.filter((c) => c.eligible > 0);
+
+  return (
+    <div className={`rounded-xl border px-3 py-2.5 transition-colors ${done ? 'border-emerald-500/25 bg-emerald-500/[0.03]' : 'border-line'}`}>
       <div className="flex items-center justify-between gap-2">
         <span className="truncate text-[13px] font-semibold">{f.firmName}</span>
         <span className="shrink-0 text-[11px] tabular-nums text-muted">
           {n(f.withInvoice)}/{n(f.total)}
-          {f.eligible > 0 && <span className="font-medium text-emerald-600 dark:text-emerald-400"> · {n(f.eligible)} boji tayyor</span>}
-          {!done && f.eligible === 0 && <span className="text-muted"> · {n(f.remaining)} qoldi</span>}
+          {f.eligible > 0 && <span className="font-medium text-emerald-600 dark:text-emerald-400"> · {n(f.eligible)} tayyor</span>}
+          {f.courts.length > 1 && <span className="ml-1 rounded-full bg-brand-500/10 px-1.5 py-0.5 text-[10px] font-medium text-brand-600 dark:text-brand-300">{f.courts.length} sud</span>}
         </span>
       </div>
       <div className="my-1.5 h-1 w-full overflow-hidden rounded-full bg-surface-2">
         <div className={`h-full rounded-full transition-all ${done ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${pct}%` }} />
       </div>
-      {done ? (
+      {activeCourts.length === 0 ? (
         <div className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">✓ Hammasiga yaratilgan</div>
-      ) : nothingEligible ? (
-        <div className="text-[11px] text-muted">Kvitansiyasiz case yo'q — hammasiga boji yaratilgan.</div>
       ) : (
-        <>
-          <div className="flex flex-wrap items-center gap-1">
-            <input
-              type="number" min={1} max={cap} value={count} aria-label="Invoice soni"
-              onChange={(e) => setCount(Math.max(1, Math.min(cap, Number(e.target.value) || 0)))}
-              className="w-16 rounded border border-line bg-surface px-2 py-0.5 text-center text-[13px] font-medium tabular-nums outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15"
-            />
-            {[25, 50, 100].filter((v) => v <= cap).map((v) => (
-              <button key={v} onClick={() => setCount(v)} aria-pressed={count === v} className={`rounded border px-1.5 py-0.5 text-[10px] font-medium tabular-nums transition-colors ${count === v ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-line text-muted hover:border-amber-500/40'}`}>{v}</button>
-            ))}
-            {/* «Hammasi» faqat 100 dan kam qolganda — aks holda [100] tugmasi bir xil (cap=100). */}
-            {cap < ROW_CAP && (
-              <button onClick={() => setCount(cap)} className="rounded border border-line px-1.5 py-0.5 text-[10px] font-medium text-muted hover:border-amber-500/40">Hammasi ({n(cap)})</button>
-            )}
-            <span className="ml-1 text-[10px] tabular-nums text-muted">= <span className="font-medium text-fg">{n(count * amount)}</span></span>
-            {busy && restId && (
-              <button onClick={cancel} disabled={canceling} className="ml-auto inline-flex items-center gap-1 rounded-md border border-rose-500/40 px-2 py-1 text-[11px] font-semibold text-rose-600 transition-colors hover:bg-rose-500/10 disabled:opacity-50 dark:text-rose-300">
-                {canceling ? 'Toʻxtatilmoqda…' : 'Bekor'}
-              </button>
-            )}
-            <button onClick={create} disabled={busy || !count} aria-busy={busy} className="ml-auto inline-flex items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-amber-600 disabled:opacity-50">
-              {busy ? <><span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" /> {prog ? `${n(prog.done)}/${n(prog.total)}` : '…'}</> : 'Yarat'}
-            </button>
-          </div>
-          {busy && prog && (
-            <div className="mt-1 flex items-center gap-2 text-[11px] tabular-nums text-muted">
-              <div className="h-1 flex-1 overflow-hidden rounded-full bg-surface-2">
-                <div className="h-full rounded-full bg-amber-500 transition-all" style={{ width: `${prog.total ? Math.round((prog.done / prog.total) * 100) : 0}%` }} />
-              </div>
-              <span><span className="text-emerald-600 dark:text-emerald-400">✓{n(prog.ok)}</span>{prog.failed ? <span className="text-rose-500"> ✗{n(prog.failed)}</span> : null}</span>
-              <span>{prog.phase === 'PAUSING' ? `⏸ ${Math.ceil(prog.pauseLeftMs / 1000)}s` : 'ishlayapti'}</span>
-            </div>
-          )}
-          {msg && (
-            ok ? (
-              <div role="status" className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-emerald-600 dark:text-emerald-400">
-                <span>{msg}</span>
-                {restId && (
-                  <a href={`/api/invoices/batch/${restId}/zip`} className="inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 font-medium text-emerald-700 hover:border-emerald-500/50 dark:text-emerald-300">
-                    <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 3v12" /><path d="m8 11 4 4 4-4" /></svg>
-                    PDF (ZIP)
-                  </a>
-                )}
-                {batchId && <a href={`/konveyer/farmoyish?batchId=${batchId}`} className="rounded border border-line px-1.5 py-0.5 font-medium text-brand-600 hover:border-brand-500/40 dark:text-brand-400">Farmoyish</a>}
-              </div>
-            ) : (
-              <div role="alert" className="mt-1 text-[11px] font-medium text-rose-500">{msg}</div>
-            )
-          )}
-        </>
+        <div className="space-y-1.5">
+          {activeCourts.map((c) => (
+            <CourtInvoiceRow key={c.courtId} firmId={f.firmId} court={c} snapshotId={snapshotId} amount={amount} onDone={onDone} />
+          ))}
+        </div>
       )}
     </div>
   );
@@ -193,12 +214,13 @@ function FirmRow({ f, snapshotId, onDone, amount }: { f: FirmProg; snapshotId?: 
 
 export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; firmId?: number }) {
   const router = useRouter();
-  const [firms, setFirms] = useState<FirmProg[] | null>(null);
+  const [firms, setFirms] = useState<FirmCourtProg[] | null>(null);
+  const [courtTotals, setCourtTotals] = useState<CourtTotal[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
-  const [amount, setAmount] = useState(20600);
+  const [amount, setAmount] = useState(22000);
   const [open, setOpen] = useState(true);
   const [loadErr, setLoadErr] = useState<string | null>(null);
-  const reqRef = useRef(0); // ignore out-of-order responses when the firm/snapshot changes
+  const reqRef = useRef(0);
 
   const load = useCallback(async () => {
     const myReq = ++reqRef.current;
@@ -211,12 +233,13 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
       if (!res.ok) throw new Error(`Server xatosi (${res.status})`);
       const data = await res.json();
       if (myReq !== reqRef.current) return;
-      setFirms(data.firms ?? []);
+      setFirms(data.byCourt ?? []);
+      setCourtTotals(data.courtTotals ?? []);
       setBatches(data.batches ?? []);
-      setAmount(data.amount ?? 20600);
+      setAmount(data.amount ?? 22000);
     } catch (e) {
       if (myReq !== reqRef.current) return;
-      setFirms([]); // stop the skeleton
+      setFirms([]);
       setLoadErr(e instanceof Error ? e.message : 'Yuklab bo‘lmadi');
     }
   }, [snapshotId, firmId]);
@@ -224,21 +247,35 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
 
   const onDone = () => { load(); router.refresh(); };
 
-  const totalRemaining = firms?.reduce((s, f) => s + f.remaining, 0) ?? 0;
   const totalWith = firms?.reduce((s, f) => s + f.withInvoice, 0) ?? 0;
   const totalEligible = firms?.reduce((s, f) => s + f.eligible, 0) ?? 0;
+  const totalAll = firms?.reduce((s, f) => s + f.total, 0) ?? 0;
 
   return (
     <div className="card p-5">
       <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center justify-between text-left">
         <div>
           <div className="text-sm font-semibold">Invoice — buxgalteriya</div>
-          <div className="mt-0.5 text-xs tabular-nums text-muted">Har biri {n(amount)} so'm · {n(totalWith)} yaratilgan{totalEligible > 0 && <span className="font-medium text-emerald-600 dark:text-emerald-400"> · {n(totalEligible)} boji tayyor</span>} · {n(totalRemaining)} qoldi</div>
+          <div className="mt-0.5 text-xs tabular-nums text-muted">Har biri {n(amount)} so'm · {n(totalWith)}/{n(totalAll)} yaratilgan{totalEligible > 0 && <span className="font-medium text-emerald-600 dark:text-emerald-400"> · {n(totalEligible)} tayyor</span>}</div>
         </div>
         <svg className={`h-4 w-4 shrink-0 text-muted transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m9 6 6 6-6 6" /></svg>
       </button>
       {open && (
         <>
+          {/* Sud bo'yicha umumiy taqsimot — «Uchtepa 400 · Yuqori Chirchiq 300 …» */}
+          {courtTotals.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Sud bo'yicha:</span>
+              {courtTotals.map((c) => (
+                <span key={c.courtId} className="inline-flex items-center gap-1 rounded-full border border-line bg-surface-2/50 px-2 py-0.5 text-[11px] font-medium">
+                  <span className={c.billingReady ? '' : 'text-amber-600 dark:text-amber-400'}>{c.courtName}</span>
+                  <span className="tabular-nums text-emerald-600 dark:text-emerald-400">{n(c.eligible)}</span>
+                  {!c.billingReady && <span title="Billing «Sud id» yo'q" className="text-amber-500">⚠</span>}
+                </span>
+              ))}
+            </div>
+          )}
+
           {loadErr ? (
             <div role="alert" className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-rose-500/25 bg-rose-500/[0.04] px-3 py-2.5 text-xs">
               <span className="text-rose-600 dark:text-rose-300">{loadErr}</span>
@@ -247,11 +284,11 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
           ) : firms !== null && firms.length === 0 ? (
             <div className="mt-4 grid h-24 place-items-center text-center text-xs text-muted">Bu snapshot bo‘yicha firma yo‘q</div>
           ) : (
-          <div className="mt-4 grid grid-cols-1 gap-2.5 lg:grid-cols-2">
-            {firms === null
-              ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)
-              : firms.map((f) => <FirmRow key={f.firmId} f={f} snapshotId={snapshotId} onDone={onDone} amount={amount} />)}
-          </div>
+            <div className="mt-4 grid grid-cols-1 gap-2.5 lg:grid-cols-2">
+              {firms === null
+                ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-xl" />)
+                : firms.map((f) => <FirmCard key={f.firmId} f={f} snapshotId={snapshotId} onDone={onDone} amount={amount} />)}
+            </div>
           )}
 
           {batches.length > 0 && (

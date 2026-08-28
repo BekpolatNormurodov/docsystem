@@ -5,8 +5,8 @@ import React, { useEffect, useState } from 'react';
 // Editable davlat-boji amount (soʻm). Drives the kvitansiya «Toʻlov summasi» and the
 // buxgalter panel's per-invoice total. Stored as a Setting; default is 20 600.
 export function BojiSettings() {
-  const [amount, setAmount] = useState<number>(20600);
-  const [dflt, setDflt] = useState<number>(20600);
+  const [amount, setAmount] = useState<number>(22000);
+  const [dflt, setDflt] = useState<number>(22000);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -18,8 +18,8 @@ export function BojiSettings() {
       const res = await fetch('/settings/boji', { cache: 'no-store' });
       if (!res.ok) throw new Error(`Server xatosi (${res.status})`);
       const d = await res.json();
-      setAmount(d.amount ?? 20600);
-      setDflt(d.default ?? 20600);
+      setAmount(d.amount ?? 22000);
+      setDflt(d.default ?? 22000);
     } catch (e) { setErr(e instanceof Error ? e.message : 'Yuklab boʻlmadi'); }
     finally { setLoading(false); }
   };

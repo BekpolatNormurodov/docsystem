@@ -4,10 +4,11 @@
 import { prisma } from './db';
 import type { CaseStage } from '@prisma/client';
 import { dueForStage } from './konveyer-sla';
+import { firmCourtsOrdered } from './court-routing';
 
 // Davlat-boji amount (soʻm). Editable in Sozlamalar and stored as a Setting; this
-// is only the fallback default when nothing is saved.
-export const BOJI_AMOUNT_DEFAULT = 20600;
+// is only the fallback default when nothing is saved. Hamma sudga bir xil summa ketadi.
+export const BOJI_AMOUNT_DEFAULT = 22000;
 const BOJI_KEY = 'boji_amount';
 
 /** Current davlat-boji amount — the saved Setting, or the default. */
@@ -26,7 +27,7 @@ export async function setBojiAmount(amount: number): Promise<void> {
 // Postal fee (farmoyish «Почта харажати») — a semantically DISTINCT fee that
 // happens to equal the boji today. Kept separate so changing one never silently
 // moves the other.
-export const POSTAL_FEE = 20600;
+export const POSTAL_FEE = 22000;
 
 // A boji invoice is "paid" once the case has REACHED INVOICE_PAID — it stays
 // paid as the stage advances past it (court/MIB/closed), so match the whole tail.
@@ -65,6 +66,117 @@ export async function invoiceProgress(snapshotId?: number, firmId?: number): Pro
     })
     .filter((f) => f.total > 0)
     .sort((a, b) => b.total - a.total);
+}
+
+// ── Per-court invoice breakdown ──────────────────────────────────────────────
+// A firm can route to several courts (CourtFirmAccess), and each ArizaCase carries
+// its own courtId (the court its ariza addresses). Boji invoices must be created
+// PER COURT — every invoice in a batch shares one billing «Sud id», so a multi-court
+// firm needs one batch per court. This powers the «Invoice yaratish» court breakdown.
+
+/** One court bucket under a firm: how many kvitansiyasiz cases route to this court. */
+export interface CourtEligible {
+  courtId: number;
+  courtName: string; // short name for the UI chip
+  billingCourtId: string; // billing.sud.uz Sud id
+  billingReady: boolean; // billingCourtId is a real number (else invoices fall back to the default court)
+  isPrimary: boolean; // order 0 — cases with no explicit courtId fall here
+  eligible: number; // receiptNumber===null cases routed to this court
+}
+
+export interface FirmCourtProgress {
+  firmId: number;
+  firmName: string;
+  total: number;
+  withInvoice: number;
+  eligible: number; // all kvitansiyasiz (sum across courts)
+  courts: CourtEligible[]; // per-court split, primary first
+}
+
+/**
+ * Per-firm, per-court eligible (kvitansiyasiz) case counts. Cases whose courtId is
+ * still null are bucketed into the firm's PRIMARY court (that's where they route by
+ * default). Firms with no configured courts get a single synthetic bucket (courtId 0)
+ * so the UI still shows a total. Optionally scoped to one snapshot / firm.
+ */
+export async function invoiceProgressByCourt(snapshotId?: number, firmId?: number): Promise<FirmCourtProgress[]> {
+  const scope = { ...(snapshotId ? { snapshotId } : {}), ...(firmId ? { firmId } : {}) };
+  const [firms, totals, withInv, eligByCourt] = await Promise.all([
+    prisma.firm.findMany({ where: firmId ? { id: firmId } : {}, select: { id: true, shortName: true } }),
+    prisma.arizaCase.groupBy({ by: ['firmId'], where: scope, _count: { _all: true } }),
+    prisma.arizaCase.groupBy({ by: ['firmId'], where: { ...scope, receiptNumber: { not: null } }, _count: { _all: true } }),
+    // (firm × court) eligible counts — courtId may be null (→ primary bucket).
+    prisma.arizaCase.groupBy({ by: ['firmId', 'courtId'], where: { ...scope, receiptNumber: null }, _count: { _all: true } }),
+  ]);
+  const totalBy = new Map(totals.map((t) => [t.firmId, t._count._all]));
+  const invBy = new Map(withInv.map((t) => [t.firmId, t._count._all]));
+  // firmId → (courtId|null) → count
+  const eligBy = new Map<number, Map<number | null, number>>();
+  for (const g of eligByCourt) {
+    const m = eligBy.get(g.firmId) ?? new Map<number | null, number>();
+    m.set(g.courtId, (m.get(g.courtId) ?? 0) + g._count._all);
+    eligBy.set(g.firmId, m);
+  }
+
+  const withCases = firms.filter((f) => (totalBy.get(f.id) ?? 0) > 0);
+  // Resolve each firm's ordered courts once (primary first). Guarded — missing config
+  // must not crash the whole page.
+  const courtsByFirm = new Map(
+    await Promise.all(withCases.map(async (f) => [f.id, await firmCourtsOrdered(f.id).catch(() => [])] as const)),
+  );
+
+  const out: FirmCourtProgress[] = withCases.map((f) => {
+    const total = totalBy.get(f.id) ?? 0;
+    const withInvoice = invBy.get(f.id) ?? 0;
+    const counts = eligBy.get(f.id) ?? new Map<number | null, number>();
+    const eligible = [...counts.values()].reduce((s, n) => s + n, 0);
+    const ordered = courtsByFirm.get(f.id) ?? [];
+    const primaryId = ordered[0]?.id ?? null;
+
+    const courts: CourtEligible[] = ordered.map((c, i) => {
+      // The primary court also absorbs any not-yet-routed (courtId null) cases.
+      const own = counts.get(c.id) ?? 0;
+      const nulls = i === 0 ? counts.get(null) ?? 0 : 0;
+      return {
+        courtId: c.id,
+        courtName: c.shortName,
+        billingCourtId: c.billingCourtId,
+        billingReady: /^\d+$/.test(c.billingCourtId),
+        isPrimary: i === 0,
+        eligible: own + nulls,
+      };
+    });
+    // A firm with cases but NO configured court (routing disabled): single synthetic bucket.
+    if (courts.length === 0 && eligible > 0) {
+      courts.push({ courtId: 0, courtName: 'Sud belgilanmagan', billingCourtId: '', billingReady: false, isPrimary: true, eligible });
+    }
+    // Any eligible court not in the firm's ordered set (stale courtId) — surface it too, so it isn't lost.
+    if (primaryId != null) {
+      for (const [cid, n] of counts) {
+        if (cid == null || cid === 0) continue;
+        if (!courts.some((b) => b.courtId === cid)) {
+          courts.push({ courtId: cid, courtName: `sud #${cid}`, billingCourtId: '', billingReady: false, isPrimary: false, eligible: n });
+        }
+      }
+    }
+    return { firmId: f.id, firmName: f.shortName, total, withInvoice, eligible, courts };
+  });
+  return out.sort((a, b) => b.total - a.total);
+}
+
+/** Global per-court totals across all firms (for the «Bright 400 · Yuqori Chirchiq 300» header). */
+export interface CourtTotal { courtId: number; courtName: string; eligible: number; billingReady: boolean; }
+export function courtTotalsFrom(firmProgress: FirmCourtProgress[]): CourtTotal[] {
+  const by = new Map<number, CourtTotal>();
+  for (const f of firmProgress) {
+    for (const c of f.courts) {
+      if (c.eligible <= 0) continue;
+      const cur = by.get(c.courtId) ?? { courtId: c.courtId, courtName: c.courtName, eligible: 0, billingReady: c.billingReady };
+      cur.eligible += c.eligible;
+      by.set(c.courtId, cur);
+    }
+  }
+  return [...by.values()].sort((a, b) => b.eligible - a.eligible);
 }
 
 export interface BatchHistoryRow {

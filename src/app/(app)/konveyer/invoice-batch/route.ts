@@ -1,20 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth';
-import { invoiceProgress, listBatches, getBojiAmount } from '@/lib/konveyer-buxgalter';
+import { invoiceProgress, invoiceProgressByCourt, courtTotalsFrom, listBatches, getBojiAmount } from '@/lib/konveyer-buxgalter';
 import { startRestBatchForCases } from '@/lib/invoice-rest';
 import { audit, AuditAction } from '@/lib/audit';
 
 export const runtime = 'nodejs';
 
-// GET ?s= — per-firm invoice progress + recent batch history.
+// GET ?s= — per-firm invoice progress (+ per-court split) + recent batch history.
 export async function GET(req: NextRequest) {
   await requireUser();
   const s = req.nextUrl.searchParams.get('s');
   const snapshotId = s ? Number(s) : undefined;
   const fid = req.nextUrl.searchParams.get('firmId');
   const firmId = fid ? Number(fid) : undefined;
-  const [firms, batches, amount] = await Promise.all([invoiceProgress(snapshotId, firmId), listBatches(snapshotId, firmId), getBojiAmount()]);
-  return NextResponse.json({ firms, batches, amount });
+  const [firms, byCourt, batches, amount] = await Promise.all([
+    invoiceProgress(snapshotId, firmId),
+    invoiceProgressByCourt(snapshotId, firmId),
+    listBatches(snapshotId, firmId),
+    getBojiAmount(),
+  ]);
+  return NextResponse.json({ firms, byCourt, courtTotals: courtTotalsFrom(byCourt), batches, amount });
 }
 
 // POST { firmId, count, s? } — imzodan o'tgan (SIGNED_SCANNED) case'larga HAQIQIY
@@ -26,13 +31,14 @@ export async function POST(req: NextRequest) {
   const firmId = Number(body?.firmId);
   const count = Number(body?.count);
   const snapshotId = body?.s ? Number(body.s) : undefined;
+  const courtId = body?.courtId ? Number(body.courtId) : undefined; // sud bo'yicha invoice (ixtiyoriy)
   if (!firmId || !count) return NextResponse.json({ error: 'firmId va count kerak' }, { status: 400 });
   try {
-    const result = await startRestBatchForCases({ firmId, count, snapshotId });
+    const result = await startRestBatchForCases({ firmId, count, snapshotId, courtId });
     if (result.total === 0) {
       return NextResponse.json({ error: 'Kvitansiyasiz case yoʻq' }, { status: 400 });
     }
-    await audit(AuditAction.INVOICE_BATCH, { target: `firm:${firmId}`, detail: { count, total: result.total } });
+    await audit(AuditAction.INVOICE_BATCH, { target: `firm:${firmId}`, detail: { count, total: result.total, courtId } });
     return NextResponse.json(result);
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? 'Batch xatosi' }, { status: 400 });
