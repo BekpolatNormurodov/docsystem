@@ -501,6 +501,9 @@ model ArizaCase {
   // Set when this client's oferta(s) were generated (bulk «Oferta tayyorlash» or the per-card
   // «Yaratish»), so the doc card shows «bor» instead of «avto». Fill-null-only (never overwritten).
   ofertaAt      DateTime?
+  // Set when this client's court ariza (.docx) was generated (bulk «Ariza yaratish»), so a re-run
+  // skips already-made arizas and the count shows «qoldi». Fill-null-only (never overwritten).
+  arizaAt       DateTime?
   slaDays       Int       @default(3) // working-day budget for the current stage
   dueAt         DateTime? // deadline for the current stage; past due => "osilgan"
   invoiceNo     String? // davlat-boji invoice number

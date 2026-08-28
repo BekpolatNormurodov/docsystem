@@ -28,7 +28,8 @@ export async function POST(req: NextRequest) {
   // courtList mode: every contract of every court-bound client (distinct PINFL across the
   // snapshot's arizaCases), across ALL firms — the «1054 mijoz» full oferta run.
   if (body?.courtList === true && snapshotId) {
-    const cases = await prisma.arizaCase.findMany({ where: { snapshotId, ...(firmId ? { firmId } : {}) }, select: { pinfl: true }, distinct: ['pinfl'] });
+    // Allaqachon ofertasi chiqqan (ofertaAt) mijozlar qayta chiqmaydi.
+    const cases = await prisma.arizaCase.findMany({ where: { snapshotId, ofertaAt: null, ...(firmId ? { firmId } : {}) }, select: { pinfl: true }, distinct: ['pinfl'] });
     const pinfls = cases.map((c) => c.pinfl).filter((p): p is string => !!p);
     if (!pinfls.length) return NextResponse.json({ error: 'Court list boʻsh' }, { status: 400 });
     const loans = await prisma.loan.findMany({ where: { snapshotId, pinfl: { in: pinfls }, summKr: { gt: 0 } }, select: { id: true } });
@@ -62,9 +63,11 @@ export async function POST(req: NextRequest) {
     ...(snapshotId ? { snapshotId } : {}),
     ...(firmId ? { firmId } : {}),
     ...(stages.length ? { stage: { in: stages } } : {}),
+    // «Oferta tayyorlash»: allaqachon ofertasi bor mijozlar QAYTA chiqmaydi (foydalanuvchi so'rovi).
+    ofertaAt: null,
   };
   const scopeTotal = await prisma.arizaCase.count({ where });
-  if (scopeTotal === 0) return NextResponse.json({ error: 'Bu tanlovda case yoʻq' }, { status: 400 });
+  if (scopeTotal === 0) return NextResponse.json({ error: 'Yangi oferta yoʻq — hammasi tayyor' }, { status: 400 });
   // «Belgilangan son»: cap the job to the first N cases so pressing «1» renders 1, not the whole scope.
   const total = limit && limit < scopeTotal ? limit : scopeTotal;
 

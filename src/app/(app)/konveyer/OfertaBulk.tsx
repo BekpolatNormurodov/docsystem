@@ -20,7 +20,9 @@ export function OfertaBulk({ firms, snapshotId }: { firms: Firm[]; snapshotId?: 
   const firm = firms.find((f) => f.firmId === firmId) ?? null;
   const firmOpts = [{ value: 'all', label: 'Hamma firma' }, ...firms.map((f) => ({ value: String(f.firmId), label: f.firmName, hint: n(f.total) }))];
 
-  const [count, setCount] = useState<number | null>(null);
+  const [count, setCount] = useState<number | null>(null); // hali oferta chiqmaganlar (generatsiya shularga)
+  const [totalAll, setTotalAll] = useState<number | null>(null);
+  const [doneCount, setDoneCount] = useState(0);
   const [countBusy, setCountBusy] = useState(false);
 
   const [jobId, setJobId] = useState<number | null>(null);
@@ -38,17 +40,21 @@ export function OfertaBulk({ firms, snapshotId }: { firms: Firm[]; snapshotId?: 
   const loadCount = useCallback(async () => {
     if (snapshotId == null) { setCount(null); return; }
     setCountBusy(true);
-    const params = new URLSearchParams({ snapshotId: String(snapshotId) });
+    const params = new URLSearchParams({ snapshotId: String(snapshotId), ofertaOnly: '1' });
     if (firmId != null) params.set('firmId', String(firmId));
     try {
       const res = await fetch(`/konveyer/prepare?${params.toString()}`);
       const d = res.ok ? await res.json() : null;
-      if (d && typeof d.total === 'number') setCount(d.total);
+      if (d && typeof d.remaining === 'number') setCount(d.remaining); else if (d && typeof d.total === 'number') setCount(d.total);
+      if (d && typeof d.total === 'number') setTotalAll(d.total);
+      if (d && typeof d.done === 'number') setDoneCount(d.done);
+      // Reload'da davom etayotgan oferta generatsiyasiga qayta ulanamiz.
+      if (d?.activeJob && jobId == null) { setJobId(d.activeJob.id); setJob({ status: 'RUNNING', progress: d.activeJob.progress ?? 0, total: d.activeJob.total ?? 0 }); }
     } catch { /* best-effort */ }
     finally { setCountBusy(false); }
   }, [firmId, snapshotId]);
 
-  useEffect(() => { setJobId(null); setJob(null); setErr(null); setCount(null); setCanceling(false); }, [firmId, snapshotId]);
+  useEffect(() => { setJobId(null); setJob(null); setErr(null); setCount(null); setTotalAll(null); setDoneCount(0); setCanceling(false); }, [firmId, snapshotId]);
   useEffect(() => { loadCount(); }, [loadCount]);
 
   useEffect(() => {
@@ -129,9 +135,13 @@ export function OfertaBulk({ firms, snapshotId }: { firms: Firm[]; snapshotId?: 
             <div className="text-sm font-semibold">Oferta tayyorlash</div>
             <div className="mt-0.5 text-xs text-muted">Har shartnomaga oferta (mikroqarz shartnomasi) PDF → bitta ZIP (mijoz papkalari) · {scopeLabel}</div>
           </div>
-          {countBusy && count == null
+          {countBusy && totalAll == null
             ? <span className="h-6 w-20 shrink-0 animate-pulse rounded-lg bg-surface-2" aria-hidden />
-            : count != null && <span className="shrink-0 rounded-lg bg-surface-2 px-2 py-1 text-xs font-semibold tabular-nums">{n(total)} mijoz</span>}
+            : totalAll != null && (
+              <span className="shrink-0 rounded-lg bg-surface-2 px-2 py-1 text-xs font-semibold tabular-nums">
+                {n(totalAll)} mijoz{doneCount > 0 && <span className="ml-1 font-normal text-emerald-600 dark:text-emerald-400">· {n(count ?? 0)} qoldi</span>}
+              </span>
+            )}
         </div>
 
         {/* Firmalar boʻyicha sonlar — «Hamma firma»da har firma va soni (bosilsa oʻsha firma tanlanadi). */}
@@ -187,6 +197,11 @@ export function OfertaBulk({ firms, snapshotId }: { firms: Firm[]; snapshotId?: 
               <Ico.download size={14} /> {job?.message || `${n(job?.total ?? 0)} tayyor`} — yuklab olish
             </a>
             <button onClick={() => { setJobId(null); setJob(null); loadCount(); }} className="rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-2">Yana</button>
+          </div>
+        ) : total === 0 && doneCount > 0 ? (
+          <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.07] px-3 py-2 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+            <Ico.check size={14} className="shrink-0" />
+            <span>Hammasi tayyor — {n(doneCount)} ta mijozga oferta chiqarilgan.</span>
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-2">

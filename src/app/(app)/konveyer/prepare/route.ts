@@ -11,6 +11,23 @@ const VALID_STAGES = new Set<string>(['IMPORTED', 'TALABNOMA_SENT', 'ARIZA_GENER
 
 const numArg = (v: unknown): number | undefined => { const n = Number(v); return v != null && v !== '' && Number.isInteger(n) && n > 0 ? n : undefined; };
 
+/** Newest still-running job of a type for a scope — so the UI can RECONNECT its progress after a
+ *  page reload instead of losing it. Matches firmId inside params (JSON); an optional param flag
+ *  (e.g. 'arizaOnly') further narrows PACKET jobs. */
+async function findActiveJob(type: 'PACKET' | 'OFERTA', snapshotId?: number, firmId?: number, requireFlag?: string): Promise<{ id: number; progress: number; total: number } | null> {
+  const jobs = await prisma.job.findMany({
+    where: { type, status: { in: ['PENDING', 'RUNNING'] }, ...(snapshotId ? { snapshotId } : {}) },
+    orderBy: { id: 'desc' }, take: 12, select: { id: true, progress: true, total: true, params: true },
+  }).catch(() => []);
+  const j = jobs.find((x) => {
+    const p = (x.params ?? {}) as Record<string, unknown>;
+    if (requireFlag && p[requireFlag] !== true) return false;
+    // firmId null (Hamma firma) matches a job with no firmId; a specific firm matches its own job.
+    return firmId == null ? p.firmId == null : Number(p.firmId) === firmId;
+  });
+  return j ? { id: j.id, progress: j.progress, total: j.total } : null;
+}
+
 // GET ?snapshotId=&firmId=&stages= — cheap case count for the scope, so «Ariza yaratish» can show
 // «Hammasi (N)» / the count modal before starting the (heavy) packet job.
 export async function GET(req: NextRequest) {
@@ -24,7 +41,21 @@ export async function GET(req: NextRequest) {
     ...(firmId ? { firmId } : {}),
     ...(stages.length ? { stage: { in: stages } } : {}),
   };
+  const arizaOnly = sp.get('arizaOnly') === '1';
+  const ofertaOnly = sp.get('ofertaOnly') === '1';
   const total = await prisma.arizaCase.count({ where });
+  // «Ariza/Oferta yaratish»: allaqachon chiqarilganlar (arizaAt/ofertaAt != null) qayta chiqmaydi —
+  // `remaining` = hali chiqmaganlar, `done` = tayyor bo'lganlar.
+  let remaining = total;
+  let done = 0;
+  if (arizaOnly || ofertaOnly) {
+    remaining = await prisma.arizaCase.count({ where: { ...where, ...(arizaOnly ? { arizaAt: null } : { ofertaAt: null }) } });
+    done = total - remaining;
+  }
+  // Reload'da davom etayotgan jobga qayta ulanish uchun: shu qamrovdagi ishlab turgan job.
+  const activeJob = arizaOnly ? await findActiveJob('PACKET', snapshotId, firmId, 'arizaOnly')
+    : ofertaOnly ? await findActiveJob('OFERTA', snapshotId, firmId)
+    : null;
   // Firma tanlangan bo'lsa — uning sud(lar)i (ariza yaratishda sudni tanlab, sonlarini belgilash uchun).
   // Bir nechta sud bo'lsa (Bright) — UI har biriga son kiritish maydonini ko'rsatadi.
   let courts: { id: number; shortName: string; dailyQuota: number; cutoffMinutes: number; remaining: number; open: boolean }[] = [];
@@ -34,7 +65,7 @@ export async function GET(req: NextRequest) {
       cutoffMinutes: b.court.cutoffMinutes, remaining: b.remaining, open: b.window.open,
     }));
   }
-  return NextResponse.json({ total, courts });
+  return NextResponse.json({ total, remaining, done, activeJob, courts });
 }
 
 // POST { snapshotId?, firmId?, stages?, talabnomaPdf? } — «Tayyorlash»: start a
@@ -62,9 +93,11 @@ export async function POST(req: NextRequest) {
     ...(snapshotId ? { snapshotId } : {}),
     ...(firmId ? { firmId } : {}),
     ...(stages.length ? { stage: { in: stages } } : {}),
+    // «Ariza yaratish»: allaqachon arizasi bor case'lar QAYTA chiqmaydi (foydalanuvchi so'rovi).
+    ...(arizaOnly ? { arizaAt: null } : {}),
   };
   const scopeTotal = await prisma.arizaCase.count({ where });
-  if (scopeTotal === 0) return NextResponse.json({ error: 'Bu tanlovda case yoʻq' }, { status: 400 });
+  if (scopeTotal === 0) return NextResponse.json({ error: arizaOnly ? 'Yangi ariza yoʻq — hammasi tayyor' : 'Bu tanlovda case yoʻq' }, { status: 400 });
 
   // ── Sud bo'yicha taqsimlash (ariza yaratishda sudni tanlab, son belgilash) ─────────────────────
   // courtCounts=[{courtId, count}] berilsa: eng eski case'larni tanlab, har sudga o'z sonicha

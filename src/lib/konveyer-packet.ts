@@ -281,9 +281,12 @@ export async function markPacketGenerated(caseId: number, talabnomaMade: boolean
     await prisma.arizaCase.updateMany({ where: { id: caseId, talabnomaAt: null }, data: { talabnomaAt: new Date() } });
   }
   if (arizaMade) {
+    const now = new Date();
+    // Stamp arizaAt (fill-null-only) so a re-run skips already-made arizas — regardless of stage
+    // (a case may already be at TALABNOMA_SENT, so the stage transition alone isn't a reliable flag).
+    await prisma.arizaCase.updateMany({ where: { id: caseId, arizaAt: null }, data: { arizaAt: now } });
     // Reset the SLA clock for the SIGN phase (else it keeps the stale import
     // deadline and is wrongly flagged overdue on entry).
-    const now = new Date();
     const dueAt = await dueForStage('ARIZA_GENERATED', now);
     await prisma.arizaCase.updateMany({
       where: { id: caseId, stage: 'IMPORTED' },

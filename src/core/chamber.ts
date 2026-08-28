@@ -4,7 +4,7 @@
  * — the chamber's fixed block is not a per-document value. Promote to an admin-editable settings row
  * if a second regional branch ever appears.
  *
- * Kept verbatim from the source blank, including its spelling («xududiy»).
+ * Kept close to the source blank; «xududiy» corrected to «hududiy» per the operator.
  */
 export const CHAMBER = {
   /** Letterhead line 1 (bold). The blank prints «...boshqarmasi»; «hududiy» is the correct form. */
@@ -18,7 +18,7 @@ export const CHAMBER = {
     'e-mail: th@chamber.uz, www.chamber.uz',
   ],
   /** «Arizachi:» block — the applicant is the chamber itself. */
-  applicantName: 'Oʻzbekiston Savdo-sanoat palatasi Toshkent shahar xududiy boshqarmasi',
+  applicantName: 'Oʻzbekiston Savdo-sanoat palatasi Toshkent shahar hududiy boshqarmasi',
   applicantAddress: ['Toshkent shahar, Mirobod tumani,', 'A.Temur shox koʻchasi, 4-uy.'],
   applicantStir: '201 800 518',
   /** The right-aligned label above the firm (the member on whose behalf the chamber collects). */

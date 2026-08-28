@@ -24,7 +24,9 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
 }) {
   const n = (x: number) => x.toLocaleString('ru-RU');
 
-  const [count, setCount] = useState<number | null>(null);
+  const [count, setCount] = useState<number | null>(null); // hali ariza chiqmaganlar (generatsiya shularga)
+  const [totalAll, setTotalAll] = useState<number | null>(null); // umumiy mijozlar
+  const [doneCount, setDoneCount] = useState(0); // allaqachon arizasi chiqqanlar
   const [courts, setCourts] = useState<CourtOpt[]>([]);
   const [courtNums, setCourtNums] = useState<Record<number, string>>({}); // ko'p sudli firma: har sudga son
   const [countBusy, setCountBusy] = useState(false);
@@ -51,14 +53,18 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
     if (snapshotId == null) { setCount(null); return; }
     const my = ++countReqRef.current;
     setCountBusy(true);
-    const params = new URLSearchParams({ snapshotId: String(snapshotId) });
+    const params = new URLSearchParams({ snapshotId: String(snapshotId), arizaOnly: '1' });
     if (firmId != null) params.set('firmId', String(firmId));
     try {
       const res = await fetch(`/konveyer/prepare?${params.toString()}`);
       const d = res.ok ? await res.json() : null;
       if (my !== countReqRef.current) return; // a newer firm/snapshot superseded this response
-      if (d && typeof d.total === 'number') setCount(d.total);
+      if (d && typeof d.remaining === 'number') setCount(d.remaining); else if (d && typeof d.total === 'number') setCount(d.total);
+      if (d && typeof d.total === 'number') setTotalAll(d.total);
+      if (d && typeof d.done === 'number') setDoneCount(d.done);
       if (d && Array.isArray(d.courts)) setCourts(d.courts);
+      // Reload'da davom etayotgan generatsiyaga qayta ulanamiz (progress yo'qolmaydi).
+      if (d?.activeJob && jobId == null) { setJobId(d.activeJob.id); setJob({ status: 'RUNNING', progress: d.activeJob.progress ?? 0, total: d.activeJob.total ?? 0 }); }
     } catch { /* best-effort */ }
     finally { if (my === countReqRef.current) setCountBusy(false); }
   }, [firmId, snapshotId]);
@@ -74,7 +80,7 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
     } catch { /* best-effort */ }
   }, [firmId, snapshotId]);
 
-  useEffect(() => { setJobId(null); setJob(null); setErr(null); setCount(null); }, [firmId, snapshotId]);
+  useEffect(() => { setJobId(null); setJob(null); setErr(null); setCount(null); setTotalAll(null); setDoneCount(0); }, [firmId, snapshotId]);
   useEffect(() => { loadCount(); }, [loadCount]);
   useEffect(() => { loadHistory(); }, [loadHistory]);
   // Refresh the history the moment a generation finishes, so the new ZIP appears.
@@ -171,9 +177,14 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
           <div className="text-sm font-semibold">Ariza yaratish</div>
           <div className="mt-0.5 text-xs text-muted">Har mijozning <b className="font-medium text-fg">arizasini</b> (bitta hujjat) yaratadi → bitta ZIP · {scopeLabel}. Faqat ariza — palataga print qilib beriladi.</div>
         </div>
-        {(countBusy || count != null) && (
+        {(countBusy || totalAll != null) && (
           <span className="shrink-0 rounded-lg bg-surface-2 px-2 py-1 text-xs font-semibold tabular-nums">
-            {countBusy && count == null ? '…' : `${n(total)} mijoz`}
+            {countBusy && totalAll == null ? '…' : (
+              <>
+                {n(totalAll ?? 0)} mijoz
+                {doneCount > 0 && <span className="ml-1 font-normal text-emerald-600 dark:text-emerald-400">· {n(count ?? 0)} qoldi</span>}
+              </>
+            )}
           </span>
         )}
       </div>
@@ -189,6 +200,11 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
           <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2 text-xs font-medium text-amber-700 dark:text-amber-300">
             <Ico.info size={14} className="shrink-0" />
             <span>Bu firmaga sud biriktirilmagan — «Sudlar» boʻlimida biriktiring.</span>
+          </div>
+        ) : !done && !running && total === 0 && doneCount > 0 ? (
+          <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.07] px-3 py-2 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+            <Ico.check size={14} className="shrink-0" />
+            <span>Hammasi tayyor — {n(doneCount)} ta arizaga ariza chiqarilgan. Yangi mijoz qoʻshilsa shu yerda chiqadi.</span>
           </div>
         ) : !done ? (
           <button
