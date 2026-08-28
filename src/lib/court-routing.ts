@@ -193,20 +193,33 @@ export interface CourtAdminRow {
   id: number; billingCourtId: string; courtType: string; nameUz: string; shortName: string;
   dailyQuota: number; cutoffMinutes: number; weekdays: number[]; active: boolean; isDefault: boolean; sortOrder: number;
   firmIds: number[];
+  billingReady: boolean;      // billingCourtId is a real numeric Sud id (else invoices fall back to default)
+  usedToday: number;          // bugun shu sudga yuborilgan (courtSentAt) case soni
+  windowReason: CourtWindow['reason']; // ochiq / weekend / past-cutoff / inactive
+  caseCount: number;          // shu sudga bog'langan case'lar (o'chirish bloki + info)
 }
 
-/** Admin ro'yxati: sudlar (+ ruxsat berilgan firmalar) va barcha firmalar. */
-export async function courtsForAdmin(): Promise<{ courts: CourtAdminRow[]; firms: { id: number; code: string; shortName: string }[] }> {
-  const [courts, firms] = await Promise.all([
+/** Admin ro'yxati: sudlar (+ ruxsat berilgan firmalar) va barcha firmalar. Jonli: bugungi
+ *  yuborilgan (usedToday), oyna holati (windowReason) va bog'langan case soni ham qaytadi. */
+export async function courtsForAdmin(now: Date = new Date()): Promise<{ courts: CourtAdminRow[]; firms: { id: number; code: string; shortName: string }[] }> {
+  const [courts, firms, usedToday, caseCounts] = await Promise.all([
     prisma.court.findMany({ orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }], include: { access: { orderBy: { order: 'asc' } } } }),
     prisma.firm.findMany({ select: { id: true, code: true, shortName: true }, orderBy: { shortName: 'asc' } }),
+    usedTodayByCourt(now),
+    prisma.arizaCase.groupBy({ by: ['courtId'], where: { courtId: { not: null } }, _count: { _all: true } }),
   ]);
+  const caseBy = new Map<number, number>();
+  for (const g of caseCounts) if (g.courtId != null) caseBy.set(g.courtId, g._count._all);
   return {
     courts: courts.map((c) => ({
       id: c.id, billingCourtId: c.billingCourtId, courtType: c.courtType, nameUz: c.nameUz, shortName: c.shortName,
       dailyQuota: c.dailyQuota, cutoffMinutes: c.cutoffMinutes,
       weekdays: weekdaysOf(c), active: c.active, isDefault: c.isDefault, sortOrder: c.sortOrder,
       firmIds: c.access.map((a) => a.firmId),
+      billingReady: /^\d+$/.test(c.billingCourtId),
+      usedToday: usedToday.get(c.id) ?? 0,
+      windowReason: courtWindow(c, now).reason,
+      caseCount: caseBy.get(c.id) ?? 0,
     })),
     firms,
   };
