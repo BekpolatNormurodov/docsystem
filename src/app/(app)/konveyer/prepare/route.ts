@@ -36,13 +36,16 @@ export async function GET(req: NextRequest) {
   const snapshotId = numArg(sp.get('snapshotId'));
   const firmId = numArg(sp.get('firmId'));
   const stages = (sp.get('stages') || '').split(',').filter((s) => VALID_STAGES.has(s)) as CaseStage[];
+  const arizaOnly = sp.get('arizaOnly') === '1';
+  const ofertaOnly = sp.get('ofertaOnly') === '1';
   const where = {
     ...(snapshotId ? { snapshotId } : {}),
     ...(firmId ? { firmId } : {}),
     ...(stages.length ? { stage: { in: stages } } : {}),
+    // «Ariza yaratish»: qarzi 0 bo'lgan case ariza chiqarmaydi (0 soʻmlik da'vo yo'q) — sanoqqa ham,
+    // generatsiyaga ham kirmaydi, aks holda «1815 mijoz» deb ko'rsatib, aslida 0 ta chiqadi.
+    ...(arizaOnly ? { totalDebt: { gt: 0 } } : {}),
   };
-  const arizaOnly = sp.get('arizaOnly') === '1';
-  const ofertaOnly = sp.get('ofertaOnly') === '1';
   const total = await prisma.arizaCase.count({ where });
   // «Ariza/Oferta yaratish»: allaqachon chiqarilganlar (arizaAt/ofertaAt != null) qayta chiqmaydi —
   // `remaining` = hali chiqmaganlar, `done` = tayyor bo'lganlar.
@@ -93,8 +96,9 @@ export async function POST(req: NextRequest) {
     ...(snapshotId ? { snapshotId } : {}),
     ...(firmId ? { firmId } : {}),
     ...(stages.length ? { stage: { in: stages } } : {}),
-    // «Ariza yaratish»: allaqachon arizasi bor case'lar QAYTA chiqmaydi (foydalanuvchi so'rovi).
-    ...(arizaOnly ? { arizaAt: null } : {}),
+    // «Ariza yaratish»: allaqachon arizasi bor (arizaAt) yoki qarzi 0 bo'lgan case'lar chiqmaydi —
+    // 0 qarz ariza bermaydi (debt gate), shuning uchun tanlashga ham kirmaydi (aks holda paket 0 chiqaradi).
+    ...(arizaOnly ? { arizaAt: null, totalDebt: { gt: 0 } } : {}),
   };
   const scopeTotal = await prisma.arizaCase.count({ where });
   if (scopeTotal === 0) return NextResponse.json({ error: arizaOnly ? 'Yangi ariza yoʻq — hammasi tayyor' : 'Bu tanlovda case yoʻq' }, { status: 400 });

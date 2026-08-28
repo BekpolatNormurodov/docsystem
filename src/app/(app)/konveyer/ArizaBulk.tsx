@@ -123,10 +123,12 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
 
   const openModal = () => {
     setErr(null); setAll(true); setNum(String(total || ''));
-    // Ko'p sudli firma: har sudga bugungi qolgan limitni default qilamiz (jami scopedan oshmasin).
+    // Ko'p sudli firma: har sudga uning KUNLIK limiti (dailyQuota)ni default qilamiz — generatsiya
+    // sudning bugungi «oynasi»ga (cutoff/dam olish) bog'liq EMAS (u faqat «Sudga yuborish»da ishlaydi),
+    // shuning uchun sud yopiq bo'lsa ham 0 emas, quota bo'yicha to'ldiramiz (jami scopedan oshmasin).
     if (courts.length > 1) {
       const init: Record<number, string> = {}; let left = total;
-      for (const c of courts) { const v = Math.max(0, Math.min(left, c.open ? c.remaining : 0)); init[c.id] = String(v); left -= v; }
+      for (const c of courts) { const v = Math.max(0, Math.min(left, c.dailyQuota)); init[c.id] = String(v); left -= v; }
       setCourtNums(init);
     }
     setModalOpen(true);
