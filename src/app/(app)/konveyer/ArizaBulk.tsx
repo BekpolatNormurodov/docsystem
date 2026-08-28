@@ -97,9 +97,11 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
         const s: JobState = await res.json();
         if (!alive) return;
         setJob(s);
-        if (s.status === 'DONE' || s.status === 'FAILED') {
+        if (s.status === 'DONE' || s.status === 'FAILED' || s.status === 'CANCELED') {
           if (timer.current) clearInterval(timer.current);
           if (s.status === 'FAILED') setErr(s.message || 'Xatolik');
+          // «Bekor» → ZIP o'chirildi, hech narsa yuklab olinmaydi; idle holatga qaytamiz.
+          if (s.status === 'CANCELED') { setJobId(null); setJob(null); loadCount(); }
         }
       } catch { /* transient poll error — keep polling */ }
     };

@@ -234,12 +234,15 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
     await archive.finalize();
     await closed;
 
-    // ZIP is on disk. On a clean finish advance the cases (idempotent). On «Bekor» we KEEP the partial
-    // ZIP for download but do NOT advance the funnel — a cancelled run must not mark work as done.
+    // On a clean finish advance the cases (idempotent) + stamp arizaAt. On «Bekor» we now DELETE the
+    // partial ZIP and mark NOTHING as done (foydalanuvchi so'rovi) — a cancelled run leaves no file and
+    // no arizaAt, so those cases regenerate cleanly.
     if (!canceled) {
       for (const m of toMark) await markPacketGenerated(m.id, m.talabnomaMade, m.arizaMade).catch(() => {});
       // Sudga-yuborish: stamp exportedAt so «chiqarilganlar» counters exclude them next time.
       if (opts.markExported) await markCasesExported(toMark.map((m) => m.id)).catch(() => {});
+    } else {
+      await fsp.unlink(zipPath).catch(() => {}); // «Bekor» → yarim ZIP butunlay o'chadi
     }
 
     // Recorded count = files ACTUALLY written, not cases processed. A 0-debt case is legitimately
@@ -249,7 +252,7 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
     await prisma.job.updateMany({
       where: { id: jobId },
       data: canceled
-        ? { status: 'CANCELED', progress: writtenCount, total: writtenCount, resultPath: `exports/${jobId}.zip`, message: `Bekor qilindi — ${writtenCount} ta tayyor`, cancelRequested: false }
+        ? { status: 'CANCELED', progress: 0, total: 0, resultPath: null, message: 'Bekor qilindi — hammasi oʻchirildi', cancelRequested: false }
         : { status: 'DONE', progress: writtenCount, total: writtenCount, resultPath: `exports/${jobId}.zip` },
     });
   } catch (err) {
@@ -344,11 +347,11 @@ export async function runOfertaJobByLoans(jobId: number, loanIds: number[], insu
 
     await archive.finalize();
     await closed;
+    if (canceled) await fsp.unlink(zipPath).catch(() => {}); // «Bekor» → yarim ZIP butunlay o'chadi
     await prisma.job.updateMany({
       where: { id: jobId },
-      // «Bekor» keeps the partial ZIP (downloadable) and reports CANCELED — never discards finished work.
       data: canceled
-        ? { status: 'CANCELED', progress: done, total: done, resultPath: `exports/${jobId}.zip`, message: `Bekor qilindi — ${usedPaths.size} oferta`, cancelRequested: false }
+        ? { status: 'CANCELED', progress: 0, total: 0, resultPath: null, message: 'Bekor qilindi — hammasi oʻchirildi', cancelRequested: false }
         : { status: 'DONE', progress: done, total: done, resultPath: `exports/${jobId}.zip`, message: `${usedPaths.size} oferta` },
     });
   } catch (err) {
@@ -456,9 +459,11 @@ export async function runTalabnomaJob(jobId: number, opts: TalabnomaScope, singl
     // success: hippo sends from the reyestr we just guaranteed, so a client whose local PDF failed
     // to render is still genuinely "talabnoma sent". Parity with the single-case gen routes;
     // idempotent (fills nulls only, never overwrites a real earlier send date); non-fatal.
-    // On «Bekor» we KEEP the partial ZIP (reyestr + rendered letters) for download, but do NOT advance
-    // the talabnoma track — only some clients were processed, so marking everyone «sent» would be wrong.
-    if (!canceled && paidPinfls.length) {
+    // On «Bekor» we now DELETE the partial ZIP and do NOT advance the talabnoma track (foydalanuvchi
+    // so'rovi) — nothing is kept, so those clients regenerate cleanly.
+    if (canceled) {
+      await fsp.unlink(zipPath).catch(() => {});
+    } else if (paidPinfls.length) {
       await prisma.arizaCase.updateMany({
         where: { snapshotId: opts.snapshotId, firmId: opts.firmId, pinfl: { in: paidPinfls }, talabnomaAt: null },
         data: { talabnomaAt: new Date() },
@@ -470,7 +475,7 @@ export async function runTalabnomaJob(jobId: number, opts: TalabnomaScope, singl
       // progress = PDFs actually rendered, total = clients expected (rows are pre-filtered to
       // debt>0), so made < expected == a genuine render failure the UI flags red as «yuklanmadi».
       data: canceled
-        ? { status: 'CANCELED', progress: usedNames.size, total: rows.length, resultPath: `exports/${jobId}.zip`, message: `Bekor qilindi — ${usedNames.size} talabnoma`, cancelRequested: false }
+        ? { status: 'CANCELED', progress: 0, total: 0, resultPath: null, message: 'Bekor qilindi — hammasi oʻchirildi', cancelRequested: false }
         : { status: 'DONE', progress: usedNames.size, total: rows.length, resultPath: `exports/${jobId}.zip`, message: `${usedNames.size} talabnoma` },
     });
   } catch (err) {
@@ -589,17 +594,19 @@ export async function runOfertaJob(jobId: number, opts: OfertaJobOpts): Promise<
     await archive.finalize();
     await closed;
 
-    // Mark every client whose oferta(s) we actually produced (even on «Bekor» — they WERE generated),
-    // so the doc card shows «Oferta: bor». Fill-null-only, never overwrites an earlier stamp; non-fatal.
-    if (producedCaseIds.length) {
+    // «Bekor» → hammasini o'chiramiz (foydalanuvchi so'rovi): yarim ZIP fayl o'chadi VA ofertaAt HAM
+    // yozilmaydi (fayl yo'q → «yaratilmagan» bo'lib qolsin, qaytadan chiqarilsin). Faqat to'liq
+    // tugaganda produced case'lar «Oferta: bor» deb belgilanadi (fill-null-only, non-fatal).
+    if (canceled) {
+      await fsp.unlink(zipPath).catch(() => {});
+    } else if (producedCaseIds.length) {
       await prisma.arizaCase.updateMany({ where: { id: { in: producedCaseIds }, ofertaAt: null }, data: { ofertaAt: new Date() } }).catch(() => {});
     }
 
     await prisma.job.updateMany({
       where: { id: jobId },
-      // «Bekor» keeps the partial ZIP (downloadable) and reports CANCELED — never throws the work away.
       data: canceled
-        ? { status: 'CANCELED', progress: done, total: done, resultPath: `exports/${jobId}.zip`, message: `Bekor qilindi — ${ofertaCount} oferta / ${done} case`, cancelRequested: false }
+        ? { status: 'CANCELED', progress: 0, total: 0, resultPath: null, message: 'Bekor qilindi — hammasi oʻchirildi', cancelRequested: false }
         : { status: 'DONE', progress: done, total: done, resultPath: `exports/${jobId}.zip`, message: `${ofertaCount} oferta / ${done} case` },
     });
   } catch (err) {

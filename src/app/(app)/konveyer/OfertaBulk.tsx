@@ -118,7 +118,7 @@ export function OfertaBulk({ firms, snapshotId }: { firms: Firm[]; snapshotId?: 
 
   const running = jobId != null && (job?.status === 'PENDING' || job?.status === 'RUNNING' || (!job && !err));
   const canceled = job?.status === 'CANCELED';
-  const done = job?.status === 'DONE' || canceled; // «Bekor» keeps a partial ZIP → treat as a download too
+  const done = job?.status === 'DONE'; // «Bekor» endi ZIP'ni o'chiradi — yuklab olish yo'q, alohida holat
   const pct = job && job.total ? Math.min(100, Math.round((job.progress / job.total) * 100)) : 0;
   const scopeLabel = firm ? firm.firmName : 'Hamma firma';
 
@@ -188,12 +188,17 @@ export function OfertaBulk({ firms, snapshotId }: { firms: Firm[]; snapshotId?: 
               </button>
             </div>
           </div>
+        ) : canceled ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/[0.06] px-3 py-1.5 text-xs font-semibold text-rose-600 dark:text-rose-300">
+              <Ico.close size={14} /> Bekor qilindi — hammasi oʻchirildi
+            </span>
+            <button onClick={() => { setJobId(null); setJob(null); loadCount(); }} className="rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-2">Qaytadan</button>
+          </div>
         ) : done ? (
           <div className="flex flex-wrap items-center gap-2">
             <a href={`/api/export/${jobId}/download`}
-              className={canceled
-                ? 'inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-700 outline-none transition-colors hover:bg-amber-500/15 focus-visible:ring-2 focus-visible:ring-amber-500/40 dark:text-amber-300'
-                : 'inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-700 outline-none transition-colors hover:bg-emerald-500/15 focus-visible:ring-2 focus-visible:ring-emerald-500/40 dark:text-emerald-300'}>
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-700 outline-none transition-colors hover:bg-emerald-500/15 focus-visible:ring-2 focus-visible:ring-emerald-500/40 dark:text-emerald-300">
               <Ico.download size={14} /> {job?.message || `${n(job?.total ?? 0)} tayyor`} — yuklab olish
             </a>
             <button onClick={() => { setJobId(null); setJob(null); loadCount(); }} className="rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-2">Yana</button>
