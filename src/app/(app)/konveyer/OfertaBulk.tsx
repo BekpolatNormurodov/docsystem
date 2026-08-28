@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico } from '@/ui';
 import { Dropdown } from './Dropdown';
+import { GeneratedList } from './GeneratedList';
 
 interface JobState { status: string; progress: number; total: number; message?: string | null }
 interface Firm { firmId: number; firmName: string; total: number }
@@ -223,6 +224,8 @@ export function OfertaBulk({ firms, snapshotId }: { firms: Firm[]; snapshotId?: 
             {err && <span role="alert" className="text-[11px] font-medium text-rose-500">{err}</span>}
           </div>
         )}
+        {/* Yaratilgan ofertalar — mijoz darajasида (PINFL + F.I.O), «N ta chiqdi» + qidiruv. */}
+        <GeneratedList type="oferta" snapshotId={snapshotId} firmId={firmId ?? undefined} count={doneCount} />
       </div>
 
       {modalOpen && (

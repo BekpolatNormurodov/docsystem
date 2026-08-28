@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico } from '@/ui';
+import { GeneratedList } from './GeneratedList';
 
 interface JobState { status: string; progress: number; total: number; message?: string | null }
 interface HistItem { id: number; total: number; createdAt: string; firmName: string; size: number }
@@ -287,6 +288,9 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
           )}
         </div>
       )}
+
+      {/* Yaratilgan arizalar — mijoz darajasида (PINFL + F.I.O), «N ta chiqdi» + qidiruv. */}
+      <GeneratedList type="ariza" snapshotId={snapshotId} firmId={firmId} count={doneCount} />
 
       {modalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Ariza yaratish">
