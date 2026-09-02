@@ -260,8 +260,8 @@ export function InvoiceExcelTools({ snapshotId, firmId, firms, count, onChanged,
               {preview.notFound > 0 ? (
                 <div className="mt-2.5 rounded-lg border border-rose-500/30 bg-rose-500/5 px-2.5 py-2 text-[11px] font-medium text-rose-600 dark:text-rose-300">
                   <b>{n(preview.notFound)} ta mijozning arizasi topilmadi</b> — saqlab boʻlmaydi. Avval ular uchun ariza yarating, keyin qayta import qiling.
-                  {preview.notFoundSamples.length > 0 && <div className="mt-1 truncate font-normal text-muted" title={preview.notFoundSamples.join(', ')}>Masalan: {preview.notFoundSamples.slice(0, 5).join(', ')}{preview.notFound > 5 ? '…' : ''}</div>}
-                  <button type="button" onClick={downloadNotFound} className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-rose-500/40 bg-rose-500/10 px-2.5 py-1 text-[11px] font-semibold text-rose-700 transition-colors hover:bg-rose-500/20 dark:text-rose-300">
+                  {preview.notFoundSamples.length > 0 && <div className="mt-1 truncate font-normal text-muted" title={preview.notFoundSamples.join(', ')}>{preview.notFoundSamples.slice(0, 8).join(', ')}{preview.notFound > preview.notFoundSamples.length ? '…' : ''}</div>}
+                  <button type="button" onClick={downloadNotFound} className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/15 dark:text-emerald-300">
                     <Ico.sheet size={13} /> Topilmaganlarni Excel qilib olish ({n(preview.notFound)})
                   </button>
                 </div>
