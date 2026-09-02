@@ -26,9 +26,13 @@ const CONCURRENCY = 3;                  // guruh ichida bir vaqtda nechta kvitan
 const BATCH_SIZE = 15;                  // har 15 ta kvitansiyadan keyin katta tanaffus
 const BATCH_PAUSE_MS = 10_000;          // katta tanaffus vaqti (10 soniya) — IP blok bo'lmasligi uchun
 const MAX_CAPTCHA_RETRY = 5;            // challenge kelsa skip qilib qayta analyze urinishlari
-const MAX_ITEM_ATTEMPTS = 3;           // bitta kvitansiya uchun tashqi qayta urinish; 3 tada ham bo'lmasa → xato
+const MAX_ITEM_ATTEMPTS = 3;           // bitta kvitansiya uchun tashqi qayta urinish; 3 tada ham bo'lmasa → shu item «uzildi», DAVOM etadi
 const ITEM_RETRY_BACKOFF = 2500;       // urinishlar orasidagi kutish (o'sib boradi)
-const MAX_COUNT = 100;
+const MAX_COUNT = 300;                  // bir paketda ko'pi bilan (25/50/100/200/300)
+// «Uzilish» himoyasi: ketma-ket shuncha kvitansiya 3 urinishda ham chiqmasa — bu tarmoq/IP uzilishi;
+// uzoq tanaffus qilib, KEYIN DAVOM etamiz (butun paketni to'xtatmaymiz — faqat «Bekor» to'xtatadi).
+const DISRUPT_THRESHOLD = 6;
+const DISRUPT_PAUSE_MS = 30_000;
 // Bazadan tiklaganda: non-terminal (RUNNING/PAUSING) batch shu vaqtdan ko'p tegilmagan
 // bo'lsa (server qayta ishga tushgan, fon jarayon o'lgan) — BLOCKED deb ko'rsatamiz,
 // aks holda UI cheksiz poll qiladi. Item timeout (3×20s) + pauza (15s)dan katta.
@@ -189,12 +193,12 @@ export interface BatchProgress {
   ok: number;
   failed: number;
   current: number;             // 1-based, ishlanayotgan invoice tartibi
-  phase: 'RUNNING' | 'PAUSING' | 'DONE' | 'BLOCKED';
+  phase: 'RUNNING' | 'PAUSING' | 'DONE' | 'BLOCKED' | 'CANCELED';
   pauseLeftMs: number;
   items: BatchItem[];
-  error?: string;              // BLOCKED bo'lganda: IP blok/tarmoq xabari
+  error?: string;              // BLOCKED/uzilish bo'lganda: IP blok/tarmoq xabari
 }
-interface Batch extends BatchProgress { id: string; firmId: number; amount: number; aborted?: boolean }
+interface Batch extends BatchProgress { id: string; firmId: number; amount: number; aborted?: boolean; recentFails?: number }
 
 const g = globalThis as unknown as { __invoiceRestBatches?: Map<string, Batch> };
 const batches = g.__invoiceRestBatches ?? new Map<string, Batch>();
@@ -350,33 +354,32 @@ function makeBatch(firmId: number, total: number, amount: number): Batch {
  * tanaffus bilan (IP himoyasi — «15 ta, 15s pauza») ishlaydi.
  */
 async function runBatchLoop(batch: Batch, attemptOne: (idx: number) => Promise<string>): Promise<void> {
-  // Bitta slot: 3 martagacha urinadi. Muvaffaqiyat → false; 3 ta ham bo'lmasa → true (abort).
-  const processWithRetry = async (idx: number): Promise<boolean> => {
+  batch.recentFails = 0;
+  // Bitta slot: 3 martagacha urinadi. Bo'lmasa — shu item «uzildi» (FAILED), lekin PAKET TO'XTAMAYDI.
+  const processWithRetry = async (idx: number): Promise<void> => {
     const item = batch.items[idx];
     for (let attempt = 1; attempt <= MAX_ITEM_ATTEMPTS; attempt++) {
-      // Boshqa worker allaqachon abort qo'ygan bo'lsa — bloklangan endpointga urmaymiz.
-      if (batch.aborted) return true;
+      if (batch.aborted) return; // faqat «Bekor» to'xtatadi
       try {
         const invoiceNo = await attemptOne(idx);
         item.status = 'OK'; item.invoiceNo = invoiceNo; item.message = undefined;
         batch.ok += 1; batch.done += 1;
-        return false;
+        batch.recentFails = 0; // muvaffaqiyat — uzilish hisoblagichini nolga
+        return;
       } catch (e) {
         item.message = e instanceof Error ? e.message : String(e);
         if (attempt < MAX_ITEM_ATTEMPTS && !batch.aborted) await sleep(ITEM_RETRY_BACKOFF * attempt);
       }
     }
+    // 3 tada ham bo'lmadi — shu kvitansiya «uzildi», lekin qolganini DAVOM ettiramiz.
     item.status = 'FAILED'; batch.failed += 1; batch.done += 1;
-    // Xato turini ajratamiz: blok/tarmoq → «IP blok»; deterministik → «server rad etdi».
-    // Ikkalasi ham to'xtatadi (jimgina kam berilmaydi), lekin faqat birinchi hard-fail
-    // xabari saqlanadi (ildizga eng yaqin), keyingi worker'lar ustidan yozmaydi.
+    batch.recentFails = (batch.recentFails ?? 0) + 1;
     if (!batch.error) {
       const msg = item.message ?? '';
       batch.error = isBlockError(msg)
-        ? `IP bloklandi yoki tarmoq ishlamayapti — 3 marta urinildi.${msg ? ` (${msg})` : ''}`
-        : `Kvitansiya yaratilmadi — server rad etdi (3 marta urinildi).${msg ? ` (${msg})` : ''}`;
+        ? `Tarmoq/IP uzilishi — ba'zi kvitansiyalar chiqmadi (qayta urinib koʻring).${msg ? ` (${msg})` : ''}`
+        : `Ba'zi kvitansiyalar server tomonidan rad etildi.${msg ? ` (${msg})` : ''}`;
     }
-    return true; // hard fail → butun paketni to'xtatamiz
   };
 
   for (let start = 0; start < batch.total && !batch.aborted; start += BATCH_SIZE) {
@@ -387,9 +390,19 @@ async function runBatchLoop(batch: Batch, attemptOne: (idx: number) => Promise<s
       while (pointer < end && !batch.aborted) {
         const idx = pointer++;
         batch.current = idx + 1;
-        const hardFail = await processWithRetry(idx);
+        await processWithRetry(idx);
         await persistBatch(batch);
-        if (hardFail) { batch.aborted = true; return; }
+        if (batch.aborted) return;
+        // «Uzilish» himoyasi: ketma-ket ko'p xato bo'lsa — bu tarmoq/IP uzilishi. Uzoq tanaffus qilib,
+        // KEYIN DAVOM etamiz (blok bo'lsa vaqt beradi; o'tkinchi uzilish bo'lsa tiklanadi).
+        if ((batch.recentFails ?? 0) >= DISRUPT_THRESHOLD && !batch.aborted) {
+          batch.recentFails = 0;
+          batch.phase = 'PAUSING';
+          await persistBatch(batch);
+          const until = Date.now() + DISRUPT_PAUSE_MS;
+          while (Date.now() < until && !batch.aborted) { batch.pauseLeftMs = until - Date.now(); await sleep(500); }
+          batch.pauseLeftMs = 0; batch.phase = 'RUNNING';
+        }
         if (pointer < end && !batch.aborted) await sleep(DELAY_BETWEEN_REQUESTS);
       }
     };
@@ -400,12 +413,12 @@ async function runBatchLoop(batch: Batch, attemptOne: (idx: number) => Promise<s
       batch.phase = 'PAUSING';
       await persistBatch(batch);
       const until = Date.now() + BATCH_PAUSE_MS;
-      while (Date.now() < until) { batch.pauseLeftMs = until - Date.now(); await sleep(500); }
+      while (Date.now() < until && !batch.aborted) { batch.pauseLeftMs = until - Date.now(); await sleep(500); }
       batch.pauseLeftMs = 0;
     }
   }
-  batch.phase = batch.aborted ? 'BLOCKED' : 'DONE';
-  // BLOCKED da current'ni total ga qotirmaymiz — qancha ishlangani (done) ko'rinsin.
+  // «Bekor» → CANCELED (blok emas). Aks holda DONE — ba'zi item'lar uzilgan bo'lsa ham (failed'da ko'rinadi).
+  batch.phase = batch.aborted ? 'CANCELED' : 'DONE';
   if (!batch.aborted) batch.current = batch.total;
   await persistBatch(batch);
 }
@@ -602,7 +615,7 @@ export async function startRestBatchForCases(
     try {
       await prisma.invoiceBatch.update({
         where: { id: invBatch.id },
-        data: { createdCount: batch.ok, status: batch.aborted ? 'FAILED' : 'DONE' },
+        data: { createdCount: batch.ok, status: 'DONE' }, // bekor bo'lsa ham yaratilganlari (ok) haqiqiy — DONE
       });
     } catch { /* farmoyish batch yangilanmasa ham progress bazada bor */ }
   });

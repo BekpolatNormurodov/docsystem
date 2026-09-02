@@ -18,7 +18,7 @@ const dt = (iso: string) => { const d = new Date(iso); const p = (x: number) => 
 interface RowProg { done: number; total: number; ok: number; failed: number; phase: string; pauseLeftMs: number; error?: string }
 
 // Bir paketda ko'pi bilan shuncha — backend MAX_COUNT (invoice-rest.ts) bilan mos.
-const ROW_CAP = 100;
+const ROW_CAP = 300;
 
 /**
  * One (firm × court) invoice row: creates HAQIQIY billing boji kvitansiyalarini shu sudga
@@ -52,14 +52,18 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
       if (!res.ok) return;
       const p: RowProg = await res.json();
       setProg(p);
-      if ((p.phase === 'DONE' || p.phase === 'BLOCKED') && timer.current) {
+      if ((p.phase === 'DONE' || p.phase === 'BLOCKED' || p.phase === 'CANCELED') && timer.current) {
         clearInterval(timer.current);
         localStorage.removeItem(LS_KEY);
         setBusy(false);
-        if (p.phase === 'BLOCKED') { setOk(false); setMsg(p.error ?? 'IP bloklandi yoki tarmoq ishlamayapti'); }
-        else {
+        if (p.phase === 'BLOCKED') { setOk(false); setMsg(p.error ?? 'Jarayon uzildi — qayta urinib koʻring'); }
+        else if (p.phase === 'CANCELED') {
           setOk(true);
-          setMsg(`${n(p.ok)} ta yaratildi${p.failed ? ` · ${n(p.failed)} xato` : ''}`);
+          setMsg(`Bekor qilindi — ${n(p.ok)} ta yaratilgan${p.failed ? ` · ${n(p.failed)} uzildi` : ''}`);
+          if (p.ok > 0) downloadZip(restBatchId);
+        } else {
+          setOk(true);
+          setMsg(`${n(p.ok)} ta yaratildi${p.failed ? ` · ${n(p.failed)} uzildi (qayta urinib koʻring)` : ''}`);
           if (p.ok > 0) downloadZip(restBatchId);
         }
         onDone();
@@ -81,7 +85,12 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
         if (!alive) return;
         setProg(p); setBatchId(saved.i ?? null); setRestId(saved.r);
         if (p.phase === 'RUNNING' || p.phase === 'PAUSING') { setBusy(true); poll(saved.r); }
-        else { localStorage.removeItem(LS_KEY); if (p.phase === 'BLOCKED') { setOk(false); setMsg(p.error ?? 'IP bloklandi yoki tarmoq ishlamayapti'); } }
+        else {
+          localStorage.removeItem(LS_KEY);
+          if (p.phase === 'BLOCKED') { setOk(false); setMsg(p.error ?? 'Jarayon uzildi — qayta urinib koʻring'); }
+          else if (p.phase === 'CANCELED') { setOk(true); setMsg(`Bekor qilindi — ${n(p.ok)} ta yaratilgan`); }
+          else if (p.ok > 0) { setOk(true); setMsg(`${n(p.ok)} ta yaratildi${p.failed ? ` · ${n(p.failed)} uzildi` : ''}`); }
+        }
       })();
     }
     return () => { alive = false; if (timer.current) clearInterval(timer.current); };
@@ -133,8 +142,8 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
       <div className="mt-2 flex items-center gap-2">
         {/* Soni — pro dropdown (25/50/100/Hammasi) */}
         <Select
-          value={String(count)} label={`${court.courtName} invoice soni`} searchAfter={99} className="w-36 shrink-0"
-          options={(() => { const o = [25, 50, 100].filter((v) => v <= cap); if (cap > 0 && !o.includes(cap)) o.push(cap); return o.map((v) => ({ value: String(v), label: v === cap ? `Hammasi (${n(v)})` : `${v} ta` })); })()}
+          value={String(count)} label={`${court.courtName} invoice soni`} searchAfter={99} className="w-44 shrink-0"
+          options={(() => { const o = [25, 50, 100, 200, 300].filter((v) => v <= cap); if (cap > 0 && !o.includes(cap)) o.push(cap); return o.map((v) => ({ value: String(v), label: v === cap ? `Hammasi (${n(v)})` : `${v} ta` })); })()}
           onChange={(v) => setCount(Number(v) || cap)}
         />
         <span className="text-[11px] tabular-nums text-muted">= <span className="font-semibold text-fg">{n(count * amount)}</span> soʻm</span>

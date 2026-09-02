@@ -1,6 +1,6 @@
 // Buxgalteriya farmoyishi (postal-fee directive) DOCX for an invoice batch — mirrors the real form:
 // title + date + intro (full legal name + the firm's inter-district court) + table + signature block.
-import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, Header, BorderStyle, WidthType, AlignmentType, TabStopType } from 'docx';
+import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, TableLayoutType, Header, BorderStyle, WidthType, AlignmentType, TabStopType } from 'docx';
 import { prisma } from './db';
 import { POSTAL_FEE } from './konveyer-buxgalter';
 
@@ -8,6 +8,11 @@ const FONT = 'Times New Roman';
 const border = { style: BorderStyle.SINGLE, size: 4, color: '000000' };
 const CELL_BORDERS = { top: border, bottom: border, left: border, right: border };
 const pad = (n: number) => String(n).padStart(2, '0');
+
+// Jadval — QAT'IY ustun kengliklari (DXA). Aks holda ba'zi renderlar (Pages) ustunlarni eng kichik
+// enga siqib, matnni «bitta harf — bir qator» qilib buzadi (rasvo). № · ФИО · Код · Почта · Квитанция.
+const CONTENT_W = 9026;
+const FARM_COLS = [560, 3860, 1360, 1400, 1846]; // yig'indi ≈ CONTENT_W
 
 // Bank name by MFO — every firm banks at ANORBANK today (MFO 01183), printed in the letterhead
 // rekvizit («… МФО 01183 АО "ANORBANK"»). Unknown MFO → bank name simply omitted.
@@ -33,7 +38,7 @@ export function courtFromDistrict(district?: string | null): string | null {
 function cell(text: string, opts: { bold?: boolean; align?: (typeof AlignmentType)[keyof typeof AlignmentType]; width?: number } = {}) {
   return new TableCell({
     borders: CELL_BORDERS,
-    width: opts.width ? { size: opts.width, type: WidthType.PERCENTAGE } : undefined,
+    width: opts.width ? { size: opts.width, type: WidthType.DXA } : undefined,
     children: [new Paragraph({ alignment: opts.align ?? AlignmentType.LEFT, children: [new TextRun({ text, bold: opts.bold, font: FONT, size: 22 })] })],
   });
 }
@@ -66,11 +71,11 @@ export async function renderFarmoyishDocx(input: FarmoyishInput): Promise<Buffer
     new TableRow({
       tableHeader: true,
       children: [
-        cell('№', { bold: true, align: AlignmentType.CENTER, width: 6 }),
-        cell('Қарздор ФИО', { bold: true, align: AlignmentType.CENTER, width: 44 }),
-        cell('Код', { bold: true, align: AlignmentType.CENTER, width: 15 }),
-        cell('Почта харажати', { bold: true, align: AlignmentType.CENTER, width: 15 }),
-        cell('Квитанция рақами', { bold: true, align: AlignmentType.CENTER, width: 20 }),
+        cell('№', { bold: true, align: AlignmentType.CENTER, width: FARM_COLS[0] }),
+        cell('Қарздор ФИО', { bold: true, align: AlignmentType.CENTER, width: FARM_COLS[1] }),
+        cell('Код', { bold: true, align: AlignmentType.CENTER, width: FARM_COLS[2] }),
+        cell('Почта харажати', { bold: true, align: AlignmentType.CENTER, width: FARM_COLS[3] }),
+        cell('Квитанция рақами', { bold: true, align: AlignmentType.CENTER, width: FARM_COLS[4] }),
       ],
     }),
     ...rows.map((c, i) =>
@@ -128,7 +133,7 @@ export async function renderFarmoyishDocx(input: FarmoyishInput): Promise<Buffer
             `${legalName} кредит қарздорликларни ундириш жараёнида фуқаролик ишлари бўйича ${court} суд буйруғи бериш учун ариза киритилаётганлиги сабабли, почта харажатлари учун рўйхатдаги хос рақамларга тўлансин.`,
           )],
         }),
-        new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: tableRows }),
+        new Table({ width: { size: CONTENT_W, type: WidthType.DXA }, columnWidths: FARM_COLS, layout: TableLayoutType.FIXED, rows: tableRows }),
 
         // ── Signature block (mirrors the real form): director name to the right of «Ижрожи директори»,
         // then «Ижрочи: <name>», then the firm phone. Names come from FARMOYISH_SIGNERS; a firm with no
