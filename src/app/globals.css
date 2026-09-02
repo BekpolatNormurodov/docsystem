@@ -24,9 +24,12 @@
   --line: rgba(255, 255, 255, 0.09);
   --field: #080f1c;
   --field-line: rgba(255, 255, 255, 0.14);
+  color-scheme: dark;
 }
 
-html { color-scheme: light dark; }
+/* Ilova mavzusiga bogʻlaymiz — OS «dark» boʻlsa ham och rejimда native input/select/scrollbar
+   qorayib ketmasin (aks holda maydonlar «rasvo» — qora fon bilan chiqadi). */
+html { color-scheme: light; }
 
 body {
   @apply bg-bg text-fg antialiased;

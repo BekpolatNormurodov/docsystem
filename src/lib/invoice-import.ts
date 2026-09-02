@@ -8,11 +8,14 @@ import { dueForStage } from './konveyer-sla';
 import type { CaseStage } from '@prisma/client';
 
 export interface InvoiceReconcileResult {
+  applied: boolean;    // false = faqat ko'rib chiqish (preview); true = yozildi
   totalRows: number;   // ma'lumotli qatorlar (kalit topilgan)
   matched: number;     // case'ga bog'landi
-  markedPaid: number;  // yangi «to'landi» belgilandi
-  markedUnpaid: number;// qaytarildi
-  alreadyPaid: number; // allaqachon to'langan
+  willMarkPaid: number;  // tasdiqlansa nechta YANGI «to'landi» bo'ladi
+  willMarkUnpaid: number;// tasdiqlansa nechta qaytariladi
+  markedPaid: number;  // haqiqatda «to'landi» belgilandi (apply)
+  markedUnpaid: number;// haqiqatda qaytarildi (apply)
+  alreadyPaid: number; // «bor» — allaqachon to'langan (o'zgartirilmaydi)
   alreadyUnpaid: number;
   notFound: number;    // mos case topilmadi
   ambiguous: number;   // PINFL bir nechta case'ga to'g'ri keldi (kvitansiyasiz)
@@ -52,12 +55,17 @@ function parsePaid(s: string | null): boolean | null {
   return null;
 }
 
-/** Excel'ni o'qib, to'lov holatini mavjud case'larga yuklaydi (reconcile). */
-export async function reconcileInvoicesFromXlsx(filePath: string, snapshotId?: number): Promise<InvoiceReconcileResult> {
+/**
+ * Excel'ni o'qib, to'lov holatini mavjud case'larga solishtiradi (reconcile).
+ * opts.apply=false — faqat sonlarni ko'rsatadi (preview, hech narsa yozilmaydi);
+ * opts.apply=true — tasdiqdan keyin haqiqatda «to'landi/qaytarildi» qiladi.
+ */
+export async function reconcileInvoicesFromXlsx(filePath: string, opts: { snapshotId?: number; apply: boolean }): Promise<InvoiceReconcileResult> {
+  const { snapshotId, apply } = opts;
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(filePath);
   const ws = wb.worksheets[0];
-  const empty: InvoiceReconcileResult = { totalRows: 0, matched: 0, markedPaid: 0, markedUnpaid: 0, alreadyPaid: 0, alreadyUnpaid: 0, notFound: 0, ambiguous: 0, noStatus: 0, notFoundSamples: [] };
+  const empty: InvoiceReconcileResult = { applied: apply, totalRows: 0, matched: 0, willMarkPaid: 0, willMarkUnpaid: 0, markedPaid: 0, markedUnpaid: 0, alreadyPaid: 0, alreadyUnpaid: 0, notFound: 0, ambiguous: 0, noStatus: 0, notFoundSamples: [] };
   if (!ws) return empty;
 
   const header: (string | null)[] = [];
@@ -135,6 +143,12 @@ export async function reconcileInvoicesFromXlsx(filePath: string, snapshotId?: n
       res.noStatus += 1;
     }
   }
+
+  res.willMarkPaid = toPaid.length;
+  res.willMarkUnpaid = toUnpaid.length;
+
+  // Preview — hech narsa yozmaymiz, faqat sonlar. Tasdiqlangach (apply) yoziladi.
+  if (!apply) return res;
 
   const now = new Date();
   if (toPaid.length) {

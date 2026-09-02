@@ -31,7 +31,7 @@ const WINDOW = {
   inactive: { label: 'Oʻchiq', cls: 'border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-300', dot: 'bg-rose-500' },
 } as const;
 
-const inp = 'rounded-lg border border-line bg-field px-2.5 py-1.5 text-sm outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15';
+const inp = 'rounded-lg border border-[var(--field-line)] bg-[var(--field)] px-2.5 py-1.5 text-sm text-fg outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15';
 
 export function CourtsAdmin() {
   const [courts, setCourts] = useState<Court[] | null>(null);
@@ -139,9 +139,8 @@ export function CourtsAdmin() {
           )}
         </div>
       )}
-
-      {/* ── Firm-centric assignment ── */}
-      {courts && courts.length > 0 && <FirmAssign firms={firms} courts={courts} onSaved={load} />}
+      {/* «Firma → sud biriktirish» olib tashlandi — firma biriktirish endi sud tahrirlash
+          ичидаги «Qaysi firmalar shu sudga chiqadi» qismида qilinadi (takror emas). */}
     </div>
   );
 }
@@ -362,86 +361,6 @@ function CourtEditor({ draft, firms, busy, onPatch, onSave, onCancel, isNew }: {
         </button>
         <button onClick={onCancel} disabled={busy} className="btn-ghost px-3 py-1.5 text-xs">Bekor</button>
       </div>
-    </div>
-  );
-}
-
-// ── Firm-centric assignment: a firm's ORDERED courts (primary first) ──────────
-function FirmAssign({ firms, courts, onSaved }: { firms: Firm[]; courts: Court[]; onSaved: () => void }) {
-  const [firmId, setFirmId] = useState<number | ''>('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-
-  // Firmaning tartibli sudlari — access order'i courts[].firmIds tartibidan emas, shuning uchun
-  // har sudning firmIds ichida firma bor-yo'qligiga qaraymiz (tartib = firmning sud ro'yxati).
-  // Sodda ko'rinish uchun: firma qatnashgan sudlar (default ni ham hisobga olib).
-  const assigned = useMemo(() => (firmId ? courts.filter((c) => c.firmIds.includes(firmId)) : []), [firmId, courts]);
-  const addable = useMemo(() => (firmId ? courts.filter((c) => c.active && !c.firmIds.includes(firmId)) : []), [firmId, courts]);
-
-  const save = async (courtIds: number[]) => {
-    if (!firmId) return;
-    setBusy(true); setErr(null);
-    try {
-      const res = await fetch('/settings/courts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'firmCourts', firmId, courtIds }) });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d?.error || 'Saqlanmadi');
-      onSaved(); setMsg('Saqlandi ✓'); setTimeout(() => setMsg(null), 2000);
-    } catch (e) { setErr(e instanceof Error ? e.message : 'Saqlanmadi'); }
-    finally { setBusy(false); }
-  };
-  const ids = assigned.map((c) => c.id);
-  const move = (id: number, dir: -1 | 1) => { const i = ids.indexOf(id); const j = i + dir; if (i < 0 || j < 0 || j >= ids.length) return; const next = [...ids]; [next[i], next[j]] = [next[j], next[i]]; save(next); };
-
-  return (
-    <div className="card p-5">
-      <div className="text-sm font-semibold">Firma → sud biriktirish</div>
-      <p className="mt-1 text-xs text-muted">Bitta firmani tanlang — qaysi sud(lar)ga chiqishini va tartibini belgilang. Birinchisi <span className="text-amber-500">★</span> asosiy (ariza + invoice shundan). Limit to'lsa keyingisiga o'tadi.</p>
-
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <select value={firmId} onChange={(e) => setFirmId(e.target.value ? Number(e.target.value) : '')} className={`${inp} min-w-[200px]`}>
-          <option value="">— Firmani tanlang —</option>
-          {firms.map((f) => <option key={f.id} value={f.id}>{f.shortName}</option>)}
-        </select>
-        {msg && <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">{msg}</span>}
-        {err && <span className="text-xs font-medium text-rose-500">{err}</span>}
-      </div>
-
-      {firmId !== '' && (
-        <div className="mt-3 space-y-3">
-          <div>
-            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">Biriktirilgan sudlar (tartib bilan)</div>
-            {assigned.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-line px-3 py-3 text-xs text-muted">Biriktirilmagan — «Default» sudga ketadi. Quyidan sud qo'shing.</div>
-            ) : (
-              <ul className="space-y-1.5">
-                {assigned.map((c, i) => (
-                  <li key={c.id} className="flex items-center gap-2 rounded-lg border border-line bg-surface-2/30 px-2.5 py-1.5">
-                    <span className="w-5 text-center text-xs">{i === 0 ? <span className="text-amber-500" title="Asosiy">★</span> : <span className="text-muted tabular-nums">{i + 1}</span>}</span>
-                    <span className="flex-1 truncate text-[13px] font-medium">{c.shortName}</span>
-                    {!c.billingReady && <span title="Billing Sud id yo'q" className="text-amber-500">⚠</span>}
-                    <div className="flex items-center gap-0.5">
-                      <button onClick={() => move(c.id, -1)} disabled={busy || i === 0} aria-label="Yuqoriga" className="grid h-6 w-6 place-items-center rounded text-muted hover:bg-surface-2 disabled:opacity-30">↑</button>
-                      <button onClick={() => move(c.id, 1)} disabled={busy || i === assigned.length - 1} aria-label="Pastga" className="grid h-6 w-6 place-items-center rounded text-muted hover:bg-surface-2 disabled:opacity-30">↓</button>
-                      <button onClick={() => save(ids.filter((x) => x !== c.id))} disabled={busy} aria-label="Olib tashlash" className="grid h-6 w-6 place-items-center rounded text-muted transition-colors hover:bg-rose-500/10 hover:text-rose-500 disabled:opacity-40">✕</button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          {addable.length > 0 && (
-            <div>
-              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">Qoʻshish</div>
-              <div className="flex flex-wrap gap-1.5">
-                {addable.map((c) => (
-                  <button key={c.id} onClick={() => save([...ids, c.id])} disabled={busy} className="rounded-full border border-line px-2.5 py-0.5 text-[11px] font-medium text-muted transition-colors hover:border-brand-500/40 hover:text-fg disabled:opacity-50">+ {c.shortName}</button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

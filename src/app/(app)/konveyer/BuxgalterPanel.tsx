@@ -2,8 +2,9 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Skeleton, Ico } from '@/ui';
+import { Skeleton } from '@/ui';
 import { GeneratedList } from './GeneratedList';
+import { InvoiceExcelTools } from './InvoiceExcelTools';
 
 // Per-court eligible bucket under a firm (firm→court is one-to-many).
 interface CourtEligible { courtId: number; courtName: string; billingCourtId: string; billingReady: boolean; isPrimary: boolean; eligible: number }
@@ -119,7 +120,7 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
           {court.isPrimary && <span title="Asosiy sud" className="text-amber-500">★</span>}
           <span className="truncate">{court.courtName}</span>
         </span>
-        <span className="shrink-0 text-[11px] font-medium tabular-nums text-emerald-600 dark:text-emerald-400">{n(court.eligible)} tayyor</span>
+        <span className="shrink-0 text-[11px] font-medium tabular-nums text-emerald-600 dark:text-emerald-400">{n(court.eligible)} kutyapti</span>
       </div>
 
       {!court.billingReady && (
@@ -193,7 +194,7 @@ function FirmCard({ f, snapshotId, onDone, amount }: { f: FirmCourtProg; snapsho
         <span className="truncate text-[13px] font-semibold">{f.firmName}</span>
         <span className="shrink-0 text-[11px] tabular-nums text-muted">
           {n(f.withInvoice)}/{n(f.total)}
-          {f.eligible > 0 && <span className="font-medium text-emerald-600 dark:text-emerald-400"> · {n(f.eligible)} tayyor</span>}
+          {f.eligible > 0 && <span className="font-medium text-emerald-600 dark:text-emerald-400"> · {n(f.eligible)} kutyapti</span>}
           {f.courts.length > 1 && <span className="ml-1 rounded-full bg-brand-500/10 px-1.5 py-0.5 text-[10px] font-medium text-brand-600 dark:text-brand-300">{f.courts.length} sud</span>}
         </span>
       </div>
@@ -209,48 +210,6 @@ function FirmCard({ f, snapshotId, onDone, amount }: { f: FirmCourtProg; snapsho
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-/** Invoice ro'yxatini Excel eksport + «To'lov holati»ni Excel import (reconcile). */
-function InvoiceExcelBar({ snapshotId, firmId, onImported }: { snapshotId?: number; firmId?: number; onImported: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState(false);
-  const fileRef = useRef<HTMLInputElement | null>(null);
-  const qs = new URLSearchParams({ type: 'invoice' });
-  if (snapshotId) qs.set('snapshotId', String(snapshotId));
-  if (firmId) qs.set('firmId', String(firmId));
-
-  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    e.target.value = '';
-    if (!f) return;
-    setBusy(true); setMsg(null); setErr(false);
-    try {
-      const fd = new FormData();
-      fd.append('file', f);
-      if (snapshotId) fd.append('s', String(snapshotId));
-      const res = await fetch('/konveyer/invoice-batch/import', { method: 'POST', body: fd });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d?.error ?? 'Import xatosi');
-      setMsg(`Topildi ${n(d.matched)} · to‘landi ${n(d.markedPaid)}${d.markedUnpaid ? ` · qaytarildi ${n(d.markedUnpaid)}` : ''}${d.alreadyPaid ? ` · avval to‘langan ${n(d.alreadyPaid)}` : ''}${d.notFound ? ` · topilmadi ${n(d.notFound)}` : ''}`);
-      onImported();
-    } catch (e2) { setErr(true); setMsg(e2 instanceof Error ? e2.message : 'Import xatosi'); }
-    finally { setBusy(false); }
-  };
-
-  return (
-    <div className="mt-3 flex flex-wrap items-center gap-2">
-      <a href={`/konveyer/generated/excel?${qs.toString()}`} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/15 dark:text-emerald-300" title="Yaratilgan invoyslar ro'yxatini Excel qilib yuklab olish">
-        <Ico.sheet size={13} /> Excel eksport
-      </a>
-      <button onClick={() => fileRef.current?.click()} disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg border border-brand-500/40 bg-brand-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-brand-700 transition-colors hover:bg-brand-500/15 disabled:opacity-60 dark:text-brand-300" title="Excel’dan to‘lov holatini yuklash (kvitansiya/PINFL bo‘yicha «To‘landi» belgilanadi)">
-        {busy ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Ico.download size={13} />} Excel import (to‘lov)
-      </button>
-      <input ref={fileRef} type="file" accept=".xlsx" className="hidden" onChange={onFile} />
-      {msg && <span role={err ? 'alert' : 'status'} className={`text-[11px] font-medium ${err ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'}`}>{msg}</span>}
     </div>
   );
 }
@@ -299,14 +258,14 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
       <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center justify-between text-left">
         <div>
           <div className="text-sm font-semibold">Invoice — buxgalteriya</div>
-          <div className="mt-0.5 text-xs tabular-nums text-muted">Har biri {n(amount)} so'm · {n(totalWith)}/{n(totalAll)} yaratilgan{totalEligible > 0 && <span className="font-medium text-emerald-600 dark:text-emerald-400"> · {n(totalEligible)} tayyor</span>}</div>
+          <div className="mt-0.5 text-xs tabular-nums text-muted">Har biri {n(amount)} so'm · {n(totalWith)}/{n(totalAll)} yaratilgan{totalEligible > 0 && <span className="font-medium text-emerald-600 dark:text-emerald-400"> · {n(totalEligible)} kutyapti</span>}</div>
         </div>
         <svg className={`h-4 w-4 shrink-0 text-muted transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m9 6 6 6-6 6" /></svg>
       </button>
       {open && (
         <>
           {/* Invoice ro'yxati Excel eksport + to'lov holati import (reconcile) */}
-          <InvoiceExcelBar snapshotId={snapshotId} firmId={firmId} onImported={onDone} />
+          <InvoiceExcelTools snapshotId={snapshotId} firmId={firmId} count={totalWith} onChanged={onDone} />
 
           {/* Sud bo'yicha umumiy taqsimot — «Uchtepa 400 · Yuqori Chirchiq 300 …» */}
           {courtTotals.length > 0 && (

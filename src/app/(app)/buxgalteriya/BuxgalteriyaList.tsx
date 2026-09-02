@@ -1,8 +1,9 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { BxData, BxFirm, BxRow } from '@/lib/buxgalteriya';
+import { InvoiceExcelTools } from '../konveyer/InvoiceExcelTools';
 
 const n = (x: number) => x.toLocaleString('ru-RU');
 
@@ -114,24 +115,6 @@ export function BuxgalteriyaList({ data }: { data: BxData }) {
   const router = useRouter();
   const [sel, setSel] = useState<number | 'all'>('all');
   const [q, setQ] = useState('');
-  const [imp, setImp] = useState<{ busy: boolean; msg: string | null; err: boolean }>({ busy: false, msg: null, err: false });
-  const fileRef = useRef<HTMLInputElement | null>(null);
-
-  const onImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    e.target.value = '';
-    if (!f) return;
-    setImp({ busy: true, msg: null, err: false });
-    try {
-      const fd = new FormData();
-      fd.append('file', f);
-      const res = await fetch('/konveyer/invoice-batch/import', { method: 'POST', body: fd });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d?.error ?? 'Import xatosi');
-      setImp({ busy: false, err: false, msg: `Topildi ${n(d.matched)} · to‘landi ${n(d.markedPaid)}${d.markedUnpaid ? ` · qaytarildi ${n(d.markedUnpaid)}` : ''}${d.alreadyPaid ? ` · avval to‘langan ${n(d.alreadyPaid)}` : ''}${d.notFound ? ` · topilmadi ${n(d.notFound)}` : ''}` });
-      router.refresh();
-    } catch (e2) { setImp({ busy: false, err: true, msg: e2 instanceof Error ? e2.message : 'Import xatosi' }); }
-  };
 
   if (data.firms.length === 0) {
     return <div className="card grid h-40 place-items-center text-center text-sm text-muted">Bu sana bo‘yicha yaratilgan invoice yo‘q.<br />Mohigul «Invoice yaratish»da boji yaratgach shu yerda ko‘rinadi.</div>;
@@ -151,14 +134,9 @@ export function BuxgalteriyaList({ data }: { data: BxData }) {
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 3v12" /><path d="m8 11 4 4 4-4" /></svg>
             Excel{sel === 'all' ? ' — hammasi' : ''}
           </a>
-          {/* Excel’dan to‘lov holatini yuklash — kvitansiya/PINFL bo‘yicha «To‘landi» belgilanadi */}
-          <button onClick={() => fileRef.current?.click()} disabled={imp.busy} className="inline-flex items-center gap-1.5 rounded-lg border border-brand-500/40 bg-brand-500/10 px-3 py-1.5 text-xs font-semibold text-brand-700 transition-colors hover:bg-brand-500/15 disabled:opacity-60 dark:text-brand-300" title="Excel’dan to‘lov holatini import qilish (reconcile)">
-            {imp.busy ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 21V9" /><path d="m8 13 4-4 4 4" /></svg>}
-            Excel import
-          </button>
-          <input ref={fileRef} type="file" accept=".xlsx" className="hidden" onChange={onImport} />
-          {imp.msg && <span role={imp.err ? 'alert' : 'status'} className={`text-[11px] font-medium ${imp.err ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'}`}>{imp.msg}</span>}
-          {sel !== 'all' && !imp.msg && <span className="text-[11px] text-muted">(tanlangan firma bo‘yicha)</span>}
+          {/* Excel’dan to‘lov holatini import (reconcile) — avval sonlar, tasdiqdan keyin saqlaydi */}
+          <InvoiceExcelTools count={data.total} onChanged={() => router.refresh()} showExport={false} />
+          {sel !== 'all' && <span className="text-[11px] text-muted">(tanlangan firma bo‘yicha)</span>}
         </div>
 
         {/* Umumiy hisobot — soni va HAQIQIY summasi bilan */}
