@@ -1,14 +1,16 @@
-// Server-side OCR for palata scans: render each PDF page with the Windows built-in
-// OCR engine (scripts/palata/ocr-pdf.ps1 — zero installs), extract firma + PINFL +
-// name/address per ariza, and merge into data/palata-scan.json (the dataset the
-// palata panel reads). Runs as a background Job so the web upload returns instantly.
-import { spawn } from 'node:child_process';
+// Server-side OCR for palata scans: render each PDF page with poppler (pdftoppm) and OCR it with
+// tesseract — cross-platform (Linux/Docker/Mac), no Windows/PowerShell. Extracts firma + PINFL +
+// name/address per ariza and merges into data/palata-scan.json (the dataset the palata panel reads).
+// Runs as a background Job so the web upload returns instantly. Docker (web) installs poppler-utils +
+// tesseract-ocr (+ uzb/eng traineddata).
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { prisma } from './db';
 
-const OCR_SCRIPT = path.join(process.cwd(), 'scripts', 'palata', 'ocr-pdf.ps1');
+const execFileP = promisify(execFile);
 const DATA_PATH = path.join(process.cwd(), 'data', 'palata-scan.json');
 
 export interface OcrPage { page: number; text: string }
@@ -97,18 +99,56 @@ export function extractArizas(pages: OcrPage[]): ScannedArizaFull[] {
   }).filter((a) => a.pinfl);
 }
 
-// ---------- OCR spawn ----------
-/** Render + OCR a PDF via the Windows engine → writes [{page,text}] JSON to outJson.
- *  onProgress(done,total) fires as the script prints "page X/Y". */
-export function ocrPdf(pdfPath: string, outJson: string, onProgress?: (done: number, total: number) => void): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const ps = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', OCR_SCRIPT, '-Pdf', pdfPath, '-Out', outJson], { windowsHide: true });
-    let err = '';
-    ps.stdout.on('data', (d) => { const m = /page\s+(\d+)\/(\d+)/i.exec(String(d)); if (m && onProgress) onProgress(Number(m[1]), Number(m[2])); });
-    ps.stderr.on('data', (d) => { err += String(d); });
-    ps.on('error', reject);
-    ps.on('close', (code) => (code === 0 ? resolve() : reject(new Error('OCR xatosi: ' + (err.trim().split('\n').pop() || `exit ${code}`)))));
-  });
+// ---------- OCR (cross-platform: poppler + tesseract) ----------
+// Arizalar lotin o'zbekcha — «uzb» (o'rnatilgan bo'lsa) + «eng». Bir marta aniqlaymiz.
+let OCR_LANGS: string | null = null;
+async function ocrLangs(): Promise<string> {
+  if (OCR_LANGS) return OCR_LANGS;
+  try {
+    const { stdout } = await execFileP('tesseract', ['--list-langs']);
+    const have = new Set(stdout.split(/\r?\n/).map((s) => s.trim()));
+    OCR_LANGS = ['uzb', 'eng'].filter((l) => have.has(l)).join('+') || 'eng';
+  } catch { OCR_LANGS = 'eng'; }
+  return OCR_LANGS;
+}
+
+/** Render (pdftoppm) + OCR (tesseract) a PDF → writes [{page,text}] JSON (page 0-indexed, ps1 bilan
+ *  bir xil). onProgress(done,total) har OCR qilingan sahifada. Cross-platform (Linux/Mac/Docker). */
+export async function ocrPdf(pdfPath: string, outJson: string, onProgress?: (done: number, total: number) => void): Promise<void> {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'palata-ppm-'));
+  const prefix = path.join(dir, 'p');
+  try {
+    // 1) PDF → PNG (200 dpi). poppler-utils.
+    try {
+      await execFileP('pdftoppm', ['-png', '-r', '200', pdfPath, prefix], { maxBuffer: 1 << 27 });
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err?.code === 'ENOENT') throw new Error('«pdftoppm» topilmadi — serverga poppler-utils o‘rnating');
+      throw new Error('PDF rasmga o‘girilmadi: ' + (err?.message ?? String(e)));
+    }
+    // 2) sahifa PNG'lari — raqami bo'yicha tartiblaymiz (p-1.png, p-2.png … yoki p-01.png …).
+    const files = (await fsp.readdir(dir)).filter((f) => /\.png$/i.test(f))
+      .sort((a, b) => (parseInt(a.replace(/\D/g, ''), 10) || 0) - (parseInt(b.replace(/\D/g, ''), 10) || 0));
+    if (files.length === 0) throw new Error('PDF sahifalari topilmadi');
+    const langs = await ocrLangs();
+    const pages: OcrPage[] = [];
+    for (let i = 0; i < files.length; i++) {
+      let text = '';
+      try {
+        const { stdout } = await execFileP('tesseract', [path.join(dir, files[i]), 'stdout', '-l', langs, '--psm', '3'], { maxBuffer: 1 << 27 });
+        text = stdout;
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err?.code === 'ENOENT') throw new Error('«tesseract» topilmadi — serverga tesseract-ocr o‘rnating');
+        // Bitta sahifa o'qilmasa — bo'sh matn bilan davom (butun paket to'xtamaydi).
+      }
+      pages.push({ page: i, text });
+      onProgress?.(i + 1, files.length);
+    }
+    await fsp.writeFile(outJson, JSON.stringify(pages));
+  } finally {
+    await fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 // ---------- merge ----------

@@ -10,8 +10,11 @@ FROM node:22-bookworm-slim
 WORKDIR /app
 
 # Prisma's query engine needs OpenSSL + CA certs at runtime on Debian slim.
+# poppler-utils (pdftoppm) + tesseract-ocr power the «Arizalarni skanerlash» OCR (src/lib/palata-ocr.ts),
+# which runs inline in this web process. uzb traineddata is best-effort (|| true) — eng always present.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && apt-get install -y --no-install-recommends openssl ca-certificates poppler-utils tesseract-ocr tesseract-ocr-eng \
+  && (apt-get install -y --no-install-recommends tesseract-ocr-uzb || true) \
   && rm -rf /var/lib/apt/lists/*
 
 # Prisma reads DATABASE_URL even for generate/build; it never connects during build, so a placeholder
