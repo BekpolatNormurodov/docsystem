@@ -27,7 +27,7 @@ const ROW_CAP = 200;
  */
 function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId: number; court: CourtEligible; snapshotId?: number; amount: number; onDone: () => void }) {
   const cap = Math.min(ROW_CAP, court.eligible);
-  const [count, setCount] = useState<number>(cap || 0);
+  const [count, setCount] = useState<number>(Math.min(25, cap) || cap); // default 25 (yoki qolgani kam bo'lsa — hammasi)
   const [busy, setBusy] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -152,7 +152,10 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
         />
         <span className="min-w-0 truncate text-[11px] tabular-nums text-muted">= <span className="font-semibold text-fg">{n(count * amount)}</span> soʻm</span>
         {busy && restId && (
-          <button onClick={cancel} disabled={canceling} className="ml-auto inline-flex items-center gap-1 rounded-md border border-rose-500/40 px-2 py-1 text-[11px] font-semibold text-rose-600 transition-colors hover:bg-rose-500/10 disabled:opacity-50 dark:text-rose-300">
+          <button onClick={cancel} disabled={canceling} title="Bekor qilish" className="ml-auto inline-flex items-center gap-1 rounded-md border border-rose-500/40 px-2 py-1 text-[11px] font-semibold text-rose-600 transition-colors hover:bg-rose-500/10 disabled:opacity-50 dark:text-rose-300">
+            {canceling
+              ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              : <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="m15 9-6 6M9 9l6 6" /></svg>}
             {canceling ? 'Toʻxtatilmoqda…' : 'Bekor'}
           </button>
         )}
@@ -184,7 +187,10 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
             {batchId && <a href={`/konveyer/farmoyish?batchId=${batchId}&format=xlsx`} className="rounded border border-line px-1.5 py-0.5 font-medium text-emerald-600 hover:border-emerald-500/40 dark:text-emerald-400">Excel</a>}
           </div>
         ) : (
-          <div role="alert" className="mt-1 text-[11px] font-medium text-rose-500">{msg}</div>
+          <div role="alert" className="mt-1.5 flex items-start gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/5 px-2.5 py-1.5 text-[11px] font-medium text-rose-600 dark:text-rose-300">
+            <svg className="mt-px h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><path d="M12 9v4M12 17h.01" /></svg>
+            <span>{msg}</span>
+          </div>
         )
       )}
     </div>
@@ -312,7 +318,7 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
             <div className="mt-4 border-t border-line pt-3">
               <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Tarix — yaratilgan partiyalar</div>
               <div className="overflow-x-auto rounded-xl border border-line">
-                <table className="w-full min-w-[34rem] table-fixed text-sm">
+                <table className="w-full min-w-[42rem] table-fixed text-sm">
                   <caption className="sr-only">Yaratilgan invoice partiyalar tarixi</caption>
                   <thead>
                     <tr className="border-b border-line bg-surface-2/40 text-[10px] uppercase tracking-wide text-muted">
@@ -320,7 +326,7 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
                       <th scope="col" className="px-3 py-1.5 text-left font-semibold">Firma</th>
                       <th scope="col" className="w-16 px-3 py-1.5 text-right font-semibold">Soni</th>
                       <th scope="col" className="w-28 px-3 py-1.5 text-right font-semibold">Holat</th>
-                      <th scope="col" className="w-32 px-3 py-1.5 text-right font-semibold">Farmoyish</th>
+                      <th scope="col" className="w-40 px-3 py-1.5 text-right font-semibold">Farmoyish</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-line">
