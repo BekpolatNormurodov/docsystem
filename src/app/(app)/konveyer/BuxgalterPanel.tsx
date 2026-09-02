@@ -265,7 +265,7 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
       {open && (
         <>
           {/* Invoice ro'yxati Excel eksport + to'lov holati import (reconcile) */}
-          <InvoiceExcelTools snapshotId={snapshotId} firmId={firmId} count={totalWith} onChanged={onDone} />
+          <InvoiceExcelTools snapshotId={snapshotId} firmId={firmId} firms={(firms ?? []).map((f) => ({ id: f.firmId, name: f.firmName }))} count={totalWith} onChanged={onDone} />
 
           {/* Sud bo'yicha umumiy taqsimot — «Uchtepa 400 · Yuqori Chirchiq 300 …» */}
           {courtTotals.length > 0 && (

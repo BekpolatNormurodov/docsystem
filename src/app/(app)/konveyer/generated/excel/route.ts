@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Excel from 'exceljs';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { audit, AuditAction } from '@/lib/audit';
 
 export const runtime = 'nodejs';
 
@@ -73,6 +74,9 @@ export async function GET(req: NextRequest) {
   ws.getColumn('pinfl').alignment = { horizontal: 'left' };
   const lastCol = String.fromCharCode(64 + ws.columns.length); // A..G
   ws.autoFilter = { from: 'A1', to: `${lastCol}1` };
+
+  // Tarix (Amaliyotlar/jurnal): eksport qilindi.
+  await audit(AuditAction.EXPORT, { target: firmId ? `firm:${firmId}` : sheetName, detail: { list: sheetName, count: rows.length, ...(isInvoice ? { made: made || 'made' } : {}) } });
 
   const buf = await wb.xlsx.writeBuffer();
   const fname = `${sheetName}_royxati_${rows.length}.xlsx`;

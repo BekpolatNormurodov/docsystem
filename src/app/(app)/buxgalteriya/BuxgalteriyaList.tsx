@@ -135,7 +135,7 @@ export function BuxgalteriyaList({ data }: { data: BxData }) {
             Excel{sel === 'all' ? ' — hammasi' : ''}
           </a>
           {/* Excel’dan to‘lov holatini import (reconcile) — avval sonlar, tasdiqdan keyin saqlaydi */}
-          <InvoiceExcelTools count={data.total} onChanged={() => router.refresh()} showExport={false} />
+          <InvoiceExcelTools count={data.total} firms={data.firms.map((f) => ({ id: f.firmId, name: f.firmName }))} onChanged={() => router.refresh()} showExport={false} />
           {sel !== 'all' && <span className="text-[11px] text-muted">(tanlangan firma bo‘yicha)</span>}
         </div>
 
