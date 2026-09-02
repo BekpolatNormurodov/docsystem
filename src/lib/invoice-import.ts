@@ -16,12 +16,10 @@ export interface InvoiceImportResult {
   matched: number;     // mijoz/case topildi (wuncha client topildi)
   willAssign: number;  // tasdiqlansa nechta YANGI kvitansiya mavjud case'ga biriktiriladi
   assigned: number;    // haqiqatda biriktirildi (apply)
-  willCreate: number;  // case yo'q, lekin portfelda bor → yangi case yaratiladi
-  created: number;     // haqiqatda yaratildi (apply)
   willMarkPaid: number;// «Holat»=to'landi bo'yicha
   markedPaid: number;
   alreadyHas: number;  // mijozda allaqachon kvitansiya bor (o'zgartirilmaydi)
-  notFound: number;    // mijoz na case'da, na portfelda topildi
+  notFound: number;    // ARIZASI TOPILMADI — mijozning case'i yo'q (import bloklanadi)
   ambiguous: number;   // F.I.O bir nechta shaxs/case'ga to'g'ri keldi
   notFoundSamples: string[];
 }
@@ -62,7 +60,7 @@ interface Hit { id: number; firmId: number; receiptNumber: string | null; stage:
 /** «BFF …» kvitansiya ro'yxatini o'qib, mijozlarga kvitansiya biriktiradi (opts.apply=true bo'lsa yozadi). */
 export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotId?: number; firmId?: number; apply: boolean }): Promise<InvoiceImportResult> {
   const { snapshotId, firmId, apply } = opts;
-  const empty: InvoiceImportResult = { applied: apply, totalRows: 0, matched: 0, willAssign: 0, assigned: 0, willCreate: 0, created: 0, willMarkPaid: 0, markedPaid: 0, alreadyHas: 0, notFound: 0, ambiguous: 0, notFoundSamples: [] };
+  const empty: InvoiceImportResult = { applied: apply, totalRows: 0, matched: 0, willAssign: 0, assigned: 0, willMarkPaid: 0, markedPaid: 0, alreadyHas: 0, notFound: 0, ambiguous: 0, notFoundSamples: [] };
 
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(filePath);
@@ -96,7 +94,6 @@ export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotI
   if (rows.length === 0) return empty;
 
   const scope = { ...(firmId ? { firmId } : {}), ...(snapshotId ? { snapshotId } : {}) };
-  const firm = firmId ? await prisma.firm.findUnique({ where: { id: firmId }, select: { id: true, code: true } }) : null;
   const receipts = [...new Set(rows.map((r) => r.receipt).filter((x): x is string => !!x))];
   const pinfls = [...new Set(rows.map((r) => r.pinfl).filter((x): x is string => !!x))];
   const rawNames = [...new Set(rows.map((r) => r.rawName).filter((x): x is string => !!x))];
@@ -131,13 +128,8 @@ export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotI
 
   const res: InvoiceImportResult = { ...empty, totalRows: rows.length, notFoundSamples: [] };
   const plan: { caseId: number; firmId: number; receipt: string; paid: boolean }[] = [];
-  const createPlan: { pinfl: string; clientName: string | null; debt: number; receipt: string; paid: boolean }[] = [];
-  const pending: Row[] = [];
   const usedCase = new Set<number>();
   const usedReceipt = new Set<string>();
-  const usedPinfl = new Set<string>();
-  const noteNF = (r: Row) => { res.notFound += 1; if (res.notFoundSamples.length < 20) res.notFoundSamples.push(r.rawName || r.pinfl || r.receipt || '—'); };
-
   for (const r of rows) {
     // Bu kvitansiya allaqachon mavjud (case/InvoiceRecord) yoki shu faylda ishlatilgan → o'tkazib yuboramiz.
     if (r.receipt && (byReceipt.has(r.receipt) || usedReceipt.has(r.receipt))) { res.alreadyHas += 1; continue; }
@@ -145,7 +137,8 @@ export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotI
     const nameHits = r.normName ? (byName.get(r.normName) ?? []) : [];
     const matchedByPinfl = pinflHits.length > 0;
     const hits = matchedByPinfl ? pinflHits : nameHits;
-    if (hits.length === 0) { pending.push(r); continue; } // case topilmadi — portfeldan yaratishga nomzod
+    // Arizasi (case'i) topilmadi — YARATMAYMIZ; «arizasi topilmaganlar» deb sanaymiz (import bloklanadi).
+    if (hits.length === 0) { res.notFound += 1; if (res.notFoundSamples.length < 20) res.notFoundSamples.push(r.rawName || r.pinfl || r.receipt || '—'); continue; }
     res.matched += 1;
     // Biriktirish mumkin: kvitansiyasiz + biriktirish bosqichida (apply bilan bir xil shart) + ishlatilmagan.
     const nulls = hits.filter((h) => !h.receiptNumber && ASSIGNABLE.includes(h.stage) && !usedCase.has(h.id));
@@ -161,60 +154,10 @@ export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotI
     if (paid) res.willMarkPaid += 1;
   }
 
-  // Case topilmagan qatorlar — portfeldan (Loan) topib, YANGI case yaratamiz (foydalanuvchi tanlovi).
-  // Faqat firma + snapshot ma'lum bo'lsa (qaysi snapshotda yaratish kerakligini bilish uchun).
-  if (pending.length) {
-    if (firm?.code && snapshotId != null) {
-      const nfNames = [...new Set(pending.map((p) => p.rawName).filter((x): x is string => !!x))];
-      const nfPinfls = [...new Set(pending.map((p) => p.pinfl).filter((x): x is string => !!x))];
-      const loanRows = (nfNames.length || nfPinfls.length)
-        ? await prisma.loan.findMany({
-            where: { branchCode: firm.code, snapshotId, OR: [
-              ...(nfNames.length ? [{ clientName: { in: nfNames } }] : []),
-              ...(nfPinfls.length ? [{ pinfl: { in: nfPinfls } }] : []),
-            ] },
-            select: { pinfl: true, clientName: true, totalDebt: true },
-          })
-        : [];
-      const loanByPinfl = new Map<string, { name: string | null; debt: number }>();
-      const loanByName = new Map<string, Set<string>>();
-      for (const l of loanRows) {
-        if (!l.pinfl) continue;
-        const agg = loanByPinfl.get(l.pinfl) ?? { name: l.clientName, debt: 0 };
-        agg.debt += Number(l.totalDebt || 0); if (!agg.name) agg.name = l.clientName; loanByPinfl.set(l.pinfl, agg);
-        if (l.clientName) { const k = normName(l.clientName); if (k) { const s = loanByName.get(k) ?? new Set<string>(); s.add(l.pinfl); loanByName.set(k, s); } }
-      }
-      for (const r of pending) {
-        let cand: string[] = [];
-        if (r.pinfl && loanByPinfl.has(r.pinfl)) cand = [r.pinfl];
-        else if (r.normName) { const s = loanByName.get(r.normName); if (s) cand = [...s]; }
-        if (cand.length === 0) { noteNF(r); continue; }        // portfelda ham yo'q
-        if (cand.length > 1) { res.ambiguous += 1; continue; } // bir ism → bir nechta shaxs
-        const pinfl = cand[0];
-        if (usedPinfl.has(pinfl)) { res.alreadyHas += 1; continue; }
-        const paid = r.paid === true;
-        const existHits = (byPinfl.get(pinfl) ?? []).filter((h) => !usedCase.has(h.id));
-        if (existHits.length > 0) {
-          // case bor ekan (nom farq qilgan) — yaratmaymiz, biriktiramiz.
-          const nulls = existHits.filter((h) => !h.receiptNumber && ASSIGNABLE.includes(h.stage));
-          if (nulls.length === 0) { res.alreadyHas += 1; continue; }
-          const target = nulls[0];
-          usedCase.add(target.id); usedReceipt.add(r.receipt as string); usedPinfl.add(pinfl);
-          plan.push({ caseId: target.id, firmId: target.firmId, receipt: r.receipt as string, paid });
-          res.matched += 1; res.willAssign += 1; if (paid) res.willMarkPaid += 1;
-        } else {
-          const info = loanByPinfl.get(pinfl)!;
-          usedReceipt.add(r.receipt as string); usedPinfl.add(pinfl);
-          createPlan.push({ pinfl, clientName: info.name ?? r.rawName ?? null, debt: info.debt, receipt: r.receipt as string, paid });
-          res.willCreate += 1; if (paid) res.willMarkPaid += 1;
-        }
-      }
-    } else {
-      for (const r of pending) noteNF(r); // firma/snapshot yo'q — yaratib bo'lmaydi
-    }
-  }
-
-  if (!apply) return res; // preview — hech narsa yozilmaydi
+  // Ko'rib chiqish — YOKI biror mijozning arizasi (case'i) topilmagan bo'lsa — HECH NARSA YOZMAYMIZ.
+  // Foydalanuvchi so'rovi: avval hamma mijozning arizasi bo'lishi shart; aks holda import bloklanadi
+  // («saqlab bo'lmaydi»). Avval o'sha mijozlarga ariza yaratilib, keyin qayta import qilinadi.
+  if (!apply || res.notFound > 0) return res;
 
   const now = new Date();
   const dueCreated = await dueForStage('INVOICE_CREATED', now);
@@ -223,7 +166,6 @@ export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotI
   // харажати» ustuni faqat ma'lumot uchun — invoice summasi bu emas.
   const amount = await getBojiAmount();
 
-  // 1) Mavjud case'larga kvitansiya biriktirish.
   for (const it of plan) {
     const stage: CaseStage = it.paid ? 'INVOICE_PAID' : 'INVOICE_CREATED';
     const dueAt = it.paid ? duePaid : dueCreated;
@@ -247,39 +189,6 @@ export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotI
         }
       });
     } catch { /* bitta qator yozilmasa — qolganini davom ettiramiz */ }
-  }
-
-  // 2) Portfeldan YANGI case yaratib, kvitansiya biriktirish (ariza keyin kerak bo'lganda yaratiladi).
-  if (firm && snapshotId != null) {
-    for (const it of createPlan) {
-      const stage: CaseStage = it.paid ? 'INVOICE_PAID' : 'INVOICE_CREATED';
-      const dueAt = it.paid ? duePaid : dueCreated;
-      try {
-        await prisma.$transaction(async (tx) => {
-          const ex = await tx.arizaCase.findFirst({ where: { snapshotId, firmId: firm.id, pinfl: it.pinfl }, select: { id: true, receiptNumber: true } });
-          let caseId: number;
-          if (ex) {
-            if (ex.receiptNumber) return; // allaqachon kvitansiyali
-            await tx.arizaCase.updateMany({ where: { id: ex.id, receiptNumber: null }, data: { receiptNumber: it.receipt, invoiceNo: it.receipt, stage, stageEnteredAt: now, dueAt } });
-            caseId = ex.id;
-          } else {
-            const c = await tx.arizaCase.create({
-              data: { firmId: firm.id, snapshotId, pinfl: it.pinfl, clientName: it.clientName, kod: firm.code, stage, stageEnteredAt: now, dueAt, receiptNumber: it.receipt, invoiceNo: it.receipt, totalDebt: it.debt },
-              select: { id: true },
-            });
-            caseId = c.id;
-          }
-          res.created += 1;
-          if (it.paid) res.markedPaid += 1;
-          const existing = await tx.invoiceRecord.findUnique({ where: { invoiceNo: it.receipt }, select: { caseId: true } });
-          if (!existing) {
-            await tx.invoiceRecord.create({ data: { invoiceNo: it.receipt, firmId: firm.id, caseId, paymentType: 'Давлат божи', amount, courtType: '', courtRegion: '', court: '', status: 'CREATED' } });
-          } else if (existing.caseId == null) {
-            await tx.invoiceRecord.update({ where: { invoiceNo: it.receipt }, data: { caseId } });
-          }
-        });
-      } catch { /* bitta qator yozilmasa — davom */ }
-    }
   }
   return res;
 }

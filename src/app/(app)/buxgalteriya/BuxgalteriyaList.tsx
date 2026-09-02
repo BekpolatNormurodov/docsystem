@@ -132,6 +132,10 @@ export function BuxgalteriyaList({ data, snapshotId }: { data: BxData; snapshotI
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
             Farmoyish (Word){sel === 'all' ? ' — hammasi (ZIP)' : ''}
           </a>
+          <a href={sel === 'all' ? '/buxgalteriya/farmoyish?format=xlsx' : `/buxgalteriya/farmoyish?firmId=${sel}&format=xlsx`} className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-700 transition-colors hover:bg-sky-500/15 dark:text-sky-300" title="Farmoyish (Excel)">
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 3v12" /><path d="m8 11 4 4 4-4" /></svg>
+            Farmoyish (Excel){sel === 'all' ? ' — hammasi (ZIP)' : ''}
+          </a>
           <a href={sel === 'all' ? '/buxgalteriya/excel' : `/buxgalteriya/excel?firmId=${sel}`} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/15 dark:text-emerald-300">
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 3v12" /><path d="m8 11 4 4 4-4" /></svg>
             Excel{sel === 'all' ? ' — hammasi' : ''}

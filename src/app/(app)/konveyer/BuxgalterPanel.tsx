@@ -18,7 +18,7 @@ const dt = (iso: string) => { const d = new Date(iso); const p = (x: number) => 
 interface RowProg { done: number; total: number; ok: number; failed: number; phase: string; pauseLeftMs: number; error?: string }
 
 // Bir paketda ko'pi bilan shuncha — backend MAX_COUNT (invoice-rest.ts) bilan mos.
-const ROW_CAP = 300;
+const ROW_CAP = 200;
 
 /**
  * One (firm × court) invoice row: creates HAQIQIY billing boji kvitansiyalarini shu sudga
@@ -140,13 +140,17 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
       )}
 
       <div className="mt-2 flex items-center gap-2">
-        {/* Soni — pro dropdown (25/50/100/Hammasi) */}
+        {/* Soni — pro dropdown. Qolgani <200 bo'lsa «Hammasi», aks holda 25/50/100/200. */}
         <Select
-          value={String(count)} label={`${court.courtName} invoice soni`} searchAfter={99} className="w-44 shrink-0"
-          options={(() => { const o = [25, 50, 100, 200, 300].filter((v) => v <= cap); if (cap > 0 && !o.includes(cap)) o.push(cap); return o.map((v) => ({ value: String(v), label: v === cap ? `Hammasi (${n(v)})` : `${v} ta` })); })()}
+          value={String(count)} label={`${court.courtName} invoice soni`} searchAfter={99} className="w-48 shrink-0"
+          options={(() => {
+            const el = court.eligible;
+            const opts = el < 200 ? [...[25, 50, 100].filter((v) => v < el), el] : [25, 50, 100, 200];
+            return opts.map((v) => ({ value: String(v), label: (el < 200 && v === el) ? `Hammasi (${n(v)})` : `${v} ta` }));
+          })()}
           onChange={(v) => setCount(Number(v) || cap)}
         />
-        <span className="text-[11px] tabular-nums text-muted">= <span className="font-semibold text-fg">{n(count * amount)}</span> soʻm</span>
+        <span className="min-w-0 truncate text-[11px] tabular-nums text-muted">= <span className="font-semibold text-fg">{n(count * amount)}</span> soʻm</span>
         {busy && restId && (
           <button onClick={cancel} disabled={canceling} className="ml-auto inline-flex items-center gap-1 rounded-md border border-rose-500/40 px-2 py-1 text-[11px] font-semibold text-rose-600 transition-colors hover:bg-rose-500/10 disabled:opacity-50 dark:text-rose-300">
             {canceling ? 'Toʻxtatilmoqda…' : 'Bekor'}
@@ -177,6 +181,7 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
               </a>
             )}
             {batchId && <a href={`/konveyer/farmoyish?batchId=${batchId}`} className="rounded border border-line px-1.5 py-0.5 font-medium text-brand-600 hover:border-brand-500/40 dark:text-brand-400">Farmoyish</a>}
+            {batchId && <a href={`/konveyer/farmoyish?batchId=${batchId}&format=xlsx`} className="rounded border border-line px-1.5 py-0.5 font-medium text-emerald-600 hover:border-emerald-500/40 dark:text-emerald-400">Excel</a>}
           </div>
         ) : (
           <div role="alert" className="mt-1 text-[11px] font-medium text-rose-500">{msg}</div>
@@ -259,30 +264,34 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
   return (
     <div className="card p-5">
       <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center justify-between text-left">
-        <div>
+        <div className="min-w-0">
           <div className="text-sm font-semibold">Invoice — buxgalteriya</div>
-          <div className="mt-0.5 text-xs tabular-nums text-muted">Har biri {n(amount)} so'm · {n(totalWith)}/{n(totalAll)} yaratilgan{totalEligible > 0 && <span className="font-medium text-emerald-600 dark:text-emerald-400"> · {n(totalEligible)} kutyapti</span>}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+            <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">{n(totalWith)} yaratilgan</span>
+            {totalEligible > 0 && <span className="rounded-full bg-amber-500/10 px-2 py-0.5 font-semibold tabular-nums text-amber-700 dark:text-amber-300">{n(totalEligible)} kutyapti</span>}
+            <span className="tabular-nums text-muted">{n(totalAll)} jami · har biri {n(amount)} so'm</span>
+          </div>
         </div>
         <svg className={`h-4 w-4 shrink-0 text-muted transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m9 6 6 6-6 6" /></svg>
       </button>
       {open && (
         <>
-          {/* Invoice ro'yxati Excel eksport + to'lov holati import (reconcile) */}
-          <InvoiceExcelTools snapshotId={snapshotId} firmId={firmId} firms={(firms ?? []).map((f) => ({ id: f.firmId, name: f.firmName }))} count={totalWith} onChanged={onDone} />
-
-          {/* Sud bo'yicha umumiy taqsimot — «Uchtepa 400 · Yuqori Chirchiq 300 …» */}
-          {courtTotals.length > 0 && (
-            <div className="mt-3 flex flex-wrap items-center gap-1.5">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Sud bo'yicha:</span>
-              {courtTotals.map((c) => (
-                <span key={c.courtId} className="inline-flex items-center gap-1 rounded-full border border-line bg-surface-2/50 px-2 py-0.5 text-[11px] font-medium">
-                  <span className={c.billingReady ? '' : 'text-amber-600 dark:text-amber-400'}>{c.courtName}</span>
-                  <span className="tabular-nums text-emerald-600 dark:text-emerald-400">{n(c.eligible)}</span>
-                  {!c.billingReady && <span title="Billing «Sud id» yo'q" className="text-amber-500">⚠</span>}
-                </span>
-              ))}
-            </div>
-          )}
+          {/* Excel eksport/import + sud bo'yicha taqsimot — bitta toza bo'lakda */}
+          <div className="mt-3 space-y-2.5 rounded-xl border border-line bg-surface-2/30 p-3">
+            <InvoiceExcelTools snapshotId={snapshotId} firmId={firmId} firms={(firms ?? []).map((f) => ({ id: f.firmId, name: f.firmName }))} count={totalWith} onChanged={onDone} />
+            {courtTotals.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 border-t border-line pt-2.5">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Sud bo'yicha:</span>
+                {courtTotals.map((c) => (
+                  <span key={c.courtId} className="inline-flex items-center gap-1 rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium">
+                    <span className={c.billingReady ? '' : 'text-amber-600 dark:text-amber-400'}>{c.courtName}</span>
+                    <span className="tabular-nums text-emerald-600 dark:text-emerald-400">{n(c.eligible)}</span>
+                    {!c.billingReady && <span title="Billing «Sud id» yo'q" className="text-amber-500">⚠</span>}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
 
           {loadErr ? (
             <div role="alert" className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-rose-500/25 bg-rose-500/[0.04] px-3 py-2.5 text-xs">
@@ -326,10 +335,13 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
                             : <span className="text-muted">to'lanmagan</span>}
                         </td>
                         <td className="px-3 py-2 text-right">
-                          <a href={`/konveyer/farmoyish?batchId=${b.id}`} className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-line px-2 py-0.5 text-xs font-medium text-brand-600 hover:border-brand-500/40 dark:text-brand-400">
-                            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 3v12" /><path d="m8 11 4 4 4-4" /></svg>
-                            Farmoyish
-                          </a>
+                          <div className="inline-flex items-center gap-1">
+                            <a href={`/konveyer/farmoyish?batchId=${b.id}`} className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-line px-2 py-0.5 text-xs font-medium text-brand-600 hover:border-brand-500/40 dark:text-brand-400" title="Farmoyish (Word)">
+                              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 3v12" /><path d="m8 11 4 4 4-4" /></svg>
+                              Word
+                            </a>
+                            <a href={`/konveyer/farmoyish?batchId=${b.id}&format=xlsx`} className="whitespace-nowrap rounded-md border border-line px-2 py-0.5 text-xs font-medium text-emerald-600 hover:border-emerald-500/40 dark:text-emerald-400" title="Farmoyish (Excel)">Excel</a>
+                          </div>
                         </td>
                       </tr>
                     ))}
