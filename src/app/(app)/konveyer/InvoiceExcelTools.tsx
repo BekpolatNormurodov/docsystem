@@ -83,6 +83,25 @@ export function InvoiceExcelTools({ snapshotId, firmId, firms, count, onChanged,
     catch (e) { setErr(e instanceof Error ? e.message : 'Import xatosi'); }
     finally { setBusy(false); }
   };
+  // «Arizasi topilmaganlar»ni o'sha faylni qayta yuborib, BFF formatidagi Excel qilib yuklab olamiz.
+  const downloadNotFound = async () => {
+    const f = pendingFile.current;
+    if (!f) return;
+    setErr(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', f);
+      if (snapshotId) fd.append('s', String(snapshotId));
+      if (impEffFirm) fd.append('firmId', String(impEffFirm));
+      fd.append('mode', 'notfound-xlsx');
+      const res = await fetch('/konveyer/invoice-batch/import', { method: 'POST', body: fd });
+      if (!res.ok) throw new Error('Yuklab boʻlmadi');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'arizasi-topilmaganlar.xlsx';
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Yuklab boʻlmadi'); }
+  };
   const impFooter = done ? (
     <button onClick={() => setImpOpen(false)} className="btn-primary px-3 py-2 text-sm">Yopish</button>
   ) : preview ? (
@@ -242,6 +261,9 @@ export function InvoiceExcelTools({ snapshotId, firmId, firms, count, onChanged,
                 <div className="mt-2.5 rounded-lg border border-rose-500/30 bg-rose-500/5 px-2.5 py-2 text-[11px] font-medium text-rose-600 dark:text-rose-300">
                   <b>{n(preview.notFound)} ta mijozning arizasi topilmadi</b> — saqlab boʻlmaydi. Avval ular uchun ariza yarating, keyin qayta import qiling.
                   {preview.notFoundSamples.length > 0 && <div className="mt-1 truncate font-normal text-muted" title={preview.notFoundSamples.join(', ')}>Masalan: {preview.notFoundSamples.slice(0, 5).join(', ')}{preview.notFound > 5 ? '…' : ''}</div>}
+                  <button type="button" onClick={downloadNotFound} className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-rose-500/40 bg-rose-500/10 px-2.5 py-1 text-[11px] font-semibold text-rose-700 transition-colors hover:bg-rose-500/20 dark:text-rose-300">
+                    <Ico.sheet size={13} /> Topilmaganlarni Excel qilib olish ({n(preview.notFound)})
+                  </button>
                 </div>
               ) : (
                 <div className="mt-2.5 text-xs font-semibold text-fg">Bazaga saqlansinmi?</div>

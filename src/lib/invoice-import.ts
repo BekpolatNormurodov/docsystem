@@ -22,6 +22,7 @@ export interface InvoiceImportResult {
   notFound: number;    // ARIZASI TOPILMADI — mijozning case'i yo'q (import bloklanadi)
   ambiguous: number;   // F.I.O bir nechta shaxs/case'ga to'g'ri keldi
   notFoundSamples: string[];
+  notFoundRows: { name: string | null; kod: string | null; receipt: string | null }[]; // topilmaganlarni Excel qilish uchun
 }
 
 const PAID_STAGES: CaseStage[] = ['INVOICE_PAID', 'COURT_SUBMITTED', 'COURT_ACCEPTED', 'COURT_RETURNED', 'MIB_SUBMITTED', 'CLOSED'];
@@ -60,7 +61,7 @@ interface Hit { id: number; firmId: number; receiptNumber: string | null; stage:
 /** «BFF …» kvitansiya ro'yxatini o'qib, mijozlarga kvitansiya biriktiradi (opts.apply=true bo'lsa yozadi). */
 export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotId?: number; firmId?: number; apply: boolean }): Promise<InvoiceImportResult> {
   const { snapshotId, firmId, apply } = opts;
-  const empty: InvoiceImportResult = { applied: apply, totalRows: 0, matched: 0, willAssign: 0, assigned: 0, willMarkPaid: 0, markedPaid: 0, alreadyHas: 0, notFound: 0, ambiguous: 0, notFoundSamples: [] };
+  const empty: InvoiceImportResult = { applied: apply, totalRows: 0, matched: 0, willAssign: 0, assigned: 0, willMarkPaid: 0, markedPaid: 0, alreadyHas: 0, notFound: 0, ambiguous: 0, notFoundSamples: [], notFoundRows: [] };
 
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(filePath);
@@ -72,12 +73,13 @@ export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotI
   const cName = findCol(header, ['Қарздор ФИО', 'Қарздор Ф.И.О', 'Qarzdor F.I.O.', 'Qarzdor FIO', 'F.I.O', 'FIO', 'ФИО', 'Mijoz', 'Клиент', 'Qarzdor']);
   const cReceipt = findCol(header, ['Квитанция рақами', 'Квитанция', 'Kvitansiya raqami', 'Kvitansiya', 'receiptNumber', 'Kvitansiya №']);
   const cPinfl = findCol(header, ['PINFL', 'ПИНФЛ', 'PNFL', 'ПНФЛ', 'ЖШШИР']);
+  const cKod = findCol(header, ['Код', 'Kod', 'Code', 'Кодекс']);
   const cAmount = findCol(header, ['Почта харажати', 'Pochta harajati', 'Summa', 'Сумма', 'Amount']);
   const cStatus = findCol(header, ['Holat', 'Холат', 'Holati', 'Status', 'Статус']);
   if (!cReceipt) throw new Error('«Квитанция рақами» (Kvitansiya raqami) ustuni topilmadi — «BFF …» formatidagi faylni yuklang.');
   if (!cName && !cPinfl) throw new Error('«Қарздор ФИО» yoki «PINFL» ustuni topilmadi — mijozни aniqlab boʻlmaydi.');
 
-  interface Row { rawName: string | null; normName: string | null; pinfl: string | null; receipt: string | null; amount: number | null; paid: boolean | null }
+  interface Row { rawName: string | null; normName: string | null; pinfl: string | null; kod: string | null; receipt: string | null; amount: number | null; paid: boolean | null }
   const rows: Row[] = [];
   ws.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return;
@@ -85,11 +87,12 @@ export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotI
     const rawName = cName ? unwrap(row.getCell(cName).value) : null;
     const pinflRaw = cPinfl ? unwrap(row.getCell(cPinfl).value) : null;
     const pinfl = pinflRaw ? (pinflRaw.replace(/\D/g, '') || null) : null;
+    const kod = cKod ? unwrap(row.getCell(cKod).value) : null;
     const amtRaw = cAmount ? unwrap(row.getCell(cAmount).value) : null;
     const amount = amtRaw ? (Number(amtRaw.replace(/[^\d]/g, '')) || null) : null;
     const paid = cStatus ? parsePaid(unwrap(row.getCell(cStatus).value)) : null;
     if (!receipt || (!rawName && !(pinfl && pinfl.length >= 14))) return; // kalitsiz/bo'sh qator
-    rows.push({ rawName, normName: rawName ? normName(rawName) : null, pinfl: pinfl && pinfl.length >= 14 ? pinfl : null, receipt, amount, paid });
+    rows.push({ rawName, normName: rawName ? normName(rawName) : null, pinfl: pinfl && pinfl.length >= 14 ? pinfl : null, kod, receipt, amount, paid });
   });
   if (rows.length === 0) return empty;
 
@@ -138,7 +141,8 @@ export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotI
     const matchedByPinfl = pinflHits.length > 0;
     const hits = matchedByPinfl ? pinflHits : nameHits;
     // Arizasi (case'i) topilmadi — YARATMAYMIZ; «arizasi topilmaganlar» deb sanaymiz (import bloklanadi).
-    if (hits.length === 0) { res.notFound += 1; if (res.notFoundSamples.length < 20) res.notFoundSamples.push(r.rawName || r.pinfl || r.receipt || '—'); continue; }
+    // To'liq qatorni ham saqlaymiz — foydalanuvchi topilmaganlarni «o'zidek» Excel qilib olishi uchun.
+    if (hits.length === 0) { res.notFound += 1; if (res.notFoundSamples.length < 20) res.notFoundSamples.push(r.rawName || r.pinfl || r.receipt || '—'); res.notFoundRows.push({ name: r.rawName, kod: r.kod, receipt: r.receipt }); continue; }
     res.matched += 1;
     // Biriktirish mumkin: kvitansiyasiz + biriktirish bosqichida (apply bilan bir xil shart) + ishlatilmagan.
     const nulls = hits.filter((h) => !h.receiptNumber && ASSIGNABLE.includes(h.stage) && !usedCase.has(h.id));

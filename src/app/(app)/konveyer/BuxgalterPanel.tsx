@@ -365,7 +365,7 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
 
           {/* «Yaratilgan invoyslar» — xuddi ariza/oferta dek: kim uchun yaratilgani, PINFL + kvitansiya
               + sud, qidiruv/filter, sahifalab, umumiy Excel skachat + har biriga kvitansiya (.pdf). */}
-          <GeneratedList type="invoice" snapshotId={snapshotId} firmId={firmId} count={totalWith} />
+          <GeneratedList type="invoice" snapshotId={snapshotId} firmId={firmId} firms={(firms ?? []).map((f) => ({ id: f.firmId, name: f.firmName }))} count={totalWith} />
         </>
       )}
     </div>

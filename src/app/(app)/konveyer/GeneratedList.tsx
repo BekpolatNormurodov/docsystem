@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Ico } from '@/ui';
+import { Ico, Select } from '@/ui';
 
 type InvStatus = 'created' | 'paid' | 'court' | 'notmade';
 interface GenItem { caseId: number; pinfl: string | null; clientName: string | null; firmName: string | null; courtName: string | null; receiptNumber?: string | null; status?: InvStatus | null; at: string | null }
@@ -21,7 +21,7 @@ const fmtWhen = (iso: string | null) => { if (!iso) return ''; const d = new Dat
  * + firma + sud + sana. Sahifalab (50 ta), PINFL/ism bo'yicha qidiruv. Umumiy Excel skachat + har bir
  * mijoz uchun alohida yuklab olish (ariza .docx / oferta .zip). `count` — «N ta chiqdi» sarlavhasi.
  */
-export function GeneratedList({ type, snapshotId, firmId, count }: { type: 'ariza' | 'oferta' | 'invoice'; snapshotId?: number; firmId?: number; count: number }) {
+export function GeneratedList({ type, snapshotId, firmId, firms, count }: { type: 'ariza' | 'oferta' | 'invoice'; snapshotId?: number; firmId?: number; firms?: { id: number; name: string }[]; count: number }) {
   const isInvoice = type === 'invoice';
   const label = isInvoice ? 'invoyslar' : type === 'oferta' ? 'ofertalar' : 'arizalar';
   const [open, setOpen] = useState(false);
@@ -30,29 +30,34 @@ export function GeneratedList({ type, snapshotId, firmId, count }: { type: 'ariz
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   const [q, setQ] = useState('');
-  const [flt, setFlt] = useState<'made' | 'notmade' | 'all'>('made'); // invoice: chiqarilgan/chiqarilmagan/hammasi
+  const [flt, setFlt] = useState<'made' | 'notmade' | 'all'>('made'); // chiqarilgan/chiqarilmagan/hammasi
+  const [fltPaid, setFltPaid] = useState<'all' | 'paid' | 'unpaid'>('all'); // to'lov holati
+  const [fltFirm, setFltFirm] = useState<number | ''>(''); // firma bo'yicha (invoice)
   const [loading, setLoading] = useState(false);
   const reqRef = useRef(0);
-  const fltRef = useRef(flt);
-  useEffect(() => { fltRef.current = flt; }, [flt]);
+  const fltRef = useRef(flt); useEffect(() => { fltRef.current = flt; }, [flt]);
+  const fltPaidRef = useRef(fltPaid); useEffect(() => { fltPaidRef.current = fltPaid; }, [fltPaid]);
+  const fltFirmRef = useRef(fltFirm); useEffect(() => { fltFirmRef.current = fltFirm; }, [fltFirm]);
 
   const params = useCallback((extra: Record<string, string>) => {
     const p = new URLSearchParams({ type, ...extra });
     if (snapshotId != null) p.set('snapshotId', String(snapshotId));
-    if (firmId != null) p.set('firmId', String(firmId));
+    const ff = fltFirm !== '' ? fltFirm : firmId;
+    if (ff != null) p.set('firmId', String(ff));
     if (q.trim()) p.set('q', q.trim());
-    if (isInvoice) p.set('made', flt);
+    if (isInvoice) { p.set('made', flt); if (fltPaid !== 'all') p.set('paid', fltPaid); }
     return p.toString();
-  }, [type, snapshotId, firmId, q, isInvoice, flt]);
+  }, [type, snapshotId, firmId, fltFirm, q, isInvoice, flt, fltPaid]);
 
   const load = useCallback(async (query: string, pg: number) => {
     if (snapshotId == null) return;
     const my = ++reqRef.current;
     setLoading(true);
     const p = new URLSearchParams({ snapshotId: String(snapshotId), type, page: String(pg) });
-    if (firmId != null) p.set('firmId', String(firmId));
+    const ff = fltFirmRef.current !== '' ? fltFirmRef.current : firmId;
+    if (ff != null) p.set('firmId', String(ff));
     if (query.trim()) p.set('q', query.trim());
-    if (isInvoice) p.set('made', fltRef.current);
+    if (isInvoice) { p.set('made', fltRef.current); if (fltPaidRef.current !== 'all') p.set('paid', fltPaidRef.current); }
     try {
       const res = await fetch(`/konveyer/generated?${p.toString()}`);
       const d = res.ok ? await res.json() : null;
@@ -66,7 +71,7 @@ export function GeneratedList({ type, snapshotId, firmId, count }: { type: 'ariz
   }, [snapshotId, firmId, type, isInvoice]);
 
   // Scope o'zgarsa yopib qo'yamiz (eski ro'yxat qolib ketmasin).
-  useEffect(() => { setOpen(false); setItems(null); setQ(''); setPage(1); setFlt('made'); setTotal(count); }, [snapshotId, firmId, count]);
+  useEffect(() => { setOpen(false); setItems(null); setQ(''); setPage(1); setFlt('made'); setFltPaid('all'); setFltFirm(''); setTotal(count); }, [snapshotId, firmId, count]);
   useEffect(() => { if (open && items === null) load('', 1); }, [open, items, load]);
   // Qidiruv — debounce, 1-sahifadan.
   useEffect(() => {
@@ -74,9 +79,9 @@ export function GeneratedList({ type, snapshotId, firmId, count }: { type: 'ariz
     const t = setTimeout(() => load(q, 1), 250);
     return () => clearTimeout(t);
   }, [q, open, load]);
-  // Filtr (chiqarilgan/chiqarilmagan) o'zgarsa — darhol 1-sahifadan qayta yuklaymiz. items'ni null
+  // Filtrlar (chiqarilgan/to'lov/firma) o'zgarsa — darhol 1-sahifadan qayta yuklaymiz. items'ni null
   // qilMAYMIZ: aks holda yuqoridagi «open && items===null» effekt qidiruvsiz load'ni ustidan yuborardi.
-  useEffect(() => { if (open) load(q, 1); }, [flt]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open) load(q, 1); }, [flt, fltPaid, fltFirm]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const go = (pg: number) => { if (pg >= 1 && pg <= pages) load(q, pg); };
   const dlUrl = (it: GenItem) => (type === 'invoice' ? `/konveyer/invoice-pdf?caseId=${it.caseId}` : type === 'oferta' ? `/konveyer/gen-oferta?caseId=${it.caseId}` : `/konveyer/gen-ariza?caseId=${it.caseId}`);
@@ -85,9 +90,9 @@ export function GeneratedList({ type, snapshotId, firmId, count }: { type: 'ariz
   if (count <= 0 && !isInvoice) return null;
 
   return (
-    <div className="mt-3 overflow-hidden rounded-lg border border-line">
+    <div className="mt-3 rounded-lg border border-line">
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-2">
+        className={`flex w-full items-center gap-2 ${open ? 'rounded-t-lg' : 'rounded-lg'} px-3 py-2 text-left transition-colors hover:bg-surface-2`}>
         <Ico.check size={14} className="text-emerald-600 dark:text-emerald-400" />
         <span className="text-xs font-semibold">{isInvoice ? 'Invoyslar' : `Yaratilgan ${label}`}</span>
         <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">{n(count)}{isInvoice ? ' chiqarilgan' : ''}</span>
@@ -98,11 +103,23 @@ export function GeneratedList({ type, snapshotId, firmId, count }: { type: 'ariz
       {open && (
         <div className="border-t border-line">
           {isInvoice && (
-            <div className="flex flex-wrap items-center gap-1 border-b border-line px-3 py-1.5">
-              {INV_FILTERS.map(([v, l]) => (
-                <button key={v} type="button" onClick={() => setFlt(v)} aria-pressed={flt === v}
-                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors ${flt === v ? 'bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'text-muted hover:bg-surface-2'}`}>{l}</button>
-              ))}
+            <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-1.5">
+              <div className="flex items-center gap-1">
+                {INV_FILTERS.map(([v, l]) => (
+                  <button key={v} type="button" onClick={() => setFlt(v)} aria-pressed={flt === v}
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors ${flt === v ? 'bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'text-muted hover:bg-surface-2'}`}>{l}</button>
+                ))}
+              </div>
+              <div className="ml-auto flex items-center gap-1.5">
+                {firms && firms.length > 0 && (
+                  <Select className="w-40" searchAfter={6} label="Firma" value={fltFirm !== '' ? String(fltFirm) : ''}
+                    options={[{ value: '', label: 'Barcha firma' }, ...firms.map((f) => ({ value: String(f.id), label: f.name }))]}
+                    onChange={(v) => setFltFirm(v ? Number(v) : '')} />
+                )}
+                <Select className="w-36" searchAfter={99} label="Toʻlov holati" value={fltPaid}
+                  options={[{ value: 'all', label: 'Barcha toʻlov' }, { value: 'paid', label: 'Toʻlangan' }, { value: 'unpaid', label: 'Toʻlanmagan' }]}
+                  onChange={(v) => setFltPaid(v as 'all' | 'paid' | 'unpaid')} />
+              </div>
             </div>
           )}
           <div className="flex items-center gap-2 border-b border-line px-3 py-2">

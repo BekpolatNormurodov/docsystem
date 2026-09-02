@@ -62,9 +62,33 @@ export async function POST(req: NextRequest) {
     const sid = Number.isInteger(snapshotId) && (snapshotId as number) > 0 ? snapshotId : undefined;
     const fid = Number.isInteger(firmId) && (firmId as number) > 0 ? firmId : undefined;
     const result = await importInvoicesFromXlsx(tmp, { snapshotId: sid, firmId: fid, apply });
+
+    // «Arizasi topilmaganlar»ni BFF formatidagi Excel qilib qaytaramiz (yuklangan fayldek).
+    if (form?.get('mode') === 'notfound-xlsx') {
+      const wb = new Excel.Workbook();
+      const ws = wb.addWorksheet('Лист1');
+      ws.columns = [
+        { header: '№', key: 'no', width: 6 },
+        { header: 'Қарздор ФИО', key: 'name', width: 40 },
+        { header: 'Код', key: 'kod', width: 14 },
+        { header: 'Почта харажати', key: 'fee', width: 16 },
+        { header: 'Квитанция рақами', key: 'receipt', width: 22 },
+      ];
+      ws.getRow(1).font = { bold: true };
+      ws.getColumn('receipt').alignment = { horizontal: 'left' };
+      result.notFoundRows.forEach((r, i) => ws.addRow({ no: i + 1, name: r.name ?? '', kod: r.kod ?? '', fee: 22000, receipt: r.receipt ?? '' }));
+      const buf = await wb.xlsx.writeBuffer();
+      return new NextResponse(new Uint8Array(buf as ArrayBuffer), {
+        headers: {
+          'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'Content-Disposition': `attachment; filename="${encodeURIComponent('arizasi-topilmaganlar.xlsx')}"`,
+        },
+      });
+    }
     // Tarix (Amaliyotlar/jurnal): faqat tasdiqlanганda (apply) yozamiz.
     if (apply) await audit(AuditAction.IMPORT, { target: fid ? `firm:${fid}` : 'invoice', detail: { kind: 'invoice-kvitansiya', rows: result.totalRows, matched: result.matched, assigned: result.assigned, markedPaid: result.markedPaid } });
-    return NextResponse.json(result);
+    const { notFoundRows: _nf, ...json } = result; // JSON kichik qolsin — ro'yxatni yubormaymiz
+    return NextResponse.json(json);
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Import xatosi' }, { status: 422 });
   } finally {

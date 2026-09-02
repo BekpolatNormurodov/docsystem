@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Excel from 'exceljs';
+import type { CaseStage } from '@prisma/client';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { audit, AuditAction } from '@/lib/audit';
@@ -8,7 +9,8 @@ export const runtime = 'nodejs';
 
 const numArg = (v: unknown): number | undefined => { const n = Number(v); return v != null && v !== '' && Number.isInteger(n) && n > 0 ? n : undefined; };
 
-const PAID_BEYOND = new Set(['INVOICE_PAID', 'COURT_SUBMITTED', 'COURT_ACCEPTED', 'COURT_RETURNED', 'MIB_SUBMITTED', 'CLOSED']);
+const PAID_STAGES: CaseStage[] = ['INVOICE_PAID', 'COURT_SUBMITTED', 'COURT_ACCEPTED', 'COURT_RETURNED', 'MIB_SUBMITTED', 'CLOSED'];
+const PAID_BEYOND = new Set<string>(PAID_STAGES);
 const holatOf = (stage: string): string => (!PAID_BEYOND.has(stage) ? 'Toʻlanmagan' : stage === 'INVOICE_PAID' ? 'Toʻlandi' : 'Sudda');
 
 // GET ?snapshotId=&firmId=&type=ariza|oferta|invoice&q= — «Yaratilganlar» ro'yxatini (butun, sahifasiz)
@@ -24,7 +26,11 @@ export async function GET(req: NextRequest) {
   const q = (sp.get('q') || '').trim();
 
   const made = sp.get('made');
-  const invoiceScope = made === 'notmade' ? { receiptNumber: null } : made === 'all' ? {} : { receiptNumber: { not: null } };
+  const paid = sp.get('paid');
+  const invoiceScope =
+    paid === 'paid' ? { receiptNumber: { not: null }, stage: { in: PAID_STAGES } }
+      : paid === 'unpaid' ? { receiptNumber: { not: null }, stage: 'INVOICE_CREATED' as const }
+        : made === 'notmade' ? { receiptNumber: null } : made === 'all' ? {} : { receiptNumber: { not: null } };
   const scope = isInvoice ? invoiceScope : isOferta ? { ofertaAt: { not: null } } : { arizaAt: { not: null } };
   const qOr = q
     ? { OR: [{ pinfl: { contains: q } }, { clientName: { contains: q } }, ...(isInvoice ? [{ receiptNumber: { contains: q } }, { invoiceNo: { contains: q } }] : [])] }

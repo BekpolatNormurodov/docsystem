@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { CaseStage } from '@prisma/client';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 
@@ -8,7 +9,8 @@ const numArg = (v: unknown): number | undefined => { const n = Number(v); return
 const PAGE_SIZE = 50;
 
 // Invoice holati (progress): to'lanmagan (yaratildi) → to'landi → sudda (keyingi bosqich).
-const PAID_BEYOND = new Set(['INVOICE_PAID', 'COURT_SUBMITTED', 'COURT_ACCEPTED', 'COURT_RETURNED', 'MIB_SUBMITTED', 'CLOSED']);
+const PAID_STAGES: CaseStage[] = ['INVOICE_PAID', 'COURT_SUBMITTED', 'COURT_ACCEPTED', 'COURT_RETURNED', 'MIB_SUBMITTED', 'CLOSED'];
+const PAID_BEYOND = new Set<string>(PAID_STAGES);
 const invStatusOf = (stage: string): 'created' | 'paid' | 'court' =>
   !PAID_BEYOND.has(stage) ? 'created' : stage === 'INVOICE_PAID' ? 'paid' : 'court';
 
@@ -26,9 +28,14 @@ export async function GET(req: NextRequest) {
   const isInvoice = type === 'invoice';
   const q = (sp.get('q') || '').trim();
   const page = Math.max(1, Number(sp.get('page')) || 1);
-  // Invoice uchun filtr: chiqarilgan (made, default) / chiqarilmagan (notmade) / hammasi (all).
+  // Invoice filtri: chiqarilgan/chiqarilmagan/hammasi (made) + to'lov holati (paid: paid|unpaid).
+  // paid berilsa — «chiqarilgan» (kvitansiyali) ichida to'langan/to'lanmagan bo'yicha kesadi.
   const made = sp.get('made');
-  const invoiceScope = made === 'notmade' ? { receiptNumber: null } : made === 'all' ? {} : { receiptNumber: { not: null } };
+  const paid = sp.get('paid');
+  const invoiceScope =
+    paid === 'paid' ? { receiptNumber: { not: null }, stage: { in: PAID_STAGES } }
+      : paid === 'unpaid' ? { receiptNumber: { not: null }, stage: 'INVOICE_CREATED' as const }
+        : made === 'notmade' ? { receiptNumber: null } : made === 'all' ? {} : { receiptNumber: { not: null } };
 
   const scope = isInvoice ? invoiceScope : isOferta ? { ofertaAt: { not: null } } : { arizaAt: { not: null } };
   const qOr = q
