@@ -163,7 +163,7 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
           className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 py-1.5 text-[11px] font-semibold text-white shadow-sm shadow-amber-500/25 transition-all hover:bg-amber-600 hover:shadow-amber-500/40 active:scale-[.97] disabled:opacity-50 disabled:shadow-none">
           {busy
             ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> {prog ? <span className="tabular-nums">{n(prog.done)}/{n(prog.total)}</span> : 'Boshlanmoqda…'}</>
-            : <><svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg> Yarat</>}
+            : 'Yarat'}
         </button>
       </div>
 
@@ -207,11 +207,14 @@ function FirmCard({ f, snapshotId, onDone, amount }: { f: FirmCourtProg; snapsho
   const activeCourts = f.courts.filter((c) => c.eligible > 0);
 
   return (
-    <div className={`rounded-xl border px-3 py-2.5 transition-colors ${done ? 'border-emerald-500/25 bg-emerald-500/[0.03]' : 'border-line'}`}>
+    <div className={`rounded-xl border p-3 transition-colors ${done ? 'border-emerald-500/25 bg-emerald-500/[0.03]' : 'border-line'}`}>
       <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-[13px] font-semibold">{f.firmName}</span>
+        <span className="flex min-w-0 items-center gap-2">
+          <span className={`h-4 w-1 shrink-0 rounded-full ${done ? 'bg-emerald-500' : 'bg-brand-500'}`} aria-hidden />
+          <span className="truncate text-sm font-bold tracking-tight text-fg" title={f.firmName}>{f.firmName}</span>
+        </span>
         <span className="flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums text-muted">
-          <span><b className="text-fg">{n(f.withInvoice)}</b>/{n(f.total)} yaratilgan</span>
+          <span><b className="text-fg">{n(f.withInvoice)}</b>/{n(f.total)}</span>
           {f.courts.length > 1 && <span className="rounded-full bg-brand-500/10 px-1.5 py-0.5 text-[10px] font-medium text-brand-600 dark:text-brand-300">{f.courts.length} sud</span>}
         </span>
       </div>
@@ -310,7 +313,7 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
           ) : firms !== null && firms.length === 0 ? (
             <div className="mt-4 grid h-24 place-items-center text-center text-xs text-muted">Bu snapshot bo‘yicha firma yo‘q</div>
           ) : (
-            <div className="mt-4 grid grid-cols-1 gap-2.5 lg:grid-cols-2">
+            <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
               {firms === null
                 ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-xl" />)
                 : firms.map((f) => <FirmCard key={f.firmId} f={f} snapshotId={snapshotId} onDone={onDone} amount={amount} />)}
