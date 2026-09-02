@@ -25,7 +25,7 @@ export default async function BuxgalteriyaPage() {
         title="Buxgalteriya to‘lovi"
         subtitle={`Yaratilgan boji invoice'lari — firmalar bo'yicha, holati bilan${sel ? ` · ${sel.label}` : ''}`}
       />
-      <BuxgalteriyaList data={data} />
+      <BuxgalteriyaList data={data} snapshotId={selectedId} />
     </div>
   );
 }

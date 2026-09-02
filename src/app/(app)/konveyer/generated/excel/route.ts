@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
     });
   });
   ws.getColumn('pinfl').alignment = { horizontal: 'left' };
-  const lastCol = String.fromCharCode(64 + ws.columns.length); // A..G
+  const lastCol = String.fromCharCode(64 + ws.columns.length); // A..F (ariza/oferta) / A..H (invoice)
   ws.autoFilter = { from: 'A1', to: `${lastCol}1` };
 
   // Tarix (Amaliyotlar/jurnal): eksport qilindi.

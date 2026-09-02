@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import Excel from 'exceljs';
 import { requireUser } from '@/lib/auth';
+import { canAccess } from '@/lib/access';
 import { importInvoicesFromXlsx } from '@/lib/invoice-import';
 import { audit, AuditAction } from '@/lib/audit';
 
@@ -40,7 +41,11 @@ export async function GET() {
 // (reconcile). Kvitansiya/invoice raqami yoki PINFL bo'yicha mos case'ni topib, «Holat» ustuniga
 // qarab to'langan/qaytarilgan deb belgilaydi. Hisobot (nechta topildi/belgilandi) qaytadi.
 export async function POST(req: NextRequest) {
-  await requireUser();
+  const u = await requireUser();
+  // Mutatsiya — buxgalteriya yoki sud:invoice ruxsati kerak (ADMIN har doim o'tadi).
+  if (!canAccess(u, 'buxgalteriya') && !canAccess(u, 'sud:invoice')) {
+    return NextResponse.json({ error: 'Ruxsat yoʻq' }, { status: 403 });
+  }
   const form = await req.formData().catch(() => null);
   const file = form?.get('file') as File | null;
   const sRaw = form?.get('s');

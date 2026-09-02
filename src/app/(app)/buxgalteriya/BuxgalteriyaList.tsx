@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { BxData, BxFirm, BxRow } from '@/lib/buxgalteriya';
 import { InvoiceExcelTools } from '../konveyer/InvoiceExcelTools';
@@ -10,6 +10,8 @@ const n = (x: number) => x.toLocaleString('ru-RU');
 function FirmCard({ firm, query, forceOpen }: { firm: BxFirm; query: string; forceOpen: boolean }) {
   const router = useRouter();
   const [rows, setRows] = useState<BxRow[]>(firm.rows);
+  // Server qayta render qilganда (router.refresh, masalan import'dan keyin) yangi ma'lumotга sinxron.
+  useEffect(() => { setRows(firm.rows); }, [firm.rows]);
   const [busy, setBusy] = useState<number | null>(null);
   const [openState, setOpen] = useState(false);
   const open = forceOpen || openState;
@@ -111,7 +113,7 @@ function FirmCard({ firm, query, forceOpen }: { firm: BxFirm; query: string; for
   );
 }
 
-export function BuxgalteriyaList({ data }: { data: BxData }) {
+export function BuxgalteriyaList({ data, snapshotId }: { data: BxData; snapshotId?: number }) {
   const router = useRouter();
   const [sel, setSel] = useState<number | 'all'>('all');
   const [q, setQ] = useState('');
@@ -135,7 +137,7 @@ export function BuxgalteriyaList({ data }: { data: BxData }) {
             Excel{sel === 'all' ? ' — hammasi' : ''}
           </a>
           {/* Excel’dan to‘lov holatini import (reconcile) — avval sonlar, tasdiqdan keyin saqlaydi */}
-          <InvoiceExcelTools count={data.total} firms={data.firms.map((f) => ({ id: f.firmId, name: f.firmName }))} onChanged={() => router.refresh()} showExport={false} />
+          <InvoiceExcelTools snapshotId={snapshotId} count={data.total} firms={data.firms.map((f) => ({ id: f.firmId, name: f.firmName }))} onChanged={() => router.refresh()} showExport={false} />
           {sel !== 'all' && <span className="text-[11px] text-muted">(tanlangan firma bo‘yicha)</span>}
         </div>
 

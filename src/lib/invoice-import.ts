@@ -39,7 +39,9 @@ function unwrap(v: unknown): string | null {
   return String(v).trim() || null;
 }
 const norm = (s: string) => s.toLowerCase().replace(/[\s.`'ʻ’]/g, '');
-const normName = (s: string) => s.toUpperCase().replace(/[^0-9A-Z]/g, ''); // apostrof/probel farqisiz F.I.O
+// F.I.O ni normalize: NFKC + katta harf + faqat harf/raqam (probel/apostrof/tinish tushadi).
+// Kirill ham, lotin ham saqlanadi; «O'G'LI» va «OʻGʻLI» bir xil kalitga tushadi.
+const normName = (s: string) => s.normalize('NFKC').toUpperCase().replace(/[^\p{L}\p{N}]/gu, '');
 function findCol(header: (string | null)[], names: string[]): number {
   const wanted = names.map(norm);
   for (let i = 0; i < header.length; i++) { const h = header[i]; if (h && wanted.includes(norm(h))) return i + 1; }
@@ -96,40 +98,57 @@ export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotI
   const pinfls = [...new Set(rows.map((r) => r.pinfl).filter((x): x is string => !!x))];
   const rawNames = [...new Set(rows.map((r) => r.rawName).filter((x): x is string => !!x))];
 
-  const orClauses = [
-    ...(receipts.length ? [{ receiptNumber: { in: receipts } }] : []),
-    ...(pinfls.length ? [{ pinfl: { in: pinfls }, ...scope }] : []),
-    ...(rawNames.length ? [{ clientName: { in: rawNames }, ...scope }] : []),
-  ];
-  const cands = orClauses.length
-    ? await prisma.arizaCase.findMany({ where: { OR: orClauses }, select: { id: true, firmId: true, clientName: true, pinfl: true, receiptNumber: true, stage: true } })
-    : [];
+  // (a) Bu kvitansiyalar allaqachon bormi — biror case'da yoki InvoiceRecord'da? (har qanday firmada).
+  // (b) Nomzod case'lar: firma tanlangan bo'lsa — shu firma(snapshot) HAMMA case'i (F.I.O normalize
+  //     bilan solishtirish uchun); firma yo'q bo'lsa — faqat aniq mos (bounded).
+  const [existRcpt, existInv, cands] = await Promise.all([
+    receipts.length ? prisma.arizaCase.findMany({ where: { receiptNumber: { in: receipts } }, select: { receiptNumber: true } }) : Promise.resolve([]),
+    receipts.length ? prisma.invoiceRecord.findMany({ where: { invoiceNo: { in: receipts } }, select: { invoiceNo: true } }) : Promise.resolve([]),
+    (rawNames.length || pinfls.length)
+      ? prisma.arizaCase.findMany({
+          where: firmId
+            ? scope
+            : { OR: [...(pinfls.length ? [{ pinfl: { in: pinfls } }] : []), ...(rawNames.length ? [{ clientName: { in: rawNames } }] : [])], ...(snapshotId ? { snapshotId } : {}) },
+          select: { id: true, firmId: true, clientName: true, pinfl: true, receiptNumber: true, stage: true },
+        })
+      : Promise.resolve([]),
+  ]);
 
   const byReceipt = new Set<string>();
+  for (const r of existRcpt) if (r.receiptNumber) byReceipt.add(r.receiptNumber);
+  for (const r of existInv) byReceipt.add(r.invoiceNo);
+
   const byPinfl = new Map<string, Hit[]>();
   const byName = new Map<string, Hit[]>();
   for (const c of cands) {
     const h: Hit = { id: c.id, firmId: c.firmId, receiptNumber: c.receiptNumber, stage: c.stage };
-    if (c.receiptNumber) byReceipt.add(c.receiptNumber);
     if (c.pinfl) { const a = byPinfl.get(c.pinfl) ?? []; a.push(h); byPinfl.set(c.pinfl, a); }
-    if (c.clientName) { const k = normName(c.clientName); const a = byName.get(k) ?? []; a.push(h); byName.set(k, a); }
+    if (c.clientName) { const k = normName(c.clientName); if (k) { const a = byName.get(k) ?? []; a.push(h); byName.set(k, a); } }
   }
 
   const res: InvoiceImportResult = { ...empty, totalRows: rows.length, notFoundSamples: [] };
-  const plan: { caseId: number; firmId: number; receipt: string; amount: number | null; paid: boolean }[] = [];
+  const plan: { caseId: number; firmId: number; receipt: string; paid: boolean }[] = [];
   const usedCase = new Set<number>();
+  const usedReceipt = new Set<string>();
   for (const r of rows) {
-    if (r.receipt && byReceipt.has(r.receipt)) { res.alreadyHas += 1; continue; } // shu kvitansiya allaqachon biriktirilgan
-    const hits = (r.pinfl && byPinfl.get(r.pinfl)) || (r.normName && byName.get(r.normName)) || [];
+    // Bu kvitansiya allaqachon mavjud (case/InvoiceRecord) yoki shu faylda ishlatilgan → o'tkazib yuboramiz.
+    if (r.receipt && (byReceipt.has(r.receipt) || usedReceipt.has(r.receipt))) { res.alreadyHas += 1; continue; }
+    const pinflHits = r.pinfl ? (byPinfl.get(r.pinfl) ?? []) : [];
+    const nameHits = r.normName ? (byName.get(r.normName) ?? []) : [];
+    const matchedByPinfl = pinflHits.length > 0;
+    const hits = matchedByPinfl ? pinflHits : nameHits;
     if (hits.length === 0) { res.notFound += 1; if (res.notFoundSamples.length < 20) res.notFoundSamples.push(r.rawName || r.pinfl || r.receipt || '—'); continue; }
     res.matched += 1;
-    const nulls = hits.filter((h) => !h.receiptNumber && !usedCase.has(h.id));
+    // Biriktirish mumkin: kvitansiyasiz + biriktirish bosqichida (apply bilan bir xil shart) + ishlatilmagan.
+    const nulls = hits.filter((h) => !h.receiptNumber && ASSIGNABLE.includes(h.stage) && !usedCase.has(h.id));
     if (nulls.length === 0) { res.alreadyHas += 1; continue; } // mijoz bor, lekin allaqachon kvitansiyali
-    if (nulls.length > 1) { res.ambiguous += 1; continue; }    // bir F.I.O — bir nechta kvitansiyasiz case
+    // Faqat F.I.O bo'yicha moslikda bir nechta nomzod — shaxsni tasdiqlab bo'lmaydi (noaniq, yozmaymiz).
+    if (!matchedByPinfl && nulls.length > 1) { res.ambiguous += 1; continue; }
     const target = nulls[0];
     usedCase.add(target.id);
+    usedReceipt.add(r.receipt as string);
     const paid = r.paid === true;
-    plan.push({ caseId: target.id, firmId: target.firmId, receipt: r.receipt as string, amount: r.amount, paid });
+    plan.push({ caseId: target.id, firmId: target.firmId, receipt: r.receipt as string, paid });
     res.willAssign += 1;
     if (paid) res.willMarkPaid += 1;
   }
@@ -154,11 +173,14 @@ export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotI
         if (claimed.count > 0) {
           res.assigned += 1;
           if (it.paid) res.markedPaid += 1;
-          await tx.invoiceRecord.upsert({
-            where: { invoiceNo: it.receipt },
-            update: { caseId: it.caseId, amount },
-            create: { invoiceNo: it.receipt, firmId: it.firmId, caseId: it.caseId, paymentType: 'Давлат божи', amount, courtType: '', courtRegion: '', court: '', status: 'CREATED' },
-          });
+          // InvoiceRecord — buzmasdan: yo'q bo'lsa yaratamiz; bor-u bog'lanmagan bo'lsa faqat caseId
+          // qo'yamiz; boshqa case'ga bog'langan bo'lsa TEGMAYMIZ (summani ham ustidan yozmaymiz).
+          const existing = await tx.invoiceRecord.findUnique({ where: { invoiceNo: it.receipt }, select: { caseId: true } });
+          if (!existing) {
+            await tx.invoiceRecord.create({ data: { invoiceNo: it.receipt, firmId: it.firmId, caseId: it.caseId, paymentType: 'Давлат божи', amount, courtType: '', courtRegion: '', court: '', status: 'CREATED' } });
+          } else if (existing.caseId == null) {
+            await tx.invoiceRecord.update({ where: { invoiceNo: it.receipt }, data: { caseId: it.caseId } });
+          }
         }
       });
     } catch { /* bitta qator yozilmasa — qolganini davom ettiramiz */ }

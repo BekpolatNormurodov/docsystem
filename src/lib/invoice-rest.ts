@@ -419,7 +419,9 @@ export async function startRestBatch(input: StartRestInput): Promise<{ batchId: 
   // Takroriy start qulfi — bir firmaga bir vaqtda ikki paket = ikki marta kvitansiya (pul).
   if (hasActiveBatchForFirm(input.firmId)) throw new Error('Bu firma uchun paket allaqachon ishlayapti — tugashini kuting.');
   const amount = await getBojiAmount();
-  const court = await firmPrimaryCourt(firm.id).catch(() => null);
+  // .catch YO'Q: sud aniqlanishida O'TKINCHI xato bo'lsa — mint QILMASDAN to'xtaymiz (aks holda
+  // hammasi noto'g'ri default 525 sudga ketardi). Konfiguratsiya yo'q bo'lsa null qaytadi (throw emas).
+  const court = await firmPrimaryCourt(firm.id);
   // Faqat RAQAMLI billing Sud id ishlatiladi (placeholder/bo'sh bo'lsa — eski default 525).
   const billingCourtId = court && /^\d+$/.test(court.billingCourtId) ? court.billingCourtId : undefined;
   const payload = buildRestPayload(firm, { amount, courtId: billingCourtId, courtType: court?.courtType });
@@ -474,7 +476,8 @@ export async function startRestBatchForCases(
   // o'sha sudning billing «Sud id»sidan quriladi (firma asosiy sudidan emas) — ko'p-sudli firmada
   // har sud o'z Sud id'siga to'g'ri chiqadi. Asosiy (primary) sud hali courtId=null case'larni ham
   // o'ziga oladi (ular default shu sudga ketadi).
-  const orderedCourts = await firmCourtsOrdered(firm.id).catch(() => [] as Court[]);
+  // .catch YO'Q: o'tkinchi xatoda mint qilmasdan to'xtaymiz; konfiguratsiya yo'q bo'lsa [] qaytadi.
+  const orderedCourts = await firmCourtsOrdered(firm.id);
   let courtWhere: Record<string, unknown> = {};
   if (input.courtId) {
     // Tanlangan sud bo'yicha: asosiy (primary) sud courtId=null (hali yo'naltirilmagan) case'larni ham oladi.
@@ -505,7 +508,14 @@ export async function startRestBatchForCases(
     for (const c of await prisma.court.findMany({ where: { id: { in: unknownIds } } })) courtById.set(c.id, c);
   }
   const primaryCourt = orderedCourts[0] ?? null; // null-court fallback
-  const courtForCase = (cid: number | null): Court | null => (cid != null ? courtById.get(cid) ?? null : null) ?? primaryCourt;
+  // courtId=null → firma asosiy sudi. Ammo courtId bor-u topilmasa (o'chirilgan sud — ma'lumot
+  // yaxlitligi buzilgan) — JIM ravishda asosiyga bermay, shu case'ni to'xtatamiz (mint'gacha throw).
+  const courtForCase = (cid: number | null): Court | null => {
+    if (cid == null) return primaryCourt;
+    const c = courtById.get(cid);
+    if (!c) throw new Error(`Case sudi topilmadi (courtId=${cid}) — «Sudlar» ma'lumotini tekshiring`);
+    return c;
+  };
 
   // Payload'ni sud bo'yicha bir marta quramiz (memo) — firma maydonlari (nom/STIR/manzil) bir xil.
   const payloadCache = new Map<string, RestPayload>();

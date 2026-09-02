@@ -74,8 +74,9 @@ export function GeneratedList({ type, snapshotId, firmId, count }: { type: 'ariz
     const t = setTimeout(() => load(q, 1), 250);
     return () => clearTimeout(t);
   }, [q, open, load]);
-  // Filtr (chiqarilgan/chiqarilmagan) o'zgarsa — darhol 1-sahifadan qayta yuklaymiz.
-  useEffect(() => { if (open) { setItems(null); load(q, 1); } }, [flt]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Filtr (chiqarilgan/chiqarilmagan) o'zgarsa — darhol 1-sahifadan qayta yuklaymiz. items'ni null
+  // qilMAYMIZ: aks holda yuqoridagi «open && items===null» effekt qidiruvsiz load'ni ustidan yuborardi.
+  useEffect(() => { if (open) load(q, 1); }, [flt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const go = (pg: number) => { if (pg >= 1 && pg <= pages) load(q, pg); };
   const dlUrl = (it: GenItem) => (type === 'invoice' ? `/konveyer/invoice-pdf?caseId=${it.caseId}` : type === 'oferta' ? `/konveyer/gen-oferta?caseId=${it.caseId}` : `/konveyer/gen-ariza?caseId=${it.caseId}`);
