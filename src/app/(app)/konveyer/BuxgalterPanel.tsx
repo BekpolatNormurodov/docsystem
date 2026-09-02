@@ -2,7 +2,8 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Skeleton } from '@/ui';
+import { Skeleton, Ico } from '@/ui';
+import { GeneratedList } from './GeneratedList';
 
 // Per-court eligible bucket under a firm (firm→court is one-to-many).
 interface CourtEligible { courtId: number; courtName: string; billingCourtId: string; billingReady: boolean; isPrimary: boolean; eligible: number }
@@ -212,6 +213,48 @@ function FirmCard({ f, snapshotId, onDone, amount }: { f: FirmCourtProg; snapsho
   );
 }
 
+/** Invoice ro'yxatini Excel eksport + «To'lov holati»ni Excel import (reconcile). */
+function InvoiceExcelBar({ snapshotId, firmId, onImported }: { snapshotId?: number; firmId?: number; onImported: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState(false);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const qs = new URLSearchParams({ type: 'invoice' });
+  if (snapshotId) qs.set('snapshotId', String(snapshotId));
+  if (firmId) qs.set('firmId', String(firmId));
+
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    setBusy(true); setMsg(null); setErr(false);
+    try {
+      const fd = new FormData();
+      fd.append('file', f);
+      if (snapshotId) fd.append('s', String(snapshotId));
+      const res = await fetch('/konveyer/invoice-batch/import', { method: 'POST', body: fd });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d?.error ?? 'Import xatosi');
+      setMsg(`Topildi ${n(d.matched)} · to‘landi ${n(d.markedPaid)}${d.markedUnpaid ? ` · qaytarildi ${n(d.markedUnpaid)}` : ''}${d.alreadyPaid ? ` · avval to‘langan ${n(d.alreadyPaid)}` : ''}${d.notFound ? ` · topilmadi ${n(d.notFound)}` : ''}`);
+      onImported();
+    } catch (e2) { setErr(true); setMsg(e2 instanceof Error ? e2.message : 'Import xatosi'); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+      <a href={`/konveyer/generated/excel?${qs.toString()}`} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/15 dark:text-emerald-300" title="Yaratilgan invoyslar ro'yxatini Excel qilib yuklab olish">
+        <Ico.sheet size={13} /> Excel eksport
+      </a>
+      <button onClick={() => fileRef.current?.click()} disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg border border-brand-500/40 bg-brand-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-brand-700 transition-colors hover:bg-brand-500/15 disabled:opacity-60 dark:text-brand-300" title="Excel’dan to‘lov holatini yuklash (kvitansiya/PINFL bo‘yicha «To‘landi» belgilanadi)">
+        {busy ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Ico.download size={13} />} Excel import (to‘lov)
+      </button>
+      <input ref={fileRef} type="file" accept=".xlsx" className="hidden" onChange={onFile} />
+      {msg && <span role={err ? 'alert' : 'status'} className={`text-[11px] font-medium ${err ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'}`}>{msg}</span>}
+    </div>
+  );
+}
+
 export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; firmId?: number }) {
   const router = useRouter();
   const [firms, setFirms] = useState<FirmCourtProg[] | null>(null);
@@ -262,6 +305,9 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
       </button>
       {open && (
         <>
+          {/* Invoice ro'yxati Excel eksport + to'lov holati import (reconcile) */}
+          <InvoiceExcelBar snapshotId={snapshotId} firmId={firmId} onImported={onDone} />
+
           {/* Sud bo'yicha umumiy taqsimot — «Uchtepa 400 · Yuqori Chirchiq 300 …» */}
           {courtTotals.length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -330,6 +376,10 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
               </div>
             </div>
           )}
+
+          {/* «Yaratilgan invoyslar» — xuddi ariza/oferta dek: kim uchun yaratilgani, PINFL + kvitansiya
+              + sud, qidiruv/filter, sahifalab, umumiy Excel skachat + har biriga kvitansiya (.pdf). */}
+          <GeneratedList type="invoice" snapshotId={snapshotId} firmId={firmId} count={totalWith} />
         </>
       )}
     </div>

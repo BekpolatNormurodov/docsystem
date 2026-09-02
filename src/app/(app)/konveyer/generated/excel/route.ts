@@ -7,59 +7,70 @@ export const runtime = 'nodejs';
 
 const numArg = (v: unknown): number | undefined => { const n = Number(v); return v != null && v !== '' && Number.isInteger(n) && n > 0 ? n : undefined; };
 
-// GET ?snapshotId=&firmId=&type=ariza|oferta&q= — «Yaratilganlar» ro'yxatini (butun, sahifasiz)
-// Excel qilib beradi: №, F.I.O, PINFL, Firma, Sud, Sana. Umumiy skachat uchun.
+// GET ?snapshotId=&firmId=&type=ariza|oferta|invoice&q= — «Yaratilganlar» ro'yxatini (butun, sahifasiz)
+// Excel qilib beradi: №, F.I.O, PINFL, Firma, Sud (+ Kvitansiya), Sana. Umumiy skachat uchun.
 export async function GET(req: NextRequest) {
   await requireUser();
   const sp = req.nextUrl.searchParams;
   const snapshotId = numArg(sp.get('snapshotId'));
   const firmId = numArg(sp.get('firmId'));
-  const isOferta = sp.get('type') === 'oferta';
+  const type = sp.get('type');
+  const isOferta = type === 'oferta';
+  const isInvoice = type === 'invoice';
   const q = (sp.get('q') || '').trim();
 
-  const where = {
-    ...(snapshotId ? { snapshotId } : {}),
-    ...(firmId ? { firmId } : {}),
-    ...(isOferta ? { ofertaAt: { not: null } } : { arizaAt: { not: null } }),
-    ...(q ? { OR: [{ pinfl: { contains: q } }, { clientName: { contains: q } }] } : {}),
-  };
+  const scope = isInvoice ? { receiptNumber: { not: null } } : isOferta ? { ofertaAt: { not: null } } : { arizaAt: { not: null } };
+  const qOr = q
+    ? { OR: [{ pinfl: { contains: q } }, { clientName: { contains: q } }, ...(isInvoice ? [{ receiptNumber: { contains: q } }, { invoiceNo: { contains: q } }] : [])] }
+    : {};
+  const where = { ...(snapshotId ? { snapshotId } : {}), ...(firmId ? { firmId } : {}), ...scope, ...qOr };
 
   const rows = await prisma.arizaCase.findMany({
     where,
-    orderBy: isOferta ? [{ ofertaAt: 'desc' }, { id: 'desc' }] : [{ arizaAt: 'desc' }, { id: 'desc' }],
+    orderBy: isInvoice ? [{ id: 'desc' }] : isOferta ? [{ ofertaAt: 'desc' }, { id: 'desc' }] : [{ arizaAt: 'desc' }, { id: 'desc' }],
     take: 100_000,
-    select: { pinfl: true, clientName: true, kod: true, arizaAt: true, ofertaAt: true, firm: { select: { shortName: true } }, court: { select: { shortName: true } } },
+    select: {
+      pinfl: true, clientName: true, kod: true, arizaAt: true, ofertaAt: true, receiptNumber: true, invoiceNo: true,
+      firm: { select: { shortName: true } }, court: { select: { shortName: true } },
+      ...(isInvoice ? { invoiceRecords: { select: { createdAt: true }, orderBy: { createdAt: 'desc' as const }, take: 1 } } : {}),
+    },
   });
 
   const wb = new Excel.Workbook();
-  const ws = wb.addWorksheet(isOferta ? 'Ofertalar' : 'Arizalar');
+  const sheetName = isInvoice ? 'Invoyslar' : isOferta ? 'Ofertalar' : 'Arizalar';
+  const ws = wb.addWorksheet(sheetName);
   ws.columns = [
     { header: '№', key: 'n', width: 6 },
     { header: 'F.I.O', key: 'name', width: 42 },
     { header: 'PINFL', key: 'pinfl', width: 18 },
     { header: 'Firma', key: 'firm', width: 30 },
     { header: 'Sud', key: 'court', width: 28 },
+    ...(isInvoice ? [{ header: 'Kvitansiya raqami', key: 'receipt', width: 20 }] : []),
     { header: 'Yaratilgan sana', key: 'at', width: 20 },
   ];
   ws.getRow(1).font = { bold: true };
   ws.getRow(1).alignment = { vertical: 'middle' };
-  const fmt = (d: Date | null) => (d ? d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
+  const fmt = (d: Date | null | undefined) => (d ? d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
   rows.forEach((r, i) => {
+    const at = isInvoice
+      ? (r as { invoiceRecords?: { createdAt: Date }[] }).invoiceRecords?.[0]?.createdAt ?? null
+      : isOferta ? r.ofertaAt : r.arizaAt;
     ws.addRow({
       n: i + 1,
       name: r.clientName ?? '',
       pinfl: r.pinfl ?? '',
       firm: r.firm?.shortName ?? r.kod ?? '',
       court: r.court?.shortName ?? '',
-      at: fmt(isOferta ? r.ofertaAt : r.arizaAt),
+      ...(isInvoice ? { receipt: r.receiptNumber ?? r.invoiceNo ?? '' } : {}),
+      at: fmt(at),
     });
   });
   ws.getColumn('pinfl').alignment = { horizontal: 'left' };
-  ws.autoFilter = { from: 'A1', to: 'F1' };
+  const lastCol = String.fromCharCode(64 + ws.columns.length); // A..G
+  ws.autoFilter = { from: 'A1', to: `${lastCol}1` };
 
   const buf = await wb.xlsx.writeBuffer();
-  const label = isOferta ? 'Ofertalar' : 'Arizalar';
-  const fname = `${label}_royxati_${rows.length}.xlsx`;
+  const fname = `${sheetName}_royxati_${rows.length}.xlsx`;
   return new NextResponse(new Uint8Array(buf as ArrayBuffer), {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

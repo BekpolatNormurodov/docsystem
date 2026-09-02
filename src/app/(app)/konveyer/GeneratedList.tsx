@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico } from '@/ui';
 
-interface GenItem { caseId: number; pinfl: string | null; clientName: string | null; firmName: string | null; courtName: string | null; at: string | null }
+interface GenItem { caseId: number; pinfl: string | null; clientName: string | null; firmName: string | null; courtName: string | null; receiptNumber?: string | null; at: string | null }
 const n = (x: number) => x.toLocaleString('ru-RU');
 const fmtWhen = (iso: string | null) => { if (!iso) return ''; const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); };
 
@@ -12,8 +12,8 @@ const fmtWhen = (iso: string | null) => { if (!iso) return ''; const d = new Dat
  * + firma + sud + sana. Sahifalab (50 ta), PINFL/ism bo'yicha qidiruv. Umumiy Excel skachat + har bir
  * mijoz uchun alohida yuklab olish (ariza .docx / oferta .zip). `count` — «N ta chiqdi» sarlavhasi.
  */
-export function GeneratedList({ type, snapshotId, firmId, count }: { type: 'ariza' | 'oferta'; snapshotId?: number; firmId?: number; count: number }) {
-  const label = type === 'oferta' ? 'ofertalar' : 'arizalar';
+export function GeneratedList({ type, snapshotId, firmId, count }: { type: 'ariza' | 'oferta' | 'invoice'; snapshotId?: number; firmId?: number; count: number }) {
+  const label = type === 'invoice' ? 'invoyslar' : type === 'oferta' ? 'ofertalar' : 'arizalar';
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<GenItem[] | null>(null);
   const [total, setTotal] = useState(count);
@@ -61,7 +61,8 @@ export function GeneratedList({ type, snapshotId, firmId, count }: { type: 'ariz
   }, [q, open, load]);
 
   const go = (pg: number) => { if (pg >= 1 && pg <= pages) load(q, pg); };
-  const dlUrl = (it: GenItem) => (type === 'oferta' ? `/konveyer/gen-oferta?caseId=${it.caseId}` : `/konveyer/gen-ariza?caseId=${it.caseId}`);
+  const dlUrl = (it: GenItem) => (type === 'invoice' ? `/konveyer/invoice-pdf?caseId=${it.caseId}` : type === 'oferta' ? `/konveyer/gen-oferta?caseId=${it.caseId}` : `/konveyer/gen-ariza?caseId=${it.caseId}`);
+  const dlKind = type === 'invoice' ? 'kvitansiya (.pdf)' : type === 'oferta' ? 'oferta (.zip)' : 'ariza (.docx)';
 
   if (count <= 0) return null;
 
@@ -103,11 +104,11 @@ export function GeneratedList({ type, snapshotId, firmId, count }: { type: 'ariz
                     <span className="w-8 shrink-0 text-right tabular-nums text-muted">{(page - 1) * 50 + i + 1}</span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium">{it.clientName || '—'}</span>
-                      <span className="block truncate text-[11px] tabular-nums text-muted">{it.pinfl || '—'}{it.firmName ? ` · ${it.firmName}` : ''}</span>
+                      <span className="block truncate text-[11px] tabular-nums text-muted">{it.pinfl || '—'}{it.firmName ? ` · ${it.firmName}` : ''}{type === 'invoice' && it.receiptNumber ? ` · №${it.receiptNumber}` : ''}</span>
                     </span>
                     {it.courtName && <span className="hidden shrink-0 rounded-full border border-line px-1.5 py-0.5 text-[10px] text-muted sm:inline">{it.courtName}</span>}
                     <span className="hidden shrink-0 text-[11px] tabular-nums text-muted sm:inline">{fmtWhen(it.at)}</span>
-                    <a href={dlUrl(it)} title={`${it.clientName || 'mijoz'} — ${type === 'oferta' ? 'oferta (.zip)' : 'ariza (.docx)'} yuklab olish`}
+                    <a href={dlUrl(it)} title={`${it.clientName || 'mijoz'} — ${dlKind} yuklab olish`}
                       className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-muted transition-colors hover:bg-brand-500/10 hover:text-brand-600 dark:hover:text-brand-400">
                       <Ico.download size={13} />
                     </a>

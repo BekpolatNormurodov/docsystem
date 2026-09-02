@@ -4,7 +4,7 @@
 // Desktopdagi more_invoice.js mantiqidan ko'chirilgan, app fonida ishlaydi.
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Firm } from '@prisma/client';
+import type { Firm, Court } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getBojiAmount } from './konveyer-buxgalter';
 import { dueForStage } from './konveyer-sla';
@@ -24,7 +24,7 @@ const MAX_RETRIES = 4;                 // har bir so'rov uchun maksimal qayta ur
 const DELAY_BETWEEN_REQUESTS = 700;    // guruh ichida ketma-ket so'rovlar orasidagi qisqa pauza
 const CONCURRENCY = 3;                  // guruh ichida bir vaqtda nechta kvitansiya (tezlash)
 const BATCH_SIZE = 15;                  // har 15 ta kvitansiyadan keyin katta tanaffus
-const BATCH_PAUSE_MS = 15_000;          // katta tanaffus vaqti (15 soniya) — IP blok bo'lmasligi uchun
+const BATCH_PAUSE_MS = 10_000;          // katta tanaffus vaqti (10 soniya) — IP blok bo'lmasligi uchun
 const MAX_CAPTCHA_RETRY = 5;            // challenge kelsa skip qilib qayta analyze urinishlari
 const MAX_ITEM_ATTEMPTS = 3;           // bitta kvitansiya uchun tashqi qayta urinish; 3 tada ham bo'lmasa → xato
 const ITEM_RETRY_BACKOFF = 2500;       // urinishlar orasidagi kutish (o'sib boradi)
@@ -97,8 +97,11 @@ export interface RestPayload {
   payCategoryId: number;
 }
 
-export function buildFirmAddress(firm: Pick<Firm, 'region' | 'district' | 'addressLine'>): string {
-  return [firm.region, firm.district, firm.addressLine].map((s) => s?.trim()).filter(Boolean).join(', ');
+export function buildFirmAddress(firm: Pick<Firm, 'region' | 'district' | 'addressLine' | 'address'>): string {
+  // Billing «Viloyat/Tuman/Koʻcha» to'ldirilgan bo'lsa — o'shani. Bo'sh bo'lsa (ko'p firmada shunday)
+  // «Manzil» (erkin matn) ga tushamiz — shunda invoice «manzil yoʻq» deb to'xtamaydi.
+  const structured = [firm.region, firm.district, firm.addressLine].map((s) => s?.trim()).filter(Boolean).join(', ');
+  return structured || (firm.address?.trim() ?? '');
 }
 
 // Summa har doim chaqiruvchidan (getBojiAmount — davlat boji, default 20 600) keladi;
@@ -471,15 +474,12 @@ export async function startRestBatchForCases(
   // o'sha sudning billing «Sud id»sidan quriladi (firma asosiy sudidan emas) — ko'p-sudli firmada
   // har sud o'z Sud id'siga to'g'ri chiqadi. Asosiy (primary) sud hali courtId=null case'larni ham
   // o'ziga oladi (ular default shu sudga ketadi).
-  let court: Awaited<ReturnType<typeof firmPrimaryCourt>> = null;
+  const orderedCourts = await firmCourtsOrdered(firm.id).catch(() => [] as Court[]);
   let courtWhere: Record<string, unknown> = {};
   if (input.courtId) {
-    const ordered = await firmCourtsOrdered(firm.id).catch(() => []);
-    court = ordered.find((c) => c.id === input.courtId) ?? null;
-    const isPrimary = ordered[0]?.id === input.courtId;
+    // Tanlangan sud bo'yicha: asosiy (primary) sud courtId=null (hali yo'naltirilmagan) case'larni ham oladi.
+    const isPrimary = orderedCourts[0]?.id === input.courtId;
     courtWhere = isPrimary ? { OR: [{ courtId: input.courtId }, { courtId: null }] } : { courtId: input.courtId };
-  } else {
-    court = await firmPrimaryCourt(firm.id).catch(() => null);
   }
 
   const picked = await prisma.arizaCase.findMany({
@@ -488,17 +488,42 @@ export async function startRestBatchForCases(
       ...(input.snapshotId ? { snapshotId: input.snapshotId } : {}),
       ...courtWhere,
     },
-    orderBy: { id: 'asc' }, take: count, select: { id: true },
+    orderBy: { id: 'asc' }, take: count, select: { id: true, courtId: true },
   });
   if (picked.length === 0) return { restBatchId: null, invoiceBatchId: null, total: 0 };
 
   const amount = await getBojiAmount();
-  // Faqat RAQAMLI billing Sud id ishlatiladi (placeholder/bo'sh bo'lsa — eski default 525).
-  const billingCourtId = court && /^\d+$/.test(court.billingCourtId) ? court.billingCourtId : undefined;
-  const payload = buildRestPayload(firm, { amount, courtId: billingCourtId, courtType: court?.courtType });
-  if (!payload.juridicalEntity.name) throw new Error('Firma nomi yo‘q');
-  if (!payload.juridicalEntity.tin) throw new Error('Firma STIR raqami yo‘q');
-  if (!payload.juridicalEntity.address) {
+
+  // ── HAR CASE O'Z SUDIGA ─────────────────────────────────────────────────────────────────────
+  // Invoice payload har case'ning ARIZADA biriktirilgan sudidan (ArizaCase.courtId) quriladi — bitta
+  // «Yarat»da aralash sud tushsa ham, har biri o'z billing «Sud id»siga to'g'ri chiqadi (eski xatoda
+  // hammasi bitta — firma asosiy — sudning Sud id'siga ketardi). courtId=null (hali yo'naltirilmagan)
+  // → firma asosiy sudiga. Raqamli billing «Sud id» bo'lmasa — eski default 525.
+  const courtById = new Map<number, Court>(orderedCourts.map((c) => [c.id, c]));
+  const unknownIds = [...new Set(picked.map((p) => p.courtId).filter((x): x is number => x != null && !courtById.has(x)))];
+  if (unknownIds.length) {
+    for (const c of await prisma.court.findMany({ where: { id: { in: unknownIds } } })) courtById.set(c.id, c);
+  }
+  const primaryCourt = orderedCourts[0] ?? null; // null-court fallback
+  const courtForCase = (cid: number | null): Court | null => (cid != null ? courtById.get(cid) ?? null : null) ?? primaryCourt;
+
+  // Payload'ni sud bo'yicha bir marta quramiz (memo) — firma maydonlari (nom/STIR/manzil) bir xil.
+  const payloadCache = new Map<string, RestPayload>();
+  const payloadForCourt = (c: Court | null): RestPayload => {
+    const key = c ? String(c.id) : 'default';
+    const hit = payloadCache.get(key);
+    if (hit) return hit;
+    const billingCourtId = c && /^\d+$/.test(c.billingCourtId) ? c.billingCourtId : undefined;
+    const p = buildRestPayload(firm, { amount, courtId: billingCourtId, courtType: c?.courtType });
+    payloadCache.set(key, p);
+    return p;
+  };
+
+  // Firma maydonlarini bir marta tekshiramiz (sud bo'yicha o'zgarmaydi).
+  const base = buildRestPayload(firm, { amount });
+  if (!base.juridicalEntity.name) throw new Error('Firma nomi yo‘q');
+  if (!base.juridicalEntity.tin) throw new Error('Firma STIR raqami yo‘q');
+  if (!base.juridicalEntity.address) {
     throw new Error('Firma manzili toʻldirilmagan — «Firmalar» boʻlimida Viloyat, Tuman va koʻcha kiriting.');
   }
 
@@ -519,6 +544,7 @@ export async function startRestBatchForCases(
 
   const attemptOne = async (idx: number): Promise<string> => {
     const caseId = picked[idx].id;
+    const payload = payloadForCourt(courtForCase(picked[idx].courtId)); // shu case ARIZADAGI sudiga
     const token = await getCaptchaToken();
     const invoiceNo = await createInvoiceRest(token, payload); // MINT — bundan keyin throw yo'q
     let pdfPath: string | null = null;

@@ -22,6 +22,11 @@ describe('buildFirmAddress', () => {
   it('bo‘sh qismlarni tashlab ketadi', () => {
     expect(buildFirmAddress({ region: 'A', district: null, addressLine: 'B' } as Firm)).toBe('A, B');
   });
+
+  it('billing qismlari bo‘sh bo‘lsa «Manzil» (erkin matn)ga tushadi', () => {
+    expect(buildFirmAddress({ region: null, district: null, addressLine: null, address: 'Toshkent sh, Olmazor t, X ko‘chasi 1' } as Firm))
+      .toBe('Toshkent sh, Olmazor t, X ko‘chasi 1');
+  });
 });
 
 describe('buildRestPayload', () => {
