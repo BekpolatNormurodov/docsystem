@@ -23,7 +23,8 @@ export function PalataScanPanel() {
   const [firmFilter, setFirmFilter] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);        // uploading
   const [saving, setSaving] = useState(false);    // starting the manual attach job
-  const [update, setUpdate] = useState(false);    // re-scan overwrites already-saved PDFs
+  const [confirmSave, setConfirmSave] = useState(false); // «Saqlansinmi?» tasdiq oynasi
+  const [update, setUpdate] = useState(true);     // re-scan overwrites already-saved PDFs (default ON)
   const [job, setJob] = useState<OcrJob | null>(null); // live OCR / attach job
   const fileRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -92,9 +93,13 @@ export function PalataScanPanel() {
   // «Bazaga saqlash» — re-run the split-&-attach over the whole dataset (idempotent),
   // to pick up clients whose cases were created after the scan was read.
   const saveToDb = async () => {
-    setSaving(true); setErr(null);
+    setSaving(true); setErr(null); setConfirmSave(false);
     try {
-      const res = await fetch('/konveyer/palata-attach', { method: 'POST' });
+      const res = await fetch('/konveyer/palata-attach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ replace: update }), // «Mavjudlarni yangilash» (default ON)
+      });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d?.error || 'Boshlab boʻlmadi'); }
       setJob({ id: 0, status: 'PENDING', progress: 0, total: 0, message: 'Bazaga saqlanmoqda…' });
       wasRunning.current = true;
@@ -193,9 +198,9 @@ export function PalataScanPanel() {
                     {s.updatedAt && <div className="mt-0.5 text-[11px] text-muted">oxirgi skan: <b className="font-medium text-fg">{fmtWhen(s.updatedAt)}</b></div>}
                   </div>
                   {waiting > 0 && (
-                    <button type="button" onClick={saveToDb} disabled={saving || running} aria-busy={saving || running}
-                      title="Ishi bor, lekin hali saqlanmaganlarni alohida PDF qilib bazaga saqlaydi (takror saqlamaydi)"
-                      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/[0.06] px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 outline-none transition-colors hover:bg-emerald-500/12 focus-visible:ring-2 focus-visible:ring-emerald-500/40 disabled:cursor-wait disabled:opacity-60 dark:text-emerald-300">
+                    <button type="button" onClick={() => setConfirmSave((v) => !v)} disabled={saving || running} aria-busy={saving || running} aria-expanded={confirmSave}
+                      title="Ishi bor, lekin hali saqlanmaganlarni alohida PDF qilib bazaga saqlaydi"
+                      className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500/40 disabled:cursor-wait disabled:opacity-60 ${confirmSave ? 'border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700' : 'border-emerald-500/40 bg-emerald-500/[0.06] text-emerald-700 hover:bg-emerald-500/12 dark:text-emerald-300'}`}>
                       {saving || (running && attaching)
                         ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
                         : <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" /><path d="M17 21v-8H7v8M7 3v5h8" /></svg>}
@@ -220,6 +225,42 @@ export function PalataScanPanel() {
                     </div>
                   ))}
                 </div>
+
+                {/* «Saqlansinmi?» — tasdiq oynasi: soni + firma boʻyicha + «topilmadi» (saqlanmaydi) */}
+                {confirmSave && waiting > 0 && (
+                  <div className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] p-3">
+                    <div className="text-[13px] font-semibold text-emerald-800 dark:text-emerald-200">{n(waiting)} ta arizani bazaga saqlansinmi?</div>
+                    <div className="mt-1 text-[11px] text-muted">
+                      Har biri alohida imzolangan-ariza PDF qilib mijoz ishiga (case) saqlanadi — sud paketiga tayyor boʻladi.
+                      {update ? ' Avval saqlangan boʻlsa, ustiga yangi skan yoziladi.' : ''}
+                    </div>
+                    {/* Firma boʻyicha — qaysi firmadan qanchasi saqlanadi */}
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {s.firms.filter((f) => f.withCase - f.saved > 0).map((f) => (
+                        <span key={f.firm} className="inline-flex items-center gap-1 rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium">
+                          <span className="max-w-[9rem] truncate" title={f.firm}>{f.firm}</span>
+                          <b className="tabular-nums text-emerald-700 dark:text-emerald-300">{n(f.withCase - f.saved)}</b>
+                        </span>
+                      ))}
+                    </div>
+                    {s.noCase > 0 && (
+                      <div className="mt-2 flex items-start gap-1.5 text-[11px] text-amber-700 dark:text-amber-300">
+                        <span aria-hidden>⚠</span>
+                        <span><b className="tabular-nums">{n(s.noCase)}</b> ta ariza mos ish (case) topilmadi — bular <b>saqlanmaydi</b>. Roʻyxatdan «faqat ishda yoʻq» bilan koʻrib, Excel qilib olishingiz mumkin.</span>
+                      </div>
+                    )}
+                    <div className="mt-3 flex items-center gap-2">
+                      <button type="button" onClick={saveToDb} disabled={saving || running} aria-busy={saving || running}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-[12px] font-semibold text-white shadow-sm outline-none transition-colors hover:bg-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-500/40 disabled:cursor-wait disabled:opacity-60">
+                        {saving
+                          ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                          : <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="m20 6-11 11-5-5" /></svg>}
+                        Ha, {n(waiting)} tasini saqlash
+                      </button>
+                      <button type="button" onClick={() => setConfirmSave(false)} disabled={saving} className="rounded-lg border border-line px-3 py-1.5 text-[12px] font-medium text-muted transition-colors hover:bg-surface-2 disabled:opacity-50">Bekor</button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}

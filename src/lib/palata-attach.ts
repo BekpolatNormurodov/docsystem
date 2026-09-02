@@ -67,6 +67,9 @@ export interface AttachOpts {
   // («mavjudlarni yangilash»). A case with a doc whose pinfl isn't here is left as
   // is (counted `already`). Omit → nothing is overwritten (pure catch-up).
   replacePinfls?: Set<string>;
+  // Replace EVERY already-saved doc with the fresh scan («Mavjudlarni yangilash» —
+  // the manual «Bazaga saqlash» default). Supersedes replacePinfls when set.
+  replaceAll?: boolean;
 }
 
 /**
@@ -78,7 +81,7 @@ export interface AttachOpts {
  * Never throws per-item; a failure drops that ariza to the noCase bucket.
  */
 export async function attachScannedArizas(arizas: AttachInput[], opts: AttachOpts = {}): Promise<AttachResult> {
-  const { onProgress, replacePinfls } = opts;
+  const { onProgress, replacePinfls, replaceAll } = opts;
   const res: AttachResult = { total: 0, linked: 0, updated: 0, already: 0, advanced: 0, noCase: 0, noMatch: 0 };
   const items = arizas.filter((a) => a.pinfl && a.source);
   res.total = items.length;
@@ -131,8 +134,8 @@ export async function attachScannedArizas(arizas: AttachInput[], opts: AttachOpt
     }
     if (!target) { if (fid != null) res.noCase++; else res.noMatch++; done++; continue; }
     if (docsByCase.has(target.id)) {
-      // Already saved — replace only when the user asked to update this pinfl.
-      if (replacePinfls?.has(a.pinfl)) toSplit.push({ a, caseId: target.id, stage: target.stage, replace: true });
+      // Already saved — replace when updating all, or only this pinfl was requested.
+      if (replaceAll || replacePinfls?.has(a.pinfl)) toSplit.push({ a, caseId: target.id, stage: target.stage, replace: true });
       else { res.already++; done++; }
       continue;
     }

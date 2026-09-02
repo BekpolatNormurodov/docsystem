@@ -191,7 +191,6 @@ export async function runPalataOcrJob(jobId: number, filePaths: string[], update
   await fsp.mkdir(SCAN_STORE, { recursive: true }).catch(() => {});
   try {
     let added = 0, total = 0;
-    const freshPinfls = new Set<string>(); // PINFLs read from THIS upload (for «yangilash»)
     for (let i = 0; i < filePaths.length; i++) {
       const out = path.join(os.tmpdir(), `palata-ocr-${jobId}-${i}.json`);
       let last = 0;
@@ -208,7 +207,6 @@ export async function runPalataOcrJob(jobId: number, filePaths: string[], update
         await fsp.rm(filePaths[i], { force: true }).catch(() => {});
       });
       const got = extractArizas(pages).map((a) => ({ ...a, source: sourceId }));
-      got.forEach((g) => { if (g.pinfl) freshPinfls.add(g.pinfl); });
       // Merge THIS file's arizas to disk immediately — a later file dying can't lose it.
       // `update` overwrites an already-known client's source/pages with the fresh scan.
       const r = await mergeArizas(got, update);
@@ -216,32 +214,11 @@ export async function runPalataOcrJob(jobId: number, filePaths: string[], update
       await fsp.rm(out, { force: true }).catch(() => {});
     }
 
-    // ── Phase 2: BAZAGA SAQLASH — split each client's signed pages into its own PDF
-    // and attach it to the matching case (CaseDocument SIGNED_ARIZA) so the signed
-    // ariza is stored per-case and flows into the court packet. Runs over the WHOLE
-    // merged dataset (idempotent) so previously-unlinked clients whose cases now
-    // exist are picked up too. A dynamic import keeps the module graph acyclic
-    // (palata-attach imports SCAN_STORE from here). Non-fatal: an attach hiccup must
-    // not fail an OCR run whose scans already landed.
-    let saved = 0, updatedCount = 0, noCase = 0;
-    try {
-      await prisma.job.updateMany({ where: { id: jobId }, data: { message: 'Bazaga saqlanmoqda…', progress: 0, total: 1 } });
-      const { attachAllScanned } = await import('./palata-attach');
-      let lastAt = 0;
-      const att = await attachAllScanned({
-        // «yangilash» — only THIS upload's clients overwrite an already-saved doc.
-        replacePinfls: update ? freshPinfls : undefined,
-        onProgress: (d, t) => {
-          // Throttle DB writes (every 10 arizas), same rhythm as the OCR progress.
-          if (d - lastAt >= 10 || d === t) { lastAt = d; prisma.job.updateMany({ where: { id: jobId }, data: { progress: d, total: Math.max(1, t) } }).catch(() => {}); }
-        },
-      });
-      saved = att.linked; updatedCount = att.updated; noCase = att.noCase;
-    } catch (e) { console.error('[palata-ocr] attach phase failed', e); }
-
-    const msg = `+${added} yangi ariza (jami ${total}) · ${saved} bazaga saqlandi`
-      + (updatedCount ? ` · ${updatedCount} yangilandi` : '')
-      + (noCase ? ` · ${noCase} ish topilmadi` : '');
+    // OCR faqat OʻQIYDI — bazaga saqlash endi ALOHIDA, TASDIQ bilan ketadi («Bazaga
+    // saqlash» tugmasi). Shunda foydalanuvchi avval xulosani koʻradi (nechta oʻqildi,
+    // qaysi firmadan qanchasi, qanchasiga «mos ish topilmadi») va soʻng saqlaydi. Saqlash
+    // /konveyer/palata-attach orqali attachAllScanned bilan bajariladi.
+    const msg = `+${added} yangi ariza oʻqildi (jami ${total}) — «Bazaga saqlash»ni tasdiqlang`;
     await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'DONE', message: msg, progress: 1, total: 1 } });
   } catch (e) {
     const m = e instanceof Error ? e.message : String(e);

@@ -97,6 +97,9 @@ export function GeneratedList({ type, snapshotId, firmId, firms, count }: { type
   const go = (pg: number) => { if (pg >= 1 && pg <= pages) load(q, pg); };
   const dlUrl = (it: GenItem) => (type === 'invoice' ? `/konveyer/invoice-pdf?caseId=${it.caseId}` : type === 'oferta' ? `/konveyer/gen-oferta?caseId=${it.caseId}` : `/konveyer/gen-ariza?caseId=${it.caseId}`);
   const dlKind = type === 'invoice' ? 'kvitansiya (.pdf)' : type === 'oferta' ? 'oferta (.zip)' : 'ariza (.docx)';
+  // Ochilganda sarlavha soni JONLI filtr (firma/to'lov/chiqarilgan) natijasini ko'rsatadi.
+  const invSuffix = flt === 'notmade' ? 'chiqarilmagan' : flt === 'all' ? 'jami' : fltPaid === 'paid' ? 'toʻlangan' : fltPaid === 'unpaid' ? 'toʻlanmagan' : 'chiqarilgan';
+  const filtered = open && (flt !== 'made' || fltPaid !== 'all' || fltFirm !== '' || q.trim() !== '');
 
   if (count <= 0 && !isInvoice) return null;
 
@@ -106,7 +109,10 @@ export function GeneratedList({ type, snapshotId, firmId, firms, count }: { type
         className={`flex w-full items-center gap-2 ${open ? 'rounded-t-lg' : 'rounded-lg'} px-3 py-2 text-left transition-colors hover:bg-surface-2`}>
         <Ico.check size={14} className="text-emerald-600 dark:text-emerald-400" />
         <span className="text-xs font-semibold">{isInvoice ? 'Invoyslar' : `Yaratilgan ${label}`}</span>
-        <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">{n(count)}{isInvoice ? ' chiqarilgan' : ''}</span>
+        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${filtered ? 'bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'}`}
+          title={filtered ? 'Filtr boʻyicha natija soni' : undefined}>
+          {isInvoice ? `${n(filtered ? total : count)} ${filtered ? invSuffix : 'chiqarilgan'}` : n(count)}
+        </span>
         {flash && <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">✓ yangilandi</span>}
         <span className="ml-auto text-[11px] text-muted">{open ? 'Yopish' : 'Koʻrish'}</span>
         <Ico.chevron size={14} className={`text-muted transition-transform ${open ? 'rotate-90' : ''}`} />

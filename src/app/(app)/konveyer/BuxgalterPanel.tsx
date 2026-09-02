@@ -55,7 +55,7 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
       if ((p.phase === 'DONE' || p.phase === 'BLOCKED' || p.phase === 'CANCELED') && timer.current) {
         clearInterval(timer.current);
         localStorage.removeItem(LS_KEY);
-        setBusy(false);
+        setBusy(false); setCanceling(false);
         if (p.phase === 'BLOCKED') { setOk(false); setMsg(p.error ?? 'Jarayon uzildi — qayta urinib koʻring'); }
         else if (p.phase === 'CANCELED') {
           setOk(true);
@@ -99,6 +99,9 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
 
   const create = async () => {
     if (!count || count > cap) { setOk(false); setMsg(`1–${n(cap)} oraligʻida son kiriting`); return; }
+    // Eski (bekor qilinayotgan) paket poll'ini darhol to'xtatamiz — yangisiga xalaqit bermasin.
+    if (timer.current) { clearInterval(timer.current); timer.current = null; }
+    localStorage.removeItem(LS_KEY);
     setBusy(true); setCanceling(false); setMsg(null); setProg(null); setBatchId(null); setRestId(null);
     try {
       const res = await fetch('/konveyer/invoice-batch', {
@@ -151,19 +154,24 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
           onChange={(v) => setCount(Number(v) || cap)}
         />
         <span className="min-w-0 truncate text-[11px] tabular-nums text-muted">= <span className="font-semibold text-fg">{n(count * amount)}</span> soʻm</span>
-        {busy && restId && (
-          <button onClick={cancel} disabled={canceling} title="Bekor qilish" className="ml-auto inline-flex items-center gap-1 rounded-md border border-rose-500/40 px-2 py-1 text-[11px] font-semibold text-rose-600 transition-colors hover:bg-rose-500/10 disabled:opacity-50 dark:text-rose-300">
-            {canceling
-              ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
-              : <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="m15 9-6 6M9 9l6 6" /></svg>}
-            {canceling ? 'Toʻxtatilmoqda…' : 'Bekor'}
+        {busy && restId && !canceling && (
+          <button onClick={cancel} title="Bekor qilish" className="ml-auto inline-flex items-center gap-1 rounded-md border border-rose-500/40 px-2 py-1 text-[11px] font-semibold text-rose-600 transition-colors hover:bg-rose-500/10 dark:text-rose-300">
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="m15 9-6 6M9 9l6 6" /></svg>
+            Bekor
           </button>
         )}
-        <button onClick={create} disabled={busy || !count} aria-busy={busy}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 py-1.5 text-[11px] font-semibold text-white shadow-sm shadow-amber-500/25 transition-all hover:bg-amber-600 hover:shadow-amber-500/40 active:scale-[.97] disabled:opacity-50 disabled:shadow-none">
-          {busy
+        {/* Bekor bosilgan — eski paket fonda to'xtayapti. Foydalanuvchi kutmasdan qayta «Yarat» qila oladi. */}
+        {busy && canceling && (
+          <span className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-rose-500/30 bg-rose-500/[0.04] px-2 py-1 text-[11px] font-medium text-rose-600 dark:text-rose-300" title="Eski paket fonda toʻxtatilmoqda — hozir yangisini yaratsangiz ham boʻladi">
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            Toʻxtatilmoqda…
+          </span>
+        )}
+        <button onClick={create} disabled={(busy && !canceling) || !count} aria-busy={busy && !canceling}
+          className={`inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 py-1.5 text-[11px] font-semibold text-white shadow-sm shadow-amber-500/25 transition-all hover:bg-amber-600 hover:shadow-amber-500/40 active:scale-[.97] disabled:opacity-50 disabled:shadow-none ${!busy ? 'ml-auto' : ''}`}>
+          {busy && !canceling
             ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> {prog ? <span className="tabular-nums">{n(prog.done)}/{n(prog.total)}</span> : 'Boshlanmoqda…'}</>
-            : 'Yarat'}
+            : canceling ? 'Qaytadan yarat' : 'Yarat'}
         </button>
       </div>
 

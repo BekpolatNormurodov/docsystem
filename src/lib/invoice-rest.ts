@@ -198,7 +198,7 @@ export interface BatchProgress {
   items: BatchItem[];
   error?: string;              // BLOCKED/uzilish bo'lganda: IP blok/tarmoq xabari
 }
-interface Batch extends BatchProgress { id: string; firmId: number; amount: number; aborted?: boolean; recentFails?: number }
+interface Batch extends BatchProgress { id: string; firmId: number; amount: number; aborted?: boolean; recentFails?: number; inFlight?: Set<number> }
 
 const g = globalThis as unknown as { __invoiceRestBatches?: Map<string, Batch> };
 const batches = g.__invoiceRestBatches ?? new Map<string, Batch>();
@@ -256,12 +256,25 @@ export async function getRestBatch(id: string): Promise<BatchProgress | null> {
   };
 }
 
-/** Firma uchun hozir ishlayotgan (RUNNING/PAUSING) paket bormi — takroriy start'ni bloklash uchun. */
+/** Firma uchun hozir TIRIK (bekor qilinmagan, RUNNING/PAUSING) paket bormi — takroriy start'ni bloklash
+ *  uchun. «Bekor» bosilgan paket (aborted) endi bloklamaydi: u yangi kvitansiya boshlamaydi, faqat
+ *  o'zining hozir ketayotgan (in-flight) itemlarini tugatadi — ular yangi paketdan reservedCaseIds
+ *  bilan chiqarib tashlanadi, shu bois qayta «Yarat» darhol, xavfsiz ishlaydi. */
 function hasActiveBatchForFirm(firmId: number): boolean {
   for (const b of batches.values()) {
-    if (b.firmId === firmId && (b.phase === 'RUNNING' || b.phase === 'PAUSING')) return true;
+    if (b.firmId === firmId && !b.aborted && (b.phase === 'RUNNING' || b.phase === 'PAUSING')) return true;
   }
   return false;
+}
+
+/** Firmaning har qanday (jumladan bekor qilinayotgan) paketida HOZIR mint qilinayotgan case id'lari —
+ *  yangi paket bularni olmasligi kerak (bitta case'ga ikki marta real boji chiqmasin). */
+function reservedCaseIdsForFirm(firmId: number): number[] {
+  const ids = new Set<number>();
+  for (const b of batches.values()) {
+    if (b.firmId === firmId && b.inFlight) for (const id of b.inFlight) ids.add(id);
+  }
+  return [...ids];
 }
 
 /** batchdagi muvaffaqiyatli (PDF'li) invoicelar (ZIP uchun) — xotira yoki bazadan. */
@@ -338,6 +351,7 @@ function makeBatch(firmId: number, total: number, amount: number): Batch {
   const id = newId();
   const batch: Batch = {
     id, firmId, amount, total, done: 0, ok: 0, failed: 0, current: 0, phase: 'RUNNING', pauseLeftMs: 0,
+    inFlight: new Set<number>(),
     items: Array.from({ length: total }, (_, i) => ({ index: i, status: 'PENDING' as ItemStatus })),
   };
   batches.set(id, batch);
@@ -498,10 +512,14 @@ export async function startRestBatchForCases(
     courtWhere = isPrimary ? { OR: [{ courtId: input.courtId }, { courtId: null }] } : { courtId: input.courtId };
   }
 
+  // Bekor qilinayotgan paket hozir mint qilayotgan case'larni CHIQARIB tashlaymiz — ular tugab, o'z
+  // kvitansiyasini olguncha yangi paketga tushmasin (ikki marta boji chiqmasin).
+  const reserved = reservedCaseIdsForFirm(input.firmId);
   const picked = await prisma.arizaCase.findMany({
     where: {
       firmId: input.firmId, receiptNumber: null,
       ...(input.snapshotId ? { snapshotId: input.snapshotId } : {}),
+      ...(reserved.length ? { id: { notIn: reserved } } : {}),
       ...courtWhere,
     },
     orderBy: { id: 'asc' }, take: count, select: { id: true, courtId: true },
@@ -567,6 +585,8 @@ export async function startRestBatchForCases(
 
   const attemptOne = async (idx: number): Promise<string> => {
     const caseId = picked[idx].id;
+    batch.inFlight?.add(caseId); // shu case hozir mint qilinyapti — parallel yangi paket uni olmaydi
+    try {
     const payload = payloadForCourt(courtForCase(picked[idx].courtId)); // shu case ARIZADAGI sudiga
     const token = await getCaptchaToken();
     const invoiceNo = await createInvoiceRest(token, payload); // MINT — bundan keyin throw yo'q
@@ -609,6 +629,9 @@ export async function startRestBatchForCases(
       } catch { /* iz ham qolmasa — hech bo'lmasa re-mint qilmadik */ }
     }
     return invoiceNo;
+    } finally {
+      batch.inFlight?.delete(caseId); // mint (+DB) tugadi — endi rezervda ushlab turmaymiz
+    }
   };
 
   void runBatchLoop(batch, attemptOne).then(async () => {

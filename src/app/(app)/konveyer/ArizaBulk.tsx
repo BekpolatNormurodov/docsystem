@@ -196,10 +196,10 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
 
       <div className="flex flex-wrap items-center gap-2">
         {!done && noFirm ? (
-          // «Hamma firma» — sud biriktirib bo'lmaydi (sud firmaga bog'liq, Bright'da 2 ta). Firmani tanlash shart.
+          // «Hamma firma» — sud biriktirib bo'lmaydi (sud firmaga bog'liq). Firmani tanlash shart.
           <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2 text-xs font-medium text-amber-700 dark:text-amber-300">
             <Ico.info size={14} className="shrink-0" />
-            <span>Ariza sudga bogʻlanadi — avval yuqoridan <b>firmani tanlang</b> (Bright'da 2 sud).</span>
+            <span>Ariza sudga bogʻlanadi — avval yuqoridan <b>firmani tanlang</b>.</span>
           </div>
         ) : !done && firmNoCourt ? (
           <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2 text-xs font-medium text-amber-700 dark:text-amber-300">
