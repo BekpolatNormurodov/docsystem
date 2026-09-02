@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Skeleton } from '@/ui';
+import { Skeleton, Select } from '@/ui';
 import { GeneratedList } from './GeneratedList';
 import { InvoiceExcelTools } from './InvoiceExcelTools';
 
@@ -131,14 +131,12 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
       )}
 
       <div className="mt-2 flex items-center gap-2">
-        {/* Soni — dropdown (25/50/100/Hammasi) */}
-        <select
-          value={count} aria-label={`${court.courtName} invoice soni`}
-          onChange={(e) => setCount(Number(e.target.value) || cap)}
-          className="rounded-lg border border-line bg-[var(--field)] px-2 py-1.5 text-[12px] font-medium tabular-nums text-fg outline-none transition-colors focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15">
-          {(() => { const o = [25, 50, 100].filter((v) => v <= cap); if (cap > 0 && !o.includes(cap)) o.push(cap); return o; })()
-            .map((v) => <option key={v} value={v}>{v === cap ? `Hammasi (${n(v)})` : `${v} ta`}</option>)}
-        </select>
+        {/* Soni — pro dropdown (25/50/100/Hammasi) */}
+        <Select
+          value={String(count)} label={`${court.courtName} invoice soni`} searchAfter={99} className="w-36 shrink-0"
+          options={(() => { const o = [25, 50, 100].filter((v) => v <= cap); if (cap > 0 && !o.includes(cap)) o.push(cap); return o.map((v) => ({ value: String(v), label: v === cap ? `Hammasi (${n(v)})` : `${v} ta` })); })()}
+          onChange={(v) => setCount(Number(v) || cap)}
+        />
         <span className="text-[11px] tabular-nums text-muted">= <span className="font-semibold text-fg">{n(count * amount)}</span> soʻm</span>
         {busy && restId && (
           <button onClick={cancel} disabled={canceling} className="ml-auto inline-flex items-center gap-1 rounded-md border border-rose-500/40 px-2 py-1 text-[11px] font-semibold text-rose-600 transition-colors hover:bg-rose-500/10 disabled:opacity-50 dark:text-rose-300">
