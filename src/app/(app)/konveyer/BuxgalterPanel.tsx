@@ -114,13 +114,13 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
   };
 
   return (
-    <div className="rounded-lg border border-line/70 bg-surface-2/30 px-2.5 py-1.5">
+    <div className="rounded-xl border border-line bg-surface px-3 py-2.5 shadow-sm">
       <div className="flex items-center justify-between gap-2">
-        <span className="flex min-w-0 items-center gap-1.5 text-[12px] font-medium">
+        <span className="flex min-w-0 items-center gap-1.5 text-[12px] font-semibold">
           {court.isPrimary && <span title="Asosiy sud" className="text-amber-500">★</span>}
           <span className="truncate">{court.courtName}</span>
         </span>
-        <span className="shrink-0 text-[11px] font-medium tabular-nums text-emerald-600 dark:text-emerald-400">{n(court.eligible)} kutyapti</span>
+        <span className="shrink-0 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">{n(court.eligible)} kutyapti</span>
       </div>
 
       {!court.billingReady && (
@@ -130,25 +130,22 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
         </div>
       )}
 
-      <div className="mt-1 flex flex-wrap items-center gap-1">
-        <input
-          type="number" min={1} max={cap} value={count} aria-label={`${court.courtName} invoice soni`}
-          onChange={(e) => setCount(Math.max(1, Math.min(cap, Number(e.target.value) || 0)))}
-          className="w-14 rounded border border-line bg-surface px-1.5 py-0.5 text-center text-[13px] font-medium tabular-nums outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15"
-        />
-        {[25, 50, 100].filter((v) => v <= cap).map((v) => (
-          <button key={v} onClick={() => setCount(v)} aria-pressed={count === v} className={`rounded border px-1.5 py-0.5 text-[10px] font-medium tabular-nums transition-colors ${count === v ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-line text-muted hover:border-amber-500/40'}`}>{v}</button>
-        ))}
-        {cap < ROW_CAP && cap > 0 && (
-          <button onClick={() => setCount(cap)} className="rounded border border-line px-1.5 py-0.5 text-[10px] font-medium text-muted hover:border-amber-500/40">Hammasi ({n(cap)})</button>
-        )}
-        <span className="ml-1 text-[10px] tabular-nums text-muted">= <span className="font-medium text-fg">{n(count * amount)}</span></span>
+      <div className="mt-2 flex items-center gap-2">
+        {/* Soni — dropdown (25/50/100/Hammasi) */}
+        <select
+          value={count} aria-label={`${court.courtName} invoice soni`}
+          onChange={(e) => setCount(Number(e.target.value) || cap)}
+          className="rounded-lg border border-line bg-[var(--field)] px-2 py-1.5 text-[12px] font-medium tabular-nums text-fg outline-none transition-colors focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15">
+          {(() => { const o = [25, 50, 100].filter((v) => v <= cap); if (cap > 0 && !o.includes(cap)) o.push(cap); return o; })()
+            .map((v) => <option key={v} value={v}>{v === cap ? `Hammasi (${n(v)})` : `${v} ta`}</option>)}
+        </select>
+        <span className="text-[11px] tabular-nums text-muted">= <span className="font-semibold text-fg">{n(count * amount)}</span> soʻm</span>
         {busy && restId && (
           <button onClick={cancel} disabled={canceling} className="ml-auto inline-flex items-center gap-1 rounded-md border border-rose-500/40 px-2 py-1 text-[11px] font-semibold text-rose-600 transition-colors hover:bg-rose-500/10 disabled:opacity-50 dark:text-rose-300">
             {canceling ? 'Toʻxtatilmoqda…' : 'Bekor'}
           </button>
         )}
-        <button onClick={create} disabled={busy || !count} aria-busy={busy} className="ml-auto inline-flex items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-amber-600 disabled:opacity-50">
+        <button onClick={create} disabled={busy || !count} aria-busy={busy} className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-amber-600 disabled:opacity-50">
           {busy ? <><span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" /> {prog ? `${n(prog.done)}/${n(prog.total)}` : '…'}</> : 'Yarat'}
         </button>
       </div>
@@ -192,19 +189,18 @@ function FirmCard({ f, snapshotId, onDone, amount }: { f: FirmCourtProg; snapsho
     <div className={`rounded-xl border px-3 py-2.5 transition-colors ${done ? 'border-emerald-500/25 bg-emerald-500/[0.03]' : 'border-line'}`}>
       <div className="flex items-center justify-between gap-2">
         <span className="truncate text-[13px] font-semibold">{f.firmName}</span>
-        <span className="shrink-0 text-[11px] tabular-nums text-muted">
-          {n(f.withInvoice)}/{n(f.total)}
-          {f.eligible > 0 && <span className="font-medium text-emerald-600 dark:text-emerald-400"> · {n(f.eligible)} kutyapti</span>}
-          {f.courts.length > 1 && <span className="ml-1 rounded-full bg-brand-500/10 px-1.5 py-0.5 text-[10px] font-medium text-brand-600 dark:text-brand-300">{f.courts.length} sud</span>}
+        <span className="flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums text-muted">
+          <span><b className="text-fg">{n(f.withInvoice)}</b>/{n(f.total)} yaratilgan</span>
+          {f.courts.length > 1 && <span className="rounded-full bg-brand-500/10 px-1.5 py-0.5 text-[10px] font-medium text-brand-600 dark:text-brand-300">{f.courts.length} sud</span>}
         </span>
       </div>
-      <div className="my-1.5 h-1 w-full overflow-hidden rounded-full bg-surface-2">
+      <div className="my-2 h-1 w-full overflow-hidden rounded-full bg-surface-2">
         <div className={`h-full rounded-full transition-all ${done ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${pct}%` }} />
       </div>
       {activeCourts.length === 0 ? (
         <div className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">✓ Hammasiga yaratilgan</div>
       ) : (
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           {activeCourts.map((c) => (
             <CourtInvoiceRow key={c.courtId} firmId={f.firmId} court={c} snapshotId={snapshotId} amount={amount} onDone={onDone} />
           ))}

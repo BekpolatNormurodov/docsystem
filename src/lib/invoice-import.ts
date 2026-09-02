@@ -139,11 +139,12 @@ export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotI
   const now = new Date();
   const dueCreated = await dueForStage('INVOICE_CREATED', now);
   const duePaid = await dueForStage('INVOICE_PAID', now);
-  const fallbackAmount = await getBojiAmount();
+  // Summa — o'zimiz chiqargandagidek DEFAULT davlat boji (getBojiAmount, 22 000). Fayldagi «Почта
+  // харажати» ustuni faqat ma'lumot uchun — invoice summasi bu emas.
+  const amount = await getBojiAmount();
   for (const it of plan) {
     const stage: CaseStage = it.paid ? 'INVOICE_PAID' : 'INVOICE_CREATED';
     const dueAt = it.paid ? duePaid : dueCreated;
-    const amount = it.amount ?? fallbackAmount;
     try {
       await prisma.$transaction(async (tx) => {
         const claimed = await tx.arizaCase.updateMany({
