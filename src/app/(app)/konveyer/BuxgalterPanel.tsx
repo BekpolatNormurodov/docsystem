@@ -159,18 +159,21 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
             {canceling ? 'Toʻxtatilmoqda…' : 'Bekor'}
           </button>
         )}
-        <button onClick={create} disabled={busy || !count} aria-busy={busy} className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-amber-600 disabled:opacity-50">
-          {busy ? <><span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" /> {prog ? `${n(prog.done)}/${n(prog.total)}` : '…'}</> : 'Yarat'}
+        <button onClick={create} disabled={busy || !count} aria-busy={busy}
+          className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 py-1.5 text-[11px] font-semibold text-white shadow-sm shadow-amber-500/25 transition-all hover:bg-amber-600 hover:shadow-amber-500/40 active:scale-[.97] disabled:opacity-50 disabled:shadow-none">
+          {busy
+            ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> {prog ? <span className="tabular-nums">{n(prog.done)}/{n(prog.total)}</span> : 'Boshlanmoqda…'}</>
+            : <><svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg> Yarat</>}
         </button>
       </div>
 
       {busy && prog && (
-        <div className="mt-1 flex items-center gap-2 text-[11px] tabular-nums text-muted">
-          <div className="h-1 flex-1 overflow-hidden rounded-full bg-surface-2">
-            <div className="h-full rounded-full bg-amber-500 transition-all" style={{ width: `${prog.total ? Math.round((prog.done / prog.total) * 100) : 0}%` }} />
+        <div className="mt-1.5 flex items-center gap-2 text-[11px] tabular-nums text-muted">
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2">
+            <div className="h-full rounded-full bg-amber-500 transition-all duration-300" style={{ width: `${prog.total ? Math.round((prog.done / prog.total) * 100) : 0}%` }} />
           </div>
-          <span><span className="text-emerald-600 dark:text-emerald-400">✓{n(prog.ok)}</span>{prog.failed ? <span className="text-rose-500"> ✗{n(prog.failed)}</span> : null}</span>
-          <span>{prog.phase === 'PAUSING' ? `⏸ ${Math.ceil(prog.pauseLeftMs / 1000)}s` : 'ishlayapti'}</span>
+          <span className="shrink-0"><span className="font-semibold text-emerald-600 dark:text-emerald-400">✓{n(prog.ok)}</span>{prog.failed ? <span className="font-semibold text-rose-500"> ✗{n(prog.failed)}</span> : null}</span>
+          <span className="shrink-0 text-[10px]">{prog.phase === 'PAUSING' ? `⏸ ${Math.ceil(prog.pauseLeftMs / 1000)}s` : 'ishlayapti…'}</span>
         </div>
       )}
       {msg && (
