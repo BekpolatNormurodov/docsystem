@@ -7,6 +7,9 @@ export const runtime = 'nodejs';
 
 const numArg = (v: unknown): number | undefined => { const n = Number(v); return v != null && v !== '' && Number.isInteger(n) && n > 0 ? n : undefined; };
 
+const PAID_BEYOND = new Set(['INVOICE_PAID', 'COURT_SUBMITTED', 'COURT_ACCEPTED', 'COURT_RETURNED', 'MIB_SUBMITTED', 'CLOSED']);
+const holatOf = (stage: string): string => (!PAID_BEYOND.has(stage) ? 'Toʻlanmagan' : stage === 'INVOICE_PAID' ? 'Toʻlandi' : 'Sudda');
+
 // GET ?snapshotId=&firmId=&type=ariza|oferta|invoice&q= — «Yaratilganlar» ro'yxatini (butun, sahifasiz)
 // Excel qilib beradi: №, F.I.O, PINFL, Firma, Sud (+ Kvitansiya), Sana. Umumiy skachat uchun.
 export async function GET(req: NextRequest) {
@@ -30,7 +33,7 @@ export async function GET(req: NextRequest) {
     orderBy: isInvoice ? [{ id: 'desc' }] : isOferta ? [{ ofertaAt: 'desc' }, { id: 'desc' }] : [{ arizaAt: 'desc' }, { id: 'desc' }],
     take: 100_000,
     select: {
-      pinfl: true, clientName: true, kod: true, arizaAt: true, ofertaAt: true, receiptNumber: true, invoiceNo: true,
+      pinfl: true, clientName: true, kod: true, arizaAt: true, ofertaAt: true, receiptNumber: true, invoiceNo: true, stage: true,
       firm: { select: { shortName: true } }, court: { select: { shortName: true } },
       ...(isInvoice ? { invoiceRecords: { select: { createdAt: true }, orderBy: { createdAt: 'desc' as const }, take: 1 } } : {}),
     },
@@ -45,7 +48,7 @@ export async function GET(req: NextRequest) {
     { header: 'PINFL', key: 'pinfl', width: 18 },
     { header: 'Firma', key: 'firm', width: 30 },
     { header: 'Sud', key: 'court', width: 28 },
-    ...(isInvoice ? [{ header: 'Kvitansiya raqami', key: 'receipt', width: 20 }] : []),
+    ...(isInvoice ? [{ header: 'Kvitansiya raqami', key: 'receipt', width: 20 }, { header: 'Holat', key: 'holat', width: 14 }] : []),
     { header: 'Yaratilgan sana', key: 'at', width: 20 },
   ];
   ws.getRow(1).font = { bold: true };
@@ -61,7 +64,7 @@ export async function GET(req: NextRequest) {
       pinfl: r.pinfl ?? '',
       firm: r.firm?.shortName ?? r.kod ?? '',
       court: r.court?.shortName ?? '',
-      ...(isInvoice ? { receipt: r.receiptNumber ?? r.invoiceNo ?? '' } : {}),
+      ...(isInvoice ? { receipt: r.receiptNumber ?? r.invoiceNo ?? '', holat: holatOf(r.stage) } : {}),
       at: fmt(at),
     });
   });

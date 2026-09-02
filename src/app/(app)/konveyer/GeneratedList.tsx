@@ -3,8 +3,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico } from '@/ui';
 
-interface GenItem { caseId: number; pinfl: string | null; clientName: string | null; firmName: string | null; courtName: string | null; receiptNumber?: string | null; at: string | null }
+interface GenItem { caseId: number; pinfl: string | null; clientName: string | null; firmName: string | null; courtName: string | null; receiptNumber?: string | null; status?: 'created' | 'paid' | 'court' | null; at: string | null }
 const n = (x: number) => x.toLocaleString('ru-RU');
+// Invoice holati (progress) rangi.
+const STATUS = {
+  created: { label: 'Toʻlanmagan', cls: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300' },
+  paid: { label: 'Toʻlandi', cls: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' },
+  court: { label: 'Sudda', cls: 'border-brand-500/30 bg-brand-500/10 text-brand-700 dark:text-brand-300' },
+} as const;
 const fmtWhen = (iso: string | null) => { if (!iso) return ''; const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); };
 
 /**
@@ -106,6 +112,9 @@ export function GeneratedList({ type, snapshotId, firmId, count }: { type: 'ariz
                       <span className="block truncate font-medium">{it.clientName || '—'}</span>
                       <span className="block truncate text-[11px] tabular-nums text-muted">{it.pinfl || '—'}{it.firmName ? ` · ${it.firmName}` : ''}{type === 'invoice' && it.receiptNumber ? ` · №${it.receiptNumber}` : ''}</span>
                     </span>
+                    {type === 'invoice' && it.status && (
+                      <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${STATUS[it.status].cls}`}>{STATUS[it.status].label}</span>
+                    )}
                     {it.courtName && <span className="hidden shrink-0 rounded-full border border-line px-1.5 py-0.5 text-[10px] text-muted sm:inline">{it.courtName}</span>}
                     <span className="hidden shrink-0 text-[11px] tabular-nums text-muted sm:inline">{fmtWhen(it.at)}</span>
                     <a href={dlUrl(it)} title={`${it.clientName || 'mijoz'} — ${dlKind} yuklab olish`}
