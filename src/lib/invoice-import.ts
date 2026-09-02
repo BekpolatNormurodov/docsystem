@@ -158,10 +158,10 @@ export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotI
     if (paid) res.willMarkPaid += 1;
   }
 
-  // Ko'rib chiqish — YOKI biror mijozning arizasi (case'i) topilmagan bo'lsa — HECH NARSA YOZMAYMIZ.
-  // Foydalanuvchi so'rovi: avval hamma mijozning arizasi bo'lishi shart; aks holda import bloklanadi
-  // («saqlab bo'lmaydi»). Avval o'sha mijozlarga ariza yaratilib, keyin qayta import qilinadi.
-  if (!apply || res.notFound > 0) return res;
+  // Preview — hech narsa yozilmaydi. Apply — TOPILGANLARINI (willAssign) saqlaymiz; arizasi
+  // topilmaganlar o'tkazib yuboriladi (foydalanuvchi ularni Excel qilib olib, ariza yaratib, keyin
+  // qayta import qiladi). Butun paketni bloklamaymiz.
+  if (!apply) return res;
 
   const now = new Date();
   const dueCreated = await dueForStage('INVOICE_CREATED', now);

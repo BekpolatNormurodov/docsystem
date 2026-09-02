@@ -107,8 +107,8 @@ export function InvoiceExcelTools({ snapshotId, firmId, firms, count, onChanged,
   ) : preview ? (
     <>
       <button onClick={resetPick} disabled={busy} className="btn-ghost px-3 py-2 text-sm">Boshqa fayl</button>
-      <button onClick={confirmApply} disabled={busy || preview.willAssign === 0 || preview.notFound > 0} className="btn-primary gap-1.5 px-3 py-2 text-sm">
-        {busy && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />} {preview.notFound > 0 ? 'Saqlab boʻlmaydi' : `Bazaga saqlash${preview.willAssign ? ` (${n(preview.willAssign)})` : ''}`}
+      <button onClick={confirmApply} disabled={busy || preview.willAssign === 0} className="btn-primary gap-1.5 px-3 py-2 text-sm">
+        {busy && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />} Bazaga saqlash{preview.willAssign ? ` (${n(preview.willAssign)})` : ''}
       </button>
     </>
   ) : (
@@ -249,7 +249,7 @@ export function InvoiceExcelTools({ snapshotId, firmId, firms, count, onChanged,
           {err && <div role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-xs font-medium text-rose-600 dark:text-rose-300">{err}</div>}
 
           {preview && !done && (
-            <div className={`rounded-xl border p-3 ${preview.notFound > 0 ? 'border-rose-500/30 bg-rose-500/[0.04]' : 'border-brand-500/30 bg-brand-500/[0.04]'}`}>
+            <div className="rounded-xl border border-brand-500/30 bg-brand-500/[0.04] p-3">
               <div className="text-xs font-semibold text-fg">Koʻrib chiqish — faylda <span className="tabular-nums">{n(preview.totalRows)}</span> ta</div>
               <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                 <Stat label="Biriktiriladi" value={preview.willAssign} tone="brand" />
@@ -257,17 +257,15 @@ export function InvoiceExcelTools({ snapshotId, firmId, firms, count, onChanged,
                 <Stat label="Arizasi topilmadi" value={preview.notFound} tone={preview.notFound ? 'amber' : 'muted'} />
                 <Stat label="Noaniq (F.I.O)" value={preview.ambiguous} tone="muted" />
               </div>
-              {preview.notFound > 0 ? (
-                <div className="mt-2.5 rounded-lg border border-rose-500/30 bg-rose-500/5 px-2.5 py-2 text-[11px] font-medium text-rose-600 dark:text-rose-300">
-                  <b>{n(preview.notFound)} ta mijozning arizasi topilmadi</b> — saqlab boʻlmaydi. Avval ular uchun ariza yarating, keyin qayta import qiling.
-                  {preview.notFoundSamples.length > 0 && <div className="mt-1 truncate font-normal text-muted" title={preview.notFoundSamples.join(', ')}>{preview.notFoundSamples.slice(0, 8).join(', ')}{preview.notFound > preview.notFoundSamples.length ? '…' : ''}</div>}
-                  <button type="button" onClick={downloadNotFound} className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/15 dark:text-emerald-300">
-                    <Ico.sheet size={13} /> Topilmaganlarni Excel qilib olish ({n(preview.notFound)})
+              {preview.notFound > 0 && (
+                <div className="mt-2.5 flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-2.5 py-2 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                  <span><b>{n(preview.notFound)} ta</b> mijozning arizasi topilmadi — ular saqlanmaydi.</span>
+                  <button type="button" onClick={downloadNotFound} className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/15 dark:text-emerald-300">
+                    <Ico.sheet size={13} /> Excel qilib olish
                   </button>
                 </div>
-              ) : (
-                <div className="mt-2.5 text-xs font-semibold text-fg">Bazaga saqlansinmi?</div>
               )}
+              {preview.willAssign > 0 && <div className="mt-2.5 text-xs font-semibold text-fg">Qolgan {n(preview.willAssign)} tasini bazaga saqlansinmi?</div>}
             </div>
           )}
 
@@ -275,7 +273,7 @@ export function InvoiceExcelTools({ snapshotId, firmId, firms, count, onChanged,
             <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
               <div className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">✓ Saqlandi</div>
               <div className="mt-1 text-xs text-muted">
-                <b className="tabular-nums text-fg">{n(done.assigned)}</b> biriktirildi{done.markedPaid ? ` · ${n(done.markedPaid)} toʻlandi` : ''}{done.alreadyHas ? ` · ${n(done.alreadyHas)} avval bor` : ''}.
+                <b className="tabular-nums text-fg">{n(done.assigned)}</b> biriktirildi{done.markedPaid ? ` · ${n(done.markedPaid)} toʻlandi` : ''}{done.alreadyHas ? ` · ${n(done.alreadyHas)} avval bor` : ''}{done.notFound ? ` · ${n(done.notFound)} arizasi topilmadi (saqlanmadi)` : ''}.
               </div>
             </div>
           )}
