@@ -33,6 +33,7 @@ export function GeneratedList({ type, snapshotId, firmId, firms, count }: { type
   const [flt, setFlt] = useState<'made' | 'notmade' | 'all'>('made'); // chiqarilgan/chiqarilmagan/hammasi
   const [fltPaid, setFltPaid] = useState<'all' | 'paid' | 'unpaid'>('all'); // to'lov holati
   const [fltFirm, setFltFirm] = useState<number | ''>(''); // firma bo'yicha (invoice)
+  const [flash, setFlash] = useState(false); // «yangilandi» — import/yaratildidan keyin
   const [loading, setLoading] = useState(false);
   const reqRef = useRef(0);
   const fltRef = useRef(flt); useEffect(() => { fltRef.current = flt; }, [flt]);
@@ -70,8 +71,18 @@ export function GeneratedList({ type, snapshotId, firmId, firms, count }: { type
     finally { if (my === reqRef.current) setLoading(false); }
   }, [snapshotId, firmId, type, isInvoice]);
 
-  // Scope o'zgarsa yopib qo'yamiz (eski ro'yxat qolib ketmasin).
-  useEffect(() => { setOpen(false); setItems(null); setQ(''); setPage(1); setFlt('made'); setFltPaid('all'); setFltFirm(''); setTotal(count); }, [snapshotId, firmId, count]);
+  // Scope (snapshot/firma) o'zgarsa — to'liq reset (yopib, filtrlarni tozalab).
+  useEffect(() => { setOpen(false); setItems(null); setQ(''); setPage(1); setFlt('made'); setFltPaid('all'); setFltFirm(''); setTotal(count); }, [snapshotId, firmId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Son o'zgarsa (import/yaratildi) — AVTO YANGILANADI: ochiq bo'lsa joyida qayta yuklaymiz (ustma-ust
+  // qolmasin), «yangilandi» belgisi chiqadi. Yopib qo'ymaymiz.
+  useEffect(() => {
+    setTotal(count);
+    if (!open) return;
+    load(q, page);
+    setFlash(true);
+    const t = setTimeout(() => setFlash(false), 2200);
+    return () => clearTimeout(t);
+  }, [count]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (open && items === null) load('', 1); }, [open, items, load]);
   // Qidiruv — debounce, 1-sahifadan.
   useEffect(() => {
@@ -96,6 +107,7 @@ export function GeneratedList({ type, snapshotId, firmId, firms, count }: { type
         <Ico.check size={14} className="text-emerald-600 dark:text-emerald-400" />
         <span className="text-xs font-semibold">{isInvoice ? 'Invoyslar' : `Yaratilgan ${label}`}</span>
         <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">{n(count)}{isInvoice ? ' chiqarilgan' : ''}</span>
+        {flash && <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">✓ yangilandi</span>}
         <span className="ml-auto text-[11px] text-muted">{open ? 'Yopish' : 'Koʻrish'}</span>
         <Ico.chevron size={14} className={`text-muted transition-transform ${open ? 'rotate-90' : ''}`} />
       </button>
