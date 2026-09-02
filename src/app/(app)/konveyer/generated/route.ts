@@ -26,8 +26,11 @@ export async function GET(req: NextRequest) {
   const isInvoice = type === 'invoice';
   const q = (sp.get('q') || '').trim();
   const page = Math.max(1, Number(sp.get('page')) || 1);
+  // Invoice uchun filtr: chiqarilgan (made, default) / chiqarilmagan (notmade) / hammasi (all).
+  const made = sp.get('made');
+  const invoiceScope = made === 'notmade' ? { receiptNumber: null } : made === 'all' ? {} : { receiptNumber: { not: null } };
 
-  const scope = isInvoice ? { receiptNumber: { not: null } } : isOferta ? { ofertaAt: { not: null } } : { arizaAt: { not: null } };
+  const scope = isInvoice ? invoiceScope : isOferta ? { ofertaAt: { not: null } } : { arizaAt: { not: null } };
   const qOr = q
     ? { OR: [{ pinfl: { contains: q } }, { clientName: { contains: q } }, ...(isInvoice ? [{ receiptNumber: { contains: q } }, { invoiceNo: { contains: q } }] : [])] }
     : {};
@@ -68,7 +71,7 @@ export async function GET(req: NextRequest) {
     firmName: r.firm?.shortName ?? r.kod ?? null,
     courtName: r.court?.shortName ?? null,
     receiptNumber: isInvoice ? (r.receiptNumber ?? r.invoiceNo ?? null) : null,
-    status: isInvoice ? invStatusOf(r.stage) : null,
+    status: isInvoice ? (r.receiptNumber ? invStatusOf(r.stage) : 'notmade') : null,
     at: (isInvoice
       ? ((r as { invoiceRecords?: { createdAt: Date }[] }).invoiceRecords?.[0]?.createdAt ?? null)
       : isOferta ? r.ofertaAt : r.arizaAt)?.toISOString() ?? null,

@@ -22,7 +22,9 @@ export async function GET(req: NextRequest) {
   const isInvoice = type === 'invoice';
   const q = (sp.get('q') || '').trim();
 
-  const scope = isInvoice ? { receiptNumber: { not: null } } : isOferta ? { ofertaAt: { not: null } } : { arizaAt: { not: null } };
+  const made = sp.get('made');
+  const invoiceScope = made === 'notmade' ? { receiptNumber: null } : made === 'all' ? {} : { receiptNumber: { not: null } };
+  const scope = isInvoice ? invoiceScope : isOferta ? { ofertaAt: { not: null } } : { arizaAt: { not: null } };
   const qOr = q
     ? { OR: [{ pinfl: { contains: q } }, { clientName: { contains: q } }, ...(isInvoice ? [{ receiptNumber: { contains: q } }, { invoiceNo: { contains: q } }] : [])] }
     : {};
@@ -64,7 +66,7 @@ export async function GET(req: NextRequest) {
       pinfl: r.pinfl ?? '',
       firm: r.firm?.shortName ?? r.kod ?? '',
       court: r.court?.shortName ?? '',
-      ...(isInvoice ? { receipt: r.receiptNumber ?? r.invoiceNo ?? '', holat: holatOf(r.stage) } : {}),
+      ...(isInvoice ? { receipt: r.receiptNumber ?? r.invoiceNo ?? '', holat: r.receiptNumber ? holatOf(r.stage) : 'Chiqarilmagan' } : {}),
       at: fmt(at),
     });
   });
