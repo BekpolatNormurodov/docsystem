@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Ico, Modal } from '@/ui';
+import { Ico, Modal, Select } from '@/ui';
 
 const n = (x: number) => x.toLocaleString('ru-RU');
 type Filter = 'made' | 'notmade' | 'all';
@@ -13,7 +13,7 @@ const FILTERS: [Filter, string, string][] = [
 
 interface ImportResult {
   applied: boolean; totalRows: number; matched: number;
-  willAssign: number; assigned: number; willMarkPaid: number; markedPaid: number;
+  willAssign: number; assigned: number; willCreate: number; created: number; willMarkPaid: number; markedPaid: number;
   alreadyHas: number; notFound: number; ambiguous: number; notFoundSamples: string[];
 }
 
@@ -88,8 +88,8 @@ export function InvoiceExcelTools({ snapshotId, firmId, firms, count, onChanged,
   ) : preview ? (
     <>
       <button onClick={resetPick} disabled={busy} className="btn-ghost px-3 py-2 text-sm">Boshqa fayl</button>
-      <button onClick={confirmApply} disabled={busy || preview.willAssign === 0} className="btn-primary gap-1.5 px-3 py-2 text-sm">
-        {busy && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />} Bazaga saqlash{preview.willAssign ? ` (${n(preview.willAssign)})` : ''}
+      <button onClick={confirmApply} disabled={busy || (preview.willAssign + preview.willCreate) === 0} className="btn-primary gap-1.5 px-3 py-2 text-sm">
+        {busy && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />} Bazaga saqlash{(preview.willAssign + preview.willCreate) ? ` (${n(preview.willAssign + preview.willCreate)})` : ''}
       </button>
     </>
   ) : (
@@ -135,7 +135,7 @@ export function InvoiceExcelTools({ snapshotId, firmId, firms, count, onChanged,
         className="inline-flex items-center gap-1.5 rounded-lg border border-brand-500/40 bg-brand-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-brand-700 transition-colors hover:bg-brand-500/15 dark:text-brand-300">
         <Ico.download size={13} /> Excel import (kvitansiya)
       </button>
-      {done && !impOpen && <span role="status" className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">✓ {n(done.assigned)} biriktirildi</span>}
+      {done && !impOpen && <span role="status" className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">✓ {n(done.assigned + done.created)} ta invoice chiqarildi</span>}
 
       {/* ── EXPORT MODAL ── */}
       <Modal open={expOpen} onClose={() => setExpOpen(false)} size="md"
@@ -154,10 +154,9 @@ export function InvoiceExcelTools({ snapshotId, firmId, firms, count, onChanged,
           {needFirmPick && (
             <div>
               <div className="field-label">Firma</div>
-              <select value={expFirm} onChange={(e) => setExpFirm(e.target.value ? Number(e.target.value) : '')} className="field-input">
-                <option value="">Barcha firmalar</option>
-                {firms!.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-              </select>
+              <Select value={expFirm ? String(expFirm) : ''} label="Eksport firmasi" placeholder="Barcha firmalar"
+                options={[{ value: '', label: 'Barcha firmalar' }, ...firms!.map((f) => ({ value: String(f.id), label: f.name }))]}
+                onChange={(v) => setExpFirm(v ? Number(v) : '')} />
             </div>
           )}
           {!needFirmPick && firmNameOf(firmId) && (
@@ -192,10 +191,9 @@ export function InvoiceExcelTools({ snapshotId, firmId, firms, count, onChanged,
           <div>
             <div className="field-label">Firma {needFirmPick && <span className="text-rose-500">*</span>}</div>
             {needFirmPick ? (
-              <select value={impFirm} onChange={(e) => { setImpFirm(e.target.value ? Number(e.target.value) : ''); resetPick(); }} className="field-input">
-                <option value="">Firma tanlang…</option>
-                {firms!.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-              </select>
+              <Select value={impFirm ? String(impFirm) : ''} label="Import uchun firma" placeholder="Firma tanlang…"
+                options={firms!.map((f) => ({ value: String(f.id), label: f.name }))}
+                onChange={(v) => { setImpFirm(v ? Number(v) : ''); resetPick(); }} />
             ) : (
               <div className="rounded-xl border border-line bg-surface-2/40 px-3 py-2 text-sm font-medium">{firmNameOf(firmId) ?? 'Barcha firmalar'}</div>
             )}
@@ -233,9 +231,10 @@ export function InvoiceExcelTools({ snapshotId, firmId, firms, count, onChanged,
 
           {preview && !done && (
             <div className="rounded-xl border border-brand-500/30 bg-brand-500/[0.04] p-3">
-              <div className="text-xs font-semibold text-fg">Koʻrib chiqish — faylda <span className="tabular-nums">{n(preview.totalRows)}</span> ta · client topildi <span className="tabular-nums">{n(preview.matched)}</span></div>
-              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <Stat label="Yangi biriktiriladi" value={preview.willAssign} tone="brand" />
+              <div className="text-xs font-semibold text-fg">Koʻrib chiqish — faylda <span className="tabular-nums">{n(preview.totalRows)}</span> ta</div>
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                <Stat label="Case'ga biriktiriladi" value={preview.willAssign} tone="brand" />
+                <Stat label="Yangi case yaratiladi" value={preview.willCreate} tone="brand" />
                 <Stat label="Allaqachon bor" value={preview.alreadyHas} tone="muted" />
                 <Stat label="Topilmadi" value={preview.notFound} tone={preview.notFound ? 'amber' : 'muted'} />
                 <Stat label="Noaniq (F.I.O)" value={preview.ambiguous} tone="muted" />
@@ -251,7 +250,7 @@ export function InvoiceExcelTools({ snapshotId, firmId, firms, count, onChanged,
             <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
               <div className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">✓ Saqlandi</div>
               <div className="mt-1 text-xs text-muted">
-                <b className="tabular-nums text-fg">{n(done.assigned)}</b> ta kvitansiya biriktirildi{done.markedPaid ? ` · ${n(done.markedPaid)} toʻlandi` : ''}{done.alreadyHas ? ` · ${n(done.alreadyHas)} avval bor edi` : ''}{done.notFound ? ` · ${n(done.notFound)} topilmadi` : ''}.
+                <b className="tabular-nums text-fg">{n(done.assigned)}</b> biriktirildi{done.created ? ` · ${n(done.created)} yangi case yaratildi` : ''}{done.markedPaid ? ` · ${n(done.markedPaid)} toʻlandi` : ''}{done.alreadyHas ? ` · ${n(done.alreadyHas)} avval bor` : ''}{done.notFound ? ` · ${n(done.notFound)} topilmadi` : ''}.
               </div>
             </div>
           )}
