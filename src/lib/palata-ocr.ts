@@ -100,14 +100,17 @@ export function extractArizas(pages: OcrPage[]): ScannedArizaFull[] {
 }
 
 // ---------- OCR (cross-platform: poppler + tesseract) ----------
-// Arizalar lotin o'zbekcha — «uzb» (o'rnatilgan bo'lsa) + «eng». Bir marta aniqlaymiz.
+// Arizalar lotin o'zbekcha — «uzb» modeli lotin harflar (firma nomlari ham lotin) va
+// PINFL raqamlarini o'qiydi. «eng» qo'shilsa tesseract IKKI til modelini birga ishlatib
+// har sahifani ~2x sekinlashtiradi, foydasi deyarli yo'q — shuning uchun faqat «uzb»
+// (yo'q bo'lsa «eng» ga tushamiz). Bir marta aniqlaymiz.
 let OCR_LANGS: string | null = null;
 async function ocrLangs(): Promise<string> {
   if (OCR_LANGS) return OCR_LANGS;
   try {
     const { stdout } = await execFileP('tesseract', ['--list-langs']);
     const have = new Set(stdout.split(/\r?\n/).map((s) => s.trim()));
-    OCR_LANGS = ['uzb', 'eng'].filter((l) => have.has(l)).join('+') || 'eng';
+    OCR_LANGS = have.has('uzb') ? 'uzb' : 'eng';
   } catch { OCR_LANGS = 'eng'; }
   return OCR_LANGS;
 }
