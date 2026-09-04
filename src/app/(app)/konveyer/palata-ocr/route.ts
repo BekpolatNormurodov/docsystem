@@ -24,6 +24,18 @@ export async function GET() {
   return NextResponse.json({ job: { id: job.id, status: job.status, progress: job.progress, total: job.total, message: job.message } });
 }
 
+// DELETE → «Bekor qilish»: set the live OCR job out of RUNNING/PENDING. The background
+// loop checks status between chunks and stops within ~one chunk; the current chunk's
+// tesseract processes finish, then the loop breaks. Idempotent (no live job → 200 ok).
+export async function DELETE() {
+  await requireUser();
+  const { count } = await prisma.job.updateMany({
+    where: { type: 'PALATA_OCR', status: { in: ['PENDING', 'RUNNING'] } },
+    data: { status: 'FAILED', message: 'Bekor qilinmoqda…' },
+  });
+  return NextResponse.json({ cancelled: count });
+}
+
 // POST multipart (files) → save temps, start a background OCR job, return its id.
 export async function POST(req: NextRequest) {
   await requireUser();

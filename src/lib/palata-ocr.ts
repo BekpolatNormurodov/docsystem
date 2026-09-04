@@ -126,7 +126,8 @@ async function pdfPageCount(pdfPath: string): Promise<number> {
 
 /** Render (pdftoppm) + OCR (tesseract) a PDF → writes [{page,text}] JSON (page 0-indexed, ps1 bilan
  *  bir xil). onProgress(done,total) har OCR qilingan sahifada. Cross-platform (Linux/Mac/Docker). */
-export async function ocrPdf(pdfPath: string, outJson: string, onProgress?: (done: number, total: number) => void): Promise<void> {
+export const CANCELLED = '__CANCELLED__';
+export async function ocrPdf(pdfPath: string, outJson: string, onProgress?: (done: number, total: number) => void, shouldStop?: () => Promise<boolean>): Promise<void> {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'palata-ppm-'));
   try {
     const total = await pdfPageCount(pdfPath);
@@ -142,6 +143,8 @@ export async function ocrPdf(pdfPath: string, outJson: string, onProgress?: (don
     const CHUNK = Math.max(workers * 2, 16);
     let done = 0;
     for (let from = 1; from <= total; from += CHUNK) {
+      // Bekor qilingan bo'lsa — har bo'lak boshida to'xtaymiz (joriy bo'lak ~16 sahifada tugaydi).
+      if (shouldStop && await shouldStop()) throw new Error(CANCELLED);
       const to = Math.min(from + CHUNK - 1, total);
       const prefix = path.join(dir, `c${from}`);
       // 1) shu oraliqni PDF → PNG (150 dpi). Fayl nomi haqiqiy sahifa raqamini saqlaydi.
@@ -164,7 +167,12 @@ export async function ocrPdf(pdfPath: string, outJson: string, onProgress?: (don
           const pageNo = parseInt(files[k].replace(/\D/g, ''), 10) || (from + k); // haqiqiy sahifa raqami
           let text = '';
           try {
-            const { stdout } = await execFileP('tesseract', [path.join(dir, files[k]), 'stdout', '-l', langs, '--psm', '3', '-c', 'tessedit_do_invert=0'], { maxBuffer: 1 << 27 });
+            // OMP_THREAD_LIMIT=1 — har tesseract BIR ipli bo'lsin. Aks holda tesseract
+            // o'zi OpenMP bilan barcha yadroni oladi; biz 8 ta parallel ishlatsak 8×8 ip
+            // bir-birini bo'g'adi (CPU 800% ko'rinadi-yu unum tushadi). Bitta ipdan biz
+            // o'zimiz 8 parallel = toza masshtab. --psm 6: og'ir sahifa-layout tahlilisiz
+            // (bizga faqat matn kerak, tartib emas) — sekин skanlarda ancha tez.
+            const { stdout } = await execFileP('tesseract', [path.join(dir, files[k]), 'stdout', '-l', langs, '--psm', '6', '-c', 'tessedit_do_invert=0'], { maxBuffer: 1 << 27, env: { ...process.env, OMP_THREAD_LIMIT: '1' } });
             text = stdout;
           } catch (e) {
             const err = e as NodeJS.ErrnoException;
@@ -238,6 +246,10 @@ export async function runPalataOcrJob(jobId: number, filePaths: string[], update
       await ocrPdf(filePaths[i], out, (done, tot) => {
         // Throttle DB writes: every 10 pages (progress = pages OCR'd on the current file).
         if (done - last >= 10 || done === tot) { last = done; prisma.job.updateMany({ where: { id: jobId }, data: { progress: done, total: tot } }).catch(() => {}); }
+      }, async () => {
+        // Bekor tekshiruvi — «Bekor qilish» tugmasi job status'ni RUNNING'dan chiqaradi.
+        const j = await prisma.job.findUnique({ where: { id: jobId }, select: { status: true } }).catch(() => null);
+        return !!j && j.status !== 'RUNNING' && j.status !== 'PENDING';
       });
       const pages: OcrPage[] = JSON.parse(await fsp.readFile(out, 'utf8'));
       // Retain the scan (move temp → durable store) and tag each ariza with its source
@@ -263,7 +275,13 @@ export async function runPalataOcrJob(jobId: number, filePaths: string[], update
     await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'DONE', message: msg, progress: 1, total: 1 } });
   } catch (e) {
     const m = e instanceof Error ? e.message : String(e);
-    await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'FAILED', message: m } }).catch(() => {});
+    // Bekor qilingan bo'lsa — cancel route allaqachon status/message qo'ygan; ustiga
+    // yozmaymiz (faqat message bo'sh qolgan bo'lsa chiroyli belgilaymiz).
+    if (m === CANCELLED) {
+      await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'FAILED', message: 'Bekor qilindi' } }).catch(() => {});
+    } else {
+      await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'FAILED', message: m } }).catch(() => {});
+    }
   } finally {
     clearInterval(beat);
   }
