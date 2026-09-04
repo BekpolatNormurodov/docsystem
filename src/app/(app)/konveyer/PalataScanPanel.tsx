@@ -80,7 +80,9 @@ export function PalataScanPanel() {
       fd.append('update', String(update));
       const res = await fetch('/konveyer/palata-ocr', { method: 'POST', body: fd });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d?.error || 'Yuklab boʻlmadi'); }
-      setJob({ id: 0, status: 'PENDING', progress: 0, total: 0, message: null });
+      const d = await res.json().catch(() => ({} as { queued?: boolean }));
+      // Navbatga qo'shilgan bo'lsa — joriy progress'ni nolga tushirmaymiz (poll haqiqiy holatni beradi).
+      if (!d?.queued) setJob({ id: 0, status: 'PENDING', progress: 0, total: 0, message: null });
       wasRunning.current = true;
       poll();
     } catch (e2) {
@@ -159,15 +161,25 @@ export function PalataScanPanel() {
         <input ref={fileRef} type="file" multiple accept=".pdf,application/pdf" className="hidden" onChange={onFiles} />
       </div>
 
-      {/* «Bekor qilish» — faqat OCR ishlab turganda (yuklashdan keyin). */}
-      {running && !attaching && !busy && (
-        <button type="button" onClick={cancelOcr} disabled={cancelling} aria-busy={cancelling}
-          className="mb-3 inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/[0.05] px-2.5 py-1.5 text-[11px] font-semibold text-rose-600 outline-none transition-colors hover:bg-rose-500/12 focus-visible:ring-2 focus-visible:ring-rose-500/40 disabled:cursor-wait disabled:opacity-60 dark:text-rose-300">
-          {cancelling
-            ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            : <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>}
-          {cancelling ? 'Toʻxtatilmoqda…' : 'Bekor qilish'}
-        </button>
+      {/* OCR ishlab turganda: navbatga yana PDF qo'shish + bekor qilish. */}
+      {running && !attaching && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => !busy && fileRef.current?.click()} disabled={busy} aria-busy={busy}
+            title="Ish ketayotganda ham yangi PDF qo'shsangiz — navbatga tushadi, ketma-ket o'qiladi"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-violet-500/30 bg-violet-500/[0.05] px-2.5 py-1.5 text-[11px] font-semibold text-violet-600 outline-none transition-colors hover:bg-violet-500/12 focus-visible:ring-2 focus-visible:ring-violet-500/40 disabled:cursor-wait disabled:opacity-60 dark:text-violet-300">
+            {busy
+              ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              : <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>}
+            {busy ? 'Qoʻshilmoqda…' : 'Yana PDF qoʻshish (navbatga)'}
+          </button>
+          <button type="button" onClick={cancelOcr} disabled={cancelling} aria-busy={cancelling}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/[0.05] px-2.5 py-1.5 text-[11px] font-semibold text-rose-600 outline-none transition-colors hover:bg-rose-500/12 focus-visible:ring-2 focus-visible:ring-rose-500/40 disabled:cursor-wait disabled:opacity-60 dark:text-rose-300">
+            {cancelling
+              ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              : <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>}
+            {cancelling ? 'Toʻxtatilmoqda…' : 'Bekor qilish'}
+          </button>
+        </div>
       )}
 
       {/* Re-scan control — overwrite already-saved clients or keep them. */}

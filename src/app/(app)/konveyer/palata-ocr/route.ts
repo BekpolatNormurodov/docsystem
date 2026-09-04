@@ -3,15 +3,15 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
-import { runPalataOcrJob, reapStaleOcrJobs } from '@/lib/palata-ocr';
+import { drainOcrQueue, reapStaleOcrJobs, QUEUE_DIR } from '@/lib/palata-ocr';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Palata scan → OCR: upload the signed scanned arizas here; the server OCRs each page
-// (Windows engine), extracts firma + PINFL + name/address, and merges into the palata
-// dataset. Heavy OCR runs as a background Job so the request returns immediately.
-const TMP = path.join(process.cwd(), 'exports', 'palata-ocr-tmp');
+// Palata scan → OCR: upload the signed scanned arizas here; the server OCRs each page,
+// extracts firma + PINFL + name/address, and merges into the palata dataset. Heavy OCR
+// runs as a background Job so the request returns immediately. Uploads are QUEUED — a new
+// upload while one is running is appended and drained by the same job (no waiting).
 const safe = (s: string) => s.replace(/[^\p{L}\p{N}._-]+/gu, '_').slice(0, 120);
 const MAX = 200 * 1024 * 1024; // 200MB — a long chamber scan can be >100MB
 
@@ -36,13 +36,11 @@ export async function DELETE() {
   return NextResponse.json({ cancelled: count });
 }
 
-// POST multipart (files) → save temps, start a background OCR job, return its id.
+// POST multipart (files) → append to the OCR queue; start a drainer if none is running,
+// else the live drainer picks them up. Uploading again mid-run just enqueues (no 409).
 export async function POST(req: NextRequest) {
   await requireUser();
-  // Refuse to pile a second OCR run on top of a LIVE one (stale/dead jobs reaped first).
   await reapStaleOcrJobs();
-  const running = await prisma.job.findFirst({ where: { type: 'PALATA_OCR', status: { in: ['PENDING', 'RUNNING'] } } });
-  if (running) return NextResponse.json({ error: 'OCR allaqachon ishlayapti, kuting.' }, { status: 409 });
 
   const form = await req.formData();
   // «Mavjudlarni yangilash» — a re-scan of an already-saved client overwrites its
@@ -53,18 +51,19 @@ export async function POST(req: NextRequest) {
   if (items.some((f) => f.size > MAX)) return NextResponse.json({ error: 'Fayl 200MB dan katta' }, { status: 413 });
   if (items.some((f) => !/\.pdf$/i.test(f.name || ''))) return NextResponse.json({ error: 'Faqat PDF' }, { status: 415 });
 
-  await fs.mkdir(TMP, { recursive: true });
-  const paths: string[] = [];
+  await fs.mkdir(QUEUE_DIR, { recursive: true });
   for (let i = 0; i < items.length; i++) {
     const buf = Buffer.from(await items[i].arrayBuffer());
-    const p = path.join(TMP, `${Date.now()}-${i}-${safe(items[i].name || 'skan.pdf')}`);
+    // Nom prefiksi = vaqt tamg'asi → drainer nom bo'yicha tartibda (yuklash tartibida) yutadi.
+    const p = path.join(QUEUE_DIR, `${Date.now()}-${String(i).padStart(3, '0')}-${safe(items[i].name || 'skan.pdf')}`);
     await fs.writeFile(p, buf);
-    paths.push(p);
   }
 
+  // Ish allaqachon ketayotgan bo'lsa — shu drainer navbatdagi yangi fayllarni ham oladi.
+  const running = await prisma.job.findFirst({ where: { type: 'PALATA_OCR', status: { in: ['PENDING', 'RUNNING'] } } });
+  if (running) return NextResponse.json({ jobId: running.id, files: items.length, queued: true });
+
   const job = await prisma.job.create({ data: { type: 'PALATA_OCR', status: 'PENDING', total: 0, progress: 0 } });
-  // Fire-and-forget — progress lives on the Job row (polled via GET). A dev-server
-  // restart mid-run leaves the job RUNNING; the user can simply re-upload.
-  void runPalataOcrJob(job.id, paths, update);
-  return NextResponse.json({ jobId: job.id, files: paths.length });
+  void drainOcrQueue(job.id, update);
+  return NextResponse.json({ jobId: job.id, files: items.length });
 }

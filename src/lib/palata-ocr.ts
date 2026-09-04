@@ -227,53 +227,66 @@ export async function reapStaleOcrJobs(): Promise<void> {
   }).catch(() => {});
 }
 
-// ---------- background job ----------
-/** OCR each uploaded PDF, extract arizas, merge the dataset. Never throws — records
- *  the outcome on the Job row (the fire-and-forget caller needs no catch). Each scan
- *  is RETAINED in SCAN_STORE so a client's signed pages stay downloadable. */
-export async function runPalataOcrJob(jobId: number, filePaths: string[], update = false): Promise<void> {
+// ---------- background job (NAVBAT / queue) ----------
+// Yuklangan PDF'lar shu papkaga tushadi; drainer ularni birma-bir (nom bo'yicha
+// tartibda) yutadi. Ish ketayotganda yangi yuklama shu yerga qo'shiladi va o'sha
+// drainer uni ham oladi — foydalanuvchi 2-3 PDF ketma-ket tashlab, kutmaydi.
+export const QUEUE_DIR = path.join(process.cwd(), 'exports', 'palata-ocr-queue');
+async function nextQueueFile(): Promise<{ path: string; remaining: number } | null> {
+  try {
+    const files = (await fsp.readdir(QUEUE_DIR)).filter((f) => /\.pdf$/i.test(f)).sort();
+    return files.length ? { path: path.join(QUEUE_DIR, files[0]), remaining: files.length } : null;
+  } catch { return null; }
+}
+
+/** Drain the OCR queue: OCR each queued PDF in turn, extract arizas, merge the dataset,
+ *  picking up files added mid-run. Never throws — records the outcome on the Job row.
+ *  Each scan is RETAINED in SCAN_STORE so a client's signed pages stay downloadable. */
+export async function drainOcrQueue(jobId: number, update = false): Promise<void> {
   await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING' } });
   await fsp.mkdir(SCAN_STORE, { recursive: true }).catch(() => {});
+  const isCancelled = async () => {
+    const j = await prisma.job.findUnique({ where: { id: jobId }, select: { status: true } }).catch(() => null);
+    return !!j && j.status !== 'RUNNING' && j.status !== 'PENDING';
+  };
   // Heartbeat: katta PDF'ning pdftoppm render bosqichi bitta uzun chaqiruv — u paytda
-  // hech qanday progress yozilmaydi. updatedAt'ni har 30s da yangilab turmasak, stale
-  // tekshiruvchisi (STALE_MS=3min) ishni o'lgan deb belgilab «Uzilib qoldi» qiladi —
-  // holbuki u hali ishlab turibdi. Interval ish tugagach to'xtatiladi.
+  // progress yozilmaydi. updatedAt'ni har 30s da yangilab turmasak, stale tekshiruvchisi
+  // (STALE_MS=3min) ishni jonli bo'lsa ham o'lgan deb belgilaydi.
   const beat = setInterval(() => {
     prisma.job.updateMany({ where: { id: jobId, status: { in: ['PENDING', 'RUNNING'] } }, data: { message: 'OCR ishlayapti…' } }).catch(() => {});
   }, 30_000);
   try {
-    let added = 0, total = 0;
-    for (let i = 0; i < filePaths.length; i++) {
-      const out = path.join(os.tmpdir(), `palata-ocr-${jobId}-${i}.json`);
+    let added = 0, total = 0, fileIdx = 0;
+    for (;;) {
+      if (await isCancelled()) throw new Error(CANCELLED);
+      const nx = await nextQueueFile();
+      if (!nx) break; // navbat bo'sh — tugadi
+      const queuedTail = nx.remaining - 1; // shu fayldan keyin yana nechta navbatda
+      const out = path.join(os.tmpdir(), `palata-ocr-${jobId}-${fileIdx++}.json`);
       let last = 0;
-      await ocrPdf(filePaths[i], out, (done, tot) => {
-        // Throttle DB writes: every 10 pages (progress = pages OCR'd on the current file).
-        if (done - last >= 10 || done === tot) { last = done; prisma.job.updateMany({ where: { id: jobId }, data: { progress: done, total: tot } }).catch(() => {}); }
-      }, async () => {
-        // Bekor tekshiruvi — «Bekor qilish» tugmasi job status'ni RUNNING'dan chiqaradi.
-        const j = await prisma.job.findUnique({ where: { id: jobId }, select: { status: true } }).catch(() => null);
-        return !!j && j.status !== 'RUNNING' && j.status !== 'PENDING';
-      });
+      await ocrPdf(nx.path, out, (done, tot) => {
+        // Throttle DB writes: every 10 pages. Message: nechta fayl navbatda qolganini ko'rsatadi.
+        if (done - last >= 10 || done === tot) {
+          last = done;
+          const msg = queuedTail > 0 ? `OCR ishlayapti… (yana ${queuedTail} ta navbatda)` : 'OCR ishlayapti…';
+          prisma.job.updateMany({ where: { id: jobId }, data: { progress: done, total: tot, message: msg } }).catch(() => {});
+        }
+      }, isCancelled);
       const pages: OcrPage[] = JSON.parse(await fsp.readFile(out, 'utf8'));
-      // Retain the scan (move temp → durable store) and tag each ariza with its source
-      // file so the panel can extract & download that client's signed pages later.
-      const sourceId = path.basename(filePaths[i]);
-      await fsp.rename(filePaths[i], path.join(SCAN_STORE, sourceId)).catch(async () => {
-        await fsp.copyFile(filePaths[i], path.join(SCAN_STORE, sourceId)).catch(() => {});
-        await fsp.rm(filePaths[i], { force: true }).catch(() => {});
+      // Retain the scan (move queue → durable store) and tag each ariza with its source.
+      const sourceId = path.basename(nx.path);
+      await fsp.rename(nx.path, path.join(SCAN_STORE, sourceId)).catch(async () => {
+        await fsp.copyFile(nx.path, path.join(SCAN_STORE, sourceId)).catch(() => {});
+        await fsp.rm(nx.path, { force: true }).catch(() => {});
       });
       const got = extractArizas(pages).map((a) => ({ ...a, source: sourceId }));
-      // Merge THIS file's arizas to disk immediately — a later file dying can't lose it.
-      // `update` overwrites an already-known client's source/pages with the fresh scan.
+      // Merge THIS file's arizas immediately — a later file dying can't lose it.
       const r = await mergeArizas(got, update);
       added += r.added; total = r.total;
       await fsp.rm(out, { force: true }).catch(() => {});
     }
 
-    // OCR faqat OʻQIYDI — bazaga saqlash endi ALOHIDA, TASDIQ bilan ketadi («Bazaga
-    // saqlash» tugmasi). Shunda foydalanuvchi avval xulosani koʻradi (nechta oʻqildi,
-    // qaysi firmadan qanchasi, qanchasiga «mos ish topilmadi») va soʻng saqlaydi. Saqlash
-    // /konveyer/palata-attach orqali attachAllScanned bilan bajariladi.
+    // OCR faqat OʻQIYDI — bazaga saqlash ALOHIDA, TASDIQ bilan («Bazaga saqlash» tugmasi).
     const msg = `+${added} yangi ariza oʻqildi (jami ${total}) — «Bazaga saqlash»ni tasdiqlang`;
     await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'DONE', message: msg, progress: 1, total: 1 } });
   } catch (e) {
@@ -281,6 +294,8 @@ export async function runPalataOcrJob(jobId: number, filePaths: string[], update
     // Bekor qilingan bo'lsa — cancel route allaqachon status/message qo'ygan; ustiga
     // yozmaymiz (faqat message bo'sh qolgan bo'lsa chiroyli belgilaymiz).
     if (m === CANCELLED) {
+      // Bekor — navbatda qolgan yuklamalarni ham o'chiramiz (foydalanuvchi to'xtatdi).
+      await fsp.readdir(QUEUE_DIR).then((fs2) => Promise.all(fs2.map((f) => fsp.rm(path.join(QUEUE_DIR, f), { force: true }).catch(() => {})))).catch(() => {});
       await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'FAILED', message: 'Bekor qilindi' } }).catch(() => {});
     } else {
       await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'FAILED', message: m } }).catch(() => {});
