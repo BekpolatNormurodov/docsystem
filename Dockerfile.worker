@@ -24,7 +24,5 @@ RUN npx prisma generate
 COPY tsconfig.json ./
 COPY src ./src
 COPY data ./data
-# One-off maintenance scripts (run via `docker compose run --rm worker node --import tsx scripts/…`).
-COPY scripts ./scripts
 
 CMD ["npm", "run", "worker"]
