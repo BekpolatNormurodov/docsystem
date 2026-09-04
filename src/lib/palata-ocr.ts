@@ -131,20 +131,30 @@ export async function ocrPdf(pdfPath: string, outJson: string, onProgress?: (don
       .sort((a, b) => (parseInt(a.replace(/\D/g, ''), 10) || 0) - (parseInt(b.replace(/\D/g, ''), 10) || 0));
     if (files.length === 0) throw new Error('PDF sahifalari topilmadi');
     const langs = await ocrLangs();
-    const pages: OcrPage[] = [];
-    for (let i = 0; i < files.length; i++) {
-      let text = '';
-      try {
-        const { stdout } = await execFileP('tesseract', [path.join(dir, files[i]), 'stdout', '-l', langs, '--psm', '3'], { maxBuffer: 1 << 27 });
-        text = stdout;
-      } catch (e) {
-        const err = e as NodeJS.ErrnoException;
-        if (err?.code === 'ENOENT') throw new Error('«tesseract» topilmadi — serverga tesseract-ocr o‘rnating');
-        // Bitta sahifa o'qilmasa — bo'sh matn bilan davom (butun paket to'xtamaydi).
+    const pages: OcrPage[] = new Array(files.length);
+    // Parallel OCR — tesseract har sahifada bitta yadroni band qiladi, shuning uchun
+    // serverning yadrolari soniga qarab bir necha sahifani baravar o'qiymiz (ketma-ket
+    // emas). Katta paketlarda bir necha barobar tez.
+    const workers = Math.max(1, Math.min(files.length, os.cpus().length || 4));
+    let next = 0, done = 0;
+    const runOne = async () => {
+      for (;;) {
+        const i = next++;
+        if (i >= files.length) return;
+        let text = '';
+        try {
+          const { stdout } = await execFileP('tesseract', [path.join(dir, files[i]), 'stdout', '-l', langs, '--psm', '3'], { maxBuffer: 1 << 27 });
+          text = stdout;
+        } catch (e) {
+          const err = e as NodeJS.ErrnoException;
+          if (err?.code === 'ENOENT') throw new Error('«tesseract» topilmadi — serverga tesseract-ocr o‘rnating');
+          // Bitta sahifa o'qilmasa — bo'sh matn bilan davom (butun paket to'xtamaydi).
+        }
+        pages[i] = { page: i, text };
+        onProgress?.(++done, files.length);
       }
-      pages.push({ page: i, text });
-      onProgress?.(i + 1, files.length);
-    }
+    };
+    await Promise.all(Array.from({ length: workers }, runOne));
     await fsp.writeFile(outJson, JSON.stringify(pages));
   } finally {
     await fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
@@ -189,6 +199,13 @@ export async function reapStaleOcrJobs(): Promise<void> {
 export async function runPalataOcrJob(jobId: number, filePaths: string[], update = false): Promise<void> {
   await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING' } });
   await fsp.mkdir(SCAN_STORE, { recursive: true }).catch(() => {});
+  // Heartbeat: katta PDF'ning pdftoppm render bosqichi bitta uzun chaqiruv — u paytda
+  // hech qanday progress yozilmaydi. updatedAt'ni har 30s da yangilab turmasak, stale
+  // tekshiruvchisi (STALE_MS=3min) ishni o'lgan deb belgilab «Uzilib qoldi» qiladi —
+  // holbuki u hali ishlab turibdi. Interval ish tugagach to'xtatiladi.
+  const beat = setInterval(() => {
+    prisma.job.updateMany({ where: { id: jobId, status: { in: ['PENDING', 'RUNNING'] } }, data: { message: 'OCR ishlayapti…' } }).catch(() => {});
+  }, 30_000);
   try {
     let added = 0, total = 0;
     for (let i = 0; i < filePaths.length; i++) {
@@ -223,5 +240,7 @@ export async function runPalataOcrJob(jobId: number, filePaths: string[], update
   } catch (e) {
     const m = e instanceof Error ? e.message : String(e);
     await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'FAILED', message: m } }).catch(() => {});
+  } finally {
+    clearInterval(beat);
   }
 }
