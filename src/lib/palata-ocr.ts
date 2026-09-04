@@ -115,49 +115,70 @@ async function ocrLangs(): Promise<string> {
   return OCR_LANGS;
 }
 
+/** PDF sahifalar soni (poppler `pdfinfo`). Topilmasa 0. Chunk render uchun oldindan kerak. */
+async function pdfPageCount(pdfPath: string): Promise<number> {
+  try {
+    const { stdout } = await execFileP('pdfinfo', [pdfPath], { maxBuffer: 1 << 20 });
+    const m = stdout.match(/^Pages:\s*(\d+)/m);
+    return m ? parseInt(m[1], 10) : 0;
+  } catch { return 0; }
+}
+
 /** Render (pdftoppm) + OCR (tesseract) a PDF → writes [{page,text}] JSON (page 0-indexed, ps1 bilan
  *  bir xil). onProgress(done,total) har OCR qilingan sahifada. Cross-platform (Linux/Mac/Docker). */
 export async function ocrPdf(pdfPath: string, outJson: string, onProgress?: (done: number, total: number) => void): Promise<void> {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'palata-ppm-'));
-  const prefix = path.join(dir, 'p');
   try {
-    // 1) PDF → PNG (200 dpi). poppler-utils.
-    try {
-      await execFileP('pdftoppm', ['-png', '-r', '150', pdfPath, prefix], { maxBuffer: 1 << 27 });
-    } catch (e) {
-      const err = e as NodeJS.ErrnoException;
-      if (err?.code === 'ENOENT') throw new Error('«pdftoppm» topilmadi — serverga poppler-utils o‘rnating');
-      throw new Error('PDF rasmga o‘girilmadi: ' + (err?.message ?? String(e)));
-    }
-    // 2) sahifa PNG'lari — raqami bo'yicha tartiblaymiz (p-1.png, p-2.png … yoki p-01.png …).
-    const files = (await fsp.readdir(dir)).filter((f) => /\.png$/i.test(f))
-      .sort((a, b) => (parseInt(a.replace(/\D/g, ''), 10) || 0) - (parseInt(b.replace(/\D/g, ''), 10) || 0));
-    if (files.length === 0) throw new Error('PDF sahifalari topilmadi');
+    const total = await pdfPageCount(pdfPath);
+    if (total === 0) throw new Error('PDF sahifalari topilmadi');
     const langs = await ocrLangs();
-    const pages: OcrPage[] = new Array(files.length);
-    // Parallel OCR — tesseract har sahifada bitta yadroni band qiladi, shuning uchun
-    // serverning yadrolari soniga qarab bir necha sahifani baravar o'qiymiz (ketma-ket
-    // emas). Katta paketlarda bir necha barobar tez.
-    const workers = Math.max(1, Math.min(files.length, os.cpus().length || 4));
-    let next = 0, done = 0;
-    const runOne = async () => {
-      for (;;) {
-        const i = next++;
-        if (i >= files.length) return;
-        let text = '';
-        try {
-          const { stdout } = await execFileP('tesseract', [path.join(dir, files[i]), 'stdout', '-l', langs, '--psm', '3', '-c', 'tessedit_do_invert=0'], { maxBuffer: 1 << 27 });
-          text = stdout;
-        } catch (e) {
-          const err = e as NodeJS.ErrnoException;
-          if (err?.code === 'ENOENT') throw new Error('«tesseract» topilmadi — serverga tesseract-ocr o‘rnating');
-          // Bitta sahifa o'qilmasa — bo'sh matn bilan davom (butun paket to'xtamaydi).
-        }
-        pages[i] = { page: i, text };
-        onProgress?.(++done, files.length);
+    const workers = Math.max(1, Math.min(total, os.cpus().length || 4));
+    const pages: OcrPage[] = new Array(total);
+    // BO'LAK-BO'LAK render+OCR. Butun katta PDF'ni bir chaqiruvda render qilsak, birinchi
+    // sahifagacha progress 0% turadi (800 sahifada bir necha daqiqa) va stale-reaper (3min)
+    // ishni jonli bo'lsa ham o'ldiradi. Buning o'rniga har CHUNK sahifani pdftoppm -f/-l
+    // bilan render qilib, parallel OCR qilamiz, progress'ni yangilaymiz (updatedAt tirik) va
+    // o'sha PNG'larni o'chiramiz (disk yengil). Real % 1-sahifadan ko'rinadi.
+    const CHUNK = Math.max(workers * 2, 16);
+    let done = 0;
+    for (let from = 1; from <= total; from += CHUNK) {
+      const to = Math.min(from + CHUNK - 1, total);
+      const prefix = path.join(dir, `c${from}`);
+      // 1) shu oraliqni PDF → PNG (150 dpi). Fayl nomi haqiqiy sahifa raqamini saqlaydi.
+      try {
+        await execFileP('pdftoppm', ['-png', '-r', '150', '-f', String(from), '-l', String(to), pdfPath, prefix], { maxBuffer: 1 << 27 });
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err?.code === 'ENOENT') throw new Error('«pdftoppm» topilmadi — serverga poppler-utils o‘rnating');
+        throw new Error('PDF rasmga o‘girilmadi: ' + (err?.message ?? String(e)));
       }
-    };
-    await Promise.all(Array.from({ length: workers }, runOne));
+      const base = path.basename(prefix);
+      const files = (await fsp.readdir(dir)).filter((f) => f.startsWith(base) && /\.png$/i.test(f))
+        .sort((a, b) => (parseInt(a.replace(/\D/g, ''), 10) || 0) - (parseInt(b.replace(/\D/g, ''), 10) || 0));
+      // 2) parallel OCR — tesseract har sahifada bitta yadroni band qiladi.
+      let next = 0;
+      const runOne = async () => {
+        for (;;) {
+          const k = next++;
+          if (k >= files.length) return;
+          const pageNo = parseInt(files[k].replace(/\D/g, ''), 10) || (from + k); // haqiqiy sahifa raqami
+          let text = '';
+          try {
+            const { stdout } = await execFileP('tesseract', [path.join(dir, files[k]), 'stdout', '-l', langs, '--psm', '3', '-c', 'tessedit_do_invert=0'], { maxBuffer: 1 << 27 });
+            text = stdout;
+          } catch (e) {
+            const err = e as NodeJS.ErrnoException;
+            if (err?.code === 'ENOENT') throw new Error('«tesseract» topilmadi — serverga tesseract-ocr o‘rnating');
+            // Bitta sahifa o'qilmasa — bo'sh matn bilan davom (butun paket to'xtamaydi).
+          }
+          pages[pageNo - 1] = { page: pageNo - 1, text };
+          onProgress?.(++done, total);
+        }
+      };
+      await Promise.all(Array.from({ length: workers }, runOne));
+      // 3) shu bo'lakning PNG'larini o'chir — disk to'lиб ketmasin.
+      await Promise.all(files.map((f) => fsp.rm(path.join(dir, f), { force: true }).catch(() => {})));
+    }
     await fsp.writeFile(outJson, JSON.stringify(pages));
   } finally {
     await fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
