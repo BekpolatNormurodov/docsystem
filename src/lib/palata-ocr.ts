@@ -115,9 +115,36 @@ async function ocrLangs(): Promise<string> {
   return OCR_LANGS;
 }
 
+/** Skaner singdirgan matn qatlamini bitta `pdftotext` chaqiruvi bilan sahifalarga bo'lib
+ *  qaytaradi (sahifalar \f — form-feed bilan ajraladi). Matn qatlami yo'q bo'lsa yoki
+ *  pdftotext topilmasa null. Sifatini tekshirish (toza/buzuq) chaqiruvchida hasPinfl bilan. */
+async function textLayerPages(pdfPath: string): Promise<OcrPage[] | null> {
+  try {
+    const { stdout } = await execFileP('pdftotext', ['-layout', pdfPath, '-'], { maxBuffer: 1 << 28 });
+    if (!stdout.trim()) return null;
+    return stdout.split('\f').map((text, page) => ({ page, text }));
+  } catch { return null; }
+}
+
 /** Render (pdftoppm) + OCR (tesseract) a PDF → writes [{page,text}] JSON (page 0-indexed, ps1 bilan
  *  bir xil). onProgress(done,total) har OCR qilingan sahifada. Cross-platform (Linux/Mac/Docker). */
 export async function ocrPdf(pdfPath: string, outJson: string, onProgress?: (done: number, total: number) => void): Promise<void> {
+  // 0) TEZ YO'L — skaner matn qatlami. Ko'p skanerlar PDF'ga o'z OCR matnini
+  // singdiradi; toza bo'lsa (lotinga sozlangan) `pdftotext` uni bir zumda beradi va
+  // og'ir tesseract render/OCR umuman kerak bo'lmaydi. Matn qatlami bo'lmasa yoki
+  // buzuq bo'lsa (kirillga moyil skaner — PINFL raqamlari aralashib ketadi), header
+  // aniqlanmaydi → pastdagi rasm-OCR yo'liga tushamiz.
+  const tPages = await textLayerPages(pdfPath);
+  if (tPages && tPages.length) {
+    const headers = tPages.filter((p) => hasPinfl(p.text)).length;
+    // Toza matn qatlamida har ariza header'i (≈ sahifalarning ~40%) aniqlanadi; buzuq
+    // qatlamda ~0. 10% chegara ikkalasini ishonchli ajratadi.
+    if (headers / tPages.length >= 0.1) {
+      await fsp.writeFile(outJson, JSON.stringify(tPages));
+      onProgress?.(tPages.length, tPages.length);
+      return;
+    }
+  }
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'palata-ppm-'));
   const prefix = path.join(dir, 'p');
   try {
