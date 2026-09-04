@@ -73,15 +73,28 @@ async function main() {
       (byName.get(k) || byName.set(k, []).get(k)!).push({ id: c.id, pinfl: c.pinfl });
     }
 
-    let matched = 0, ambiguous = 0; const notFound: string[] = [];
+    let safeNames = 0, safeCases = 0, homonyms = 0, noPinfl = 0;
+    const notFound: string[] = []; const homonymSample: string[] = [];
     for (const nm of names) {
       const hits = byName.get(normName(nm)) || [];
       if (hits.length === 0) { notFound.push(nm); continue; }
-      if (hits.length > 1) ambiguous++;
-      for (const h of hits) { allCaseIds.add(h.id); if (h.pinfl) allPinfls.add(h.pinfl); matched++; }
+      const pinfls = new Set(hits.map((h) => h.pinfl).filter((p): p is string => !!p));
+      // XAVFSIZ faqat: aynan BITTA haqiqiy PINFL va null-PINFL case yo'q bo'lsa (bir odam,
+      // uning barcha cikllari). Aks holda — turli odamlar / noaniq → tegmaymiz.
+      if (pinfls.size === 1 && hits.every((h) => !!h.pinfl)) {
+        safeNames++;
+        for (const h of hits) { allCaseIds.add(h.id); allPinfls.add(h.pinfl!); safeCases++; }
+      } else if (pinfls.size >= 2) {
+        homonyms++; if (homonymSample.length < 8) homonymSample.push(`${nm} (${pinfls.size} pinfl)`);
+      } else {
+        noPinfl++; // hits bor, lekin PINFL yo'q — kimligini tasdiqlab bo'lmaydi, tegmaymiz
+      }
     }
-    console.log(`▶ ${firm.shortName} (${file}): ${names.length} F.I.O → ${matched} case mos, ${notFound.length} topilmadi, ${ambiguous} bir xil ismli (hammasi olinadi)`);
-    if (notFound.length) console.log(`   topilmaganlar (namuna): ${notFound.slice(0, 8).join(' | ')}${notFound.length > 8 ? ' …' : ''}`);
+    console.log(`▶ ${firm.shortName} (${file}): ${names.length} F.I.O`);
+    console.log(`   ✅ xavfsiz (1 odam): ${safeNames} ism → ${safeCases} case o'chiriladi`);
+    console.log(`   ⚠ bir xil ismli (≥2 pinfl) TEGILMAYDI: ${homonyms}${homonymSample.length ? '  e.g. ' + homonymSample.join(' | ') : ''}`);
+    console.log(`   • pinfl yo'q, tasdiqlab bo'lmadi (tegilmaydi): ${noPinfl}`);
+    console.log(`   • topilmadi: ${notFound.length}${notFound.length ? '  e.g. ' + notFound.slice(0, 5).join(' | ') : ''}`);
   }
 
   const ids = [...allCaseIds];
