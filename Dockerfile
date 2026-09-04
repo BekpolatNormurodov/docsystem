@@ -13,9 +13,22 @@ WORKDIR /app
 # poppler-utils (pdftoppm) + tesseract-ocr power the «Arizalarni skanerlash» OCR (src/lib/palata-ocr.ts),
 # which runs inline in this web process. uzb traineddata is best-effort (|| true) — eng always present.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssl ca-certificates poppler-utils tesseract-ocr tesseract-ocr-eng \
+  && apt-get install -y --no-install-recommends openssl ca-certificates poppler-utils tesseract-ocr tesseract-ocr-eng wget \
   && (apt-get install -y --no-install-recommends tesseract-ocr-uzb || true) \
   && rm -rf /var/lib/apt/lists/*
+
+# Faster OCR: swap the standard uzb/eng models for tessdata_fast (integer LSTM) — ~2-3x
+# faster on printed text with negligible accuracy loss for the printed firma/PINFL/name
+# we extract. Best-effort & SAFE: download to a temp file and only overwrite the apt
+# model when the download actually succeeded and is a plausible size (a failed/partial
+# fetch leaves the working apt model in place — OCR never breaks).
+RUN TESSDIR="$(dirname "$(find /usr/share -name eng.traineddata 2>/dev/null | head -1)")" \
+  && for L in uzb eng; do \
+       wget -qO "/tmp/$L.tf" "https://github.com/tesseract-ocr/tessdata_fast/raw/main/$L.traineddata" \
+       && [ "$(stat -c%s "/tmp/$L.tf" 2>/dev/null || echo 0)" -gt 100000 ] \
+       && mv "/tmp/$L.tf" "$TESSDIR/$L.traineddata" || true; \
+     done \
+  && apt-get purge -y wget && apt-get autoremove -y && rm -rf /var/lib/apt/lists/* /tmp/*.tf
 
 # Prisma reads DATABASE_URL even for generate/build; it never connects during build, so a placeholder
 # is enough. The real DSN is injected at runtime by compose. Telemetry off for reproducible builds.
