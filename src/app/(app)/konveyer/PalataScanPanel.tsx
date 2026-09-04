@@ -57,6 +57,7 @@ export function PalataScanPanel() {
       setJob(active);
       if (active) {
         wasRunning.current = true;
+        setErr(null); // navbat davom etyapti (restartdan keyin tiklangan bo'lishi mumkin) — eski xatoni yopamiz
         pollRef.current = setTimeout(poll, 1500);
         return;
       }

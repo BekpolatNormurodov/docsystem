@@ -232,11 +232,35 @@ export async function reapStaleOcrJobs(): Promise<void> {
 // tartibda) yutadi. Ish ketayotganda yangi yuklama shu yerga qo'shiladi va o'sha
 // drainer uni ham oladi — foydalanuvchi 2-3 PDF ketma-ket tashlab, kutmaydi.
 export const QUEUE_DIR = path.join(process.cwd(), 'exports', 'palata-ocr-queue');
+const REPLACE_MARK = path.join(QUEUE_DIR, '.replace'); // mavjud bo'lsa — «Mavjudlarni yangilash» yoqilgan
 async function nextQueueFile(): Promise<{ path: string; remaining: number } | null> {
   try {
     const files = (await fsp.readdir(QUEUE_DIR)).filter((f) => /\.pdf$/i.test(f)).sort();
     return files.length ? { path: path.join(QUEUE_DIR, files[0]), remaining: files.length } : null;
   } catch { return null; }
+}
+async function queueFileCount(): Promise<number> {
+  try { return (await fsp.readdir(QUEUE_DIR)).filter((f) => /\.pdf$/i.test(f)).length; } catch { return 0; }
+}
+/** POST navbatga fayl qo'shganda «replace» bayrog'ini yozadi/o'chiradi (resume o'qishi uchun). */
+export async function setQueueReplace(on: boolean): Promise<void> {
+  await fsp.mkdir(QUEUE_DIR, { recursive: true }).catch(() => {});
+  if (on) await fsp.writeFile(REPLACE_MARK, '1').catch(() => {});
+  else await fsp.rm(REPLACE_MARK, { force: true }).catch(() => {});
+}
+async function queueWantsReplace(): Promise<boolean> {
+  return fsp.access(REPLACE_MARK).then(() => true).catch(() => false);
+}
+
+/** Navbatda fayl bor-u, lekin jonli OCR ishi yo'q bo'lsa (masalan deploy/restart drainer'ni
+ *  o'ldirgan) — yangi drainer boshlab navbatni davom ettiradi. GET pollda chaqiriladi, shuning
+ *  uchun restartdan keyin navbat o'zini tiklaydi. Bir vaqtda faqat bitta ish bo'ladi. */
+export async function resumeOcrQueueIfIdle(): Promise<void> {
+  if ((await queueFileCount()) === 0) return;
+  const live = await prisma.job.findFirst({ where: { type: 'PALATA_OCR', status: { in: ['PENDING', 'RUNNING'] } } });
+  if (live) return;
+  const job = await prisma.job.create({ data: { type: 'PALATA_OCR', status: 'PENDING', total: 0, progress: 0 } });
+  void drainOcrQueue(job.id, await queueWantsReplace());
 }
 
 /** Drain the OCR queue: OCR each queued PDF in turn, extract arizas, merge the dataset,
@@ -286,6 +310,8 @@ export async function drainOcrQueue(jobId: number, update = false): Promise<void
       await fsp.rm(out, { force: true }).catch(() => {});
     }
 
+    // Navbat bo'shadi — «replace» bayrog'ini olib tashlaymiz (keyingi yuklama o'zinikini yozadi).
+    await fsp.rm(REPLACE_MARK, { force: true }).catch(() => {});
     // OCR faqat OʻQIYDI — bazaga saqlash ALOHIDA, TASDIQ bilan («Bazaga saqlash» tugmasi).
     const msg = `+${added} yangi ariza oʻqildi (jami ${total}) — «Bazaga saqlash»ni tasdiqlang`;
     await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'DONE', message: msg, progress: 1, total: 1 } });
@@ -294,7 +320,7 @@ export async function drainOcrQueue(jobId: number, update = false): Promise<void
     // Bekor qilingan bo'lsa — cancel route allaqachon status/message qo'ygan; ustiga
     // yozmaymiz (faqat message bo'sh qolgan bo'lsa chiroyli belgilaymiz).
     if (m === CANCELLED) {
-      // Bekor — navbatda qolgan yuklamalarni ham o'chiramiz (foydalanuvchi to'xtatdi).
+      // Bekor — navbatda qolgan yuklamalarni ham o'chiramiz (.replace bayrog'i bilan birga).
       await fsp.readdir(QUEUE_DIR).then((fs2) => Promise.all(fs2.map((f) => fsp.rm(path.join(QUEUE_DIR, f), { force: true }).catch(() => {})))).catch(() => {});
       await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'FAILED', message: 'Bekor qilindi' } }).catch(() => {});
     } else {

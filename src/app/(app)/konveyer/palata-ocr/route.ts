@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
-import { drainOcrQueue, reapStaleOcrJobs, QUEUE_DIR } from '@/lib/palata-ocr';
+import { drainOcrQueue, reapStaleOcrJobs, resumeOcrQueueIfIdle, setQueueReplace, QUEUE_DIR } from '@/lib/palata-ocr';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,6 +19,8 @@ const MAX = 200 * 1024 * 1024; // 200MB — a long chamber scan can be >100MB
 export async function GET() {
   await requireUser();
   await reapStaleOcrJobs();
+  // Restart/deploy drainer'ni o'ldirgan bo'lsa-yu navbatda fayl qolgan bo'lsa — davom ettiramiz.
+  await resumeOcrQueueIfIdle();
   const job = await prisma.job.findFirst({ where: { type: 'PALATA_OCR' }, orderBy: { id: 'desc' } });
   if (!job) return NextResponse.json({ job: null });
   return NextResponse.json({ job: { id: job.id, status: job.status, progress: job.progress, total: job.total, message: job.message } });
@@ -52,6 +54,7 @@ export async function POST(req: NextRequest) {
   if (items.some((f) => !/\.pdf$/i.test(f.name || ''))) return NextResponse.json({ error: 'Faqat PDF' }, { status: 415 });
 
   await fs.mkdir(QUEUE_DIR, { recursive: true });
+  await setQueueReplace(update); // resume (restartdan keyin) shu bayroqni o'qiydi
   for (let i = 0; i < items.length; i++) {
     const buf = Buffer.from(await items[i].arrayBuffer());
     // Nom prefiksi = vaqt tamg'asi → drainer nom bo'yicha tartibda (yuklash tartibida) yutadi.
