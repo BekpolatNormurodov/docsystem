@@ -120,7 +120,7 @@ export async function ocrPdf(pdfPath: string, outJson: string, onProgress?: (don
   try {
     // 1) PDF → PNG (200 dpi). poppler-utils.
     try {
-      await execFileP('pdftoppm', ['-png', '-r', '200', pdfPath, prefix], { maxBuffer: 1 << 27 });
+      await execFileP('pdftoppm', ['-png', '-r', '150', pdfPath, prefix], { maxBuffer: 1 << 27 });
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
       if (err?.code === 'ENOENT') throw new Error('«pdftoppm» topilmadi — serverga poppler-utils o‘rnating');
@@ -143,7 +143,7 @@ export async function ocrPdf(pdfPath: string, outJson: string, onProgress?: (don
         if (i >= files.length) return;
         let text = '';
         try {
-          const { stdout } = await execFileP('tesseract', [path.join(dir, files[i]), 'stdout', '-l', langs, '--psm', '3'], { maxBuffer: 1 << 27 });
+          const { stdout } = await execFileP('tesseract', [path.join(dir, files[i]), 'stdout', '-l', langs, '--psm', '3', '-c', 'tessedit_do_invert=0'], { maxBuffer: 1 << 27 });
           text = stdout;
         } catch (e) {
           const err = e as NodeJS.ErrnoException;
