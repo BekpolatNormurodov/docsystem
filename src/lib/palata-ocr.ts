@@ -116,7 +116,7 @@ async function ocrLangs(): Promise<string> {
 }
 
 /** PDF sahifalar soni (poppler `pdfinfo`). Topilmasa 0. Chunk render uchun oldindan kerak. */
-async function pdfPageCount(pdfPath: string): Promise<number> {
+export async function pdfPageCount(pdfPath: string): Promise<number> {
   try {
     const { stdout } = await execFileP('pdfinfo', [pdfPath], { maxBuffer: 1 << 20 });
     const m = stdout.match(/^Pages:\s*(\d+)/m);

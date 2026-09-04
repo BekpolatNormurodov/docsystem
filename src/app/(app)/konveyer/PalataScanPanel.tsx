@@ -6,6 +6,7 @@ interface FirmStat { firm: string; total: number; matched: number; withCase: num
 interface ScanRow { reg: string; name: string; pinfl: string; firm: string; address: string; hasCase: boolean; hasPortfolio: boolean; hasScan: boolean; caseId: number | null; linked: boolean }
 interface Summary { total: number; matched: number; withCase: number; noCase: number; saved: number; firms: FirmStat[]; arizas: ScanRow[]; updatedAt: string | null }
 interface OcrJob { id: number; status: string; progress: number; total: number; message: string | null }
+interface QueueItem { file: string; name: string; uploadedAt: number | null; pages: number; active: boolean }
 
 const n = (x: number) => x.toLocaleString('ru-RU');
 const fmtWhen = (iso: string | null) =>
@@ -27,6 +28,7 @@ export function PalataScanPanel() {
   const [confirmSave, setConfirmSave] = useState(false); // «Saqlansinmi?» tasdiq oynasi
   const [update, setUpdate] = useState(true);     // re-scan overwrites already-saved PDFs (default ON)
   const [job, setJob] = useState<OcrJob | null>(null); // live OCR / attach job
+  const [queue, setQueue] = useState<QueueItem[]>([]); // OCR navbati (o'qilayotgan + kutayotgan)
   const fileRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wasRunning = useRef(false);
@@ -44,10 +46,12 @@ export function PalataScanPanel() {
   // message). When a live job finishes, reload the summary once.
   const poll = useCallback(async () => {
     try {
-      const [a, b] = await Promise.all([
+      const [a, b, q] = await Promise.all([
         fetch('/konveyer/palata-ocr', { cache: 'no-store' }).then((r) => r.json()).catch(() => ({})),
         fetch('/konveyer/palata-attach', { cache: 'no-store' }).then((r) => r.json()).catch(() => ({})),
+        fetch('/konveyer/palata-ocr/queue', { cache: 'no-store' }).then((r) => r.json()).catch(() => ({ items: [] })),
       ]);
+      setQueue(Array.isArray(q?.items) ? q.items : []);
       const jobs: OcrJob[] = [a?.job, b?.job].filter(Boolean);
       const active = jobs.find((j) => j.status === 'RUNNING' || j.status === 'PENDING') ?? null;
       setJob(active);
@@ -122,6 +126,14 @@ export function PalataScanPanel() {
     catch { /* keyingi poll holatni ko'rsatadi */ }
     finally { setCancelling(false); }
   };
+
+  // Navbatdagi (hali o'qilmagan) bitta faylni o'chirish.
+  const removeQueued = async (file: string) => {
+    setQueue((qs) => qs.filter((x) => x.file !== file)); // optimistik
+    try { await fetch(`/konveyer/palata-ocr/queue?file=${encodeURIComponent(file)}`, { method: 'DELETE' }); }
+    catch { /* keyingi poll haqiqiy holatni beradi */ }
+    finally { poll(); }
+  };
   const pct = job && job.total > 0 ? Math.round((job.progress / job.total) * 100) : null;
   const runLabel = busy ? 'Yuklanmoqda…' : attaching ? `Bazaga saqlanmoqda${pct != null ? ` · ${pct}%` : '…'}` : running ? `OCR ishlayapti${pct != null ? ` · ${pct}%` : '…'}` : 'Skanerlangan PDF(lar)ni yuklang';
 
@@ -179,6 +191,43 @@ export function PalataScanPanel() {
               : <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>}
             {cancelling ? 'Toʻxtatilmoqda…' : 'Bekor qilish'}
           </button>
+        </div>
+      )}
+
+      {/* Navbat ro'yxati — har fayl: nom, qachon yuklangani, necha sahifa, holati. */}
+      {queue.length > 0 && (
+        <div className="mb-3 overflow-hidden rounded-xl border border-line">
+          <div className="flex items-center justify-between bg-surface-2/50 px-3 py-1.5 text-[11px] font-medium text-muted">
+            <span>Navbat — {n(queue.length)} ta fayl</span>
+            <span>{update ? 'ustiga yoziladi (replace)' : 'eskisi saqlanadi'}</span>
+          </div>
+          <ul className="divide-y divide-line/60">
+            {queue.map((it) => (
+              <li key={it.file} className={`flex items-center gap-2.5 px-3 py-2 text-[12px] ${it.active ? 'bg-violet-500/[0.05]' : ''}`}>
+                {it.active
+                  ? <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-violet-500/30 border-t-violet-500" title="Hozir oʻqilyapti" />
+                  : <svg className="h-3.5 w-3.5 shrink-0 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><title>Navbatda</title><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>}
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium" title={it.name}>{it.name}</div>
+                  <div className="text-[11px] text-muted">
+                    {it.uploadedAt ? fmtWhen(new Date(it.uploadedAt).toISOString()) : '—'}
+                    {it.pages > 0 && <> · <span className="tabular-nums">{n(it.pages)}</span> sahifa</>}
+                  </div>
+                </div>
+                {it.active
+                  ? <span className="shrink-0 rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] font-medium text-violet-700 dark:text-violet-300">oʻqilyapti{pct != null ? ` ${pct}%` : ''}</span>
+                  : (
+                    <>
+                      <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-muted">navbatda</span>
+                      <button type="button" onClick={() => removeQueued(it.file)} title="Navbatdan olib tashlash"
+                        className="shrink-0 rounded-md p-1 text-muted transition-colors hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-300">
+                        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                      </button>
+                    </>
+                  )}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
