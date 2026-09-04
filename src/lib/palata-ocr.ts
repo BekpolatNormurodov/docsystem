@@ -81,7 +81,7 @@ function phoneOf(text: string): string {
 
 /** Group OCR pages into arizas by the header boundary (a page carrying a Jshshir PINFL). */
 export function extractArizas(pages: OcrPage[]): ScannedArizaFull[] {
-  const sorted = [...pages].sort((a, b) => a.page - b.page);
+  const sorted = pages.filter((p): p is OcrPage => !!p).sort((a, b) => a.page - b.page);
   const groups: { start: number; texts: string[] }[] = [];
   let cur: { start: number; texts: string[] } | null = null;
   for (const p of sorted) {
@@ -187,6 +187,9 @@ export async function ocrPdf(pdfPath: string, outJson: string, onProgress?: (don
       // 3) shu bo'lakning PNG'larini o'chir — disk to'lиб ketmasin.
       await Promise.all(files.map((f) => fsp.rm(path.join(dir, f), { force: true }).catch(() => {})));
     }
+    // Render bo'lmagan sahifa (pdftoppm bitta sahifani bermasa) massivда null qoldiradi —
+    // sahifa raqamini saqlagan holda bo'sh matn bilan to'ldiramiz (extractArizas yiqilmasin).
+    for (let i = 0; i < total; i++) if (!pages[i]) pages[i] = { page: i, text: '' };
     await fsp.writeFile(outJson, JSON.stringify(pages));
   } finally {
     await fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
