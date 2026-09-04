@@ -135,58 +135,47 @@ export async function ocrPdf(pdfPath: string, outJson: string, onProgress?: (don
     const langs = await ocrLangs();
     const workers = Math.max(1, Math.min(total, os.cpus().length || 4));
     const pages: OcrPage[] = new Array(total);
-    // BO'LAK-BO'LAK render+OCR. Butun katta PDF'ni bir chaqiruvda render qilsak, birinchi
-    // sahifagacha progress 0% turadi (800 sahifada bir necha daqiqa) va stale-reaper (3min)
-    // ishni jonli bo'lsa ham o'ldiradi. Buning o'rniga har CHUNK sahifani pdftoppm -f/-l
-    // bilan render qilib, parallel OCR qilamiz, progress'ni yangilaymiz (updatedAt tirik) va
-    // o'sha PNG'larni o'chiramiz (disk yengil). Real % 1-sahifadan ko'rinadi.
-    const CHUNK = Math.max(workers * 2, 16);
-    let done = 0;
-    for (let from = 1; from <= total; from += CHUNK) {
-      // Bekor qilingan bo'lsa — har bo'lak boshida to'xtaymiz (joriy bo'lak ~16 sahifada tugaydi).
-      if (shouldStop && await shouldStop()) throw new Error(CANCELLED);
-      const to = Math.min(from + CHUNK - 1, total);
-      const prefix = path.join(dir, `c${from}`);
-      // 1) shu oraliqni PDF → PNG (150 dpi). Fayl nomi haqiqiy sahifa raqamini saqlaydi.
-      try {
-        await execFileP('pdftoppm', ['-png', '-r', '150', '-f', String(from), '-l', String(to), pdfPath, prefix], { maxBuffer: 1 << 27 });
-      } catch (e) {
-        const err = e as NodeJS.ErrnoException;
-        if (err?.code === 'ENOENT') throw new Error('«pdftoppm» topilmadi — serverga poppler-utils o‘rnating');
-        throw new Error('PDF rasmga o‘girilmadi: ' + (err?.message ?? String(e)));
-      }
-      const base = path.basename(prefix);
-      const files = (await fsp.readdir(dir)).filter((f) => f.startsWith(base) && /\.png$/i.test(f))
-        .sort((a, b) => (parseInt(a.replace(/\D/g, ''), 10) || 0) - (parseInt(b.replace(/\D/g, ''), 10) || 0));
-      // 2) parallel OCR — tesseract har sahifada bitta yadroni band qiladi.
-      let next = 0;
-      const runOne = async () => {
-        for (;;) {
-          const k = next++;
-          if (k >= files.length) return;
-          const pageNo = parseInt(files[k].replace(/\D/g, ''), 10) || (from + k); // haqiqiy sahifa raqami
-          let text = '';
-          try {
-            // OMP_THREAD_LIMIT=1 — har tesseract BIR ipli bo'lsin. Aks holda tesseract
-            // o'zi OpenMP bilan barcha yadroni oladi; biz 8 ta parallel ishlatsak 8×8 ip
-            // bir-birini bo'g'adi (CPU 800% ko'rinadi-yu unum tushadi). Bitta ipdan biz
-            // o'zimiz 8 parallel = toza masshtab. --psm 6: og'ir sahifa-layout tahlilisiz
-            // (bizga faqat matn kerak, tartib emas) — sekин skanlarda ancha tez.
-            const { stdout } = await execFileP('tesseract', [path.join(dir, files[k]), 'stdout', '-l', langs, '--psm', '6', '-c', 'tessedit_do_invert=0'], { maxBuffer: 1 << 27, env: { ...process.env, OMP_THREAD_LIMIT: '1' } });
-            text = stdout;
-          } catch (e) {
-            const err = e as NodeJS.ErrnoException;
-            if (err?.code === 'ENOENT') throw new Error('«tesseract» topilmadi — serverga tesseract-ocr o‘rnating');
-            // Bitta sahifa o'qilmasa — bo'sh matn bilan davom (butun paket to'xtamaydi).
-          }
-          pages[pageNo - 1] = { page: pageNo - 1, text };
-          onProgress?.(++done, total);
+    // SAHIFA-DARAJASIDA render+OCR pool. Ilgari butun bo'lakni bitta pdftoppm bilan render
+    // qilardik — u BIR ipli, shuning uchun 24 yadroda render bosqichi 23 yadroni bekor
+    // qoldirib, asosiy to'siqqa aylandi (CPU ~100% da qotib qolardi). Endi har worker O'Z
+    // sahifasini o'zi render qilib (pdftoppm -singlefile) darrov OCR qiladi — shunda barcha
+    // yadro ham render, ham OCR bilan doim to'la band. workers = yadro soni.
+    let next = 1, done = 0, stop = false;
+    const runOne = async () => {
+      for (;;) {
+        if (stop) return;
+        const p = next++;
+        if (p > total) return;
+        // Bekor tekshiruvi (~har 20 sahifada bittasi yetarli — DB'ni bosmaslik uchun).
+        if (shouldStop && p % 20 === 0 && await shouldStop()) { stop = true; return; }
+        const png = path.join(dir, `p${p}`); // -singlefile → p{p}.png
+        let text = '';
+        try {
+          await execFileP('pdftoppm', ['-png', '-r', '150', '-f', String(p), '-l', String(p), '-singlefile', pdfPath, png], { maxBuffer: 1 << 27 });
+        } catch (e) {
+          const err = e as NodeJS.ErrnoException;
+          if (err?.code === 'ENOENT') throw new Error('«pdftoppm» topilmadi — serverga poppler-utils o‘rnating');
+          pages[p - 1] = { page: p - 1, text: '' }; onProgress?.(++done, total); continue; // bu sahifa render bo'lmadi
         }
-      };
-      await Promise.all(Array.from({ length: workers }, runOne));
-      // 3) shu bo'lakning PNG'larini o'chir — disk to'lиб ketmasin.
-      await Promise.all(files.map((f) => fsp.rm(path.join(dir, f), { force: true }).catch(() => {})));
-    }
+        try {
+          // OMP_THREAD_LIMIT=1 — har tesseract BIR ipli. Aks holda tesseract o'zi OpenMP
+          // bilan barcha yadroni oladi; biz N parallel ishlatsak N×N ip bir-birini bo'g'adi
+          // (CPU 2000% ko'rinadi-yu unum tushadi). Bitta ipdan biz N parallel = toza masshtab.
+          // --psm 6: og'ir sahifa-layout tahlilisiz (bizga faqat matn kerak, tartib emas).
+          const { stdout } = await execFileP('tesseract', [`${png}.png`, 'stdout', '-l', langs, '--psm', '6', '-c', 'tessedit_do_invert=0'], { maxBuffer: 1 << 27, env: { ...process.env, OMP_THREAD_LIMIT: '1' } });
+          text = stdout;
+        } catch (e) {
+          const err = e as NodeJS.ErrnoException;
+          if (err?.code === 'ENOENT') throw new Error('«tesseract» topilmadi — serverga tesseract-ocr o‘rnating');
+          // Bitta sahifa o'qilmasa — bo'sh matn bilan davom (butun paket to'xtamaydi).
+        }
+        await fsp.rm(`${png}.png`, { force: true }).catch(() => {}); // diskni yengil ushlaymiz
+        pages[p - 1] = { page: p - 1, text };
+        onProgress?.(++done, total);
+      }
+    };
+    await Promise.all(Array.from({ length: workers }, runOne));
+    if (stop) throw new Error(CANCELLED);
     // Render bo'lmagan sahifa (pdftoppm bitta sahifani bermasa) massivда null qoldiradi —
     // sahifa raqamini saqlagan holda bo'sh matn bilan to'ldiramiz (extractArizas yiqilmasin).
     for (let i = 0; i < total; i++) if (!pages[i]) pages[i] = { page: i, text: '' };
