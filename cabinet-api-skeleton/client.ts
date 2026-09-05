@@ -1,6 +1,8 @@
 // cabinet-api-skeleton/client.ts
 // cabinet.sud.uz (cabinetapi.sud.uz) uchun xavfsiz va ishonchli REST mijozi.
 
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 import { CABINET_BASE_URL } from './constants';
 import type { CabinetAuthSession } from './types';
 
@@ -68,7 +70,15 @@ export class CabinetApiClient {
       if (e.name === 'AbortError') {
         throw new Error(`Cabinet API Timeout: ${path} ${timeout}ms ichida javob bermadi.`);
       }
-      throw e;
+      const cause = e.cause;
+      const causeStr = cause?.message || cause?.code || (typeof cause === 'object' ? JSON.stringify(cause) : String(cause || ''));
+      const detail = causeStr ? ` (Sabab: ${causeStr})` : '';
+      console.error(`❌ [CabinetApiClient Xatolik] URL: ${url}`);
+      console.error(`   Xato: ${e.message}${detail}`);
+      if (cause?.stack) {
+        console.error(`   Cause Stack:`, cause.stack);
+      }
+      throw new Error(`${e.message}${detail}`);
     } finally {
       clearTimeout(timer);
     }

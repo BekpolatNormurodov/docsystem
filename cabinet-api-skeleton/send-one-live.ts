@@ -7,6 +7,8 @@
 //
 //   Misol: npx tsx cabinet-api-skeleton/send-one-live.ts 123
 
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { prisma } from '../src/lib/db';
