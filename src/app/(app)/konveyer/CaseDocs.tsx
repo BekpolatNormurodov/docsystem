@@ -21,6 +21,8 @@ function slots(stage: string, receipt: string | null, talabnomaSent: boolean, of
     { name: 'Talabnoma (PDF)', tag: 'mijoz', kind: 'TALABNOMA', ready: talabnomaSent, bulk: false, gen: true },
     // Yetkazilgandan keyin xat.hippo shakllantirgan letter PDF (faqat joʻnatilgan boʻlsa koʻrsatiladi).
     ...(talabnomaSent ? [{ name: 'Talabnoma — yetkazilgan (hippo)', tag: 'mijoz', kind: 'TALABNOMA_HIPPO', ready: false, bulk: false, gen: true }] : []),
+    // xat.hippo talabnoma KVITANSIYASI (UZPOST «check», TD-raqamli 1 sahifa) — sudga ariza bilan ketadi.
+    ...(talabnomaSent ? [{ name: 'Talabnoma cheki (kvitansiya)', tag: 'mijoz', kind: 'TALABNOMA_RECEIPT', ready: false, bulk: false, gen: true }] : []),
     { name: 'Ariza', tag: 'mijoz', kind: 'ARIZA', ready: R >= rk('ARIZA_GENERATED'), bulk: false, gen: true },
     // Grafik (toʻlash jadvali) is NOT part of the court packet (the sudga-yuborish export drops it),
     // so it's not listed here either — the per-client set is talabnoma/ariza/oferta/invoice + scan + firm docs.
@@ -352,6 +354,7 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, 
                 const genHref =
                   s.kind === 'TALABNOMA' ? `/konveyer/gen-talabnoma?caseId=${caseId}`
                   : s.kind === 'TALABNOMA_HIPPO' ? `/konveyer/gen-talabnoma-hippo?caseId=${caseId}`
+                  : s.kind === 'TALABNOMA_RECEIPT' ? `/konveyer/gen-talabnoma-receipt?caseId=${caseId}`
                   : s.kind === 'ARIZA' ? `/konveyer/gen-ariza?caseId=${caseId}`
                   : s.kind === 'GRAFIK' ? `/konveyer/gen-grafik?caseId=${caseId}`
                   : s.kind === 'OFERTA' ? `/konveyer/gen-oferta?caseId=${caseId}`
@@ -372,6 +375,8 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, 
                   ? (have ? 'Billing PDF · sudga ketmaydi' : 'Invoice hali yaratilmagan')
                   : s.kind === 'TALABNOMA_HIPPO'
                     ? 'xat.hippo — yuborilganlik'
+                  : s.kind === 'TALABNOMA_RECEIPT'
+                    ? 'xat.hippo — kvitansiya (UZPOST check)'
                     : up ? `${up.fileName}${up.size ? ` · ${fmtSize(up.size)}` : ''}`
                     : fd ? 'Yuklangan fayl'
                     : state === 'auto' ? 'Avto — system yaratadi'
