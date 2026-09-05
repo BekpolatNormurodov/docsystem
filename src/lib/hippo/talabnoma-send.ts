@@ -6,7 +6,7 @@
 // (dates → YYYY-MM-DD, numbers as plain strings) so a direct send and an Excel upload are
 // byte-identical on hippo's side.
 import { prisma } from '@/lib/db';
-import { hippoTemplateIdByStir } from '@/lib/firms';
+import { hippoTemplateIdByStir, hippoBranchIdByStir } from '@/lib/firms';
 import { getStoredHippoSession } from './session';
 import { loadTalabnomaRowsForScope } from './talabnoma-bulk';
 import { resolveContext, checkBalanceFor, createRegistryInternal, createRegistryExternal, listRegistries, type InternalMail } from './xat';
@@ -154,9 +154,10 @@ export async function sendTalabnomaToHippo(opts: SendTalabnomaOpts): Promise<Sen
   // hippo account lists all three, so without the id the name match would send every firm on the
   // first «Talabnoma» it finds.
   const templateId = hippoTemplateIdByStir(firm.stir ?? '');
+  const branchOverride = hippoBranchIdByStir(firm.stir ?? ''); // Bright: 56 (stale reyestr branch 12 o'rniga)
   let ctx;
   try {
-    ctx = await resolveContext(session, 'talabnoma', templateId);
+    ctx = await resolveContext(session, 'talabnoma', templateId, branchOverride);
   } catch {
     return fail(mode, 'xat.hippo shabloni topilmadi', { firmName });
   }

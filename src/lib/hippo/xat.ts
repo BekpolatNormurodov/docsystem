@@ -133,7 +133,7 @@ export async function checkBalanceFor(s: HippoSession, count: number, pagesPerMa
 // (the org requires a valid branch or the server returns "Invalid targeting
 // setup."). templateNameHint is matched case-insensitively (note: the real
 // name is "Talabnoma " with a trailing space).
-export async function resolveContext(s: HippoSession, templateNameHint = 'talabnoma', templateId?: number) {
+export async function resolveContext(s: HippoSession, templateNameHint = 'talabnoma', templateId?: number, branchOverride?: number) {
   const tpl = await getTemplates(s);
   const tplArr: any[] = Array.isArray(tpl.json) ? tpl.json : tpl.json?.data ?? tpl.json?.items ?? [];
   // Pin the EXACT template per firm when an id is given — the account's list holds several
@@ -149,11 +149,13 @@ export async function resolveContext(s: HippoSession, templateNameHint = 'talabn
   // The login can see MULTIPLE orgs — the newest reyestr may be another org's → «Invalid targeting» —
   // so scan a page and take the branchId of a registry under the TEMPLATE's org.
   const regOrg = (r: any) => Number(r?.organizationId ?? r?.organization?.id ?? r?.orgId ?? 0);
-  let branchId = 0;
+  // branchOverride (firms.ts hippoBranchId) — reyestrdagi STALE branch'ni almashtiradi (Bright: eski
+  // reyestrlar branch 12ni saqlaydi, lekin org'ning tirik filiali 56). Berilsa — reyestrdan olmaymiz.
+  let branchId = branchOverride && branchOverride > 0 ? Number(branchOverride) : 0;
   const list = await listRegistries(s, { PageIndex: 1, PageSize: 50 });
   const listArr: any[] = Array.isArray(list.json) ? list.json : list.json?.data?.items ?? list.json?.items ?? list.json?.data ?? [];
   const ref = (organizationId ? listArr.find((r) => regOrg(r) === organizationId) : null) ?? listArr[0];
-  if (ref?.id) {
+  if (!branchId && ref?.id) {
     branchId = Number(ref?.branchId ?? 0);
     if (!branchId) {
       const det = await getRegistry(s, ref.id);
