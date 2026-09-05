@@ -757,14 +757,27 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   // «Sudga yuborish» → E-IMZO gate: aniq so'roq (summary) → firma kaliti → parol → yuboriladi.
   // (Bekor qilish kalit talab qilmaydi — u ClientDrilldown ichida oddiy tasdiq modali bilan.)
   const [gate, setGate] = useState<{ firmId: number; firmName: string; stir: string | null; extra: Record<string, unknown>; summary: string } | null>(null);
-  const startExport = (fid: number, extra: Record<string, unknown> = {}) => {
+  // «Sudga yuborish» (firma darajasida) → avval SONI so'raladi (max 100), keyin E-IMZO gate.
+  // Drilldownда qo'lda tanlanган (caseIds) yoki soni allaqachon berilган bo'lsa — to'g'ridan gate.
+  const [countAsk, setCountAsk] = useState<{ firmId: number; firmName: string; max: number; value: number } | null>(null);
+  const openGate = (fid: number, extra: Record<string, unknown> = {}) => {
     const f = firms.find((x) => x.firmId === fid);
     const ids = (extra as { caseIds?: unknown }).caseIds;
-    const cnt = Array.isArray(ids) ? ids.length : null;
+    const lim = (extra as { limit?: unknown }).limit;
+    const cnt = Array.isArray(ids) ? ids.length : (typeof lim === 'number' ? lim : null);
     setGate({
       firmId: fid, firmName: f?.firmName ?? `Firma ${fid}`, stir: f?.stir ?? null, extra,
-      summary: cnt != null ? `${cnt} ta tanlangan mijozni sudga yuborasiz. Firma kaliti bilan tasdiqlang.` : 'Tayyor mijozlarni (bir martada ≤100) sudga yuborasiz. Firma kaliti bilan tasdiqlang.',
+      summary: cnt != null ? `${cnt} ta mijozni sudga yuborasiz. Firma kaliti bilan tasdiqlang.` : 'Tayyor mijozlarni (bir martada ≤100) sudga yuborasiz. Firma kaliti bilan tasdiqlang.',
     });
+  };
+  const startExport = (fid: number, extra: Record<string, unknown> = {}) => {
+    const ids = (extra as { caseIds?: unknown }).caseIds;
+    // Qo'lda tanlanган yoki soni berilган → to'g'ridan gate. Aks holda — soni so'raymiz.
+    if (Array.isArray(ids) || (extra as { limit?: unknown }).limit != null) { openGate(fid, extra); return; }
+    const fr = data?.readiness.firms.find((f) => f.firmId === fid);
+    const max = Math.min(100, fr?.sendable ?? 0);
+    if (max <= 0) return; // yuboriladigan yo'q
+    setCountAsk({ firmId: fid, firmName: fr?.firmName ?? `Firma ${fid}`, max, value: max });
   };
 
   const firmOpts = [{ value: 'all', label: 'Hamma firma' }, ...firms.map((f) => ({ value: String(f.firmId), label: f.firmName, hint: n(f.total) }))];
@@ -937,6 +950,38 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
             </div>
           )}
         </div>
+      )}
+
+      {countAsk && (
+        <Modal open onClose={() => setCountAsk(null)} title={`Sudga yuborish — ${countAsk.firmName}`} description={`Bir martada eng ko'pi ${Math.min(100, countAsk.max)} ta. Nechtasini yuborasiz?`}
+          footer={<>
+            <button className="btn-ghost" type="button" onClick={() => setCountAsk(null)}>Bekor</button>
+            <button className="btn-primary" type="button" disabled={!countAsk.value || countAsk.value < 1}
+              onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const fid = countAsk.firmId; setCountAsk(null); openGate(fid, { limit: v }); }}>
+              Yuborish ({Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0))})
+            </button>
+          </>}
+        >
+          <div className="space-y-3">
+            <label className="block">
+              <span className="field-label">Soni (1–{Math.min(100, countAsk.max)})</span>
+              <input type="number" min={1} max={Math.min(100, countAsk.max)} value={countAsk.value}
+                onChange={(e) => { const raw = Math.floor(Number(e.target.value) || 0); setCountAsk((c) => c && ({ ...c, value: Math.max(0, Math.min(c.max, raw)) })); }}
+                className="mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm tabular-nums outline-none focus:border-brand-500 focus-visible:ring-2 focus-visible:ring-brand-500/30" autoFocus />
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {[10, 25, 50, 100].filter((q) => q <= countAsk.max).map((q) => (
+                <button key={q} type="button" onClick={() => setCountAsk((c) => c && ({ ...c, value: q }))}
+                  className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${countAsk.value === q ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line text-muted hover:border-brand-500/40'}`}>{q}</button>
+              ))}
+              {countAsk.max < 100 && (
+                <button type="button" onClick={() => setCountAsk((c) => c && ({ ...c, value: c.max }))}
+                  className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${countAsk.value === countAsk.max ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line text-muted hover:border-brand-500/40'}`}>Hammasi ({countAsk.max})</button>
+              )}
+            </div>
+            <p className="text-[11px] text-muted">Eng eski (muddati yaqin) tayyor mijozlardan boshlab olinadi.</p>
+          </div>
+        </Modal>
       )}
 
       {gate && (
