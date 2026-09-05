@@ -1,158 +1,135 @@
 // cabinet-api-skeleton/builder.ts
-// docsystem ma'lumotlarini cabinet.sud.uz rasmiy JSON payloadlariga aylantiruvchi adapter.
+// docsystem ma'lumotlarini cabinet.sud.uz'ning HAQIQIY (2026-09-06 browser+API orqali
+// tasdiqlangan) draft-update payload'iga aylantiruvchi adapter. Eski versiya
+// (CreateDraftPayload{instance,claim_type,...}, AddParticipantPayload, SaveSuitPayload) BUTUNLAY
+// noto'g'ri taxmin edi — haqiqiy API alohida "create draft with categories" yoki
+// "add participant" endpoint'lariga EGA EMAS; hammasi bitta `details` obyektini PUT qiladigan
+// draft-update chaqiruvi. Quyidagi funksiyalar shu haqiqiy shaklni quradi.
 
-import { CABINET_CATEGORIES, CABINET_COURT_IDS } from './constants';
-import type {
-  CreateDraftPayload,
-  AddParticipantPayload,
-  OrganizationEntityData,
-  PersonEntityData,
-  SaveSuitPayload,
-} from './types';
+import { CABINET_CATEGORIES, CABINET_SUB_CATEGORIES, CABINET_COURT_IDS, CABINET_REGION_IDS } from './constants';
+import type { CreateApplicationInfo, BaseInfo, DefendantInfo, ClaimAmountPartType } from './types';
 
 export interface SourceCaseData {
-  courtId?: string; // portal court GUID
-  firm: {
-    name: string;
-    shortName?: string;
-    stir: string;
-    address: string;
-    bankAccount: string;
-    mfo?: string;
-    phone: string;
-    director: string;
-  };
+  courtId?: string;      // portal court GUID (CABINET_COURT_IDS) — default Yuqorichirchiq bo'lmasa Uchtepa
+  regionId?: string;     // portal region GUID — default Toshkent viloyati
+  // TODO(claimant-lookup): claimantId hozircha QO'LDA berilishi kerak. Har firmaning
+  // cabinet.sud.uz akkaunti o'zining bitta ORGANIZATION claimant'iga ega (masalan BRIGHT
+  // FUTURE FINANCING E-IMZO kaliti bilan kirilganda "Da'vogar nomi" avtomatik shu firmaga
+  // tushadi) — buni har firma uchun BIR MARTA (draft yaratib, birinchi PUT javobidagi
+  // details.createApplication.claimant qiymatini o'qib) topib, Firm modelida (yoki shu faylda
+  // firmStir -> claimantId lug'atida) saqlash kerak. Hozircha bu funksiyaga tashqaridan uzatiladi.
+  claimantId: string;
+  firm: { stir: string };
   debtor: {
-    pinfl: string;
+    pinfl: string;               // faqat ma'lumot uchun — DefendantInfo'ga ketmaydi (isPinflUnknown:true)
     fullName: string;
-    firstName?: string;
-    lastName?: string;
-    middleName?: string;
-    passportSn: string;
-    birthDate?: string;
-    address: string;
+    firstName?: string; lastName?: string; middleName?: string;
+    passportSerial?: string; passportNumber?: string;
     phone?: string;
+    // TODO(gender-from-portfolio): portfelda (Loan.raw yoki alohida ustun) jinsi bo'lsa o'shandan
+    // olinsin — hozircha ismning odatiy jinsi asosida taxmin qilinadi (aniq emas!).
+    gender?: 'MALE' | 'FEMALE';
+    birthDate?: string;           // YYYY-MM-DD
+    address?: string;
+    districtId?: string; regionId?: string; // javobgarning yashash hududi GUID (topilmagan — null qoladi)
   };
   debt: {
-    principal: number; // asosiy qarz
-    interest: number;  // foiz
-    penalty: number;   // penya
-    total: number;     // jami qarz
+    principal: number; interest: number; penalty: number; fine: number;
+    moralDamage: number; materialDamage: number; lostProfit: number; prepaidExpense: number;
+    total: number;
   };
-  receiptNumber?: string;
-  contractNumber?: string;
-  contractDate?: string;
 }
 
 export class CabinetPayloadBuilder {
-  /**
-   * 1-bosqich: Qoralama (Draft) yaratish payload (portal {} qabul qiladi)
-   */
-  static buildDraft(_courtGuid = CABINET_COURT_IDS.UCHTEPA_CIVIL): CreateDraftPayload {
-    return {} as any;
+  /** Step 2: Qoralama (Draft) yaratish payload — LIVE tasdiqlangan: haqiqatan {} bo'sh. */
+  static buildDraft(): Record<string, never> {
+    return {};
   }
 
-  /**
-   * 2-bosqich: Da'vogar (Firma / MMT) ishtirokchisi payload
-   */
-  static buildClaimant(draftId: string, firm: SourceCaseData['firm']): AddParticipantPayload {
-    const orgDetails: OrganizationEntityData = {
-      name: firm.name,
-      short_name: firm.shortName,
-      tin: firm.stir.replace(/\D/g, ''),
-      director: firm.director,
-      address: firm.address,
-      bank_account: firm.bankAccount,
-      bank_mfo: firm.mfo,
-      phone: firm.phone.replace(/\D/g, ''),
-      org_type: 'LOCAL_ORG',
-    };
-
+  /** Wizard step 1: sud + da'vogar. */
+  static buildCreateApplication(data: SourceCaseData): CreateApplicationInfo {
     return {
-      draft_id: draftId,
-      type: 'CLAIMANT',
-      is_main: true,
-      entity_type: 'ORGANIZATION',
-      entity: {
-        tin: Number(orgDetails.tin) || firm.stir,
-        pinfl: null,
-        not_citizen: false,
-      },
-      entity_details: orgDetails,
+      region: data.regionId || CABINET_REGION_IDS.TOSHKENT_VILOYATI,
+      court: data.courtId || CABINET_COURT_IDS.UCHTEPA_CIVIL,
+      claimant: data.claimantId,
+      small_business: false,
+      claimant_type: 'ORGANIZATION',
+      vcc: null,
+      is_supreme: false,
+      participants: null,
+      representing_org_entity_id: null,
     };
   }
 
   /**
-   * 3-bosqich: Javobgar (Qarzdor) ishtirokchisi payload
+   * Wizard step 2: ish turkumi + da'vo summasi. `categoryCode`/`subCategoryCode` hozircha faqat
+   * bitta variant bilan ishlaydi (mikroqarz undirish, 111/111.2) — boshqa turdagi da'vo kerak
+   * bo'lsa CABINET_CATEGORIES/CABINET_SUB_CATEGORIES'ga yangi GUID qo'shib shu yerga uzating.
    */
-  static buildDefendant(draftId: string, debtor: SourceCaseData['debtor']): AddParticipantPayload {
+  static buildBaseInfo(debt: SourceCaseData['debt']): BaseInfo {
+    const parts: { amount: number | null; amount_type: ClaimAmountPartType }[] = [
+      { amount: debt.principal || null, amount_type: 'DEPT' },
+      { amount: debt.moralDamage || null, amount_type: 'MORAL_DAMAGE' },
+      { amount: debt.materialDamage || null, amount_type: 'MATERIAL_DAMAGE' },
+      { amount: debt.lostProfit || null, amount_type: 'LOST_PROFIT' },
+      { amount: debt.prepaidExpense || null, amount_type: 'PREPAID_EXPENSE' },
+      { amount: debt.penalty || null, amount_type: 'PENALTY' },
+      { amount: debt.fine || null, amount_type: 'FINE' },
+      { amount: debt.interest || null, amount_type: 'PERCENT' },
+    ];
+    return {
+      case_number: null,
+      registry_dt: new Date().toISOString(),
+      claim_categories: [
+        { category_id: CABINET_CATEGORIES.CIVIL_DECREE_WRITTEN_CONTRACT, sub_category_id: CABINET_SUB_CATEGORIES.SMALL_CONSUMER_CREDIT },
+      ],
+      claim_group: null, claim_type: null,
+      utility_account_first: '', utility_account_second: '', utility_account_gas: '',
+      utility_account_hot_water: '', utility_account_cold_water: '',
+      utility_debt_first: 0, utility_debt_second: 0, utility_debt_gas: 0,
+      utility_debt_hot_water: 0, utility_debt_cold_water: 0,
+      collateral_security: false, collateral_type: null, cadastral_number: null,
+      vehicle_state_number: null, vehicle_passport_series_number: null,
+      claim_amounts_with_parts: [{
+        claim_amount: { amount: debt.total.toFixed(2), forfeit: null, currency_id: 'UZS' },
+        claim_amount_parts: parts,
+      }],
+    };
+  }
+
+  /**
+   * Wizard step 3: javobgar (qarzdor). PINFL bo'yicha avto-qidirish (captcha) automatlashtira
+   * olinmadi (2026-09-06, ~6 urinish — bosim network so'rov chiqarmadi). "Men JShShIR ni
+   * bilmayman" (isPinflUnknown:true) — captchasiz, rasmiy qo'lda-kiritish yo'li ishlatiladi;
+   * bizning bazamizda debtor haqida yetarli ma'lumot bor, hukumat registridan qidirish shart emas.
+   */
+  static buildDefendantInfo(debtor: SourceCaseData['debtor']): DefendantInfo {
     const parts = (debtor.fullName || '').trim().split(/\s+/);
-    const lastName = debtor.lastName || parts[0] || 'QARZDOR';
-    const firstName = debtor.firstName || parts[1] || 'SHAXS';
-    const middleName = debtor.middleName || parts.slice(2).join(' ') || undefined;
-
-    const passportSnClean = debtor.passportSn.replace(/\s+/g, '').toUpperCase();
-    const passportSerial = passportSnClean.slice(0, 2);
-    const passportNumber = passportSnClean.slice(2);
-
-    const personDetails: PersonEntityData = {
-      pinfl: debtor.pinfl.replace(/\D/g, ''),
-      first_name: firstName,
-      last_name: lastName,
-      middle_name: middleName,
-      passport_serial: passportSerial,
-      passport_number: passportNumber,
-      birth_date: debtor.birthDate,
-      address: debtor.address,
-      phone: debtor.phone,
-      citizenship: 'UZB_CITIZEN',
-    };
-
     return {
-      draft_id: draftId,
-      type: 'DEFENDANT',
-      is_main: true,
-      entity_type: 'PERSON',
-      entity: {
-        pinfl: Number(personDetails.pinfl) || debtor.pinfl,
-        tin: null,
-        not_citizen: false,
-      },
-      entity_details: personDetails,
-    };
-  }
-
-  /**
-   * 4-bosqich: Da'voni yakuniy saqlash (Save Suit) payload
-   */
-  static buildSaveSuit(
-    draftId: string,
-    courtGuid: string,
-    data: SourceCaseData,
-    uploadedFileIds: string[],
-  ): SaveSuitPayload {
-    const debt = data.debt;
-
-    const claimStatement =
-      `Qarzdor ${data.debtor.fullName} (JShShIR: ${data.debtor.pinfl}) dan ` +
-      `"${data.firm.name}" foydasiga tuzilgan mikroqarz shartnomasi bo'yicha ` +
-      `jami ${debt.total.toLocaleString('uz-UZ')} so'm qarzni (asosiy qarz: ${debt.principal.toLocaleString('uz-UZ')}, ` +
-      `foiz: ${debt.interest.toLocaleString('uz-UZ')}, penya: ${debt.penalty.toLocaleString('uz-UZ')}) ` +
-      `undirish to'g'risida sud buyrug'i chiqarish so'raladi.`;
-
-    return {
-      draft_id: draftId,
-      court_id: courtGuid,
-      category_id: CABINET_CATEGORIES.CIVIL_DECREE_WRITTEN_CONTRACT,
-      claim_type: 'CIVIL',
-      claim_kind: 'DECREE',
-      amount_principal: debt.principal,
-      amount_interest: debt.interest,
-      amount_penalty: debt.penalty,
-      amount_total: debt.total,
-      receipt_number: data.receiptNumber,
-      uploaded_file_ids: uploadedFileIds,
-      claim_statement: claimStatement,
+      claimants: null,
+      defendants: [{
+        entity_type: 'PERSON',
+        first_name: null, last_name: null, middle_name: null, org_name: null, details: null,
+        isPinflUnknown: true,
+        isTinUnknown: null,
+        entity: {
+          first_name: debtor.firstName || parts[1] || 'SHAXS',
+          last_name: debtor.lastName || parts[0] || 'QARZDOR',
+          middle_name: debtor.middleName || parts.slice(2).join(' ') || null,
+          passport_serial: debtor.passportSerial?.toUpperCase() || null,
+          passport_number: debtor.passportNumber || null,
+          phone: debtor.phone || null,
+          citizenship: null,
+          gender: debtor.gender || null,
+          birth_date: debtor.birthDate || null,
+          age: null,
+          district_id: debtor.districtId || null,
+          region_id: debtor.regionId || null,
+          address: debtor.address || null,
+          mailing_postcode: null,
+        },
+        is_main: true,
+      }],
     };
   }
 }

@@ -1,97 +1,100 @@
 // cabinet-api-skeleton/constants.ts
-// cabinet.sud.uz (Adolat e-sud) portali uchun barcha GUID, endpoint va doimiylar ro'yxati.
-// Real tizimdan (categories.json, document-types-list.json, Angular bundle) olingan.
+// cabinet.sud.uz (ADOLAT e-sud) portali uchun endpoint va doimiylar.
+//
+// 2026-09-06 TUZATISH: ilgari bu faylda `participantAdd` va `draftGet` deb nomlangan
+// endpointlar bor edi — ikkovi ham LIVE sinovda 404 ("Cannot POST/GET ...") berdi. Haqiqiy
+// API bitta resursga (`pub-user-draft-cases/{id}`) qayta-qayta PUT qiladigan wizard —
+// alohida participant/get endpoint'lari UMUMAN YO'Q. Quyida faqat LIVE tasdiqlangan
+// endpointlar qoldirilgan; www.
 
 export const CABINET_BASE_URL = 'https://cabinetapi.sud.uz';
 
 export const CABINET_ENDPOINTS = {
-  // Autentifikatsiya va foydalanuvchi
+  // Autentifikatsiya va foydalanuvchi (mavjud, ishlaydi — src/lib/cabinet/oneid.ts / session.ts)
   userGet: '/api/cabinet/user/get',
   validateCode: '/api/validate-code',
 
-  // Qoralama (Draft) bosqichlari
-  draftCreate: '/api/cabinet/pub-user-draft-cases/create',
-  draftUpdate: '/api/cabinet/pub-user-draft-cases/', // + {id}
-  draftGet: '/api/cabinet/pub-user-draft-cases/get/', // + {id}
-  draftList: '/api/cabinet/pub-user-draft-cases/list',
-  draftDelete: '/api/cabinet/pub-user-draft-cases/delete/', // + {id}
+  // Qoralama (Draft) — LIVE TASDIQLANGAN 2026-09-06:
+  draftCreate: '/api/cabinet/pub-user-draft-cases/create',      // POST {}
+  draftUpdate: '/api/cabinet/pub-user-draft-cases/',             // PUT + {id}, body {details:{...}}
+  draftList: '/api/cabinet/pub-user-draft-cases/list',           // GET — barcha draftlar TO'LIQ details bilan
+  draftDelete: '/api/cabinet/pub-user-draft-cases/delete/',      // PUT + {id} (body yo'q)
+  // draftGet — ATAYIN OLIB TASHLANDI: `/get/{id}` 404 beradi. Bitta draftni o'qish kerak
+  // bo'lsa draftList'ni chaqirib natijadan `id` bo'yicha filtrlang.
 
-  // Ishtirokchilar (Da'vogar va Javobgar)
-  participantAdd: '/api/cabinet/pub-user-draft-cases/participant/add',
-  participantUpdate: '/api/cabinet/pub-user-draft-cases/participant/update',
-  participantDelete: '/api/cabinet/pub-user-draft-cases/participant/delete/',
+  // Ma'lumotnomalar (guide/public) — LIVE TASDIQLANGAN:
+  categories: '/api/cabinet/guide/categories',           // GET ?claim_type=CIVIL — asosiy turkumlar
+  subCategories: '/api/cabinet/guide/categories/sub',    // GET ?claim_type=CIVIL — parent_id bilan bog'langan
+  courts: '/api/public/guides/courts',                   // GET ?court_type=CIVIL
+  regions: '/api/public/guides/regions',                 // GET
 
-  // Davlat boji va billing kvitansiya
-  calcDuties: '/api/cabinet/case/calc-duties-by-params',
-  findByReceiptNumber: '/api/cabinet/guide/find-by-receipt-number',
-  dutyReasons: '/api/cabinet/general-manuals/duty-reasons',
+  // Davlat boji kvitansiyasi qidirish — FAQAT haqiqiy davlat-boji-to'lovchi ishlar uchun
+  // (bizning palata/mikroqarz ishlarimiz bojidan OZOD — bu endpointni ULARGA chaqirmang,
+  // "Квитанция топилмади" qaytaradi. types.ts'dagi FindReceiptPayload izohiga qarang).
+  findByReceiptNumber: '/api/cabinet/guide/find-by-receipt-number', // POST {receipt_number}
 
-  // Fayl yuklash (multipart/form-data)
-  fileUpload: '/api/cabinet/case/file/upload',
+  // Fayl yuklash — mavjud, ishlaydi (src/lib/cabinet/api.ts uploadFile bilan bir xil naqsh)
+  fileUpload: '/api/cabinet/case/file/upload',           // POST multipart + header file_type:<GUID>
 
-  // Da'voni yakuniy saqlash (Suit / Material)
-  saveSuit: '/api/cabinet/case/conflict/save-suit',
-  saveMaterial: '/api/cabinet/case/conflict/save-material',
-  saveSuitMaterial: '/api/cabinet/case/conflict/save-suit-material',
-
-  // YAKUNIY YUBORISH (Sudga topshirish)
-  sendToCourt: '/api/cabinet/case/send-to-court/', // + {id} (PUT so'rov)
+  // YAKUNIY YUBORISH — HECH QACHON CHAQIRILMASIN. src/lib/cabinet/api.ts SEND_TO_COURT_PREFIX
+  // guard'i shu prefiksni to'sib turadi.
+  sendToCourt: '/api/cabinet/case/send-to-court/',       // PUT + {id} — QAYTMAS, faqat inson UI'dan
 } as const;
 
 /**
  * cabinet.sud.uz tizimidagi rasmiy HUJJAT TURLARI GUID'lari (`file_type` headeri uchun).
- * Ushbu GUID'lar fayl yuklash paytida `file_type` sarlavhasida yuborilishi SHART!
+ * ESLATMA: bular avvalgi (participant/add kabi noto'g'ri chiqqan) reverse-engineer bosqichidan
+ * qolgan — LIVE qayta tasdiqlanmagan, lekin CABINET_CATEGORIES bilan bir manbadan kelgan va u
+ * mustaqil tekshiruvda 100% to'g'ri chiqdi, shuning uchun yuqori ishonch bilan qoldirildi.
+ * BIRINCHI haqiqiy yuklashda serverning javobini (fileId qaytishi, 400 emasligini) tekshiring.
  */
 export const CABINET_DOC_TYPES = {
-  // 1) Palata muhrlagan Ariza (Sud buyrug'i berish to'g'risida ariza)
-  ARIZA: '2554784d-b231-4dc9-aadf-819429cfeb70', // code: 1001 "Ariza"
-  DAVO_ARIZASI: '1c4b3a7e-3634-4972-8d32-9acc5e782766', // "Даъво аризаси"
-
-  // 2) Qarzdorga yuborilgan rasmiy Talabnoma
-  TALABNOMA: 'eb37ed47-d973-40bd-a9cd-a481add9c1ce', // code: 11 "Talabnoma"
-
-  // 3) Talabnoma yuborilganligini tasdiqlovchi pochta cheki (UZPOST kvitansiya)
-  TALABNOMA_CHECK: 'f264d870-a254-46b6-95cf-525d9e6a6299', // code: 3 "Аризани томонларга юборилганлигини тасдиқловчи маълумотнома"
-
-  // 4) Savdo-sanoat palatasi ishonchnomasi
-  ISHONCHNOMA: 'e55124df-d369-4132-9cd0-635c81ccce3c', // code: 9 "Ишончнома"
-
-  // 5) Tashkilot guvohnomasi
-  GUVOHNOMA: '85f9394d-fe3b-4511-a437-3ff7434a48f8', // code: 12 "Гувоҳнома"
-
-  // 6) Boshqa hujjatlar: Shartnoma, Elektron Oferta, Kredit grafigi
-  BOSHQA_HUJJATLAR: '616ccb56-4b2f-42ed-8522-7b351d2edb5f', // code: 9 "Бошқа ҳужжатлар"
-
-  // 7) To'lov ma'lumotnomalari (Davlat boji yoki pochta xarajati)
-  POCHTA_XARAJATI_KVITANSIYA: '0c94c016-c8d2-4833-9871-46e0d26b28b6', // code: 4
-  DAVLAT_BOJI_KVITANSIYA: '4a8d9b8c-5458-47c9-8d4f-2371bffa430e', // code: 3
+  ARIZA: '2554784d-b231-4dc9-aadf-819429cfeb70',                    // Palata muhrlagan Ariza (signed-ariza skan)
+  DAVO_ARIZASI: '1c4b3a7e-3634-4972-8d32-9acc5e782766',
+  TALABNOMA: 'eb37ed47-d973-40bd-a9cd-a481add9c1ce',
+  TALABNOMA_CHECK: 'f264d870-a254-46b6-95cf-525d9e6a6299',          // TALABNOMA_RECEIPT (xat.hippo UZPOST)
+  ISHONCHNOMA: 'e55124df-d369-4132-9cd0-635c81ccce3c',
+  GUVOHNOMA: '85f9394d-fe3b-4511-a437-3ff7434a48f8',
+  BOSHQA_HUJJATLAR: '616ccb56-4b2f-42ed-8522-7b351d2edb5f',         // Shartnoma, Oferta, Grafik
+  POCHTA_XARAJATI_KVITANSIYA: '0c94c016-c8d2-4833-9871-46e0d26b28b6', // bizning billing.sud.uz kvitansiyasi SHU YERGA (fayl sifatida)
+  DAVLAT_BOJI_KVITANSIYA: '4a8d9b8c-5458-47c9-8d4f-2371bffa430e',    // bizga tegishli emas (dutyexempt)
 } as const;
 
 /**
- * Da'vo toifalari (Categories) GUID'lari:
+ * Da'vo toifalari — LIVE TASDIQLANGAN 2026-09-06 (GET /api/cabinet/guide/categories dan
+ * to'g'ridan-to'g'ri olindi, eski taxminlar bilan AYNAN mos chiqdi):
  */
 export const CABINET_CATEGORIES = {
-  // Sud buyrug'i: yozma bitimga asoslangan va qarzdor tomonidan tan olingan talab
+  // "111 — ёзма битимга асосланган ва қарздор томонидан тан олинган талаб" (yozma bitim,
+  // masalan mikroqarz shartnomasi asosida undirish). duty_for_organization="10.00" (lekin
+  // palata a'zolari uchun bu ariza turi bojisiz — pastroqdagi izohga qarang).
   CIVIL_DECREE_WRITTEN_CONTRACT: '844ba777-f7fa-4a86-a347-8d333d28872d',
-  // Fuqarolik: kredit shartnomasiga doir
-  CIVIL_SUIT_CREDIT_CONTRACT: 'a103afb6-9245-47bb-85c6-c0388411ddf5',
-  // Fuqarolik: qarz undirishga doir
-  CIVIL_SUIT_DEBT_COLLECTION: 'd2042a94-e82d-4511-84e4-4aeca98c6842',
 } as const;
 
 /**
- * Asosiy sudlar identifikatorlari (portal ichidagi court_id GUID'lari):
+ * Sub-kategoriya (ikkilamchi ish turkumi) — parent_id CIVIL_DECREE_WRITTEN_CONTRACT ga teng.
+ * "111.2 — майда ва маиший кредит тўловларини ундириш" — mikroqarz/iste'mol krediti undirish,
+ * bizning MMT (mikromoliya tashkiloti) ishlarimizga aynan mos keladigan sub-kategoriya.
+ */
+export const CABINET_SUB_CATEGORIES = {
+  SMALL_CONSUMER_CREDIT: 'ddb94ed0-d043-4f52-9b80-77f51a76a36a',
+} as const;
+
+/**
+ * Asosiy sudlar identifikatorlari (portal ichidagi court_id GUID'lari) — LIVE TASDIQLANGAN.
  */
 export const CABINET_COURT_IDS = {
-  // Fuqarolik ishlari bo'yicha Uchtepa tumanlararo sudi
   UCHTEPA_CIVIL: 'f494f85e-b130-433d-ba9c-4afb3620f431',
-  // Fuqarolik ishlari bo'yicha Yuqorichirchiq tumanlararo sudi
   YUQORICHIRCHIQ_CIVIL: 'b564e622-83b4-4b55-a50d-40c266ec0fa7',
+} as const;
+
+/** Toshkent viloyati/shahar region GUID — LIVE TASDIQLANGAN (createApplication.region maydoni). */
+export const CABINET_REGION_IDS = {
+  TOSHKENT_VILOYATI: '7b339e6d-1151-d564-001f-bbfa8e5552ab',
 } as const;
 
 /**
  * DB dagi Court yozuvidan cabinet.sud.uz portal GUID'ini aniqlash.
- * Yuqorichirchiq sudi bo'lsa Yuqorichirchiq GUID'ini, aks holda Uchtepa GUID'ini qaytaradi.
  */
 export function resolveCabinetCourtGuid(court?: {
   shortName?: string | null;
@@ -106,3 +109,6 @@ export function resolveCabinetCourtGuid(court?: {
   return CABINET_COURT_IDS.UCHTEPA_CIVIL;
 }
 
+// ⛔ FINAL SUBMIT — irreversible. NEVER call without explicit human intent.
+//   PUT /api/cabinet/case/send-to-court/{id}  body {}
+export const SEND_TO_COURT_PREFIX = CABINET_ENDPOINTS.sendToCourt;
