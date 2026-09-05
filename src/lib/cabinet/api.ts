@@ -4,13 +4,34 @@ import { CABINET, ENDPOINTS, SEND_TO_COURT_PREFIX } from './config';
 import type { CabinetSession } from './oneid';
 
 const TIMEOUT_MS = 30_000;
+
+// cabinetapi.sud.uz is reachable from the production HOST reliably, but only intermittently
+// from the web/worker containers' bridge network (same public IP, different NAT egress path —
+// diagnosed 2026-09-05: host 10/10 connects, container mostly ECONNREFUSED/timeout). When
+// CABINET_PROXY_URL is set (docker-compose wires it to the host-network `cabinet-proxy` sidecar,
+// see docker/cabinet-proxy/), tunnel every cabinet request through it via HTTP CONNECT so it rides
+// the host's reliable egress instead of the container's. Falls back to a direct fetch when unset
+// (local dev, or the proxy sidecar not deployed) — same behavior as before this existed.
+let dispatcher: unknown;
+export function proxyDispatcher(): unknown {
+  const proxyUrl = process.env.CABINET_PROXY_URL;
+  if (!proxyUrl) return undefined;
+  if (!dispatcher) {
+    // Lazy + lazily-imported: undici is only needed when the proxy is actually configured.
+    const { ProxyAgent } = require('undici') as typeof import('undici');
+    dispatcher = new ProxyAgent(proxyUrl);
+  }
+  return dispatcher;
+}
+
 // fetch with a hard timeout — a hung gov endpoint must not stall a pool worker
 // forever (which would deadlock the whole ingest). An abort surfaces as a throw
 // the callers already treat as a failed request.
 async function fetchT(url: string, init: RequestInit): Promise<Response> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-  try { return await fetch(url, { ...init, signal: ctrl.signal }); }
+  const disp = proxyDispatcher();
+  try { return await fetch(url, { ...init, signal: ctrl.signal, ...(disp ? { dispatcher: disp } : {}) } as RequestInit); }
   finally { clearTimeout(t); }
 }
 

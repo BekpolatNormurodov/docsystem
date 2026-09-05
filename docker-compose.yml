@@ -25,6 +25,16 @@ x-app-env: &app-env
     # App -> DB over the compose network (service name `mysql`). Built from the MySQL credentials so
     # there is one source of truth. Keep the password URL-safe (alphanumeric).
     DATABASE_URL: "mysql://${MYSQL_USER:?set MYSQL_USER in .env.production}:${MYSQL_PASSWORD:?set MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:?set MYSQL_DATABASE}"
+    # cabinetapi.sud.uz is unreachable from this bridge network far more often than from the HOST
+    # itself (same public IP, different NAT path — see docker/cabinet-proxy). Route ONLY cabinet.sud.uz
+    # calls (src/lib/cabinet/api.ts) through the host-network cabinet-proxy sidecar via HTTP CONNECT.
+    CABINET_PROXY_URL: "http://host.docker.internal:3128"
+
+# Lets a bridge-networked container reach the host itself — needed to reach the cabinet-proxy
+# sidecar, which runs with network_mode:host precisely so its egress matches the host's reliable path.
+x-cabinet-proxy-host: &cabinet-proxy-host
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
 
 # Shared persistent state. web writes single-case docs / invoices; the worker writes batch ZIPs; both
 # read firm docs & templates. They MUST see the same filesystem, so the same host dirs mount into both.
@@ -83,7 +93,7 @@ services:
       context: .
       dockerfile: Dockerfile
     image: docsystem-web:latest
-    <<: *app-env
+    <<: [*app-env, *cabinet-proxy-host]
     volumes: *app-volumes
     restart: unless-stopped
     logging: *default-logging
@@ -115,7 +125,7 @@ services:
       context: .
       dockerfile: Dockerfile.worker
     image: docsystem-worker:latest
-    <<: *app-env
+    <<: [*app-env, *cabinet-proxy-host]
     volumes: *app-volumes
     restart: unless-stopped
     logging: *default-logging
@@ -139,6 +149,20 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+  # HTTP CONNECT tunnel for cabinet.sud.uz calls only (docker/cabinet-proxy/proxy.js).
+  # network_mode:host gives it the HOST's egress path — reliable to *.sud.uz — unlike
+  # the docsystem_default BRIDGE network (web/worker), which reaches cabinetapi.sud.uz
+  # only intermittently despite sharing the same public IP (see CABINET_PROXY_URL below).
+  cabinet-proxy:
+    build:
+      context: ./docker/cabinet-proxy
+    image: docsystem-cabinet-proxy:latest
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: host
+    environment:
+      PORT: "3128"
 
   nginx:
     image: nginx:1.27-alpine

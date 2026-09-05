@@ -20,6 +20,7 @@ import { Eimzo, resolveKey, syntheticKey, type CertKey } from '../hippo/eimzo';
 import type { ClientCert } from '../hippo/login';
 import { CABINET, ONEID, ENDPOINTS } from './config';
 import { putChallenge, takeChallenge, type CookieDump } from '../eimzo-challenge-store';
+import { proxyDispatcher } from './api';
 
 // tiny per-host cookie jar (Node fetch does not manage cookies)
 class CookieJar {
@@ -66,11 +67,20 @@ export interface CabinetSession {
 // caller's redirect mode: jfetch needs 'manual' to read the 307 token_id; step 6 needs follow.
 const ONEID_TIMEOUT_MS = 30_000;
 
+// *.sud.uz (not id.egov.uz/sso.egov.uz — those already reach fine) is intermittently
+// unreachable from this container's bridge network; tunnel just those calls through the
+// host-network cabinet-proxy sidecar. See src/lib/cabinet/api.ts for the full rationale.
+function dispatcherFor(url: string): unknown {
+  try { return /(^|\.)sud\.uz$/i.test(new URL(url).hostname) ? proxyDispatcher() : undefined; }
+  catch { return undefined; }
+}
+
 async function fetchT(url: string, init: RequestInit = {}): Promise<Response> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ONEID_TIMEOUT_MS);
+  const disp = dispatcherFor(url);
   try {
-    return await fetch(url, { ...init, signal: ctrl.signal });
+    return await fetch(url, { ...init, signal: ctrl.signal, ...(disp ? { dispatcher: disp } : {}) } as RequestInit);
   } catch (e) {
     const host = (() => { try { return new URL(url).host; } catch { return url; } })();
     if ((e as { name?: string })?.name === 'AbortError') throw new Error(`${host} javob bermadi (${ONEID_TIMEOUT_MS / 1000}s timeout)`);
