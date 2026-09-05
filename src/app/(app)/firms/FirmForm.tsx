@@ -1,8 +1,8 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
-import type { Firm } from '@prisma/client';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import type { Firm, FirmDocKind } from '@prisma/client';
 import { Modal, TextField, Select, RowAction, Ico } from '@/ui';
 import { BILLING_REGIONS, BILLING_VILOYATS } from '@/core/billing-regions-data';
 
@@ -138,6 +138,105 @@ function FirmForm({ firm, onClose }: { firm: Firm; onClose: () => void }) {
         <TextField label="Telefon" value={fields.phone} onChange={set('phone')} />
       </div>
       {error && <p className="mt-3 text-sm text-rose-600 dark:text-rose-300">{error}</p>}
+
+      <FirmDocs firmId={firm.id} />
     </Modal>
+  );
+}
+
+// Sanoat palatasi hujjatlari — har firma uchun bittadan (guvohnoma/ishonchnoma/shartnoma).
+// Bular sud paketiga qo'shiladi. Backend: /konveyer/firm-doc (GET/POST/DELETE, admin).
+const DOC_KINDS: { kind: FirmDocKind; label: string }[] = [
+  { kind: 'GUVOHNOMA', label: 'Guvohnoma' },
+  { kind: 'ISHONCHNOMA', label: 'Ishonchnoma' },
+  { kind: 'SHARTNOMA', label: 'Shartnoma' },
+];
+
+function FirmDocs({ firmId }: { firmId: number }) {
+  const [docs, setDocs] = useState<Record<string, { id: number; label: string | null }>>({});
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const inputs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`/konveyer/firm-doc?firmId=${firmId}`, { cache: 'no-store' });
+      const d = await r.json();
+      const map: Record<string, { id: number; label: string | null }> = {};
+      for (const x of (d.docs ?? []) as { id: number; kind: string; label: string | null }[]) map[x.kind] = { id: x.id, label: x.label };
+      setDocs(map);
+    } catch { setErr('Hujjatlarni yuklab boʻlmadi'); }
+    finally { setLoading(false); }
+  }, [firmId]);
+  useEffect(() => { load(); }, [load]);
+
+  async function upload(kind: string, file: File) {
+    setBusy(kind); setErr(null);
+    try {
+      const fd = new FormData();
+      fd.append('firmId', String(firmId));
+      fd.append('kind', kind);
+      fd.append('file', file);
+      const r = await fetch('/konveyer/firm-doc', { method: 'POST', body: fd });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j?.error || 'Yuklab boʻlmadi'); }
+      await load();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Xato'); }
+    finally { setBusy(null); }
+  }
+
+  async function remove(kind: string, id: number) {
+    setBusy(kind); setErr(null);
+    try {
+      const r = await fetch(`/konveyer/firm-doc?id=${id}`, { method: 'DELETE' });
+      if (!r.ok) throw new Error();
+      await load();
+    } catch { setErr('Oʻchirib boʻlmadi'); }
+    finally { setBusy(null); }
+  }
+
+  return (
+    <div className="mt-5 border-t border-line pt-4">
+      <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+        <Ico.files size={16} /> Hujjatlar <span className="text-xs font-normal text-muted">(sud paketiga qoʻshiladi)</span>
+      </div>
+      {err && <p className="mb-2 text-xs text-rose-600 dark:text-rose-300">{err}</p>}
+      <div className="space-y-1.5">
+        {DOC_KINDS.map(({ kind, label }) => {
+          const doc = docs[kind];
+          const isBusy = busy === kind;
+          return (
+            <div key={kind} className="flex items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2">
+              <span className="w-28 shrink-0 text-[13px] font-medium">{label}</span>
+              {loading ? (
+                <span className="text-xs text-muted">…</span>
+              ) : doc ? (
+                <>
+                  <a href={`/konveyer/firm-doc?download=${doc.id}`} className="min-w-0 flex-1 truncate text-[12px] text-brand-600 hover:underline dark:text-brand-400" title={doc.label ?? label}>
+                    {doc.label ?? label}
+                  </a>
+                  <button type="button" disabled={isBusy} onClick={() => inputs.current[kind]?.click()} className="btn-ghost px-2 py-1 text-[11px]">Almashtirish</button>
+                  <button type="button" disabled={isBusy} onClick={() => remove(kind, doc.id)} className="px-2 py-1 text-[11px] font-medium text-rose-600 hover:underline dark:text-rose-300">{isBusy ? '…' : 'Oʻchirish'}</button>
+                </>
+              ) : (
+                <>
+                  <span className="min-w-0 flex-1 text-[12px] text-muted">yuklanmagan</span>
+                  <button type="button" disabled={isBusy} onClick={() => inputs.current[kind]?.click()} className="btn-primary px-2.5 py-1 text-[11px]">{isBusy ? 'Yuklanmoqda…' : 'Yuklash'}</button>
+                </>
+              )}
+              <input
+                ref={(el) => { inputs.current[kind] = el; }}
+                type="file"
+                accept=".pdf,.docx,.png,.jpg,.jpeg"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(kind, f); e.target.value = ''; }}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-[11px] text-muted">Har firma uchun bittadan (yangi yuklama eskisini almashtiradi). PDF/DOCX/rasm, ≤25MB.</p>
+    </div>
   );
 }
