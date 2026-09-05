@@ -16,6 +16,11 @@ export function normName(s: string): string {
     // else Ў Қ Ғ Ҳ Ҷ Ё (outside А-Я) are deleted, collapsing ҒАНИЕВ→АНИЕВ and
     // false-matching a different АНИЕВ (→ wrong client's PINFL on a court case).
     .replace(/Ў/g, 'У').replace(/Қ/g, 'К').replace(/Ғ/g, 'Г').replace(/Ҳ/g, 'Х').replace(/Ҷ/g, 'Ч').replace(/Ё/g, 'Е')
+    // Э↔Е: so'z boshidagi /e/ tovushi ismlarda ham Э (ЭРГАШЕВ), ham Е (ЕРГАШЕВ) yoziladi;
+    // latinToCyrillic doim Е-shakl beradi, shuning uchun ikkalasini Е ga keltiramiz (aks holda
+    // qo'lda yozilgan hippo reyestrlari (ЭРГАШЕВ) UNMATCHED bo'lib, kvitansiya biriktirilmaydi).
+    // Ъ/Ь (tutuq/yumshoqlik belgilari) — latinToCyrillic ularni bermaydi, shuning uchun tashlaymiz.
+    .replace(/Э/g, 'Е').replace(/[ЪЬ]/g, '')
     .replace(/[^A-ZА-Я ]/g, '').replace(/\s+/g, ' ').trim();
 }
 
