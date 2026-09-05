@@ -46,16 +46,10 @@ export interface SourceCaseData {
 
 export class CabinetPayloadBuilder {
   /**
-   * 1-bosqich: Qoralama (Draft) yaratish payload
+   * 1-bosqich: Qoralama (Draft) yaratish payload (portal {} qabul qiladi)
    */
-  static buildDraft(courtGuid = CABINET_COURT_IDS.UCHTEPA_CIVIL): CreateDraftPayload {
-    return {
-      instance: 'FIRST',
-      claim_type: 'CIVIL',
-      claim_kind: 'DECREE', // Sud buyrug'i (yozma bitimga asoslangan talab)
-      court_id: courtGuid,
-      categories: [CABINET_CATEGORIES.CIVIL_DECREE_WRITTEN_CONTRACT],
-    };
+  static buildDraft(_courtGuid = CABINET_COURT_IDS.UCHTEPA_CIVIL): CreateDraftPayload {
+    return {} as any;
   }
 
   /**

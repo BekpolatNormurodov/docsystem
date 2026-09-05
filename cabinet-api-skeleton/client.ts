@@ -129,6 +129,9 @@ export class CabinetApiClient {
         headers: {
           'X-AUTH-TOKEN': this.session.token,
           'file_type': fileTypeGuid, // Majburiy fayl turi GUID'i
+          'file_name': encodeURIComponent(fileName),
+          'file_size': String(fileBuffer.length),
+          'mime_type': 'application/pdf',
         },
         body: fd as any,
         signal: controller.signal,
