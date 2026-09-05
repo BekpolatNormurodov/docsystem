@@ -151,12 +151,17 @@ export class CabinetSubmitEngine {
         uploadedFiles,
       };
     } catch (error: any) {
-      console.error('❌ Sudga kiritishda xatolik:', error.message);
+      const cause = error?.cause;
+      const causeStr = cause?.message || cause?.code || (typeof cause === 'object' ? JSON.stringify(cause) : String(cause || ''));
+      console.error('❌ Sudga kiritishda xatolik:', error.message, causeStr ? `(Sabab: ${causeStr})` : '');
+      if (cause?.stack) {
+        console.error('   Cause stack:', cause.stack);
+      }
       return {
         ok: false,
         step: 'FAILED',
         draftId,
-        error: error.message,
+        error: `${error.message} ${causeStr ? '(' + causeStr + ')' : ''}`.trim(),
       };
     }
   }
