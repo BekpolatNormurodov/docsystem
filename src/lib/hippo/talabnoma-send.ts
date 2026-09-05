@@ -205,10 +205,14 @@ export async function sendTalabnomaToHippo(opts: SendTalabnomaOpts): Promise<Sen
   // flow. Try the sensible variants in order and keep the FIRST that succeeds. A firm that works
   // (Urban) succeeds on attempt 0, so nothing changes for it.
   const ok = (r: { ok: boolean; json: any }) => r.ok && !(r.json && typeof r.json === 'object' && Number((r.json as any).code) >= 400);
+  // Tartib: avval IKKALA «+branch» (internal, external) — chunki «no-branch» varianti org branch
+  // talab qilsa «Both OrganizationId and BranchId are mandatory» berib, external+branch'ni sinashga
+  // yo'l qo'ymay to'xtatib qo'yardi (Bright: internal+branch «Invalid targeting», keyin noBranch
+  // «mandatory» → external+branch UMUMAN sinalmasdi). Endi external+branch 2-navbatda.
   const attempts: { label: string; run: () => Promise<{ ok: boolean; status: number; json: any }> }[] = [
     { label: 'internal+branch', run: () => createRegistryInternal(session, { ...base, branchId: ctx.branchId }) },
-    { label: 'internal-noBranch', run: () => createRegistryInternal(session, { ...base, branchId: null }) },
     { label: 'external+branch', run: () => createRegistryExternal(session, { ...base, branchId: ctx.branchId }) },
+    { label: 'internal-noBranch', run: () => createRegistryInternal(session, { ...base, branchId: null }) },
     { label: 'external-noBranch', run: () => createRegistryExternal(session, { ...base, branchId: null }) },
   ];
   let res: { ok: boolean; status: number; json: any } = { ok: false, status: 0, json: null };
@@ -222,8 +226,11 @@ export async function sendTalabnomaToHippo(opts: SendTalabnomaOpts): Promise<Sen
       if (ok(res)) { if (i > 0) console.warn('[hippo send] succeeded on variant «%s»', attempts[i].label); break; }
       const err = res.json && typeof res.json === 'object' ? String((res.json as any).error ?? (res.json as any).message ?? '') : String(res.json ?? '');
       if (/invalid targeting/i.test(err)) sawInvalidTargeting = true;
-      // Only keep trying while it's the targeting error; a different error (balance, validation) stops here.
-      if (!/invalid targeting/i.test(err)) break;
+      // Targeting/branch config errors → keep trying the other variants; a genuinely different error
+      // (balance, data validation) stops here. «...mandatory» = no-branch variant rad etdi — bu ham
+      // targeting/config mismatch, shuning uchun external+branch'ga o'tishga to'sqinlik qilmasin.
+      const targetingErr = /invalid targeting|mandatory|branch/i.test(err);
+      if (!targetingErr) break;
       if (i < attempts.length - 1) console.warn('[hippo send] variant «%s» → «%s», trying next', attempts[i].label, err);
     }
   } catch {
