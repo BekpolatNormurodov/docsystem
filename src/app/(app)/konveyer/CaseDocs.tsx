@@ -139,6 +139,8 @@ function CourtReadyBar({ flags }: { flags: CourtFlags }) {
 export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, onChange, courtFlags }: { caseId: number; firmId: number; stage: string; receiptNumber: string | null; talabnomaSent: boolean; onChange?: () => void; courtFlags?: CourtFlags }) {
   const [docs, setDocs] = useState<UpDoc[]>([]);
   const [contracts, setContracts] = useState(0); // shartnoma soni → «Oferta (N)»
+  const [ofertaLoans, setOfertaLoans] = useState<{ ldId: string | null; account: string | null; summKr: string | null; dateToCr: string | null }[]>([]);
+  const [ofertaOpen, setOfertaOpen] = useState(false); // «Oferta (N)» ro'yxatini ochish
   const [ofertaMade, setOfertaMade] = useState(false); // oferta yaratilganmi → slot «bor» bo'ladi
   const [firmLib, setFirmLib] = useState<{ id: number; kind: string }[]>([]);
   const [busyKind, setBusyKind] = useState<string | null>(null);
@@ -162,6 +164,7 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, 
       if (token !== reqRef.current) return;
       setDocs(data.docs ?? []);
       setContracts(data.contracts ?? 0);
+      setOfertaLoans(Array.isArray(data.ofertaLoans) ? data.ofertaLoans : []);
       setOfertaMade(!!data.ofertaMade);
       setLoadErr(false);
     } catch { if (token === reqRef.current) setLoadErr(true); }
@@ -411,6 +414,50 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, 
                 );
               })}
             </div>
+
+            {/* «Oferta (N)» — shartnomalar ro'yxati + to'liq kredit summalari + ZIP yuklab olish. */}
+            {items.some((s) => s.kind === 'OFERTA') && ofertaLoans.length > 0 && (() => {
+              const total = ofertaLoans.reduce((a, l) => a + (Number(l.summKr) || 0), 0);
+              const fmtSum = (v: number) => v.toLocaleString('ru-RU', { maximumFractionDigits: 0 });
+              const dmy = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('ru-RU') : '—');
+              return (
+                <div className="rounded-xl border border-line bg-surface">
+                  <button type="button" onClick={() => setOfertaOpen((v) => !v)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] font-medium">
+                    <svg className={`h-3.5 w-3.5 shrink-0 text-muted transition-transform ${ofertaOpen ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
+                    <span>Oferta shartnomalari — <b className="tabular-nums">{ofertaLoans.length}</b> ta</span>
+                    <span className="ml-auto tabular-nums text-muted">jami <b className="text-fg">{fmtSum(total)}</b> soʻm</span>
+                  </button>
+                  {ofertaOpen && (
+                    <div className="border-t border-line/60 px-3 py-2">
+                      <div className="max-h-56 overflow-y-auto">
+                        <table className="w-full text-[11px]">
+                          <thead className="text-left text-muted">
+                            <tr><th className="py-1 pr-2 font-medium">#</th><th className="py-1 pr-2 font-medium">Shartnoma / hisob</th><th className="py-1 pr-2 font-medium">Sana</th><th className="py-1 text-right font-medium">Kredit summasi</th></tr>
+                          </thead>
+                          <tbody>
+                            {ofertaLoans.map((l, i) => (
+                              <tr key={i} className="border-t border-line/50">
+                                <td className="py-1 pr-2 tabular-nums text-muted">{i + 1}</td>
+                                <td className="py-1 pr-2 font-mono">{l.ldId || l.account || '—'}</td>
+                                <td className="py-1 pr-2 tabular-nums text-muted">{dmy(l.dateToCr)}</td>
+                                <td className="py-1 text-right font-semibold tabular-nums">{l.summKr != null ? fmtSum(Number(l.summKr)) : '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr className="border-t border-line"><td colSpan={3} className="py-1.5 pr-2 font-medium">Jami</td><td className="py-1.5 text-right font-bold tabular-nums">{fmtSum(total)} soʻm</td></tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                      <button onClick={() => genRow('OFERTA', `/konveyer/gen-oferta?caseId=${caseId}`)} disabled={dlBusy === 'OFERTA'} className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-[11px] font-medium text-brand-600 outline-none transition-colors hover:border-brand-500/40 hover:bg-brand-500/[0.06] disabled:opacity-50 dark:text-brand-400">
+                        {dlBusy === 'OFERTA' ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <DownIcon />}
+                        {ofertaLoans.length} ta ofertani ZIP qilib yuklab olish
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </section>
         );
       })}

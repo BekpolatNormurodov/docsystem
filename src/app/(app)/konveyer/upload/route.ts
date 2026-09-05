@@ -27,15 +27,19 @@ export async function GET(req: NextRequest) {
     }),
     prisma.arizaCase.findUnique({ where: { id: caseId }, select: { pinfl: true, snapshotId: true, kod: true, ofertaAt: true } }),
   ]);
-  // Ofertalar soni = summasi > 0 bo'lgan shartnomalar (buildCaseOfertas ham shu loanlarni oladi).
-  let contracts = 0;
+  // Ofertalar = summasi > 0 bo'lgan shartnomalar (buildCaseOfertas ham shu loanlarni oladi).
+  // Ro'yxatni ham qaytaramiz — modalda «Oferta (N)»ni ochib, har shartnoma summasini ko'rsatish uchun.
+  let ofertaLoans: { ldId: string | null; account: string | null; summKr: string | null; dateToCr: string | null }[] = [];
   if (ac?.pinfl && ac.snapshotId) {
-    contracts = await prisma.loan.count({
+    const loans = await prisma.loan.findMany({
       where: { snapshotId: ac.snapshotId, pinfl: ac.pinfl, ...(ac.kod ? { branchCode: ac.kod } : {}), summKr: { gt: 0 } },
+      select: { ldId: true, account: true, summKr: true, dateToCr: true },
+      orderBy: { dateToCr: 'asc' },
     });
+    ofertaLoans = loans.map((l) => ({ ldId: l.ldId, account: l.account, summKr: l.summKr != null ? String(l.summKr) : null, dateToCr: l.dateToCr ? l.dateToCr.toISOString() : null }));
   }
   // ofertaMade → the doc card shows «Oferta: bor» once the oferta(s) were generated (bulk or per-card).
-  return NextResponse.json({ docs, contracts, ofertaMade: !!ac?.ofertaAt });
+  return NextResponse.json({ docs, contracts: ofertaLoans.length, ofertaLoans, ofertaMade: !!ac?.ofertaAt });
 }
 
 // POST multipart (caseId, kind, file) — store the file and record it.
