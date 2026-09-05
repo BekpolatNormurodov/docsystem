@@ -7,7 +7,7 @@ import { CaseDocs } from './CaseDocs';
 import { KeyPicker } from './KeyPicker';
 
 // ── types (mirror src/lib/court-ready.ts) ────────────────────────────────────
-interface Missing { talabnoma: number; scan: number; oferta: number; boji: number }
+interface Missing { talabnoma: number; scan: number; oferta: number; receipt: number; boji: number }
 interface FirmDocsStatus { complete: boolean; missing: string[]; present: string[] }
 interface FirmReadiness { firmId: number; firmName: string; total: number; ready: number; exported: number; draft: number; sendable: number; missing: Missing; almost: Missing; docs: FirmDocsStatus }
 // Sud paketiga qo'shiladigan firma hujjatlari — 3 tasi ham kerak.
@@ -145,11 +145,13 @@ const AVATAR = [
 const avatarColor = (seed: string) => AVATAR[[...(seed || '0')].reduce((a, ch) => a + ch.charCodeAt(0), 0) % AVATAR.length];
 const initials = (name: string | null) => (name || '—').trim().split(/\s+/).slice(0, 2).map((w) => w[0] || '').join('').toUpperCase() || '—';
 
-// «1 qadam qolgan» — cases missing EXACTLY one gate doc, boji first (the usual bottleneck). Shows the
-// operator exactly who is one document from court so the near-ready clients get finished first.
-// boji is NOT a court-gate doc, so it never appears here — the gate is talabnoma + skan + oferta.
+// «1 qadam qolgan» — gate'ning 5 shartidan AYNAN bittasi yetishmagan case'lar (talabnoma/skan/
+// oferta/check/boji), qaysi biri yetmasligiga qarab ajratilgan. Operatorga kim bitta hujjatdan
+// sudga chiqishini ko'rsatadi. Beshovi ham majburiy gate — hammasi bu yerda paydo bo'lishi mumkin.
 const ALMOST_DOCS: { key: keyof Missing; label: string; tone: string }[] = [
   { key: 'scan', label: 'skan', tone: 'bg-sky-500/12 text-sky-700 dark:text-sky-300' },
+  { key: 'receipt', label: 'check', tone: 'bg-teal-500/12 text-teal-700 dark:text-teal-300' },
+  { key: 'boji', label: 'invoice raqami', tone: 'bg-amber-500/12 text-amber-700 dark:text-amber-300' },
   { key: 'oferta', label: 'oferta', tone: 'bg-violet-500/12 text-violet-700 dark:text-violet-300' },
   { key: 'talabnoma', label: 'talabnoma', tone: 'bg-rose-500/12 text-rose-700 dark:text-rose-300' },
 ];
@@ -275,7 +277,7 @@ const ClientRowCard = React.memo(function ClientRowCard({ r, firmId, selectable,
           </div>
         </div>
         {/* Sud uchun 4 ta shart (talabnoma·check·skan·oferta), so'ng ajratilgan «boji» — ma'lumot uchun. */}
-        <div className="flex shrink-0 items-center gap-1.5" title="Sud sharti: Talabnoma · Check (kvitansiya) · Skan · Oferta   |   Boji — ma'lumot uchun (shart emas)">
+        <div className="flex shrink-0 items-center gap-1.5" title="Sud sharti (5 tasi ham MAJBURIY): Talabnoma · Check (kvitansiya) · Skan · Oferta · Boji (invoice raqami)">
           <DocTile ok={r.talabnoma} label="Talabnoma" />
           {/* Check = talabnoma UZPOST kvitansiyasi biriktirilgan (MAJBURIY). Yonida hippo-delivered ko'rsatkichi. */}
           <DocTile ok={r.receipt} label="Check" />
@@ -286,8 +288,8 @@ const ClientRowCard = React.memo(function ClientRowCard({ r, firmId, selectable,
           )}
           <DocTile ok={r.scan} label="Skan" />
           <DocTile ok={r.oferta} label="Oferta" />
-          <span className="mx-0.5 h-4 w-px bg-line" aria-hidden />
-          <DocTile ok={r.boji} label="Boji" optional />
+          {/* Boji = invoice RAQAMI (receiptNumber) bor — endi MAJBURIY (raqam ariza ichiga yoziladi). */}
+          <DocTile ok={r.boji} label="Boji" />
         </div>
         <span className="hidden w-24 shrink-0 text-right text-sm font-semibold tabular-nums sm:block">{sum(r.totalDebt)}</span>
         {/* «Bekor» — qatorning o'zida (modalga kirmasdan): yuborilgan/qoralama → «Tayyor»ga qaytaradi. */}
@@ -331,7 +333,7 @@ const ClientRowCard = React.memo(function ClientRowCard({ r, firmId, selectable,
           </>
         }
       >
-        <CaseDocs caseId={r.caseId} firmId={firmId} stage={r.stage} receiptNumber={r.receiptNumber} talabnomaSent={r.talabnoma} onChange={onChanged} courtFlags={{ talabnoma: r.talabnoma, scan: r.scan, oferta: r.oferta, boji: r.boji }} />
+        <CaseDocs caseId={r.caseId} firmId={firmId} stage={r.stage} receiptNumber={r.receiptNumber} talabnomaSent={r.talabnoma} onChange={onChanged} courtFlags={{ talabnoma: r.talabnoma, scan: r.scan, oferta: r.oferta, receipt: r.receipt, boji: r.boji }} />
       </Modal>
     </div>
   );
@@ -872,19 +874,19 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                 </div>
                 <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-4">
                   <Stat label="Jami" value={ov!.total} icon={statIcon('all')} hint="Tanlangan firma/snapshot bo'yicha" />
-                  <Stat label="Tayyor" value={ov!.sendable} tone="emerald" icon={statIcon('sendable')} hint="Talabnoma + skan + oferta bor, hali yuborilmagan — shu tab'dan yuboriladi" />
+                  <Stat label="Tayyor" value={ov!.sendable} tone="emerald" icon={statIcon('sendable')} hint="Talabnoma + skan + oferta + check + boji (invoice raqami) bor, hali yuborilmagan — shu tab'dan yuboriladi" />
                   <Stat label="Qoralama" value={ov!.draft} tone="violet" icon={statIcon('draft')} hint="Sinab ko'rilgan (hali haqiqiy yuborilmagan)" />
                   <Stat label="Yuborilgan" value={ov!.exported} tone="sky" icon={statIcon('exported')} hint="Haqiqiy sudga chiqarilgan" />
                 </div>
               </div>
-              {(ov!.almost.scan + ov!.almost.oferta + ov!.almost.talabnoma) > 0 && (
+              {(ov!.almost.scan + ov!.almost.oferta + ov!.almost.talabnoma + ov!.almost.receipt + ov!.almost.boji) > 0 && (
                 <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] px-3 py-2.5">
                   <AlmostLine almost={ov!.almost} />
-                  <div className="mt-1 text-[11px] text-muted">Bittagina hujjat yetmaydi — o'shani to'ldirsangiz darhol sudga chiqadi. Sud uchun 3 ta shart: talabnoma + imzolangan skan + oferta (boji shart emas — kvitansiya raqami ariza ichida ketadi). Odatda «faqat skan» eng katta guruh: palatadan imzolangan arizani biriktiring.</div>
+                  <div className="mt-1 text-[11px] text-muted">Bittagina hujjat yetmaydi — o'shani to'ldirsangiz darhol sudga chiqadi. Sud uchun 5 ta shart (hammasi majburiy): talabnoma + imzolangan skan + oferta + check (UZPOST kvitansiya) + boji (invoice raqami). Invoice PDF sudga ketmaydi, lekin raqami ariza ichida ketadi. Odatda «faqat skan» yoki «faqat check» eng katta guruh.</div>
                 </div>
               )}
               <div className="rounded-lg border border-line bg-surface-2/30 px-3 py-2 text-[11px] leading-relaxed text-muted">
-                Faqat <b className="font-medium text-fg">to'liq tayyor</b> (talabnoma, imzolangan skan, oferta, davlat boji) mijozlar sudga yuboriladi. Har firma <b className="font-medium text-fg">alohida</b>, bir martada <b className="font-medium text-fg">max 100 ta</b>. Grafik qo'shilmaydi. «Batafsil» — kim tayyor, kimda nima yetishmayotganini ko'rish, hujjat biriktirish.
+                Faqat <b className="font-medium text-fg">to'liq tayyor</b> (talabnoma, imzolangan skan, oferta, check/kvitansiya, boji — invoice raqami) mijozlar sudga yuboriladi. Har firma <b className="font-medium text-fg">alohida</b>, bir martada <b className="font-medium text-fg">max 100 ta</b>. Grafik qo'shilmaydi. «Batafsil» — kim tayyor, kimda nima yetishmayotganini ko'rish, hujjat biriktirish.
               </div>
               <div className="space-y-2">
                 {data.readiness.firms.length === 0

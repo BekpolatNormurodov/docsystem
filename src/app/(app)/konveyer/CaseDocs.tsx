@@ -100,14 +100,15 @@ const GROUP_META: Record<string, { label: string; accent: string; icon: React.JS
 // Shown at the top of the fill-modal so an operator filling a not-ready client sees at a
 // glance exactly what still blocks THIS client — driven by the SAME flags the parent
 // «Navbatda / Tayyor emas» chip uses, so the two can never disagree.
-export interface CourtFlags { talabnoma: boolean; scan: boolean; oferta: boolean; boji: boolean }
-// Invoice/«davlat boji» is intentionally NOT here — the state-fee invoice does not go to
-// court (its number rides inside the ariza; the ariza stays bojisiz), so it is not a
-// court-required document. The 3 docs a case must have to be filed:
+export interface CourtFlags { talabnoma: boolean; scan: boolean; oferta: boolean; receipt: boolean; boji: boolean }
+// Sud gate — 5 shart, hammasi MAJBURIY. Invoice/kvitansiya PDF'i sudga KETMAYDI (ariza bojisiz),
+// LEKIN uning RAQAMI (boji) ariza ichiga yoziladi — raqamsiz ariza chala, shuning uchun boji ham gate.
 const COURT_DOCS: { key: keyof CourtFlags; label: string }[] = [
   { key: 'talabnoma', label: 'Talabnoma' },
   { key: 'scan', label: 'Skan (palata)' },
   { key: 'oferta', label: 'Oferta' },
+  { key: 'receipt', label: 'Check (kvitansiya)' },
+  { key: 'boji', label: 'Boji (invoice raqami)' },
 ];
 const MiniCheck = () => <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round"><path d="m20 6-11 11-5-5" /></svg>;
 const MiniDash = () => <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round"><path d="M6 12h12" /></svg>;

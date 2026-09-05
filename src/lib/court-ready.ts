@@ -1,10 +1,12 @@
 // «Sudga yuborish» tayyorlik + real status hisoboti. Bir mijoz (case) sudga
-// CHIQARILISHI uchun 3 hujjat SHART (grafik va invoice/boji SHART EMAS):
+// CHIQARILISHI uchun 5 SHART (grafik SHART EMAS):
 //   1) Talabnoma yuborilgan  (talabnomaAt)
 //   2) Palatadan imzolangan skan SHU case'ga biriktirilgan (CaseDocument SIGNED_ARIZA)
 //   3) Oferta — har shartnomaga  (firma portfelida summKr>0 loan bor)
-// Invoice/kvitansiya (receiptNumber) — `boji` flag sifatida faqat ma'lumot uchun
-// hisoblanadi, sudga KETMAYDI (raqami ariza ichida boradi, ariza bojisiz).
+//   4) Talabnoma «check» — UZPOST kvitansiyasi SHU case'ga biriktirilgan (CaseDocument TALABNOMA_RECEIPT)
+//   5) Invoice RAQAMI bor (receiptNumber) — raqam ariza ichiga yoziladi (`boji`)
+// Invoice/kvitansiya PDF'i sudga KETMAYDI (ariza bojisiz), LEKIN raqami (receiptNumber)
+// bo'lmasa ariza chala — shu sabab `boji` endi MAJBURIY gate (foydalanuvchi qarori).
 // Bu modul faqat DB o'qiydi — chiqarilgan-yo'qligini ArizaCase.meta.exportedAt
 // da saqlaymiz (schema o'zgarmasdan, db push kerak emas).
 import { prisma } from './db';
@@ -54,10 +56,10 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
   // CHECK = talabnoma UZPOST kvitansiyasi SHU case'ga biriktirilgan (CaseDocument
   // TALABNOMA_RECEIPT). MAJBURIY (foydalanuvchi qarori): check'siz sudga chala ketmasin.
   const receipt = receiptCaseIds.has(c.id);
-  // `boji` (invoice minted) is kept for info/UI only — it is NOT a court-readiness
-  // requirement: the invoice/kvitansiya does not go to court (its number rides inside the ariza).
+  // `boji` = invoice RAQAMI (receiptNumber) bor. Invoice PDF sudga ketmaydi, ammo raqami
+  // ariza ichiga yoziladi — raqamsiz ariza chala, shuning uchun `boji` MAJBURIY gate.
   const boji = !!c.receiptNumber;
-  const ready = talabnoma && scan && oferta && receipt;
+  const ready = talabnoma && scan && oferta && receipt && boji;
   const exported = isExported(c.meta);
   const draft = !exported && isDraftMeta(c.meta); // qoralama-sinov qilingan, hali haqiqiy yuborilmagan
   // «Tayyor» = ready, hali qoralamaga ham, yuborishga ham chiqmagan, bosqichi sudda emas.
@@ -104,7 +106,7 @@ async function ofertaPinflSet(snapshotId: number | undefined, firmCode: string |
 // «almost» = cases missing EXACTLY ONE of the 4 gate docs, split by which one — i.e. one step from
 // court-ready. The court/boji panels highlight these so the operator finishes the near-ready clients
 // first (e.g. «N mijoz faqat boji yetmaydi»).
-export interface DocQuad { talabnoma: number; scan: number; oferta: number; boji: number }
+export interface DocQuad { talabnoma: number; scan: number; oferta: number; receipt: number; boji: number }
 // Firma sud paketiga qo'shiladigan Sanoat-palatasi hujjatlari — 3 tasi ham MAJBURIY.
 // Biror yetishmasa firma sudga yubora olmaydi (paket chala ketmasin).
 export const FIRM_REQUIRED_DOCS = ['GUVOHNOMA', 'ISHONCHNOMA', 'SHARTNOMA'] as const;
@@ -163,8 +165,8 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
     const fr: FirmReadiness = {
       firmId: f.id, firmName: f.shortName, total: cases.length,
       ready: 0, exported: 0, draft: 0, sendable: 0,
-      missing: { talabnoma: 0, scan: 0, oferta: 0, boji: 0 },
-      almost: { talabnoma: 0, scan: 0, oferta: 0, boji: 0 },
+      missing: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 },
+      almost: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 },
       docs: firmDocsStatus(f.id),
     };
     for (const c of cases as CaseRow[]) {
@@ -176,15 +178,17 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
       if (!fl.talabnoma) fr.missing.talabnoma++;
       if (!fl.scan) fr.missing.scan++;
       if (!fl.oferta) fr.missing.oferta++;
+      if (!fl.receipt) fr.missing.receipt++;
       if (!fl.boji) fr.missing.boji++;
-      // «1 qadam qolgan» — exactly one of the THREE court-gate docs missing (talabnoma/scan/oferta).
-      // boji is NOT a gate doc (see flagsFor), so a case missing only boji is already court-ready and
-      // must not be counted here.
-      const gaps = (fl.talabnoma ? 0 : 1) + (fl.scan ? 0 : 1) + (fl.oferta ? 0 : 1);
+      // «1 qadam qolgan» — gate'ning 5 shartidan AYNAN bittasi yetishmaydi (talabnoma/skan/
+      // oferta/check/boji). Barchasi endi majburiy gate, shuning uchun beshovi ham hisobga olinadi.
+      const gaps = (fl.talabnoma ? 0 : 1) + (fl.scan ? 0 : 1) + (fl.oferta ? 0 : 1) + (fl.receipt ? 0 : 1) + (fl.boji ? 0 : 1);
       if (gaps === 1 && !fl.exported && !SENT_STAGES.has(c.stage)) {
         if (!fl.talabnoma) fr.almost.talabnoma++;
         else if (!fl.scan) fr.almost.scan++;
-        else fr.almost.oferta++;
+        else if (!fl.oferta) fr.almost.oferta++;
+        else if (!fl.receipt) fr.almost.receipt++;
+        else fr.almost.boji++;
       }
     }
     return fr;
@@ -196,12 +200,12 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
     (o, f) => {
       o.total += f.total; o.ready += f.ready; o.exported += f.exported; o.draft += f.draft; o.sendable += f.sendable;
       o.missing.talabnoma += f.missing.talabnoma; o.missing.scan += f.missing.scan;
-      o.missing.oferta += f.missing.oferta; o.missing.boji += f.missing.boji;
+      o.missing.oferta += f.missing.oferta; o.missing.receipt += f.missing.receipt; o.missing.boji += f.missing.boji;
       o.almost.talabnoma += f.almost.talabnoma; o.almost.scan += f.almost.scan;
-      o.almost.oferta += f.almost.oferta; o.almost.boji += f.almost.boji;
+      o.almost.oferta += f.almost.oferta; o.almost.receipt += f.almost.receipt; o.almost.boji += f.almost.boji;
       return o;
     },
-    { total: 0, ready: 0, exported: 0, draft: 0, sendable: 0, missing: { talabnoma: 0, scan: 0, oferta: 0, boji: 0 }, almost: { talabnoma: 0, scan: 0, oferta: 0, boji: 0 } },
+    { total: 0, ready: 0, exported: 0, draft: 0, sendable: 0, missing: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 }, almost: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 } },
   );
 
   return { firms: firmsOut, overall };
