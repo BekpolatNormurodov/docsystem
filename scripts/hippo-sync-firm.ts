@@ -29,7 +29,8 @@ async function main() {
   // Diagnostika: hippo'da shu hisob ostida nechta reyestr bor?
   try {
     const regs = await listRegistries(session, {});
-    const arr = Array.isArray(regs) ? regs : (regs?.items ?? regs?.data ?? []);
+    const j = (regs && typeof regs === 'object' && 'json' in regs) ? regs.json : regs;
+    const arr = Array.isArray(j) ? j : (j?.items ?? j?.data ?? j?.content ?? []);
     console.log(`xat.hippo reyestrlari (1-sahifa): ${Array.isArray(arr) ? arr.length : '?'}`);
   } catch (e) { console.error('listRegistries xato:', e instanceof Error ? e.message : e); }
 
