@@ -552,10 +552,11 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged }: {
 }
 
 // ── one firm row ─────────────────────────────────────────────────────────────
-function FirmSendRow({ fr, snapshotId, job, startExport, onChanged, drillOpen, onToggleDrill, idx }: {
+function FirmSendRow({ fr, snapshotId, job, startExport, onChanged, drillOpen, onToggleDrill, idx, autoActive, onStopAuto }: {
   fr: FirmReadiness; snapshotId?: number; job?: JobState;
   startExport: (firmId: number, extra: Record<string, unknown>) => void;
   onChanged: () => void; drillOpen: boolean; onToggleDrill: () => void; idx: number;
+  autoActive?: boolean; onStopAuto?: () => void;
 }) {
   const pct = fr.total ? (fr.ready / fr.total) * 100 : 0;
   const [includeExported, setIncludeExported] = useState(false); // «qaytadan» — allaqachon yuborilganlarni ham qo'shish
@@ -613,7 +614,16 @@ function FirmSendRow({ fr, snapshotId, job, startExport, onChanged, drillOpen, o
           )}
         </div>
 
-        {docsOk ? (
+        {autoActive ? (
+          <div className="inline-flex shrink-0 items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" /> Auto{job && (job.status === 'RUNNING' || job.status === 'PENDING') ? ' · yuborilyapti' : ' · 30s kutmoqda'}
+            </span>
+            <button type="button" onClick={() => onStopAuto?.()} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 px-2.5 py-1.5 text-xs font-semibold text-rose-600 outline-none transition-colors hover:bg-rose-500/10 focus-visible:ring-2 focus-visible:ring-rose-500/30 dark:text-rose-300">
+              To‘xtatish
+            </button>
+          </div>
+        ) : docsOk ? (
           <ExportControl job={job} sendable={fr.sendable} onStart={() => startExport(fr.firmId, {})} />
         ) : (
           <button type="button" disabled title={docsTip}
@@ -711,11 +721,13 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
       const res = await fetch(`/konveyer/court-ready?${qs.toString()}`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`Server xatosi (${res.status})`);
       const d = await res.json();
-      if (my !== reqRef.current) return;
+      if (my !== reqRef.current) return null;
       setData(d); setLastLoaded(new Date()); loadedOnce.current = true;
+      return d as Data;
     } catch (e) {
-      if (my !== reqRef.current) return;
+      if (my !== reqRef.current) return null;
       setError(e instanceof Error ? e.message : 'Yuklab boʻlmadi'); // keep stale data — no setData(null)
+      return null;
     } finally { if (my === reqRef.current) { setLoading(false); setRefreshing(false); } }
   }, [firmId, selectedId]);
   useEffect(() => { if (skipMount.current) { skipMount.current = false; return; } load(); }, [load]);
@@ -751,15 +763,37 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   }, []);
 
   const snapshotId = data?.snapshotId ?? selectedId;
-  // The real job runner — only reached AFTER the firm's adolat E-IMZO key is signed.
+
+  // ── AUTO rejim: bir marta imzolangach, har 30s da keyingi paketni O'ZI yuboradi ────────────
+  // (tugagach 30s kutib, firma hali tayyor bo'lsa keyingi partiyani boshlaydi; tayyor tugasa yoki
+  //  «To'xtatish» bosilsa — to'xtaydi). Qayta E-IMZO so'ralmaydi — operator auto'ni yoqib tasdiqlagan.
+  const AUTO_MS = 30_000;
+  const [auto, setAuto] = useState<{ firmId: number; firmName: string; limit: number } | null>(null);
+  const autoRef = useRef<typeof auto>(null);
+  useEffect(() => { autoRef.current = auto; }, [auto]);
+  const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearAuto = useCallback(() => { if (autoTimer.current) { clearTimeout(autoTimer.current); autoTimer.current = null; } setAuto(null); }, []);
+  useEffect(() => () => { if (autoTimer.current) clearTimeout(autoTimer.current); }, []);
+
+  // The real job runner — only reached AFTER the firm's adolat E-IMZO key is signed (yoki auto davomida).
   const runExport = (fid: number, extra: Record<string, unknown> = {}) =>
-    startJob(`firm:${fid}`, { firmId: fid, snapshotId, limit: 100, ...extra }, () => loadRef.current());
+    startJob(`firm:${fid}`, { firmId: fid, snapshotId, limit: 100, ...extra }, async () => {
+      const fresh = await loadRef.current();
+      // AUTO: shu firma auto'da bo'lsa — tayyor qolgan bo'lsa 30s dan keyin keyingisi.
+      const a = autoRef.current;
+      if (a && a.firmId === fid) {
+        const fr = fresh?.readiness.firms.find((f) => f.firmId === fid);
+        const left = fr?.sendable ?? 0;
+        if (left > 0) { autoTimer.current = setTimeout(() => { if (autoRef.current?.firmId === fid) runExport(fid, { limit: a.limit }); }, AUTO_MS); }
+        else setAuto(null); // tayyor tugadi — auto to'xtaydi
+      }
+    });
   // «Sudga yuborish» → E-IMZO gate: aniq so'roq (summary) → firma kaliti → parol → yuboriladi.
   // (Bekor qilish kalit talab qilmaydi — u ClientDrilldown ichida oddiy tasdiq modali bilan.)
   const [gate, setGate] = useState<{ firmId: number; firmName: string; stir: string | null; extra: Record<string, unknown>; summary: string } | null>(null);
   // «Sudga yuborish» (firma darajasida) → avval SONI so'raladi (max 100), keyin E-IMZO gate.
   // Drilldownда qo'lda tanlanган (caseIds) yoki soni allaqachon berilган bo'lsa — to'g'ridan gate.
-  const [countAsk, setCountAsk] = useState<{ firmId: number; firmName: string; max: number; value: number } | null>(null);
+  const [countAsk, setCountAsk] = useState<{ firmId: number; firmName: string; max: number; value: number; auto: boolean } | null>(null);
   const openGate = (fid: number, extra: Record<string, unknown> = {}) => {
     const f = firms.find((x) => x.firmId === fid);
     const ids = (extra as { caseIds?: unknown }).caseIds;
@@ -777,7 +811,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     const fr = data?.readiness.firms.find((f) => f.firmId === fid);
     const max = Math.min(100, fr?.sendable ?? 0);
     if (max <= 0) return; // yuboriladigan yo'q
-    setCountAsk({ firmId: fid, firmName: fr?.firmName ?? `Firma ${fid}`, max, value: max });
+    setCountAsk({ firmId: fid, firmName: fr?.firmName ?? `Firma ${fid}`, max, value: max, auto: false });
   };
 
   const firmOpts = [{ value: 'all', label: 'Hamma firma' }, ...firms.map((f) => ({ value: String(f.firmId), label: f.firmName, hint: n(f.total) }))];
@@ -866,6 +900,8 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                       onChanged={load}
                       drillOpen={openFirm === fr.firmId}
                       onToggleDrill={() => setOpenFirm((o) => (o === fr.firmId ? null : fr.firmId))}
+                      autoActive={auto?.firmId === fr.firmId}
+                      onStopAuto={clearAuto}
                     />
                   ))}
               </div>
@@ -957,8 +993,8 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
           footer={<>
             <button className="btn-ghost" type="button" onClick={() => setCountAsk(null)}>Bekor</button>
             <button className="btn-primary" type="button" disabled={!countAsk.value || countAsk.value < 1}
-              onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const fid = countAsk.firmId; setCountAsk(null); openGate(fid, { limit: v }); }}>
-              Yuborish ({Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0))})
+              onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const fid = countAsk.firmId; const au = countAsk.auto; setCountAsk(null); openGate(fid, { limit: v, auto: au }); }}>
+              {countAsk.auto ? 'Auto boshlash' : 'Yuborish'} ({Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0))})
             </button>
           </>}
         >
@@ -979,6 +1015,13 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                   className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${countAsk.value === countAsk.max ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line text-muted hover:border-brand-500/40'}`}>Hammasi ({countAsk.max})</button>
               )}
             </div>
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-line p-2.5">
+              <input type="checkbox" checked={countAsk.auto} onChange={(e) => setCountAsk((c) => c && ({ ...c, auto: e.target.checked }))} className="mt-0.5 h-4 w-4 accent-brand-500" />
+              <span className="min-w-0">
+                <span className="block text-[12px] font-medium">Auto — har 30 soniyada keyingi paket</span>
+                <span className="block text-[11px] text-muted">Bir marta kalit bilan tasdiqlaysiz; keyin tayyorlar tugaguncha (yoki «To‘xtatish») har 30s da o‘zi yuboradi.</span>
+              </span>
+            </label>
             <p className="text-[11px] text-muted">Eng eski (muddati yaqin) tayyor mijozlardan boshlab olinadi.</p>
           </div>
         </Modal>
@@ -994,7 +1037,12 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
           title="Sudga yuborish — kalit bilan tasdiqlash"
           confirmLabel="Imzolab yuborish"
           summary={gate.summary}
-          onSuccess={() => { runExport(gate.firmId, gate.extra); setGate(null); }}
+          onSuccess={() => {
+            const ex = gate.extra as { auto?: boolean; limit?: number };
+            if (ex.auto) setAuto({ firmId: gate.firmId, firmName: gate.firmName, limit: typeof ex.limit === 'number' ? ex.limit : 100 });
+            runExport(gate.firmId, gate.extra);
+            setGate(null);
+          }}
         />
       )}
     </div>
