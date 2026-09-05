@@ -152,7 +152,13 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
     // ariza/grafik/invoice/firm docs need no browser.
     if (!arizaOnly) {
       try { const { chromium } = await import('playwright'); browser = await chromium.launch({ headless: true }); }
-      catch (e) { console.error('prepare-packets: chromium launch failed — continuing without PDF/oferta', e); browser = null; }
+      catch (e) {
+        // COURT SEND (markExported): oferta+talabnoma MAJBURIY — chromiumsiz paket chala ketadi va
+        // jim «yuborilgan» bo'lib qoladi. Shuning uchun FAIL qilamiz (hech narsa exported bo'lmaydi,
+        // qayta urinish mumkin). Boshqa (preview/yuklab olish) yo'llarda eskicha degrade — browser=null.
+        if (opts.markExported) { console.error('prepare-packets: chromium launch failed on a COURT-SEND job — failing (no incomplete export)', e); throw new Error('Chromium ishga tushmadi — sudga chala paket yuborilmadi. Qayta urining.'); }
+        console.error('prepare-packets: chromium launch failed — continuing without PDF/oferta', e); browser = null;
+      }
     }
 
     const usedFolders = new Set<string>();
@@ -240,7 +246,15 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
     if (!canceled) {
       for (const m of toMark) await markPacketGenerated(m.id, m.talabnomaMade, m.arizaMade).catch(() => {});
       // Sudga-yuborish: stamp exportedAt so «chiqarilganlar» counters exclude them next time.
-      if (opts.markExported) await markCasesExported(toMark.map((m) => m.id)).catch(() => {});
+      // CHALA HIMOYASI: faqat ARIZASI haqiqatan yaratilgan case «exported» bo'ladi — ariza build
+      // yiqilgan (arizaMade=false) chala paket «yuborilgan» deb belgilanmaydi, keyingi safar qayta
+      // chiqadi. (Ariza — sud paketining o'zagi; usiz «yuborilgan» deyish xato.)
+      if (opts.markExported) {
+        const complete = toMark.filter((m) => m.arizaMade).map((m) => m.id);
+        const held = toMark.length - complete.length;
+        if (held > 0) console.warn(`prepare-packets: ${held} case arizasiz — «exported» qilinmadi (qayta chiqadi)`);
+        await markCasesExported(complete).catch(() => {});
+      }
     } else {
       await fsp.unlink(zipPath).catch(() => {}); // «Bekor» → yarim ZIP butunlay o'chadi
     }
