@@ -1,7 +1,7 @@
 // «Sudga yuborish» tayyorlik + real status hisoboti. Bir mijoz (case) sudga
 // CHIQARILISHI uchun 3 hujjat SHART (grafik va invoice/boji SHART EMAS):
 //   1) Talabnoma yuborilgan  (talabnomaAt)
-//   2) Ariza + palatadan imzolangan skan  (PINFL palata-scan.json'da bor)
+//   2) Palatadan imzolangan skan SHU case'ga biriktirilgan (CaseDocument SIGNED_ARIZA)
 //   3) Oferta — har shartnomaga  (firma portfelida summKr>0 loan bor)
 // Invoice/kvitansiya (receiptNumber) — `boji` flag sifatida faqat ma'lumot uchun
 // hisoblanadi, sudga KETMAYDI (raqami ariza ichida boradi, ariza bojisiz).
@@ -10,7 +10,6 @@
 import { prisma } from './db';
 import type { CaseStage } from '@prisma/client';
 import { STAGE_LABEL } from './konveyer';
-import { readScannedArizas } from './palata-scan';
 
 // Sudga allaqachon chiqib bo'lgan / yopilgan bosqichlar — «yuborishga tayyor»
 // tanloviga kirmaydi (COURT_RETURNED esa qayta chiqishi kerak, shuning uchun bu
@@ -43,9 +42,12 @@ function metaHas(meta: unknown, key: string): boolean {
 function isExported(meta: unknown): boolean { return metaHas(meta, 'exportedAt'); }
 function isDraftMeta(meta: unknown): boolean { return metaHas(meta, 'draftAt'); }
 
-function flagsFor(c: CaseRow, scanPinfls: Set<string>, ofertaPinfls: Set<string>): DocFlags {
+function flagsFor(c: CaseRow, signedCaseIds: Set<number>, ofertaPinfls: Set<string>): DocFlags {
   const talabnoma = !!c.talabnomaAt;
-  const scan = !!(c.pinfl && scanPinfls.has(c.pinfl));
+  // SKAN = imzolangan ariza SHU case'ga biriktirilgan (CaseDocument SIGNED_ARIZA) — paket
+  // bilan bir xil manba. Ilgari global PINFL to'plami ishlatilardi: bir odam (PINFL) boshqa
+  // firmada skanlansa yoki OCR o'qilib hali biriktirilmasa ham «✓» yonardi (soxta tayyor).
+  const scan = signedCaseIds.has(c.id);
   const oferta = !!(c.pinfl && ofertaPinfls.has(c.pinfl));
   // `boji` (invoice minted) is kept for info/UI only — it is NOT a court-readiness
   // requirement: the invoice/kvitansiya does not go to court (its number rides inside
@@ -59,16 +61,13 @@ function flagsFor(c: CaseRow, scanPinfls: Set<string>, ofertaPinfls: Set<string>
   return { talabnoma, scan, oferta, boji, ready, exported, draft, sendable };
 }
 
-// Global — palata skani mijoz (PINFL) darajasida, firma bo'yicha emas. Memoized by the
-// (now mtime-cached) array identity: readScannedArizas() returns the SAME array ref while
-// data/palata-scan.json is unchanged, so the Set is rebuilt only when the file changes.
-let _scanSet: { src: unknown; set: Set<string> } | null = null;
-function scannedPinflSet(): Set<string> {
-  const rows = readScannedArizas();
-  if (_scanSet && _scanSet.src === rows) return _scanSet.set;
-  const set = new Set(rows.map((r) => r.pinfl).filter((p): p is string => !!p));
-  _scanSet = { src: rows, set };
-  return set;
+// SKAN tayyorligi = imzolangan ariza case'ga biriktirilgan (CaseDocument SIGNED_ARIZA).
+// palata «Bazaga saqlash» (attachScannedArizas) aynan shu hujjatni yaratadi; sud paketi
+// ham shuni tekshiradi — demak «Tayyor» bilan paket bir xil haqiqatga tayanadi.
+async function signedCaseIdSet(caseIds: number[]): Promise<Set<number>> {
+  if (caseIds.length === 0) return new Set();
+  const docs = await prisma.caseDocument.findMany({ where: { caseId: { in: caseIds }, kind: 'SIGNED_ARIZA' }, select: { caseId: true } });
+  return new Set(docs.map((d) => d.caseId));
 }
 
 // Firma portfelida oferta chiqariladigan (summKr>0) mijozlar PINFL to'plami.
@@ -115,7 +114,6 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
     where: firmId ? { id: firmId } : {},
     select: { id: true, code: true, shortName: true },
   });
-  const scanPinfls = scannedPinflSet();
 
   // Firma hujjatlari (guvohnoma/ishonchnoma/shartnoma) — bir so'rovda hammasi.
   const firmDocRows = await prisma.firmDocument.findMany({ where: { firmId: { in: firms.map((f) => f.id) } }, select: { firmId: true, kind: true } });
@@ -139,6 +137,7 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
       ofertaPinflSet(snapshotId, f.code),
     ]);
     if (cases.length === 0) return null;
+    const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
 
     const fr: FirmReadiness = {
       firmId: f.id, firmName: f.shortName, total: cases.length,
@@ -148,7 +147,7 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
       docs: firmDocsStatus(f.id),
     };
     for (const c of cases as CaseRow[]) {
-      const fl = flagsFor(c, scanPinfls, ofertaPinfls);
+      const fl = flagsFor(c, signedIds, ofertaPinfls);
       if (fl.ready) fr.ready++;
       if (fl.exported) fr.exported++;
       if (fl.draft) fr.draft++;
@@ -235,7 +234,7 @@ export async function firmReadyClients(opts: {
     }),
     ofertaPinflSet(opts.snapshotId, firm.code),
   ]);
-  const scanPinfls = scannedPinflSet();
+  const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
   const now = Date.now();
   const day = 86400000;
 
@@ -245,7 +244,7 @@ export async function firmReadyClients(opts: {
   const counts: ClientReadyCounts = { all: 0, sendable: 0, draft: 0, ready: 0, exported: 0, notready: 0 };
   const rows: ClientReadyRow[] = [];
   for (const c of cases) {
-    const fl = flagsFor(c as CaseRow, scanPinfls, ofertaPinfls);
+    const fl = flagsFor(c as CaseRow, signedIds, ofertaPinfls);
     counts.all++;
     if (fl.sendable) counts.sendable++;
     if (fl.draft) counts.draft++;
@@ -280,10 +279,10 @@ export async function selectReadyCaseIds(opts: {
     }),
     ofertaPinflSet(opts.snapshotId, firm.code),
   ]);
-  const scanPinfls = scannedPinflSet();
+  const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
   const picked: number[] = [];
   for (const c of cases as CaseRow[]) {
-    const fl = flagsFor(c, scanPinfls, ofertaPinfls);
+    const fl = flagsFor(c, signedIds, ofertaPinfls);
     if (!fl.ready) continue;
     if (SENT_STAGES.has(c.stage)) continue;
     if (!opts.includeExported && fl.exported) continue;
@@ -310,10 +309,10 @@ export async function validateSelectedCaseIds(opts: {
     }),
     ofertaPinflSet(opts.snapshotId, firm.code),
   ]);
-  const scanPinfls = scannedPinflSet();
+  const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
   return (cases as CaseRow[])
     .filter((c) => {
-      const fl = flagsFor(c, scanPinfls, ofertaPinfls);
+      const fl = flagsFor(c, signedIds, ofertaPinfls);
       return fl.ready && !SENT_STAGES.has(c.stage) && (opts.includeExported || !fl.exported);
     })
     .map((c) => c.id)
