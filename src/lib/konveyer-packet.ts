@@ -33,6 +33,14 @@ export interface CasePacket {
 // not «… O_G_LI». All are valid Windows filename characters.
 const safe = (s: string, n = 70) => (s || 'hujjat').replace(/[^\p{L}\p{N}._ ()'ʻ‘’-]+/gu, '_').trim().slice(0, n) || 'hujjat';
 
+// ALLOWLIST — qaysi UPLOADED case-hujjatlari sudga (court packet ZIP) kiritiladi.
+// FAQAT ikkitasi: palatada imzolangan ariza skani va xat.hippo UZPOST yetkazish
+// kvitansiyasi (talabnoma «check»). BILLING kvitansiyasi (INVOICE — «Почта харажатлари»
+// to'lov slipi, billing.sud.uz'да yaratiladi, raqami arizaning ichiga yoziladi) SUDGA
+// KETMAYDI; qo'lda yuklangan BOSHQA/istalgan boshqa kind ham ketmaydi. Shu allowlist
+// bo'lmasa upload/route.ts orqali qo'lda qo'yilgan invoice/boshqa fayl paketga sizib chiqadi.
+const COURT_PACKET_DOC_KINDS = new Set(['SIGNED_ARIZA', 'TALABNOMA_RECEIPT']);
+
 /**
  * Build the packet file list for ONE case. `browser` (a shared Playwright
  * instance) is required to render the talabnoma PDF; omit `talabnomaPdf` (or the
@@ -185,8 +193,11 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
     }
   }
 
-  // 4) Already-uploaded case docs (invoice / receipt / signed scan).
+  // 4) Already-uploaded case docs — FAQAT allowlist (imzolangan ariza skani +
+  // xat.hippo UZPOST kvitansiyasi). INVOICE (billing kvitansiya) va qo'lda yuklangan
+  // BOSHQA kind'lar ATAYIN o'tkazib yuboriladi — sudga chala/xato data ketmasin.
   if (!arizaOnly) for (const d of ac.documents) {
+    if (!COURT_PACKET_DOC_KINDS.has(d.kind)) continue;
     try {
       const buf = await fs.readFile(d.filePath);
       files.push({ name: `${d.kind}__${safe(d.fileName, 50)}`, buf });
