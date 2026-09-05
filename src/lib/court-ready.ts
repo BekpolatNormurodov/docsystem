@@ -10,6 +10,7 @@
 import { prisma } from './db';
 import type { CaseStage } from '@prisma/client';
 import { STAGE_LABEL } from './konveyer';
+import { performLabel } from './hippo/mail-status';
 
 // Sudga allaqachon chiqib bo'lgan / yopilgan bosqichlar — «yuborishga tayyor»
 // tanloviga kirmaydi (COURT_RETURNED esa qayta chiqishi kerak, shuning uchun bu
@@ -68,6 +69,21 @@ async function signedCaseIdSet(caseIds: number[]): Promise<Set<number>> {
   if (caseIds.length === 0) return new Set();
   const docs = await prisma.caseDocument.findMany({ where: { caseId: { in: caseIds }, kind: 'SIGNED_ARIZA' }, select: { caseId: true } });
   return new Set(docs.map((d) => d.caseId));
+}
+
+// Talabnoma xat.hippo'da YETKAZILGAN (kvitansiya/check bor) mijozlar PINFL to'plami.
+// ClientCaseStatus (source HIPPO, category 'talabnoma') hippo SYNC'da to'ladi; delivered
+// bucketни mail-status mapping aniqlaydi. Ism bo'yicha mos — shuning uchun bu KO'RSATKICH
+// (hard-gate emas): «Tayyor»ni bloklamaydi, faqat yetkazilganini ko'rsatadi.
+async function talabnomaDeliveredPinflSet(branchCode: string | null): Promise<Set<string>> {
+  if (!branchCode) return new Set();
+  const rows = await prisma.clientCaseStatus.findMany({
+    where: { source: 'HIPPO', category: 'talabnoma', branchCode, pinfl: { not: null } },
+    select: { pinfl: true, status: true },
+  });
+  const set = new Set<string>();
+  for (const r of rows) if (r.pinfl && performLabel(r.status).bucket === 'delivered') set.add(r.pinfl);
+  return set;
 }
 
 // Firma portfelida oferta chiqariladigan (summKr>0) mijozlar PINFL to'plami.
@@ -195,6 +211,7 @@ export interface ClientReadyRow {
   stage: CaseStage;
   stageLabel: string;
   talabnoma: boolean;
+  talabnomaDelivered: boolean; // xat.hippo'da YETKAZILGAN (check bor) — ko'rsatkich, gate emas
   scan: boolean;
   oferta: boolean;
   boji: boolean;
@@ -235,6 +252,7 @@ export async function firmReadyClients(opts: {
     ofertaPinflSet(opts.snapshotId, firm.code),
   ]);
   const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
+  const deliveredPinfls = await talabnomaDeliveredPinflSet(firm.code);
   const now = Date.now();
   const day = 86400000;
 
@@ -253,7 +271,8 @@ export async function firmReadyClients(opts: {
     if (!fl.ready) counts.notready++;
     rows.push({
       caseId: c.id, clientName: c.clientName, pinfl: c.pinfl, stage: c.stage, stageLabel: STAGE_LABEL[c.stage],
-      talabnoma: fl.talabnoma, scan: fl.scan, oferta: fl.oferta, boji: fl.boji,
+      talabnoma: fl.talabnoma, talabnomaDelivered: !!(c.pinfl && deliveredPinfls.has(c.pinfl)),
+      scan: fl.scan, oferta: fl.oferta, boji: fl.boji,
       ready: fl.ready, exported: fl.exported, draft: fl.draft, sendable: fl.sendable,
       totalDebt: String(c.totalDebt),
       daysLeft: c.dueAt ? ((v: number) => (v < 0 ? Math.floor(v) : Math.ceil(v)))((c.dueAt.getTime() - now) / day) : null,

@@ -25,7 +25,7 @@ interface Data { snapshotId?: number; readiness: { firms: FirmReadiness[]; overa
 type ReadyFilter = 'all' | 'sendable' | 'draft' | 'ready' | 'exported' | 'notready';
 interface ClientRow {
   caseId: number; clientName: string | null; pinfl: string | null; stage: string; stageLabel: string;
-  talabnoma: boolean; scan: boolean; oferta: boolean; boji: boolean;
+  talabnoma: boolean; talabnomaDelivered: boolean; scan: boolean; oferta: boolean; boji: boolean;
   ready: boolean; exported: boolean; draft: boolean; sendable: boolean; totalDebt: string; daysLeft: number | null;
   receiptNumber: string | null;
 }
@@ -277,6 +277,12 @@ const ClientRowCard = React.memo(function ClientRowCard({ r, firmId, selectable,
         {/* Sud uchun 3 ta shart (talabnoma·skan·oferta), so'ng ajratilgan «boji» — ma'lumot uchun (shart emas). */}
         <div className="flex shrink-0 items-center gap-1.5" title="Sud sharti: Talabnoma · Skan · Oferta   |   Boji — ma'lumot uchun (shart emas)">
           <DocTile ok={r.talabnoma} label="Talabnoma" />
+          {/* Talabnoma cheki (xat.hippo yetkazilganlik kvitansiyasi) — ko'rsatkich (hippo sync'dan). */}
+          <Tip label={r.talabnomaDelivered ? 'Talabnoma cheki bor — xat.hippo yetkazilgan' : 'Talabnoma cheki hali yoʻq (yetkazilmagan / hippo sync qiling)'} className="shrink-0">
+            <span className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-semibold ${r.talabnomaDelivered ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'}`}>
+              {r.talabnomaDelivered ? '✓' : '⏳'} check
+            </span>
+          </Tip>
           <DocTile ok={r.scan} label="Skan" />
           <DocTile ok={r.oferta} label="Oferta" />
           <span className="mx-0.5 h-4 w-px bg-line" aria-hidden />
