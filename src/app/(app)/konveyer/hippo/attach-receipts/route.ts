@@ -1,36 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
-import { getStoredHippoSession } from '@/lib/hippo/session';
-import { attachTalabnomaReceipts } from '@/lib/hippo/attach-receipts';
+import { runAttachReceiptsJob, reapStaleReceiptJobs } from '@/lib/hippo/attach-receipts';
 
 export const runtime = 'nodejs';
-export const maxDuration = 300;
 
-const digits = (s?: string | null) => (s ?? '').replace(/\D+/g, '');
+// GET → latest receipt-attach job status (progress polling).
+export async function GET() {
+  await requireUser();
+  await reapStaleReceiptJobs();
+  const job = await prisma.job.findFirst({ where: { type: 'RECEIPT_ATTACH' }, orderBy: { id: 'desc' } });
+  if (!job) return NextResponse.json({ job: null });
+  return NextResponse.json({ job: { id: job.id, status: job.status, progress: job.progress, total: job.total, message: job.message } });
+}
 
-// POST { firmId } — «Kvitansiyalarni biriktirish»: bulk-download the firm's talabnoma UZPOST
-// receipts (checks) from xat.hippo and attach each to its case (CaseDocument TALABNOMA_RECEIPT).
-// Bounded per call (downloads are ~2s each); idempotent — re-run until remaining=0. The hippo SYNC
-// also runs this automatically so newly-sent talabnomas get their check attached going forward.
+// POST { firmId } — «Cheklarni biriktirish»: start a BACKGROUND job that downloads the firm's
+// talabnoma UZPOST receipts (checks) from xat.hippo and attaches each to its case. Progress lives
+// on the Job row (polled via GET). Idempotent — re-runnable; the hippo sync also auto-attaches.
 export async function POST(req: NextRequest) {
   await requireUser();
+  await reapStaleReceiptJobs();
   const body = await req.json().catch(() => ({}));
   const firmId = Number(body?.firmId);
   if (!firmId) return NextResponse.json({ error: 'firmId kerak' }, { status: 400 });
 
-  const firm = await prisma.firm.findUnique({ where: { id: firmId }, select: { id: true, code: true, stir: true } });
-  if (!firm) return NextResponse.json({ error: 'Firma topilmadi' }, { status: 404 });
+  const running = await prisma.job.findFirst({ where: { type: 'RECEIPT_ATTACH', status: { in: ['PENDING', 'RUNNING'] } } });
+  if (running) return NextResponse.json({ jobId: running.id, already: true });
 
-  let session;
-  try { session = await getStoredHippoSession(digits(firm.stir)); }
-  catch { return NextResponse.json({ error: 'Firma xat.hippo ga ulanmagan' }, { status: 409 }); }
-
-  try {
-    const r = await attachTalabnomaReceipts(session, { id: firm.id, code: firm.code }, { limit: 100 });
-    return NextResponse.json({ ok: true, ...r });
-  } catch (e) {
-    console.error('attach-receipts failed', e);
-    return NextResponse.json({ error: 'Kvitansiyalarni biriktirib boʻlmadi' }, { status: 502 });
-  }
+  const job = await prisma.job.create({ data: { type: 'RECEIPT_ATTACH', status: 'PENDING', total: 0, progress: 0 } });
+  void runAttachReceiptsJob(job.id, firmId);
+  return NextResponse.json({ jobId: job.id });
 }

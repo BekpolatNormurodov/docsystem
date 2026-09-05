@@ -146,21 +146,34 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
     finally { setSyncBusy(false); }
   };
 
-  // «Kvitansiyalarni biriktirish» — talabnoma UZPOST cheklarini (kvitansiya) xat.hippo'dan yuklab,
-  // har mijoz case'iga biriktiradi. Bir chaqiruvda 100 tagacha; qolgani bo'lsa qayta bosiladi.
+  // «Cheklarni biriktirish» — fon jarayoni: xat.hippo kvitansiyalarini yuklab case'ga biriktiradi.
+  // Progress Job'da; GET orqali poll qilib jonli holatni (N/M yuklandi) ko'rsatamiz.
   const [attachBusy, setAttachBusy] = useState(false);
+  const attachPoll = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollAttach = useCallback(async () => {
+    try {
+      const d = await fetch('/konveyer/hippo/attach-receipts', { cache: 'no-store' }).then((r) => r.json());
+      const j = d?.job;
+      if (!j) { setAttachBusy(false); return; }
+      const live = j.status === 'RUNNING' || j.status === 'PENDING';
+      setAttachBusy(live);
+      setSyncMsg(j.message || (live ? 'Cheklar biriktirilyapti…' : null));
+      if (live) { attachPoll.current = setTimeout(pollAttach, 1500); return; }
+      if (j.status === 'FAILED') setDlErr(j.message || 'Biriktirib boʻlmadi');
+      window.dispatchEvent(new CustomEvent('hippo:refresh'));
+    } catch { setAttachBusy(false); }
+  }, []);
   const attachReceipts = async () => {
     if (!firmId || attachBusy) return;
-    setAttachBusy(true); setDlErr(null); setSyncMsg(null);
+    setAttachBusy(true); setDlErr(null); setSyncMsg('Cheklar biriktirilyapti…');
     try {
       const res = await fetch('/konveyer/hippo/attach-receipts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ firmId }) });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok || !d?.ok) throw new Error(d?.error || 'Biriktirib boʻlmadi');
-      setSyncMsg(`+${n(d.attached ?? 0)} kvitansiya biriktirildi${d.remaining ? ` · yana ${n(d.remaining)} qoldi (qayta bosing)` : ''}${d.failed ? ` · ${n(d.failed)} xato` : ''}`);
-      window.dispatchEvent(new CustomEvent('hippo:refresh'));
-    } catch (e) { setDlErr(e instanceof Error ? e.message : 'Biriktirib boʻlmadi'); }
-    finally { setAttachBusy(false); }
+      if (!res.ok) throw new Error(d?.error || 'Biriktirib boʻlmadi');
+      pollAttach();
+    } catch (e) { setDlErr(e instanceof Error ? e.message : 'Biriktirib boʻlmadi'); setAttachBusy(false); }
   };
+  useEffect(() => () => { if (attachPoll.current) clearTimeout(attachPoll.current); }, []);
 
   const totals = (data?.registries ?? []).reduce((a, r) => ({ d: a.d + r.delivered, p: a.p + r.pending, f: a.f + r.failed, t: a.t + r.total }), { d: 0, p: 0, f: 0, t: 0 });
 
