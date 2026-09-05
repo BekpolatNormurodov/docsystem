@@ -3,7 +3,7 @@ import { requireStep } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { konveyerSnapshots } from '@/lib/konveyer';
 import { enqueueJob } from '@/lib/job-dispatch';
-import { selectReadyCaseIds, validateSelectedCaseIds } from '@/lib/court-ready';
+import { selectReadyCaseIds, validateSelectedCaseIds, FIRM_REQUIRED_DOCS, FIRM_DOC_LABEL } from '@/lib/court-ready';
 import { allocateFirmCases, consumeCourtSend, firmCourtBudgets } from '@/lib/court-routing';
 
 export const runtime = 'nodejs';
@@ -25,6 +25,12 @@ export async function POST(req: NextRequest) {
 
   const firmId = num(body?.firmId);
   if (!firmId) return NextResponse.json({ error: 'firmId kerak (har firma alohida chiqariladi)' }, { status: 400 });
+
+  // Firma hujjatlari (guvohnoma/ishonchnoma/shartnoma) TO'LIQ bo'lmasa — sudga yubormaymiz
+  // (paket chala ketmasin). UI ham bloklaydi; bu — chetlab o'tishga qarshi server himoyasi.
+  const haveDocs = new Set((await prisma.firmDocument.findMany({ where: { firmId }, select: { kind: true } })).map((d) => String(d.kind)));
+  const missDocs = FIRM_REQUIRED_DOCS.filter((k) => !haveDocs.has(k));
+  if (missDocs.length) return NextResponse.json({ error: `Firma hujjatlari yetishmaydi: ${missDocs.map((k) => FIRM_DOC_LABEL[k] ?? k).join(', ')}. Firmalar → «Hujjatlar»dan yuklang.` }, { status: 400 });
   // Resolve snapshot like the GET routes (validate against real snapshots, else latest)
   // so a missing/invalid snapshotId never runs downstream queries with NO snapshot filter.
   const snaps = await konveyerSnapshots();

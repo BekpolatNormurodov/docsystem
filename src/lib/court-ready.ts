@@ -86,6 +86,11 @@ async function ofertaPinflSet(snapshotId: number | undefined, firmCode: string |
 // court-ready. The court/boji panels highlight these so the operator finishes the near-ready clients
 // first (e.g. «N mijoz faqat boji yetmaydi»).
 export interface DocQuad { talabnoma: number; scan: number; oferta: number; boji: number }
+// Firma sud paketiga qo'shiladigan Sanoat-palatasi hujjatlari — 3 tasi ham MAJBURIY.
+// Biror yetishmasa firma sudga yubora olmaydi (paket chala ketmasin).
+export const FIRM_REQUIRED_DOCS = ['GUVOHNOMA', 'ISHONCHNOMA', 'SHARTNOMA'] as const;
+export const FIRM_DOC_LABEL: Record<string, string> = { GUVOHNOMA: 'guvohnoma', ISHONCHNOMA: 'ishonchnoma', SHARTNOMA: 'shartnoma' };
+export interface FirmDocsStatus { complete: boolean; missing: string[]; present: string[] }
 export interface FirmReadiness {
   firmId: number;
   firmName: string;
@@ -96,6 +101,7 @@ export interface FirmReadiness {
   sendable: number;
   missing: DocQuad;
   almost: DocQuad; // missing exactly this one doc (1 qadam qolgan)
+  docs: FirmDocsStatus; // firma hujjatlari (guvohnoma/ishonchnoma/shartnoma) to'liqmi
 }
 export interface CourtReadiness {
   firms: FirmReadiness[];
@@ -110,6 +116,16 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
     select: { id: true, code: true, shortName: true },
   });
   const scanPinfls = scannedPinflSet();
+
+  // Firma hujjatlari (guvohnoma/ishonchnoma/shartnoma) — bir so'rovda hammasi.
+  const firmDocRows = await prisma.firmDocument.findMany({ where: { firmId: { in: firms.map((f) => f.id) } }, select: { firmId: true, kind: true } });
+  const docKindsByFirm = new Map<number, Set<string>>();
+  for (const d of firmDocRows) { const s = docKindsByFirm.get(d.firmId) ?? new Set(); s.add(String(d.kind)); docKindsByFirm.set(d.firmId, s); }
+  const firmDocsStatus = (fid: number): FirmDocsStatus => {
+    const have = docKindsByFirm.get(fid) ?? new Set<string>();
+    const missing = FIRM_REQUIRED_DOCS.filter((k) => !have.has(k));
+    return { complete: missing.length === 0, missing: missing.map((k) => FIRM_DOC_LABEL[k] ?? k), present: FIRM_REQUIRED_DOCS.filter((k) => have.has(k)).map((k) => FIRM_DOC_LABEL[k] ?? k) };
+  };
 
   // Firms in parallel (was sequential — N round-trips of case-scan + oferta-scan on the
   // aggregate «Hamma firma» load). Each firm's two queries already run together.
@@ -129,6 +145,7 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
       ready: 0, exported: 0, draft: 0, sendable: 0,
       missing: { talabnoma: 0, scan: 0, oferta: 0, boji: 0 },
       almost: { talabnoma: 0, scan: 0, oferta: 0, boji: 0 },
+      docs: firmDocsStatus(f.id),
     };
     for (const c of cases as CaseRow[]) {
       const fl = flagsFor(c, scanPinfls, ofertaPinfls);

@@ -8,7 +8,10 @@ import { KeyPicker } from './KeyPicker';
 
 // ── types (mirror src/lib/court-ready.ts) ────────────────────────────────────
 interface Missing { talabnoma: number; scan: number; oferta: number; boji: number }
-interface FirmReadiness { firmId: number; firmName: string; total: number; ready: number; exported: number; draft: number; sendable: number; missing: Missing; almost: Missing }
+interface FirmDocsStatus { complete: boolean; missing: string[]; present: string[] }
+interface FirmReadiness { firmId: number; firmName: string; total: number; ready: number; exported: number; draft: number; sendable: number; missing: Missing; almost: Missing; docs: FirmDocsStatus }
+// Sud paketiga qo'shiladigan firma hujjatlari — 3 tasi ham kerak.
+const FIRM_DOCS_ALL = ['guvohnoma', 'ishonchnoma', 'shartnoma'];
 interface Overall { total: number; ready: number; exported: number; draft: number; sendable: number; missing: Missing; almost: Missing }
 interface StatusBucket { code: string; label: string; tone: string; count: number; source: string }
 interface StatusBoard { total: number; matched: number; buckets: StatusBucket[]; sources: Record<string, number> }
@@ -549,16 +552,44 @@ function FirmSendRow({ fr, snapshotId, job, startExport, onChanged, drillOpen, o
 }) {
   const pct = fr.total ? (fr.ready / fr.total) * 100 : 0;
   const [includeExported, setIncludeExported] = useState(false); // «qaytadan» — allaqachon yuborilganlarni ham qo'shish
+  const docsOk = fr.docs?.complete !== false; // firma hujjatlari (guvohnoma/ishonchnoma/shartnoma) to'liqmi
+  const docsMissing = fr.docs?.missing ?? [];
+  const docsTip = docsOk
+    ? 'Firma hujjatlari to‘liq: guvohnoma, ishonchnoma, shartnoma'
+    : `Firma hujjatlari yetishmaydi: ${docsMissing.join(', ')}. Firmalar → firma → «Hujjatlar»dan yuklang. To‘liq bo‘lmaguncha sudga yuborib bo‘lmaydi.`;
 
   return (
-    <div className="animate-fade-in rounded-xl border border-line bg-surface transition-colors hover:border-brand-500/40" style={{ animationDelay: `${Math.min(idx, 8) * 40}ms` }}>
+    <div className={`animate-fade-in rounded-xl border bg-surface transition-colors ${docsOk ? 'border-line hover:border-brand-500/40' : 'border-amber-500/40 bg-amber-500/[0.03]'}`} style={{ animationDelay: `${Math.min(idx, 8) * 40}ms` }}>
       <div className="flex flex-wrap items-center gap-3 p-3">
         <ReadinessRing pct={pct} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate font-semibold" title={fr.firmName}>{fr.firmName}</span>
+            <span className={`truncate font-semibold ${docsOk ? '' : 'text-muted'}`} title={fr.firmName}>{fr.firmName}</span>
             <span className="rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted">{n(fr.total)} jami</span>
+            {/* Firma hujjatlari holati — ustiga borilsa qaysilari kerak/yetishmayotgani ko'rinadi. */}
+            <span
+              title={docsTip}
+              className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${docsOk ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-amber-500/20 text-amber-700 dark:text-amber-300'}`}
+            >
+              {docsOk
+                ? <><svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round"><path d="m20 6-11 11-5-5" /></svg>Hujjatlar</>
+                : <><svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>Hujjat yetishmaydi</>}
+            </span>
           </div>
+          {/* Yetishmagan firma hujjatlari — aniq qaysilari (rasmga mos: guvohnoma/ishonchnoma/shartnoma). */}
+          {!docsOk && (
+            <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px]">
+              {FIRM_DOCS_ALL.map((k) => {
+                const miss = docsMissing.includes(k);
+                return (
+                  <span key={k} className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium ${miss ? 'bg-rose-500/15 text-rose-600 dark:text-rose-300' : 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'}`} title={miss ? `${k} yetishmaydi` : `${k} bor`}>
+                    {miss ? '✕' : '✓'} {k}
+                  </span>
+                );
+              })}
+              <span className="text-muted">— Firmalar boʻlimidan yuklang</span>
+            </div>
+          )}
           {/* Tab uslubidagi rangli xulosa (ikon + son): Tayyor emas · Tayyor · Qoralama · Yuborilgan.
               «Batafsil» YOPIQ paytda ko'rinadi (ochiq bo'lsa xuddi shu tab'lar pastda chiqadi). MiniStat va
               «1 qadam qolgan» satri olib tashlandi — kerak emas (har mijoz kartasida ko'rinadi). */}
@@ -575,7 +606,15 @@ function FirmSendRow({ fr, snapshotId, job, startExport, onChanged, drillOpen, o
           )}
         </div>
 
-        <ExportControl job={job} sendable={fr.sendable} onStart={() => startExport(fr.firmId, {})} />
+        {docsOk ? (
+          <ExportControl job={job} sendable={fr.sendable} onStart={() => startExport(fr.firmId, {})} />
+        ) : (
+          <button type="button" disabled title={docsTip}
+            className="inline-flex shrink-0 cursor-not-allowed items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-700 opacity-90 dark:text-amber-300">
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+            Firma hujjatlari kerak
+          </button>
+        )}
 
         <button onClick={onToggleDrill} aria-expanded={drillOpen} title="Mijozlarni koʻrish — kimda nima yetishmayapti, hujjat biriktirish" className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-muted outline-none transition-colors hover:border-brand-500/40 hover:bg-surface-2 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30">
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
