@@ -42,9 +42,16 @@ async function main() {
   }
 
   if (ATTACH && r.totalMails > 0) {
-    console.log('Cheklarni biriktirish…');
-    const a = await attachTalabnomaReceipts(session, { id: firm.id, code: firm.code }, { limit: 100 });
-    console.log(`✅ ATTACH: +${a.attached} biriktirildi, ${a.skipped} avval bor, ${a.failed} xato, nomzod=${a.candidates}, qoldi=${a.todo - a.attached}`);
+    console.log('Cheklarni biriktirish (HAMMASI — tugaguncha)…');
+    let attached = 0, failed = 0, candidates = 0;
+    for (let round = 1; ; round++) {
+      const a = await attachTalabnomaReceipts(session, { id: firm.id, code: firm.code }, { limit: 200 });
+      attached += a.attached; failed += a.failed; candidates = a.candidates;
+      const left = a.todo - a.attached;
+      console.log(`  [${round}] +${a.attached} biriktirildi · ${a.failed} xato · qoldi ${Math.max(0, left)}`);
+      if (left <= 0 || a.attached === 0) break; // tugadi yoki oldinga siljimadi (barcha xato)
+    }
+    console.log(`✅ ATTACH yakuni: +${attached} biriktirildi, ${failed} xato, nomzod=${candidates}`);
   }
   await prisma.$disconnect();
 }
