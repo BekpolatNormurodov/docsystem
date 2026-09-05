@@ -293,6 +293,36 @@ export async function firmReadyClients(opts: {
   return { rows, total: rows.length, page: 1, pageSize: rows.length, pages: 1, counts };
 }
 
+/** Yuborishga TAYYOR (sendable) case'larni SUD bo'yicha guruhlaydi — «Sudga yuborish»
+ *  modalida qaysi sudga nechta ketishini ko'rsatish uchun (faqat ko'rsatkich; yuborish
+ *  baribir firma bo'yicha). Gate flagsFor bilan bir xil (25.08/aktiv snapshot). */
+export interface CourtBreakdownItem { courtId: number | null; shortName: string; count: number }
+export async function sendableCourtBreakdown(opts: { snapshotId?: number; firmId: number }): Promise<{ courts: CourtBreakdownItem[]; total: number }> {
+  const firm = await prisma.firm.findUnique({ where: { id: opts.firmId }, select: { id: true, code: true } });
+  if (!firm) return { courts: [], total: 0 };
+  const [cases, ofertaPinfls] = await Promise.all([
+    prisma.arizaCase.findMany({
+      where: { firmId: firm.id, ...(opts.snapshotId ? { snapshotId: opts.snapshotId } : {}) },
+      select: { id: true, pinfl: true, stage: true, talabnomaAt: true, receiptNumber: true, meta: true, courtId: true, court: { select: { shortName: true } } },
+    }),
+    ofertaPinflSet(opts.snapshotId, firm.code),
+  ]);
+  const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
+  const receiptIds = await receiptCaseIdSet(cases.map((c) => c.id));
+  const byCourt = new Map<string, CourtBreakdownItem>();
+  let total = 0;
+  for (const c of cases) {
+    const fl = flagsFor(c as CaseRow, signedIds, receiptIds, ofertaPinfls);
+    if (!fl.sendable) continue;
+    total++;
+    const key = String(c.courtId ?? 'none');
+    const item = byCourt.get(key) ?? { courtId: c.courtId ?? null, shortName: c.court?.shortName ?? 'Sud tayinlanmagan', count: 0 };
+    item.count++;
+    byCourt.set(key, item);
+  }
+  return { courts: [...byCourt.values()].sort((a, b) => b.count - a.count), total };
+}
+
 /** Yuborishga tayyor (ready && !exported && bosqich sudga chiqmagan) case id'lari,
  *  firma bo'yicha, eng eskisidan boshlab, `limit` tagacha. `includeExported` —
  *  qaytganlar/tuzatilganlarni qayta chiqarish uchun. */

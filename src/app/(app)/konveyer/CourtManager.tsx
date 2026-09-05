@@ -816,6 +816,56 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     setCountAsk({ firmId: fid, firmName: fr?.firmName ?? `Firma ${fid}`, max, value: max, auto: false });
   };
 
+  // ── «Sudga yuborish» modalidagi SUD taqsimoti (ko'rsatkich) ──────────────────
+  const [courtBreak, setCourtBreak] = useState<{ firmId: number; courts: { courtId: number | null; shortName: string; count: number }[]; total: number } | null>(null);
+  useEffect(() => {
+    if (!countAsk) { setCourtBreak(null); return; }
+    let alive = true;
+    const qs = new URLSearchParams({ firmId: String(countAsk.firmId) });
+    if (snapshotId) qs.set('s', String(snapshotId));
+    fetch(`/konveyer/court-ready/courts?${qs.toString()}`, { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => { if (alive && d && Array.isArray(d.courts)) setCourtBreak({ firmId: countAsk.firmId, courts: d.courts, total: d.total ?? 0 }); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [countAsk?.firmId, snapshotId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Yuborish NAVBATI — skayner kabi 2-3 partiya ketma-ket ────────────────────
+  // Har item: firma + soni. Joriy (birinchi tugamagan) item bo'yicha holat-mashina:
+  // yangi firma → E-IMZO gate (bir marta), imzolangan firma → to'g'ridan yuboriladi;
+  // job DONE/FAILED bo'lgach keyingisiga o'tadi (FAILED'da ham to'xtab qolmaydi).
+  type QItem = { id: string; firmId: number; firmName: string; stir: string | null; count: number; status: 'wait' | 'signing' | 'sending' | 'done' | 'error' };
+  const [queue, setQueue] = useState<QItem[]>([]);
+  const [queueActive, setQueueActive] = useState(false);
+  const signedFirms = useRef<Set<number>>(new Set());
+  const [queueGate, setQueueGate] = useState<{ itemId: string; firmId: number; firmName: string; stir: string | null; count: number } | null>(null);
+  const qidRef = useRef(0);
+  const addToQueue = (fid: number, fname: string, stir: string | null, count: number) =>
+    setQueue((q) => [...q, { id: `q${++qidRef.current}`, firmId: fid, firmName: fname, stir, count, status: 'wait' as const }]);
+
+  useEffect(() => {
+    if (!queueActive) return;
+    const cur = queue.find((x) => x.status !== 'done' && x.status !== 'error');
+    if (!cur) { setQueueActive(false); return; }
+    if (cur.status === 'sending') {
+      const job = jobs[`queue:${cur.id}`];
+      if (job && (job.status === 'DONE' || job.status === 'FAILED')) {
+        setQueue((q) => q.map((x) => (x.id === cur.id ? { ...x, status: job.status === 'DONE' ? 'done' : 'error' } : x)));
+        loadRef.current();
+      }
+      return;
+    }
+    if (cur.status === 'signing') return; // gate ochiq — imzo kutilyapti
+    // cur.status === 'wait'
+    if (signedFirms.current.has(cur.firmId)) {
+      setQueue((q) => q.map((x) => (x.id === cur.id ? { ...x, status: 'sending' } : x)));
+      startJob(`queue:${cur.id}`, { firmId: cur.firmId, snapshotId, limit: cur.count }, () => {});
+    } else {
+      setQueue((q) => q.map((x) => (x.id === cur.id ? { ...x, status: 'signing' } : x)));
+      setQueueGate({ itemId: cur.id, firmId: cur.firmId, firmName: cur.firmName, stir: cur.stir, count: cur.count });
+    }
+  }, [jobs, queue, queueActive, snapshotId, startJob]);
+
   const firmOpts = [{ value: 'all', label: 'Hamma firma' }, ...firms.map((f) => ({ value: String(f.firmId), label: f.firmName, hint: n(f.total) }))];
   const ov = data?.readiness.overall;
   const board = data?.statusBoard;
@@ -888,6 +938,47 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
               <div className="rounded-lg border border-line bg-surface-2/30 px-3 py-2 text-[11px] leading-relaxed text-muted">
                 Faqat <b className="font-medium text-fg">to'liq tayyor</b> (talabnoma, imzolangan skan, oferta, check/kvitansiya, boji — invoice raqami) mijozlar sudga yuboriladi. Har firma <b className="font-medium text-fg">alohida</b>, bir martada <b className="font-medium text-fg">max 100 ta</b>. Grafik qo'shilmaydi. «Batafsil» — kim tayyor, kimda nima yetishmayotganini ko'rish, hujjat biriktirish.
               </div>
+              {queue.length > 0 && (
+                <div className="rounded-xl border border-brand-500/30 bg-brand-500/[0.05] p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold">Yuborish navbati — {n(queue.filter((x) => x.status !== 'done' && x.status !== 'error').length)} qoldi</span>
+                    <div className="flex items-center gap-1.5">
+                      {!queueActive ? (
+                        <button type="button" onClick={() => setQueueActive(true)} disabled={!queue.some((x) => x.status === 'wait')}
+                          className="inline-flex items-center gap-1 rounded-lg bg-brand-500 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-brand-600 disabled:opacity-50"><IcoBolt /> Boshlash</button>
+                      ) : (
+                        <button type="button" onClick={() => setQueueActive(false)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-rose-500/40 px-2.5 py-1 text-[11px] font-medium text-rose-600 transition-colors hover:bg-rose-500/10 dark:text-rose-300">To‘xtatish</button>
+                      )}
+                      <button type="button" onClick={() => setQueue((q) => q.filter((x) => x.status === 'sending' || x.status === 'signing'))}
+                        className="rounded-lg border border-line px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:border-brand-500/40 hover:text-fg">Tozalash</button>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    {queue.map((it) => {
+                      const job = jobs[`queue:${it.id}`];
+                      const pct = job && job.total ? Math.min(100, Math.round((job.progress / job.total) * 100)) : 0;
+                      const badge = it.status === 'done' ? ['bg-emerald-500/15 text-emerald-700 dark:text-emerald-300', 'tayyor']
+                        : it.status === 'error' ? ['bg-rose-500/15 text-rose-600 dark:text-rose-300', 'xato']
+                        : it.status === 'sending' ? ['bg-brand-500/15 text-brand-700 dark:text-brand-300', 'yuborilyapti']
+                        : it.status === 'signing' ? ['bg-amber-500/15 text-amber-700 dark:text-amber-300', 'imzo']
+                        : ['bg-surface-2 text-muted', 'navbatda'];
+                      return (
+                        <div key={it.id} className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs">
+                          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${badge[0]}`}>{badge[1]}</span>
+                          <span className="min-w-0 flex-1 truncate font-medium">{it.firmName} · {n(it.count)} ta</span>
+                          {it.status === 'sending' && <span className="shrink-0 tabular-nums text-muted">{n(job?.progress ?? 0)}/{n(job?.total || it.count)} ({pct}%)</span>}
+                          {it.status === 'wait' && (
+                            <button type="button" onClick={() => setQueue((q) => q.filter((x) => x.id !== it.id))} title="Navbatdan o‘chirish"
+                              className="shrink-0 rounded px-1 text-muted transition-colors hover:text-rose-500">✕</button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-2 text-[11px] text-muted">Ketma-ket yuboriladi. Har firma uchun kalit bir marta so‘raladi. Xato bo‘lsa keyingisiga o‘tadi.</p>
+                </div>
+              )}
               <div className="space-y-2">
                 {data.readiness.firms.length === 0
                   ? <EmptyBlock title="Bu snapshotda mijoz yoʻq" hint="Sidebar sanasini tekshiring yoki Hisobotda konveyerni yangilang." />
@@ -994,6 +1085,11 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
         <Modal open onClose={() => setCountAsk(null)} title={`Sudga yuborish — ${countAsk.firmName}`} description={`Bir martada eng ko'pi ${Math.min(100, countAsk.max)} ta. Nechtasini yuborasiz?`}
           footer={<>
             <button className="btn-ghost" type="button" onClick={() => setCountAsk(null)}>Bekor</button>
+            <button className="btn-ghost" type="button" disabled={!countAsk.value || countAsk.value < 1}
+              title="Navbatga qo'shish — bir nechta partiyani ketma-ket yuborish (skayner kabi)"
+              onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const f = firms.find((x) => x.firmId === countAsk.firmId); addToQueue(countAsk.firmId, countAsk.firmName, f?.stir ?? null, v); setCountAsk(null); }}>
+              + Navbatga
+            </button>
             <button className="btn-primary" type="button" disabled={!countAsk.value || countAsk.value < 1}
               onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const fid = countAsk.firmId; const au = countAsk.auto; setCountAsk(null); openGate(fid, { limit: v, auto: au }); }}>
               {countAsk.auto ? 'Auto boshlash' : 'Yuborish'} ({Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0))})
@@ -1024,6 +1120,19 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                 <span className="block text-[11px] text-muted">Bir marta kalit bilan tasdiqlaysiz; keyin tayyorlar tugaguncha (yoki «To‘xtatish») har 30s da o‘zi yuboradi.</span>
               </span>
             </label>
+            {courtBreak && courtBreak.firmId === countAsk.firmId && courtBreak.courts.length > 0 && (
+              <div className="rounded-lg border border-line p-2.5">
+                <div className="mb-1.5 text-[11px] font-semibold text-muted">Sud bo‘yicha (tayyor {n(courtBreak.total)} ta):</div>
+                <div className="space-y-1">
+                  {courtBreak.courts.map((c) => (
+                    <div key={c.courtId ?? 'none'} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="min-w-0 truncate">{c.shortName}</span>
+                      <span className="shrink-0 tabular-nums font-medium">{n(c.count)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <p className="text-[11px] text-muted">Eng eski (muddati yaqin) tayyor mijozlardan boshlab olinadi.</p>
           </div>
         </Modal>
@@ -1045,6 +1154,20 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
             runExport(gate.firmId, gate.extra);
             setGate(null);
           }}
+        />
+      )}
+
+      {queueGate && (
+        <KeyPicker
+          open
+          onClose={() => { const id = queueGate.itemId; setQueueGate(null); setQueueActive(false); setQueue((q) => q.map((x) => (x.id === id ? { ...x, status: 'error' } : x))); }}
+          firm={{ firmId: queueGate.firmId, firmName: queueGate.firmName, stir: queueGate.stir }}
+          provider="CABINET"
+          endpoint="/konveyer/court-sign"
+          title="Navbat — kalit bilan tasdiqlash"
+          confirmLabel="Imzolab davom etish"
+          summary={`${queueGate.firmName}: ${queueGate.count} ta sudga yuboriladi. Firma kaliti bilan tasdiqlang (bu firma uchun bir marta).`}
+          onSuccess={() => { const g = queueGate; signedFirms.current.add(g.firmId); setQueue((q) => q.map((x) => (x.id === g.itemId ? { ...x, status: 'wait' } : x))); setQueueGate(null); }}
         />
       )}
     </div>
