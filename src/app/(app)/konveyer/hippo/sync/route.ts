@@ -3,6 +3,7 @@ import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { getStoredHippoSession } from '@/lib/hippo/session';
 import { ingestHippoStatuses } from '@/lib/hippo/status-ingest';
+import { attachTalabnomaReceipts } from '@/lib/hippo/attach-receipts';
 import { liveRegistryIds } from '@/lib/hippo/xat';
 import { reconcileTraceAgainstLive } from '@/lib/hippo/talabnoma-trace';
 
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest) {
   const firmId = Number(body?.firmId);
   if (!firmId) return NextResponse.json({ error: 'firmId kerak' }, { status: 400 });
 
-  const firm = await prisma.firm.findUnique({ where: { id: firmId }, select: { code: true, stir: true } });
+  const firm = await prisma.firm.findUnique({ where: { id: firmId }, select: { id: true, code: true, stir: true } });
   if (!firm) return NextResponse.json({ error: 'Firma topilmadi' }, { status: 404 });
   if (!firm.code) return NextResponse.json({ error: 'Firma kodi yoʻq' }, { status: 422 });
 
@@ -35,7 +36,12 @@ export async function POST(req: NextRequest) {
     let pruned = 0;
     try { pruned = await reconcileTraceAgainstLive(firm.code, await liveRegistryIds(session)); }
     catch (e) { console.error('reconcileTraceAgainstLive (sync) failed', e); }
-    return NextResponse.json({ ok: true, ...result, pruned });
+    // Avto: yangi yuborilgan talabnomalar KVITANSIYASINI (check) case'ga biriktiramiz (idempotent,
+    // bounded). Ko'p bo'lsa qolgani keyingi sync'da/«Kvitansiyalarni biriktirish» tugmasida davom etadi.
+    let receipts = null;
+    try { receipts = await attachTalabnomaReceipts(session, { id: firm.id, code: firm.code }, { limit: 60 }); }
+    catch (e) { console.error('attachTalabnomaReceipts (sync) failed', e); }
+    return NextResponse.json({ ok: true, ...result, pruned, receipts });
   } catch (e) {
     console.error('hippo sync failed', e);
     return NextResponse.json({ error: 'Sinxronlab boʻlmadi' }, { status: 502 });

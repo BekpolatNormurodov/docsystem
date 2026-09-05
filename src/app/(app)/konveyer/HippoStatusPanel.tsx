@@ -146,6 +146,22 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
     finally { setSyncBusy(false); }
   };
 
+  // «Kvitansiyalarni biriktirish» — talabnoma UZPOST cheklarini (kvitansiya) xat.hippo'dan yuklab,
+  // har mijoz case'iga biriktiradi. Bir chaqiruvda 100 tagacha; qolgani bo'lsa qayta bosiladi.
+  const [attachBusy, setAttachBusy] = useState(false);
+  const attachReceipts = async () => {
+    if (!firmId || attachBusy) return;
+    setAttachBusy(true); setDlErr(null); setSyncMsg(null);
+    try {
+      const res = await fetch('/konveyer/hippo/attach-receipts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ firmId }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d?.ok) throw new Error(d?.error || 'Biriktirib boʻlmadi');
+      setSyncMsg(`+${n(d.attached ?? 0)} kvitansiya biriktirildi${d.remaining ? ` · yana ${n(d.remaining)} qoldi (qayta bosing)` : ''}${d.failed ? ` · ${n(d.failed)} xato` : ''}`);
+      window.dispatchEvent(new CustomEvent('hippo:refresh'));
+    } catch (e) { setDlErr(e instanceof Error ? e.message : 'Biriktirib boʻlmadi'); }
+    finally { setAttachBusy(false); }
+  };
+
   const totals = (data?.registries ?? []).reduce((a, r) => ({ d: a.d + r.delivered, p: a.p + r.pending, f: a.f + r.failed, t: a.t + r.total }), { d: 0, p: 0, f: 0, t: 0 });
 
   return (
@@ -170,6 +186,14 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
                 ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
                 : <Ico.refresh size={14} />}
               Sinxronlash
+            </button>
+          ) : null}
+          {firmId ? (
+            <button onClick={attachReceipts} disabled={attachBusy} aria-busy={attachBusy} title="Talabnoma cheklarini (UZPOST kvitansiya) xat.hippo'dan yuklab, har mijoz ishiga biriktirish — sudga ketadi" className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-muted outline-none transition-colors hover:border-brand-500/40 focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50">
+              {attachBusy
+                ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                : <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" /></svg>}
+              Cheklarni biriktirish
             </button>
           ) : null}
           <button onClick={load} disabled={loading} aria-busy={loading} title="Qo'lda yangilash (aks holda har 2 soatda avto)" className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-muted outline-none transition-colors hover:border-brand-500/40 focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50">
