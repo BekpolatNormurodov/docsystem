@@ -37,6 +37,14 @@ async function planReceipts(firm: { id: number; code: string | null }): Promise<
   return { list, candidates: uidByCase.size, skipped: have.size };
 }
 
+// Per-firma jonli holat (yuklamasdan): nechта nomzod, nechтаsi biriktirilgan, nechтаsi qoldi.
+// DB'дан hisoblanadi — doim aniq, firma bo'yicha (panelда «state» shu).
+export interface ReceiptSummary { candidates: number; attached: number; remaining: number }
+export async function receiptSummary(firm: { id: number; code: string | null }): Promise<ReceiptSummary> {
+  const { list, candidates, skipped } = await planReceipts(firm);
+  return { candidates, attached: skipped, remaining: list.length };
+}
+
 async function attachOne(session: HippoSession, caseId: number, uid: string): Promise<boolean> {
   try {
     const b = Buffer.from(await downloadReceiptPdf(session, uid));

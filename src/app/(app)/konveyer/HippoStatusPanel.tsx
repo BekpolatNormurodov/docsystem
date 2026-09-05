@@ -146,6 +146,17 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
     finally { setSyncBusy(false); }
   };
 
+  // Per-firma chek holati (biriktirilgan/nomzod/qoldi) — DB'dan, firma bo'yicha, doim aniq.
+  const [receiptSum, setReceiptSum] = useState<{ candidates: number; attached: number; remaining: number } | null>(null);
+  const loadReceiptSum = useCallback(async () => {
+    if (!firmId) { setReceiptSum(null); return; }
+    try {
+      const d = await fetch(`/konveyer/hippo/attach-receipts?firmId=${firmId}`, { cache: 'no-store' }).then((r) => r.json());
+      setReceiptSum(d?.summary ?? null);
+    } catch { /* jim */ }
+  }, [firmId]);
+  useEffect(() => { setReceiptSum(null); loadReceiptSum(); }, [loadReceiptSum]);
+
   // «Cheklarni biriktirish» — fon jarayoni: xat.hippo kvitansiyalarini yuklab case'ga biriktiradi.
   // Progress Job'da; GET orqali poll qilib jonli holatni (N/M yuklandi) ko'rsatamiz.
   const [attachBusy, setAttachBusy] = useState(false);
@@ -160,9 +171,10 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
       setSyncMsg(j.message || (live ? 'Cheklar biriktirilyapti…' : null));
       if (live) { attachPoll.current = setTimeout(pollAttach, 1500); return; }
       if (j.status === 'FAILED') setDlErr(j.message || 'Biriktirib boʻlmadi');
+      loadReceiptSum();
       window.dispatchEvent(new CustomEvent('hippo:refresh'));
     } catch { setAttachBusy(false); }
-  }, []);
+  }, [loadReceiptSum]);
   const attachReceipts = async () => {
     if (!firmId || attachBusy) return;
     setAttachBusy(true); setDlErr(null); setSyncMsg('Cheklar biriktirilyapti…');
@@ -208,6 +220,13 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
                 : <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" /></svg>}
               Cheklarni biriktirish
             </button>
+          ) : null}
+          {firmId && receiptSum ? (
+            <span title="Chek (kvitansiya): biriktirilgan / nomzod (case+hippo bor) / qolgan" className="inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-[11px] font-medium text-muted">
+              chek: <b className="tabular-nums text-emerald-600 dark:text-emerald-400">{n(receiptSum.attached)}</b>
+              <span className="text-muted">/</span><b className="tabular-nums text-fg">{n(receiptSum.candidates)}</b>
+              {receiptSum.remaining > 0 && <span className="text-amber-600 dark:text-amber-400">· {n(receiptSum.remaining)} qoldi</span>}
+            </span>
           ) : null}
           <button onClick={load} disabled={loading} aria-busy={loading} title="Qo'lda yangilash (aks holda har 2 soatda avto)" className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-muted outline-none transition-colors hover:border-brand-500/40 focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50">
             {loading ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> : null}
