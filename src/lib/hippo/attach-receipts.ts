@@ -12,11 +12,21 @@ const DOCS = path.join(process.cwd(), 'exports', 'case-docs');
 const digits = (s?: string | null) => (s ?? '').replace(/\D+/g, '');
 export interface AttachReceiptsResult { attached: number; skipped: number; failed: number; candidates: number; todo: number }
 
+// Eng oxirgi (aktiv) snapshot — pipeline DOIM shu snapshotда ishlaydi. Chek FAQAT shu
+// snapshot (masalan 25.08) case'lariga biriktirilishi kerak — eski snapshot (31.07)
+// dublikatlariga «ortiqcha» chek tushmasin (aks holda 25.08 case'i cheksiz qoladi).
+async function latestSnapshotId(): Promise<number | undefined> {
+  const s = await prisma.snapshot.findFirst({ orderBy: { reportDate: 'desc' }, select: { id: true } });
+  return s?.id;
+}
+
 // Firma bo'yicha biriktiriladigan (case, uid) ro'yxatini tuzadi — allaqachon kvitansiyasi
-// borlar chiqarilgan (idempotent).
-async function planReceipts(firm: { id: number; code: string | null }): Promise<{ list: { caseId: number; uid: string }[]; candidates: number; skipped: number }> {
+// borlar chiqarilgan (idempotent). FAQAT berilgan/oxirgi snapshot case'lari (eski snapshotlarga
+// chek biriktirilmaydi — «ortiqcasi kelib birikmasin»).
+async function planReceipts(firm: { id: number; code: string | null }, snapshotId?: number): Promise<{ list: { caseId: number; uid: string }[]; candidates: number; skipped: number }> {
   if (!firm.code) return { list: [], candidates: 0, skipped: 0 };
-  const cases = await prisma.arizaCase.findMany({ where: { firmId: firm.id, pinfl: { not: null } }, select: { id: true, pinfl: true } });
+  const snapId = snapshotId ?? (await latestSnapshotId());
+  const cases = await prisma.arizaCase.findMany({ where: { firmId: firm.id, pinfl: { not: null }, ...(snapId ? { snapshotId: snapId } : {}) }, select: { id: true, pinfl: true } });
   const caseByPinfl = new Map<string, number>();
   for (const c of cases) if (c.pinfl && !caseByPinfl.has(c.pinfl)) caseByPinfl.set(c.pinfl, c.id);
 
