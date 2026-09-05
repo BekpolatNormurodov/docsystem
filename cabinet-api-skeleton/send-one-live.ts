@@ -14,9 +14,18 @@ import path from 'node:path';
 import { prisma } from '../src/lib/db';
 import { getStoredCabinetSession } from '../src/lib/cabinet/session';
 import { CabinetSubmitEngine } from './submitter';
-import { resolveCabinetCourtGuid, CABINET_COURT_IDS } from './constants';
+import { resolveCabinetCourtGuid, CABINET_COURT_IDS, CABINET_REGION_IDS } from './constants';
 import type { SourceCaseData } from './builder';
 import type { CaseFileToUpload } from './uploader';
+
+// TODO(claimant-lookup): har firmaning cabinet.sud.uz akkaunti O'ZINING bitta ORGANIZATION
+// claimant GUID'iga ega (E-IMZO kaliti bilan kirilganda "Da'vogar nomi" shu firmaga avtomatik
+// tushadi — 2026-09-06 browserda tasdiqlangan). Hozircha faqat BRIGHT uchun bitta marta qo'lda
+// aniqlangan (yangi draft yaratib, birinchi javobdagi details.createApplication.claimant'ni
+// o'qib). Boshqa firmalar (URBAN/COMMUNITY/...) uchun xuddi shu usulda topib shu yerga qo'shing.
+const CLAIMANT_ID_BY_STIR: Record<string, string> = {
+  '311976765': 'a9c49a63-5b0b-48c6-b2fb-48db85dd6f5a', // BRIGHT FUTURE FINANCING
+};
 
 async function main() {
   const caseId = Number(process.argv[2]);
@@ -80,44 +89,56 @@ async function main() {
   }
 
   // 3. Portfeldagi kreditlar
-  const loans = await prisma.loan.findMany({
+  let loans = await prisma.loan.findMany({
     where: { snapshotId: ac.snapshotId ?? undefined, pinfl: ac.pinfl, branchCode: ac.kod ?? undefined },
   });
+  if (loans.length === 0) {
+    loans = await prisma.loan.findMany({
+      where: { pinfl: ac.pinfl, branchCode: ac.kod ?? undefined },
+    });
+  }
+  if (loans.length === 0) {
+    loans = await prisma.loan.findMany({
+      where: { pinfl: ac.pinfl },
+    });
+  }
 
   const principal = loans.reduce((s, l) => s + Number(l.debtPrincipal || 0) + Number(l.debtOverduePrincipal || 0), 0);
   const interest = loans.reduce((s, l) => s + Number(l.debtTermInterest || 0) + Number(l.debtOverdueInterest || 0), 0);
   const total = Number(ac.totalDebt) || (principal + interest);
 
-  // 4. SourceCaseData shakllantirish
+  // 4. SourceCaseData shakllantirish (2026-09-06 tasdiqlangan haqiqiy shakl)
   const firstLoan = loans[0];
   const rawLoan = (firstLoan?.raw && typeof firstLoan.raw === 'object' ? firstLoan.raw : {}) as Record<string, any>;
+  const passportSn: string = firstLoan?.passportSn || rawLoan['Паспорт'] || '';
+  const passportClean = passportSn.replace(/\s+/g, '').toUpperCase();
+
+  const claimantId = CLAIMANT_ID_BY_STIR[firmStir];
+  if (!claimantId) {
+    console.error(`❌ ${ac.firm.shortName} (STIR ${firmStir}) uchun claimantId topilmadi. CLAIMANT_ID_BY_STIR'ga qo'shing (izohga qarang).`);
+    process.exit(1);
+  }
 
   const caseData: SourceCaseData = {
     courtId: courtGuid,
-    firm: {
-      name: ac.firm.legalName || ac.firm.shortName,
-      shortName: ac.firm.shortName,
-      stir: firmStir,
-      address: ac.firm.addressLine || ac.firm.address || 'Toshkent sh.',
-      bankAccount: ac.firm.bankAccount || '',
-      mfo: ac.firm.mfo || '',
-      phone: ac.firm.phone || '998993058435',
-      director: 'SUVONOV FARRUXJON FAXRITDINOVICH',
-    },
+    regionId: CABINET_REGION_IDS.TOSHKENT_VILOYATI,
+    claimantId,
+    firm: { stir: firmStir },
     debtor: {
       pinfl: ac.pinfl || '',
       fullName: ac.clientName || '',
-      passportSn: firstLoan?.passportSn || rawLoan['Паспорт'] || '',
-      address: firstLoan?.postAddressUz || firstLoan?.postAddress || 'Toshkent sh.',
-      phone: firstLoan?.phone || '',
+      passportSerial: passportClean.slice(0, 2) || undefined,
+      passportNumber: passportClean.slice(2) || undefined,
+      phone: firstLoan?.phone || undefined,
+      // TODO(gender-from-portfolio): Loan/rawLoan'da jinsi ustuni bo'lsa shu yerdan olinsin.
+      gender: undefined,
+      address: firstLoan?.postAddressUz || firstLoan?.postAddress || undefined,
     },
     debt: {
-      principal,
-      interest,
-      penalty: 0,
+      principal, interest, penalty: 0, fine: 0,
+      moralDamage: 0, materialDamage: 0, lostProfit: 0, prepaidExpense: 0,
       total,
     },
-    receiptNumber: ac.receiptNumber || undefined,
   };
 
   // 5. Hujjatlarni diskdan o'qib yig'ish
@@ -126,7 +147,11 @@ async function main() {
   // A) DB dagi CaseDocument yozuvlaridan
   for (const doc of ac.documents) {
     try {
-      const buf = await fs.readFile(doc.filePath);
+      let fPath = doc.filePath;
+      if (fPath.startsWith('/app/')) {
+        fPath = path.join(process.cwd(), fPath.replace(/^\/app\//, ''));
+      }
+      const buf = await fs.readFile(fPath);
       let kind: CaseFileToUpload['kind'] = 'OFERTA';
       if (doc.kind === 'SIGNED_ARIZA' || doc.kind === 'ARIZA') kind = 'ARIZA';
       else if (doc.kind === 'TALABNOMA') kind = 'TALABNOMA';
@@ -142,12 +167,12 @@ async function main() {
     } catch {}
   }
 
-  // B) Diskdagi papkalardan qidirish (agar DB da to'liq bo'lmasa)
+  // B) Diskdagi papkalardan qidirish (Oferta va boshqa ilovalar)
   const home = process.env.HOME || '';
-  if (filesToUpload.length === 0 && ac.clientName) {
+  if (ac.clientName) {
     const candidateDirs = [
-      path.join(home, 'Downloads', 'BRIGHT FUTURE FINANCING 2', `${ac.clientName} ${ac.pinfl}`),
       path.join(home, 'Downloads', 'BRIGHT FUTURE FINANCING 3', `${ac.clientName} ${ac.pinfl}`),
+      path.join(home, 'Downloads', 'BRIGHT FUTURE FINANCING 2', `${ac.clientName} ${ac.pinfl}`),
       path.join(home, 'Downloads', '5-sud BRIGHT TAYYOR', ac.clientName),
     ];
     for (const cDir of candidateDirs) {
@@ -155,16 +180,17 @@ async function main() {
         const list = await fs.readdir(cDir);
         for (const fname of list) {
           if (!fname.endsWith('.pdf')) continue;
+          if (filesToUpload.some((f) => f.fileName === fname)) continue;
           const buf = await fs.readFile(path.join(cDir, fname));
           let kind: CaseFileToUpload['kind'] = 'OFERTA';
           if (/ariza/i.test(fname)) kind = 'ARIZA';
-          else if (/talabnoma/i.test(fname) || fname.includes(ac.clientName)) kind = 'TALABNOMA';
+          else if (/talabnoma/i.test(fname)) kind = 'TALABNOMA';
           else if (/receipt|check|td/i.test(fname)) kind = 'TALABNOMA_CHECK';
           else if (/guvox/i.test(fname)) kind = 'GUVOHNOMA';
           else if (/ishonch/i.test(fname)) kind = 'ISHONCHNOMA';
           filesToUpload.push({ kind, fileName: fname, buffer: buf });
         }
-        if (filesToUpload.length > 0) break;
+        if (filesToUpload.length > 1) break;
       } catch {}
     }
   }
@@ -173,16 +199,30 @@ async function main() {
   const hasGuvox = filesToUpload.some((f) => f.kind === 'GUVOHNOMA');
   const hasIshonch = filesToUpload.some((f) => f.kind === 'ISHONCHNOMA');
   if (!hasGuvox) {
-    try {
-      const gBuf = await fs.readFile(path.join(home, 'Downloads', 'Guvoxnoma BRIGHT.pdf'));
-      filesToUpload.push({ kind: 'GUVOHNOMA', fileName: 'Guvoxnoma BRIGHT.pdf', buffer: gBuf });
-    } catch {}
+    const paths = [
+      path.join(process.cwd(), 'exports', 'firm-docs', String(ac.firmId), 'GUVOHNOMA-Guvoxnoma_BRIGHT.pdf'),
+      path.join(home, 'Downloads', 'Guvoxnoma BRIGHT.pdf'),
+    ];
+    for (const p of paths) {
+      try {
+        const gBuf = await fs.readFile(p);
+        filesToUpload.push({ kind: 'GUVOHNOMA', fileName: 'Guvoxnoma BRIGHT.pdf', buffer: gBuf });
+        break;
+      } catch {}
+    }
   }
   if (!hasIshonch) {
-    try {
-      const iBuf = await fs.readFile(path.join(home, 'Downloads', 'Ishonchnoma BRIGHT.pdf'));
-      filesToUpload.push({ kind: 'ISHONCHNOMA', fileName: 'Ishonchnoma BRIGHT.pdf', buffer: iBuf });
-    } catch {}
+    const paths = [
+      path.join(process.cwd(), 'exports', 'firm-docs', String(ac.firmId), 'ISHONCHNOMA-Ishonchnoma_BRIGHT.pdf'),
+      path.join(home, 'Downloads', 'Ishonchnoma BRIGHT.pdf'),
+    ];
+    for (const p of paths) {
+      try {
+        const iBuf = await fs.readFile(p);
+        filesToUpload.push({ kind: 'ISHONCHNOMA', fileName: 'Ishonchnoma BRIGHT.pdf', buffer: iBuf });
+        break;
+      } catch {}
+    }
   }
 
   console.log(`Yuklanadigan hujjatlar soni: ${filesToUpload.length} ta`);
@@ -195,43 +235,25 @@ async function main() {
     orgName: ac.firm.shortName,
   });
 
-  if (isDryRun) {
-    console.log('\n🔍 DRY-RUN REJIMI: Qoralama yaratilib tekshiriladi, ammo sudga jo\'natilmaydi...');
-  } else {
-    console.log('\n🚀 cabinet.sud.uz ga YAKUNIY YUBORISH boshlandi (send-to-court bloklanmagan)...');
-  }
+  console.log(isDryRun
+    ? '\n🔍 DRY-RUN: qoralama yaratilib to\'ldiriladi, TEKSHIRILADI, so\'ng O\'CHIRILADI. send-to-court\'ga UMUMAN yetilmaydi.'
+    : '\n📝 Qoralama ADOLAT\'da tayyorlanadi va SAQLANIB QOLADI (o\'chirilmaydi). Yakuniy "Sudga yuborish"ni FAQAT o\'zingiz, ADOLAT UI\'sidan, E-IMZO bilan bosasiz.');
 
-  const result = await engine.submitCase(caseData, filesToUpload, {
-    dryRun: isDryRun,
-    courtGuid,
-  });
+  const result = await engine.submitCase(caseData, filesToUpload, { dryRun: isDryRun });
 
-
+  // MUHIM: bu skript send-to-court'ga HECH QACHON yetmaydi (submitter.ts shunday yozilgan) —
+  // shuning uchun `result.ok` faqat "draft muvaffaqiyatli tayyorlandi" degani, "sudga
+  // topshirildi" DEGANI EMAS. ArizaCase.stage'ni bu yerda COURT_SUBMITTED qilib qo'yish
+  // (eski versiyada shunday edi — DRY-RUN'da HAM ishlagan bo'lardi!) yolg'on holat yozgan
+  // bo'lardi. Haqiqiy sud topshirish holatini FAQAT operator ADOLAT'da real submit qilgach,
+  // qo'lda (yoki alohida, aniq tasdiqlangan integratsiya bilan) belgilash kerak.
   if (result.ok) {
     console.log('\n======================================================');
-    console.log(`✔ ISH SUDGA MUVAFFAQIYATLI TOPSHIRILDI!`);
-    console.log(`Claim ID   : ${result.claimId}`);
-    console.log(`Ish raqami : ${result.caseNumber || 'Kutilmoqda'}`);
-    console.log(`Reyestr №  : ${result.registryNumber || '—'}`);
+    console.log(`✔ QORALAMA TAYYORLANDI. draftId=${result.draftId}`);
+    console.log(isDryRun ? 'Sinov o\'chirildi — bazada hech narsa o\'zgarmadi.' : 'ADOLAT → Qoralamalar\'da ko\'ring va qo\'lda yuboring.');
     console.log('======================================================\n');
-
-    // Bazadagi case statusini yangilash
-    await prisma.arizaCase.update({
-      where: { id: caseId },
-      data: {
-        stage: 'COURT_SUBMITTED',
-        courtCaseId: result.claimId,
-        courtSentAt: new Date(),
-        meta: {
-          submittedViaApi: true,
-          submittedAt: new Date().toISOString(),
-          claimId: result.claimId,
-          caseNumber: result.caseNumber,
-        } as any,
-      },
-    });
   } else {
-    console.error('\n❌ Yuborish muvaffaqiyatsiz tugadi:', result.error);
+    console.error('\n❌ Muvaffaqiyatsiz tugadi:', result.error);
   }
 
   await prisma.$disconnect();
