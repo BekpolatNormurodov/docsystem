@@ -212,11 +212,16 @@ export async function sendTalabnomaToHippo(opts: SendTalabnomaOpts): Promise<Sen
     { label: 'external-noBranch', run: () => createRegistryExternal(session, { ...base, branchId: null }) },
   ];
   let res: { ok: boolean; status: number; json: any } = { ok: false, status: 0, json: null };
+  // Bir marta «Invalid targeting» ko'rilsa — bu firma org'i API'ga yopiq degani; keyingi «no-branch»
+  // varianti «Both OrganizationId and BranchId are mandatory» berib, asl sababni yashiradi. Shuni eslab
+  // qolamiz va oxirida foydalanuvchiga to'g'ri (Excel yo'li) ko'rsatmani beramiz.
+  let sawInvalidTargeting = false;
   try {
     for (let i = 0; i < attempts.length; i++) {
       res = await attempts[i].run();
       if (ok(res)) { if (i > 0) console.warn('[hippo send] succeeded on variant «%s»', attempts[i].label); break; }
       const err = res.json && typeof res.json === 'object' ? String((res.json as any).error ?? (res.json as any).message ?? '') : String(res.json ?? '');
+      if (/invalid targeting/i.test(err)) sawInvalidTargeting = true;
       // Only keep trying while it's the targeting error; a different error (balance, validation) stops here.
       if (!/invalid targeting/i.test(err)) break;
       if (i < attempts.length - 1) console.warn('[hippo send] variant «%s» → «%s», trying next', attempts[i].label, err);
@@ -236,8 +241,8 @@ export async function sendTalabnomaToHippo(opts: SendTalabnomaOpts): Promise<Sen
     const msg = typeof res.json === 'string' ? res.json : res.json?.message ?? res.json?.error;
     // «Invalid targeting setup» = this firm's hippo org isn't enabled for API sending (both endpoints
     // rejected). Nothing the operator can fix in-app — point them at the Excel path that DOES work.
-    const friendly = /invalid targeting/i.test(String(msg ?? ''))
-      ? 'Bu firma xat.hippo’da API orqali yuborishga sozlanmagan. «Reyestr (Excel)» tugmasi bilan yuklab olib, hippo saytiga o‘zingiz yuklang (yoki hippo’dan API’ni yoqishni so‘rang).'
+    const friendly = (sawInvalidTargeting || /invalid targeting/i.test(String(msg ?? '')))
+      ? 'Bu firma xat.hippo’da API orqali yuborishga sozlanmagan (org «Invalid targeting»). «Reyestr (Excel)» tugmasi bilan yuklab olib, hippo saytiga o‘zingiz yuklang (yoki hippo’dan API’ni yoqishni so‘rang).'
       : `xat.hippo rad etdi (${res.status}${bodyErr ? `/code ${bodyCode}` : ''})${msg ? `: ${String(msg).slice(0, 160)}` : ''}`;
     return fail(mode, friendly, {
       firmName, balance: bal.balance, required: bal.required, enough: bal.enough, free,
