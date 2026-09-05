@@ -375,12 +375,14 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, 
                 const subtitle = s.kind === 'INVOICE'
                   ? (have ? 'Billing PDF · sudga ketmaydi' : 'Invoice hali yaratilmagan')
                   : s.kind === 'TALABNOMA_HIPPO'
-                    ? 'xat.hippo — yuborilganlik'
+                    ? 'xat.hippo — yuborilganlik (ko‘rsatkich)'
                   : s.kind === 'TALABNOMA_RECEIPT'
-                    ? 'xat.hippo — kvitansiya (UZPOST check)'
+                    ? 'xat.hippo — kvitansiya (UZPOST) · sudga ketadi'
                     : up ? `${up.fileName}${up.size ? ` · ${fmtSize(up.size)}` : ''}`
                     : fd ? 'Yuklangan fayl'
-                    : state === 'auto' ? 'Avto — system yaratadi'
+                    // System yaratadigan hujjatlar (talabnoma/ariza/oferta) hech qachon
+                    // «biriktirilmaydi» — on-demand yaratiladi. «bor» bo'lsa — yuklab olinadi.
+                    : isAutoGen ? (have ? 'System yaratadi · yuklab olish' : 'Avto — system yaratadi')
                     : state === 'pending' ? 'Palatadan skan kutilmoqda'
                     : 'Hali biriktirilmagan';
                 return (
