@@ -9,7 +9,7 @@ import { prisma } from './db';
 import { getStoredCabinetSession } from './cabinet/session';
 import { CabinetSubmitEngine } from '../../cabinet-api-skeleton/submitter';
 import { CabinetRequestError } from '../../cabinet-api-skeleton/client';
-import { paceCase, backoff, REQUEST_GAP_MS, CASE_GAP_MS } from './cabinet/pacer';
+import { paceCase, backoff, caseGapFor, REQUEST_GAP_MS, CASE_GAP_MS } from './cabinet/pacer';
 import { audit, AuditAction } from './audit';
 import { resolveCabinetCourtGuid, CABINET_REGION_IDS } from '../../cabinet-api-skeleton/constants';
 import type { SourceCaseData } from '../../cabinet-api-skeleton/builder';
@@ -208,7 +208,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
     }
 
     console.log(`[Job ${jobId}] Sudga topshirish boshlandi: ${targetCases.length} ta ish (${firm.shortName})`);
-    console.log(`[Job ${jobId}] Tezlik: har so'rov orasida ${REQUEST_GAP_MS / 1000}s, har ish orasida ${CASE_GAP_MS / 1000}s`);
+    console.log(`[Job ${jobId}] Tezlik: har so'rov orasida ${REQUEST_GAP_MS / 1000}s, ishlar orasida sud sozlamasi bo'yicha (default ${CASE_GAP_MS / 1000}s)`);
 
     let okCount = 0;
     let failCount = 0;
@@ -226,9 +226,10 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
       const ac = targetCases[idx];
       const caseIndexStr = `[${idx + 1}/${targetCases.length}]`;
 
-      // TEZLIK: keyingi ish oldingisidan CASE_GAP_MS keyin boshlanadi (daqiqada 1 ta).
-      // Birinchi ish kutmaydi — pacer oxirgi ish vaqtidan hisoblaydi.
-      await paceCase((msLeft) => {
+      // TEZLIK: interval SHU ISHNING SUDI yozuvidan olinadi (Sudlar bo'limida sozlanadi,
+      // default 60s). Birinchi ish kutmaydi — pacer oxirgi ish vaqtidan hisoblaydi.
+      const gapMs = caseGapFor((ac.court as { sendIntervalSec?: number } | null)?.sendIntervalSec);
+      await paceCase(gapMs, (msLeft) => {
         console.log(`[Job ${jobId}] ${caseIndexStr} navbat: ${Math.ceil(msLeft / 1000)}s kutilmoqda...`);
       });
 

@@ -495,6 +495,11 @@ model Court {
   nameUz         String // arizadagi murojaat, masalan "Fuqarolik ishlari boʻyicha Uchtepa tumanlararo sudiga"
   shortName      String // farmoyish/UI uchun qisqa nom, masalan "Uchtepa tumanlararo sudi"
   dailyQuota     Int      @default(200) // kunlik limit
+  // Sudga yuborishda ikki ish orasidagi eng kam vaqt (soniya). Portal (cabinet.sud.uz) tez
+  // ketma-ket so'rovlarda butun domenni soatlab bloklaydi — 2026-09-06 da shunday bo'lgan.
+  // Bu chegara GLOBAL qo'llanadi (src/lib/cabinet/pacer.ts): firma navbatlari alohida bo'lsa
+  // ham portalga umumiy tezlik bir xil, chunki sud.uz bizni chiqish IP bo'yicha ko'radi.
+  sendIntervalSec Int     @default(60)
   cutoffMinutes  Int      @default(840) // yarim tundan daqiqa; 14:00=840, 18:00=1080 (Asia/Tashkent)
   weekdays       Json     @default("[1,2,3,4,5]") // getDay(): Yak=0..Shan=6; default Dush–Juma
   active         Boolean  @default(true)

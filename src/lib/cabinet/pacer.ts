@@ -18,8 +18,19 @@
 /** Ikki HTTP so'rovi orasidagi eng kam vaqt. Bitta case ~7 so'rov => ~28s tarqaladi. */
 export const REQUEST_GAP_MS = 4_000;
 
-/** Ikki case boshlanishi orasidagi eng kam vaqt (operator talabi: daqiqada 1 ta). */
+/**
+ * Ikki case boshlanishi orasidagi ODATIY eng kam vaqt (daqiqada 1 ta). Haqiqiy qiymat
+ * Court.sendIntervalSec dan olinadi (Sudlar bo'limidan sozlanadi) — bu faqat sud yozuvida
+ * qiymat bo'lmaganda ishlatiladigan zaxira.
+ */
 export const CASE_GAP_MS = 60_000;
+
+/** Sud yozuvidagi sozlamani millisekundga aylantiradi. Nosoz/bo'sh qiymatda — odatiy 60s.
+ *  Pastki chegara 5s: tasodifan 0 yozib qo'yilsa portalga cheklovsiz urilib ketmasin. */
+export function caseGapFor(sendIntervalSec?: number | null): number {
+  if (!sendIntervalSec || !Number.isFinite(sendIntervalSec) || sendIntervalSec <= 0) return CASE_GAP_MS;
+  return Math.max(5, Math.floor(sendIntervalSec)) * 1000;
+}
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -49,8 +60,8 @@ export function paceRequest(): Promise<void> {
  * o'tmagan bo'lsa kutadi. `onWait` — operatorga "keyingi case N soniyadan keyin" deb
  * ko'rsatish uchun (progress qotib qolgandek ko'rinmasin).
  */
-export async function paceCase(onWait?: (msLeft: number) => void): Promise<void> {
-  const wait = lastCaseAt + CASE_GAP_MS - Date.now();
+export async function paceCase(gapMs: number = CASE_GAP_MS, onWait?: (msLeft: number) => void): Promise<void> {
+  const wait = lastCaseAt + gapMs - Date.now();
   if (wait > 0) {
     onWait?.(wait);
     await sleep(wait);
