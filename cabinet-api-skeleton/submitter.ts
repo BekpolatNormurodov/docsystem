@@ -57,19 +57,19 @@ export class CabinetSubmitEngine {
     let draftId: string | undefined;
     try {
       // STEP 1: sessiya tekshirish
-      console.log('▶ [1/6] Sessiya tekshirilmoqda...');
+      console.log('▶ [1/7] Sessiya tekshirilmoqda...');
       const userRes = await this.client.get<{ username: string }>(CABINET_ENDPOINTS.userGet);
       console.log(`✔ Sessiya faol: ${userRes.data?.username || 'OK'}`);
 
       // STEP 2: draft yaratish (bo'sh {})
-      console.log('▶ [2/6] Qoralama ochilmoqda...');
+      console.log('▶ [2/7] Qoralama ochilmoqda...');
       const draftRes = await this.client.post<DraftCaseResponse>(CABINET_ENDPOINTS.draftCreate, CabinetPayloadBuilder.buildDraft());
       draftId = draftRes.data?.id;
       if (!draftId) throw new Error('Qoralama ochilmadi (draftId olinmadi).');
       console.log(`✔ Qoralama yaratildi: ID = ${draftId}`);
 
       // STEP 3: sud/da'vogar + ish turkumi/summa — BITTA PUT (server to'liq details'ni kutadi)
-      console.log('▶ [3/6] Sud/da\'vogar + ish turkumi/summa saqlanmoqda...');
+      console.log('▶ [3/7] Sud/da\'vogar + ish turkumi/summa saqlanmoqda...');
       const details: DraftDetails = {
         // Ish turi — portal buni 1-qadamda kutadi; bizning eski kod yubormasdi va qoralama
         // form_step=0 da qolib ketardi.
@@ -85,7 +85,7 @@ export class CabinetSubmitEngine {
       console.log('✔ Saqlandi.');
 
       // STEP 4: javobgar (qarzdor) qo'shilmoqda...
-      console.log('▶ [4/6] Javobgar (qarzdor) qo\'shilmoqda...');
+      console.log('▶ [4/7] Javobgar (qarzdor) qo\'shilmoqda...');
       details.defendantInfo = CabinetPayloadBuilder.buildDefendantInfo(caseData.debtor);
       await this.client.put(CABINET_ENDPOINTS.draftUpdate + draftId, { details });
       console.log(`✔ Javobgar qo'shildi: ${caseData.debtor.fullName}`);

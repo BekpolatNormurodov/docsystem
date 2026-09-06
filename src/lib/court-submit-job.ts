@@ -58,6 +58,10 @@ async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
       else if (doc.kind === 'GUVOHNOMA') kind = 'GUVOHNOMA';
       else if (doc.kind === 'ISHONCHNOMA') kind = 'ISHONCHNOMA';
 
+      // TAKRORNI TO'SISH: CaseDocument.kind da unique cheklov yo'q, shuning uchun bitta
+      // hujjat (masalan Talabnoma kvitansiyasi) ikki qatorda turishi mumkin — 2026-09-06
+      // sinovida aynan shunday bo'ldi va sudga bir xil fayl 2 marta ketardi.
+      if (filesToUpload.some((f) => f.fileName === doc.fileName && f.kind === kind)) continue;
       filesToUpload.push({ kind, fileName: doc.fileName, buffer: buf });
     } catch {}
   }

@@ -159,6 +159,9 @@ async function main() {
       else if (doc.kind === 'GUVOHNOMA') kind = 'GUVOHNOMA';
       else if (doc.kind === 'ISHONCHNOMA') kind = 'ISHONCHNOMA';
 
+      // Takror hujjatni to'smaymiz-da bo'lmaydi: CaseDocument.kind da unique yo'q, bitta
+      // kvitansiya ikki qatorda turishi mumkin (2026-09-06 sinovida shunday bo'ldi).
+      if (filesToUpload.some((f) => f.fileName === doc.fileName && f.kind === kind)) continue;
       filesToUpload.push({
         kind,
         fileName: doc.fileName,
