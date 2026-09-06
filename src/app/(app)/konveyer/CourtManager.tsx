@@ -583,15 +583,20 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged }: {
 // (PENDING) qoladi va davom ettirilganda aynan shu joydan ketadi.
 function PauseSwitch() {
   const [paused, setPaused] = useState<boolean | null>(null);
+  const [counts, setCounts] = useState<Record<string, number> | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Holat + BARCHA firmalar bo'yicha umumiy raqamlar. Ish ketayotgan bo'lsa tez-tez
+  // yangilanadi (operator jarayonni real vaqtda kuzatadi), tinch paytda sekinroq.
   useEffect(() => {
     let alive = true;
-    fetch('/konveyer/court-queue/pause')
+    const load = () => fetch('/konveyer/court-queue/pause')
       .then((r) => r.json())
-      .then((d) => { if (alive) setPaused(d?.paused === true); })
-      .catch(() => { if (alive) setPaused(false); });
-    return () => { alive = false; };
+      .then((d) => { if (alive) { setPaused(d?.paused === true); setCounts(d?.counts ?? null); } })
+      .catch(() => { if (alive) setPaused((p) => p ?? false); });
+    void load();
+    const t = setInterval(load, 5000);
+    return () => { alive = false; clearInterval(t); };
   }, []);
 
   const toggle = async () => {
@@ -605,6 +610,11 @@ function PauseSwitch() {
       if (r.ok) setPaused((await r.json())?.paused === true);
     } catch { /* tarmoq xatosi — holat o'zgarmaydi */ } finally { setBusy(false); }
   };
+
+  const waiting = (counts?.PENDING ?? 0) + (counts?.RUNNING ?? 0);
+  const done = counts?.DONE ?? 0;
+  const failed = counts?.FAILED ?? 0;
+  const running = (counts?.RUNNING ?? 0) > 0;
 
   if (paused === null) return null;
   return (
@@ -622,13 +632,39 @@ function PauseSwitch() {
       </span>
 
       <div className="min-w-0 flex-1">
-        <div className={`text-[12px] font-semibold ${paused ? 'text-amber-700 dark:text-amber-300' : 'text-fg'}`}>
-          {paused ? 'Sudga yuborish to‘xtatilgan' : 'Sudga yuborish faol'}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className={`text-[12px] font-semibold ${paused ? 'text-amber-700 dark:text-amber-300' : 'text-fg'}`}>
+            {paused ? 'Sudga yuborish to‘xtatilgan' : running ? 'Yuborilmoqda' : 'Sudga yuborish faol'}
+          </span>
+          {/* Umumiy raqamlar — barcha firmalar bo'yicha, bir qarashda. */}
+          {counts && (waiting + done + failed) > 0 && (
+            <span className="flex flex-wrap items-center gap-1 text-[11px] tabular-nums">
+              {waiting > 0 && (
+                <span className="rounded bg-slate-500/12 px-1.5 py-0.5 font-medium text-slate-600 dark:text-slate-300" title="Navbatda va ishlanmoqda">
+                  {n(waiting)} navbatda
+                </span>
+              )}
+              {done > 0 && (
+                <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-medium text-emerald-700 dark:text-emerald-300" title="ADOLAT qabul qilgan">
+                  {n(done)} ketdi
+                </span>
+              )}
+              {failed > 0 && (
+                <span className="rounded bg-rose-500/15 px-1.5 py-0.5 font-medium text-rose-700 dark:text-rose-300" title="Xato bergan — firma qatoridagi navbat panelidan sababini ko‘ring">
+                  {n(failed)} yuborilmadi
+                </span>
+              )}
+            </span>
+          )}
         </div>
-        <div className="text-[11px] leading-snug text-muted">
+        <div className="mt-0.5 text-[11px] leading-snug text-muted">
           {paused
-            ? 'Ketayotgan partiya joriy ishdan keyin to‘xtaydi, yangisi boshlanmaydi. Ishlar navbatda qoladi — davom ettirsangiz shu joydan ketadi.'
-            : 'Barcha firmalar bo‘yicha jarayonni bir tugma bilan to‘xtatib turish mumkin.'}
+            ? waiting > 0
+              ? `${n(waiting)} ta ish navbatda kutib turibdi. Davom ettirsangiz aynan shu joydan ketadi — hech narsa takrorlanmaydi.`
+              : 'Yangi partiya boshlanmaydi. Davom ettirmaguningizcha portalga hech nima yuborilmaydi.'
+            : running
+              ? 'Har ish orasida sud sozlamasidagi interval kutiladi (Sudlar bo‘limi, standart 60s).'
+              : 'Barcha firmalar bo‘yicha jarayonni bir tugma bilan to‘xtatib turish mumkin.'}
         </div>
       </div>
 

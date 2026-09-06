@@ -222,7 +222,15 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
       // default 60s). Birinchi ish kutmaydi — pacer oxirgi ish vaqtidan hisoblaydi.
       const gapMs = caseGapFor((ac.court as { sendIntervalSec?: number } | null)?.sendIntervalSec);
       await paceCase(gapMs, (msLeft) => {
-        console.log(`[Job ${jobId}] ${caseIndexStr} navbat: ${Math.ceil(msLeft / 1000)}s kutilmoqda...`);
+        const sec = Math.ceil(msLeft / 1000);
+        console.log(`[Job ${jobId}] ${caseIndexStr} navbat: ${sec}s kutilmoqda...`);
+        // Kutishni UI'ga ham chiqaramiz — aks holda progress 60 soniya qotib qolgandek
+        // ko'rinadi va operator «osilib qoldi» deb o'ylaydi. Job yozuvi ayni paytda
+        // worker'ning «tirikman» belgisi ham (orphan sweep updatedAt'ga qaraydi).
+        void prisma.job.update({
+          where: { id: jobId },
+          data: { message: `${okCount} ta yuborildi, ${failCount} ta xato — keyingisi ${sec}s dan keyin` },
+        }).catch(() => { /* progress yozuvi muhim emas, ish to'xtamasin */ });
       });
 
       console.log(`[Job ${jobId}] ${caseIndexStr} Case #${ac.id} (${ac.clientName}) yuborilmoqda...`);
