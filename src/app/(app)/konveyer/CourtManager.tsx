@@ -877,7 +877,9 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   // ── AUTO rejim: bir marta imzolangach, har 30s da keyingi paketni O'ZI yuboradi ────────────
   // (tugagach 30s kutib, firma hali tayyor bo'lsa keyingi partiyani boshlaydi; tayyor tugasa yoki
   //  «To'xtatish» bosilsa — to'xtaydi). Qayta E-IMZO so'ralmaydi — operator auto'ni yoqib tasdiqlagan.
-  const AUTO_MS = 30_000;
+  // AUTO rejim: partiya tugagach keyingisi shuncha kutib boshlanadi. 30s edi — portal
+  // tezlik cheklovi uchun juda tez (bir partiya tugashi bilan darrov keyingisi urilardi).
+  const AUTO_MS = 60_000;
   const [auto, setAuto] = useState<{ firmId: number; firmName: string; limit: number } | null>(null);
   const autoRef = useRef<typeof auto>(null);
   useEffect(() => { autoRef.current = auto; }, [auto]);

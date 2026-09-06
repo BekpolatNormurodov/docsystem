@@ -24,5 +24,16 @@ RUN npx prisma generate
 COPY tsconfig.json ./
 COPY src ./src
 COPY data ./data
+# Sudga yuborish dvigateli (src/lib/court-submit-job.ts) shu papkadan import qiladi. U yo'q
+# bo'lsa worker STARTDA yiqiladi (MODULE_NOT_FOUND) — ya'ni PDF paket, oferta, talabnoma va
+# billing avto-sinxronizatsiyasi ham to'xtaydi, chunki hammasi shu bitta jarayonda.
+#
+# ATAYIN faqat kutubxona modullari: papkadagi qo'lda ishga tushiriladigan skriptlar
+# (test-dry-run.ts, send-one-live.ts, ...) worker'ga kerak emas va ulardan birida qattiq
+# yozilgan sessiya tokeni bor — uni image qatlamiga bakib qo'ymaymiz.
+COPY cabinet-api-skeleton/submitter.ts cabinet-api-skeleton/client.ts \
+     cabinet-api-skeleton/builder.ts cabinet-api-skeleton/constants.ts \
+     cabinet-api-skeleton/types.ts cabinet-api-skeleton/uploader.ts \
+     ./cabinet-api-skeleton/
 
 CMD ["npm", "run", "worker"]
