@@ -24,7 +24,7 @@ async function main() {
   catch (e) { if (!(e instanceof SessionExpiredError)) throw e; console.log(`cabinet: SIGN with ${firm.cabinetKey} key...`); cab = await authenticateCabinet(firm.cabinetKey, firm.stir); }
   const cs = await ingestCabinetStatuses(cab, branchCode);
   console.log(`  cabinet cases: ${cs.totalCases}, matched ${cs.matched}`);
-  const cd = await ingestCabinetDetails(cab, branchCode, { concurrency: 6 });
+  const cd = await ingestCabinetDetails(cab, branchCode);
   console.log(`  details: ${cd.fetched} fetched, ${cd.withPinfl} with exact PINFL`);
 
   // --- HIPPO ---

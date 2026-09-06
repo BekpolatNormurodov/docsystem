@@ -18,7 +18,7 @@ async function main() {
     try {
       const s = await getStoredCabinetSession(f.stir);
       const cs = await ingestCabinetStatuses(s, f.branchCode);
-      const cd = await ingestCabinetDetails(s, f.branchCode, { concurrency: 6 });
+      const cd = await ingestCabinetDetails(s, f.branchCode);
       process.stdout.write(`cabinet ${cs.totalCases} (pinfl ${cd.withPinfl})  `);
     } catch (e) { process.stdout.write(e instanceof SessionExpiredError ? 'cabinet: no session  ' : `cabinet ERR: ${(e as Error).message}  `); }
     try {

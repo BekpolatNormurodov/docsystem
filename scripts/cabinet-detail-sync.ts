@@ -10,7 +10,7 @@ async function main() {
   const branchCode = process.argv[3] ?? '12842';
   const s = await getStoredCabinetSession(account);
   console.log(`fetching case details for ${branchCode} (exact PINFL linking)...`);
-  const r = await ingestCabinetDetails(s, branchCode, { concurrency: 6 });
+  const r = await ingestCabinetDetails(s, branchCode);
   console.log(`\ntotal ${r.total} | detail fetched ${r.fetched} | with defendant PINFL ${r.withPinfl} | failed ${r.failed}`);
 
   const byMatch = await prisma.clientCaseStatus.groupBy({ by: ['matchedBy'], where: { source: 'CABINET', branchCode }, _count: true });
