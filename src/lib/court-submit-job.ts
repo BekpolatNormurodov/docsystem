@@ -40,7 +40,7 @@ export interface CourtSubmitJobOpts {
 /**
  * Har bir ish uchun diskdagi hujjatlarni yig'ish
  */
-async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
+export async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
   const filesToUpload: CaseFileToUpload[] = [];
 
   // A) DB dagi CaseDocument yozuvlaridan
@@ -94,33 +94,38 @@ async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
     }
   }
 
-  // C) Tashkilot statik hujjatlari (Guvohnoma, Ishonchnoma)
-  const hasGuvox = filesToUpload.some((f) => f.kind === 'GUVOHNOMA');
-  const hasIshonch = filesToUpload.some((f) => f.kind === 'ISHONCHNOMA');
-  if (!hasGuvox) {
-    const paths = [
-      path.join(process.cwd(), 'exports', 'firm-docs', String(ac.firmId), 'GUVOHNOMA-Guvoxnoma_BRIGHT.pdf'),
-      path.join(home, 'Downloads', 'Guvoxnoma BRIGHT.pdf'),
-    ];
-    for (const p of paths) {
-      try {
-        const gBuf = await fs.readFile(p);
-        filesToUpload.push({ kind: 'GUVOHNOMA', fileName: 'Guvoxnoma BRIGHT.pdf', buffer: gBuf });
-        break;
-      } catch {}
-    }
-  }
-  if (!hasIshonch) {
-    const paths = [
-      path.join(process.cwd(), 'exports', 'firm-docs', String(ac.firmId), 'ISHONCHNOMA-Ishonchnoma_BRIGHT.pdf'),
-      path.join(home, 'Downloads', 'Ishonchnoma BRIGHT.pdf'),
-    ];
-    for (const p of paths) {
-      try {
-        const iBuf = await fs.readFile(p);
-        filesToUpload.push({ kind: 'ISHONCHNOMA', fileName: 'Ishonchnoma BRIGHT.pdf', buffer: iBuf });
-        break;
-      } catch {}
+  // C) Firma hujjatlari (guvohnoma / ishonchnoma / shartnoma) — BAZADAN.
+  //
+  // Avval bu yerda fayl nomlari QO'LDA taxmin qilinardi:
+  //   exports/firm-docs/<firmId>/GUVOHNOMA-Guvoxnoma_BRIGHT.pdf
+  // Haqiqiy fayl esa vaqt tamg'asi bilan saqlanadi:
+  //   exports/firm-docs/1/GUVOHNOMA-1788592171459-Guvoxnoma_BRIGHT.pdf
+  // Ya'ni MOS KELMASDI va guvohnoma ham, ishonchnoma ham hech qachon yuklanmasdi —
+  // sudga faqat ariza + kvitansiya ketardi. Shartnoma esa umuman qidirilmasdi.
+  // Qarz undirish da'vosini shartnomasiz/ishonchnomasiz berish — sud qaytarishining
+  // eng keng tarqalgan sababi. Endi yo'llar FirmDocument jadvalidan olinadi.
+  const FIRM_DOC_KIND: Record<string, CaseFileToUpload['kind']> = {
+    GUVOHNOMA: 'GUVOHNOMA',
+    ISHONCHNOMA: 'ISHONCHNOMA',
+    SHARTNOMA: 'SHARTNOMA',
+  };
+  const firmDocs = await prisma.firmDocument.findMany({
+    where: { firmId: ac.firmId },
+    select: { kind: true, filePath: true },
+    orderBy: { sortOrder: 'asc' },
+  });
+  for (const fd of firmDocs) {
+    const kind = FIRM_DOC_KIND[String(fd.kind)];
+    if (!kind) continue;
+    if (filesToUpload.some((f) => f.kind === kind)) continue; // allaqachon bor
+    try {
+      let p = fd.filePath;
+      if (p.startsWith('/app/')) p = path.join(process.cwd(), p.replace(/^\/app\//, ''));
+      const buf = await fs.readFile(p);
+      filesToUpload.push({ kind, fileName: path.basename(p), buffer: buf });
+    } catch {
+      // Fayl diskda yo'q — jim o'tkazib yuborilmaydi: yuqori qatlam (prepare-ready)
+      // firma hujjatlari to'liqligini alohida tekshiradi va yetishmasa yubormaydi.
     }
   }
 
