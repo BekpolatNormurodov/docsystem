@@ -94,6 +94,32 @@ export class CabinetSubmitEngine {
         return { ok: true, step: 'DRAFT_CREATED', draftId, uploadedFiles };
       }
 
+      // ⛔ HUJJAT BIRIKTIRISH HALI ULANMAGAN — YUBORISHDAN OLDINGI TO'SIQ.
+      //
+      // Yuqoridagi uploadPacket() fayllarni portal fayl-omboriga yuklaydi va fileId'larni
+      // qaytaradi, LEKIN bu ID'lar hech qayerga yozilmaydi: DraftDetails (types.ts) da hujjat
+      // bo'limi YO'Q va ular PUT bilan qoralamaga qaytarilmaydi. Ya'ni da'vo sudga ILOVASIZ
+      // ketadi — imzolangan ariza ham, talabnoma kvitansiyasi ham, oferta ham biriktirilmagan
+      // holda. Bunday da'voni sud qaytaradi, lekin da'vo RASMAN BERILGAN bo'ladi (qaytarib
+      // bo'lmaydi) va davlat boji/pochta xarajati ham sarflanadi.
+      //
+      // Ochish uchun (bir martalik aniqlash ishi):
+      //   1. ADOLAT UI'sida qo'lda BITTA qoralama yarating va unga hujjat biriktiring.
+      //   2. GET /api/cabinet/pub-user-draft-cases/list dan o'sha qoralamani o'qing va
+      //      fileId'lar QAYSI maydonda turishini aniqlang (details ichida yangi bo'limmi,
+      //      yoki alohida endpoint orqalimi).
+      //   3. types.ts DraftDetails'ga o'sha bo'limni qo'shing, builder'da to'ldiring va
+      //      shu yerda uploadedFiles'ni details'ga yozib, yana bir marta PUT qiling.
+      //   4. Shundan keyin bu to'siqni olib tashlang.
+      if (files.length > 0 && uploadedFiles.length > 0) {
+        throw new Error(
+          `Hujjatlar (${uploadedFiles.length} ta) portalga yuklandi, lekin qoralamaga BIRIKTIRILMADI — ` +
+          `bu holda da'vo sudga ilovasiz ketardi va sud uni qaytarardi. Yuborish to'xtatildi. ` +
+          `Qoralama ADOLAT'da saqlanib qoldi (ID=${draftId}) — hujjatlarni qo'lda biriktirib, ` +
+          `o'sha yerdan yuborishingiz mumkin. Sabab va yechim: cabinet-api-skeleton/submitter.ts izohiga qarang.`,
+        );
+      }
+
       // STEP 6: Sudga topshirish (send-to-court) — HAQIQIY SUDGA TOPSHIRISH
       console.log('▶ [6/6] Sudga topshirilmoqda (send-to-court)...');
       const submitRes = await this.client.put<any>(

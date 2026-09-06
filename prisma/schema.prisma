@@ -61,6 +61,12 @@ model Firm {
   stir        String?
   postIndex   String?
   phone       String?
+  // cabinet.sud.uz (ADOLAT) da'vogar GUID'i — da'vo KIM nomidan ochilishini belgilaydi.
+  // Har firma o'z akkauntida bitta ORGANIZATION da'vogar yozuviga ega. Noto'g'ri yoki
+  // boshqa firmanikini ishlatish = kreditor bo'lmagan yuridik shaxs nomidan da'vo
+  // (qaytarib bo'lmaydi), shuning uchun topilmasa yuborish ATAYIN to'xtaydi.
+  // Qiymat qo'lda kiritiladi yoki portaldan avtomatik aniqlanadi (src/lib/cabinet/claimant.ts).
+  cabinetClaimantId String?
   invoices    InvoiceRecord[]
   arizaCases  ArizaCase[]
   documents   FirmDocument[]

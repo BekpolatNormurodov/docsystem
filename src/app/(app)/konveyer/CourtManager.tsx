@@ -608,21 +608,48 @@ function PauseSwitch() {
 
   if (paused === null) return null;
   return (
-    <div className={`flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 ${paused ? 'border-amber-500/40 bg-amber-500/[0.06]' : 'border-line bg-surface'}`}>
-      <span className={`text-xs font-semibold ${paused ? 'text-amber-700 dark:text-amber-300' : 'text-muted'}`}>
-        {paused ? '⏸ Sudga yuborish PAUZADA' : 'Sudga yuborish faol'}
+    <div
+      className={`flex items-center gap-3 rounded-xl border px-3.5 py-2.5 transition-colors ${
+        paused
+          ? 'border-amber-500/45 bg-amber-500/[0.07]'
+          : 'border-line bg-surface'
+      }`}
+    >
+      {/* Holat nuqtasi — faol bo'lsa sekin puls, pauzada tinch. */}
+      <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden>
+        {!paused && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500/70" />}
+        <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${paused ? 'bg-amber-500' : 'bg-emerald-500'}`} />
       </span>
-      <span className="text-[11px] text-muted">
-        {paused
-          ? 'Ketayotgan partiya joriy ishdan keyin to‘xtaydi, yangi partiya boshlanmaydi. Ishlar navbatda qoladi.'
-          : 'Butun jarayonni (barcha firmalar) vaqtincha to‘xtatish mumkin.'}
-      </span>
+
+      <div className="min-w-0 flex-1">
+        <div className={`text-[12px] font-semibold ${paused ? 'text-amber-700 dark:text-amber-300' : 'text-fg'}`}>
+          {paused ? 'Sudga yuborish to‘xtatilgan' : 'Sudga yuborish faol'}
+        </div>
+        <div className="text-[11px] leading-snug text-muted">
+          {paused
+            ? 'Ketayotgan partiya joriy ishdan keyin to‘xtaydi, yangisi boshlanmaydi. Ishlar navbatda qoladi — davom ettirsangiz shu joydan ketadi.'
+            : 'Barcha firmalar bo‘yicha jarayonni bir tugma bilan to‘xtatib turish mumkin.'}
+        </div>
+      </div>
+
       <button
         onClick={toggle}
         disabled={busy}
-        className={`ml-auto rounded-lg border px-2.5 py-1 text-[11px] font-semibold outline-none transition-colors focus-visible:ring-2 disabled:opacity-50 ${paused ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 focus-visible:ring-emerald-500/30 dark:text-emerald-300' : 'border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/15 focus-visible:ring-amber-500/30 dark:text-amber-300'}`}
+        title={paused ? 'Jarayonni davom ettirish' : 'Butun jarayonni vaqtincha to‘xtatish'}
+        className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-semibold outline-none transition-colors focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+          paused
+            ? 'border-emerald-500/45 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/[0.18] focus-visible:ring-emerald-500/30 dark:text-emerald-300'
+            : 'border-line text-muted hover:border-amber-500/45 hover:bg-amber-500/10 hover:text-amber-700 focus-visible:ring-amber-500/30 dark:hover:text-amber-300'
+        }`}
       >
-        {busy ? '…' : paused ? 'Davom ettirish' : 'Pauza'}
+        {busy ? (
+          <span className="h-3 w-3 animate-spin rounded-full border-2 border-current/30 border-t-current" />
+        ) : paused ? (
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M8 5v14l11-7z" /></svg>
+        ) : (
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M7 4h3.5v16H7zM13.5 4H17v16h-3.5z" /></svg>
+        )}
+        {busy ? 'Kutilmoqda' : paused ? 'Davom ettirish' : 'Pauza'}
       </button>
     </div>
   );
@@ -668,37 +695,63 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
   const waiting = (counts?.PENDING ?? 0) + (counts?.RUNNING ?? 0);
   if (!counts || (failed + done + waiting) === 0) return null;
 
+  const total = done + waiting + failed;
+  const donePct = total ? Math.round((done / total) * 100) : 0;
+  const failPct = total ? Math.round((failed / total) * 100) : 0;
+
   return (
-    <div className="border-t border-line px-3 py-2">
+    <div className="border-t border-line px-3 py-2.5">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 text-left text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30"
+        className="group flex w-full items-center gap-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30"
         aria-expanded={open}
       >
-        <span className="font-semibold text-muted">Navbat:</span>
-        {done > 0 && <span className={`rounded px-1.5 py-0.5 font-medium tabular-nums ${Q_STATE.DONE.tone}`}>{n(done)} yuborildi</span>}
-        {waiting > 0 && <span className={`rounded px-1.5 py-0.5 font-medium tabular-nums ${Q_STATE.PENDING.tone}`}>{n(waiting)} navbatda</span>}
-        {failed > 0 && <span className={`rounded px-1.5 py-0.5 font-medium tabular-nums ${Q_STATE.FAILED.tone}`}>{n(failed)} yuborilmadi</span>}
-        <span className="ml-auto text-muted">{open ? 'yopish' : 'batafsil'}</span>
+        {/* Bitta chiziqda butun manzara: yashil = ketgan, kulrang = navbatda, qizil = xato. */}
+        <span className="flex h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-2" aria-hidden>
+          <span className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${donePct}%` }} />
+          <span className="h-full bg-rose-500 transition-all duration-500" style={{ width: `${failPct}%` }} />
+        </span>
+        <span className="flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums">
+          {done > 0 && <span className="font-semibold text-emerald-600 dark:text-emerald-400">{n(done)} ketdi</span>}
+          {waiting > 0 && <span className="text-muted">{n(waiting)} navbatda</span>}
+          {failed > 0 && <span className="font-semibold text-rose-600 dark:text-rose-400">{n(failed)} yuborilmadi</span>}
+          <svg
+            className={`h-3.5 w-3.5 text-muted transition-transform ${open ? 'rotate-180' : ''}`}
+            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden
+          ><path d="m6 9 6 6 6-6" /></svg>
+        </span>
       </button>
+
       {open && data && (
-        <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto">
+        <ul className="mt-2 max-h-72 space-y-1 overflow-y-auto pr-0.5">
           {data.rows.map((row) => {
             const st = Q_STATE[row.state] ?? Q_STATE.PENDING;
+            const failedRow = row.state === 'FAILED';
             return (
-              <li key={row.caseId} className="rounded-lg bg-surface-2 px-2 py-1.5 text-[11px]">
+              <li
+                key={row.caseId}
+                className={`rounded-lg border px-2 py-1.5 text-[11px] ${failedRow ? 'border-rose-500/30 bg-rose-500/[0.05]' : 'border-transparent bg-surface-2'}`}
+              >
                 <div className="flex items-center gap-2">
                   <span className={`shrink-0 rounded px-1.5 py-0.5 font-medium ${st.tone}`}>{st.label}</span>
-                  <span className="truncate font-medium">{row.clientName || `#${row.caseId}`}</span>
-                  {row.caseNumber && <span className="ml-auto shrink-0 font-mono text-[10px] text-muted">{row.caseNumber}</span>}
-                  {row.attempts > 1 && <span className="shrink-0 text-[10px] text-muted">{row.attempts}-urinish</span>}
+                  <span className="min-w-0 truncate font-medium">{row.clientName || `#${row.caseId}`}</span>
+                  {row.attempts > 1 && (
+                    <span className="shrink-0 rounded bg-surface px-1 text-[10px] text-muted" title={`${row.attempts} marta urinilgan`}>
+                      {row.attempts}×
+                    </span>
+                  )}
+                  {row.caseNumber && (
+                    <span className="ml-auto shrink-0 font-mono text-[10px] text-emerald-600 dark:text-emerald-400" title="Sud ish raqami">
+                      {row.caseNumber}
+                    </span>
+                  )}
                 </div>
-                {/* Xato sababi to'liq ko'rsatiladi — operator shu matndan nima qilishni tushunadi. */}
-                {row.state === 'FAILED' && row.error && (
-                  <p className="mt-1 break-words text-[10px] leading-snug text-rose-600 dark:text-rose-300" role="alert">{row.error}</p>
+                {/* Xato sababi to'liq — operator shu matndan nima qilishni tushunadi. */}
+                {failedRow && row.error && (
+                  <p className="mt-1 break-words leading-snug text-rose-600 dark:text-rose-300" role="alert">{row.error}</p>
                 )}
                 {/* Xato bo'lsa ham qoralama yaratilgan bo'lishi mumkin — ADOLAT'da yetim qolmasin. */}
-                {row.state === 'FAILED' && row.draftId && (
+                {failedRow && row.draftId && (
                   <p className="mt-0.5 font-mono text-[10px] text-muted">ADOLAT qoralama: {row.draftId}</p>
                 )}
               </li>

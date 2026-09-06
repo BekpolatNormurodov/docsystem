@@ -7,7 +7,7 @@ export const runtime = 'nodejs';
 
 // Only these columns may be edited — NEVER spread the raw body into update, which
 // would let any Firm column be mass-assigned.
-const EDITABLE = ['shortName', 'legalName', 'address', 'region', 'district', 'addressLine', 'bankAccount', 'mfo', 'stir', 'postIndex', 'phone'] as const;
+const EDITABLE = ['shortName', 'legalName', 'address', 'region', 'district', 'addressLine', 'bankAccount', 'mfo', 'stir', 'postIndex', 'phone', 'cabinetClaimantId'] as const;
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   await requireAdmin();
