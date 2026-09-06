@@ -163,9 +163,13 @@ export class CabinetSubmitEngine {
       // bajariladi va ish ADOLAT'da to'liq tayyor holda turadi. O'sha ishni portalda ochib,
       // hujjatlari va tomonlari to'g'ri ekanini KO'ZINGIZ bilan tekshiring, qo'lda yuboring.
       // To'g'ri chiqsa — shu to'siqni olib tashlaymiz va qolgani avtomatik ketaveradi.
+      // `ok: false` — ATAYIN. Avval bu yerda `ok: true` turardi va chaqiruvchilar buni
+      // muvaffaqiyat deb o'qib «SUDGA TOPSHIRILDI» yozib, bazani COURT_SUBMITTED qilib
+      // qo'yishardi (2026-09-07 da case 9327 bilan aynan shunday bo'ldi). Sudga
+      // topshirilmagan ish HECH QACHON topshirilgan deb belgilanmasligi kerak.
       if (!options.confirmedLiveVerified) {
         return {
-          ok: true,
+          ok: false,
           step: 'DRAFT_CREATED',
           draftId,
           caseId,
