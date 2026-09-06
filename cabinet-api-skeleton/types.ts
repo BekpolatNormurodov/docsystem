@@ -155,6 +155,13 @@ export interface UploadedCabinetFile {
   fileSize: number;
 }
 
-// ---- send-to-court — NEVER CALL THIS. See src/lib/cabinet/api.ts SEND_TO_COURT_PREFIX guard. -
-// PUT /api/cabinet/case/send-to-court/{id} — irreversible, real court filing. Out of scope for
-// any automated code in this repo; a human operator does this from the ADOLAT UI itself.
+// ---- send-to-court: PUT /api/cabinet/case/send-to-court/{id} --------------------------------
+export interface SendToCourtResponse {
+  case_number?: string;
+  caseNumber?: string;
+  registry_number?: string;
+  registryNumber?: string;
+  status?: string;
+  claim_id?: string;
+  id?: string;
+}

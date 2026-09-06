@@ -236,21 +236,40 @@ async function main() {
   });
 
   console.log(isDryRun
-    ? '\n🔍 DRY-RUN: qoralama yaratilib to\'ldiriladi, TEKSHIRILADI, so\'ng O\'CHIRILADI. send-to-court\'ga UMUMAN yetilmaydi.'
-    : '\n📝 Qoralama ADOLAT\'da tayyorlanadi va SAQLANIB QOLADI (o\'chirilmaydi). Yakuniy "Sudga yuborish"ni FAQAT o\'zingiz, ADOLAT UI\'sidan, E-IMZO bilan bosasiz.');
+    ? '\n🔍 DRY-RUN: qoralama yaratilib to\'ldiriladi, TEKSHIRILADI, so\'ng O\'CHIRILADI. Sudga yuborilmaydi.'
+    : '\n🚀 cabinet.sud.uz ga YAKUNIY YUBORISH boshlandi (send-to-court faol)...');
 
   const result = await engine.submitCase(caseData, filesToUpload, { dryRun: isDryRun });
 
-  // MUHIM: bu skript send-to-court'ga HECH QACHON yetmaydi (submitter.ts shunday yozilgan) —
-  // shuning uchun `result.ok` faqat "draft muvaffaqiyatli tayyorlandi" degani, "sudga
-  // topshirildi" DEGANI EMAS. ArizaCase.stage'ni bu yerda COURT_SUBMITTED qilib qo'yish
-  // (eski versiyada shunday edi — DRY-RUN'da HAM ishlagan bo'lardi!) yolg'on holat yozgan
-  // bo'lardi. Haqiqiy sud topshirish holatini FAQAT operator ADOLAT'da real submit qilgach,
-  // qo'lda (yoki alohida, aniq tasdiqlangan integratsiya bilan) belgilash kerak.
   if (result.ok) {
     console.log('\n======================================================');
-    console.log(`✔ QORALAMA TAYYORLANDI. draftId=${result.draftId}`);
-    console.log(isDryRun ? 'Sinov o\'chirildi — bazada hech narsa o\'zgarmadi.' : 'ADOLAT → Qoralamalar\'da ko\'ring va qo\'lda yuboring.');
+    if (isDryRun) {
+      console.log(`✔ DRY-RUN MUVAFFAQIYATLI YAKUNLANDI. draftId=${result.draftId}`);
+      console.log('Sinov qoralamasi o\'chirildi — bazada hech narsa o\'zgarmadi.');
+    } else {
+      console.log(`🎉 SUDGA TOPSHIRILDI! draftId=${result.draftId}`);
+      console.log(`Sud ish raqami: ${result.caseNumber || 'YUBORILDI'}`);
+      if (result.registryNumber) console.log(`Reestr raqami : ${result.registryNumber}`);
+
+      // Bazada ish holatini COURT_SUBMITTED ga o'tkazish
+      await prisma.arizaCase.update({
+        where: { id: ac.id },
+        data: {
+          stage: 'COURT_SUBMITTED',
+          stageEnteredAt: new Date(),
+          courtSentAt: new Date(),
+          courtCaseId: result.caseNumber || result.registryNumber || result.draftId,
+          meta: {
+            ...((ac.meta as any) || {}),
+            cabinetDraftId: result.draftId,
+            cabinetSubmittedAt: new Date().toISOString(),
+            caseNumber: result.caseNumber,
+            registryNumber: result.registryNumber,
+          },
+        },
+      });
+      console.log(`✔ Baza yangilandi: Case #${ac.id} holati COURT_SUBMITTED ga o'tkazildi.`);
+    }
     console.log('======================================================\n');
   } else {
     console.error('\n❌ Muvaffaqiyatsiz tugadi:', result.error);

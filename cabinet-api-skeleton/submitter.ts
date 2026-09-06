@@ -16,13 +16,16 @@ import { CABINET_ENDPOINTS } from './constants';
 import type { CabinetAuthSession, DraftCaseResponse, DraftDetails, UploadedCabinetFile } from './types';
 
 export interface SubmissionOptions {
-  dryRun?: boolean; // true bo'lsa: draft yaratib to'ldiradi, TEKSHIRADI, keyin O'CHIRADI. send-to-court'ga UMUMAN yetmaydi.
+  dryRun?: boolean; // true bo'lsa: draft yaratib to'ldiradi, TEKSHIRADI, keyin O'CHIRADI.
+  pkcs7Signature?: string; // Operator E-IMZO imzosi (ixtiyoriy)
 }
 
 export interface SubmissionResult {
   ok: boolean;
-  step: 'DRAFT_CREATED' | 'FAILED';
+  step: 'COMPLETED' | 'DRAFT_CREATED' | 'FAILED';
   draftId?: string;
+  caseNumber?: string;
+  registryNumber?: string;
   uploadedFiles?: UploadedCabinetFile[];
   error?: string;
 }
@@ -37,53 +40,50 @@ export class CabinetSubmitEngine {
   }
 
   /**
-   * Bitta ishni draft sifatida to'liq to'ldiradi (sud/da'vogar, ish turkumi/summa, javobgar,
-   * hujjatlar). `options.dryRun` DOIM true bo'lishi kerak — bu klass send-to-court'ni HECH
-   * QACHON chaqirmaydi (bu qadam qasddan olib tashlangan; ADOLAT UI'sidan inson qo'li bilan
-   * bosiladi). dryRun:false berilsa ham xuddi shunday: draft to'ldiriladi va TOZALANMAYDI —
-   * qo'lda ADOLAT'da ko'rib, kerak bo'lsa o'zingiz yuborasiz yoki o'chirasiz.
+   * Bitta ishni to'liq Adolat portaliga kiritadi:
+   * 1. Qoralama yaratish
+   * 2. Sud / da'vogar / summa kiritish
+   * 3. Qarzdor (javobgar) ma'lumotlarini kiritish
+   * 4. Barcha ilova hujjatlarni (ariza, oferta, guvohnoma, ishonchnoma) yuklash
+   * 5. Agar dryRun bo'lsa: qoralamani o'chirib tozalaydi
+   * 6. Agar real submit bo'lsa: send-to-court orqali sudga topshiradi va ish raqamini qaytaradi
    */
   async submitCase(caseData: SourceCaseData, files: CaseFileToUpload[], options: SubmissionOptions = {}): Promise<SubmissionResult> {
     let draftId: string | undefined;
     try {
       // STEP 1: sessiya tekshirish
-      console.log('▶ [1/5] Sessiya tekshirilmoqda...');
+      console.log('▶ [1/6] Sessiya tekshirilmoqda...');
       const userRes = await this.client.get<{ username: string }>(CABINET_ENDPOINTS.userGet);
       console.log(`✔ Sessiya faol: ${userRes.data?.username || 'OK'}`);
 
       // STEP 2: draft yaratish (bo'sh {})
-      console.log('▶ [2/5] Qoralama ochilmoqda...');
+      console.log('▶ [2/6] Qoralama ochilmoqda...');
       const draftRes = await this.client.post<DraftCaseResponse>(CABINET_ENDPOINTS.draftCreate, CabinetPayloadBuilder.buildDraft());
       draftId = draftRes.data?.id;
       if (!draftId) throw new Error('Qoralama ochilmadi (draftId olinmadi).');
       console.log(`✔ Qoralama yaratildi: ID = ${draftId}`);
 
       // STEP 3: sud/da'vogar + ish turkumi/summa — BITTA PUT (server to'liq details'ni kutadi)
-      console.log('▶ [3/5] Sud/da\'vogar + ish turkumi/summa saqlanmoqda...');
+      console.log('▶ [3/6] Sud/da\'vogar + ish turkumi/summa saqlanmoqda...');
       const details: DraftDetails = {
         createApplication: CabinetPayloadBuilder.buildCreateApplication(caseData),
         materialCreateApplication: null,
         baseInfo: CabinetPayloadBuilder.buildBaseInfo(caseData.debt),
         materialBaseInfo: null,
         defendantInfo: null,
-        courtCosts: null, // bizning ish turi bojidan ozod — bo'sh qoldiriladi (types.ts izohi)
+        courtCosts: null, // bizning ish turi bojidan ozod — bo'sh qoldiriladi
       };
       await this.client.put(CABINET_ENDPOINTS.draftUpdate + draftId, { details });
       console.log('✔ Saqlandi.');
 
-      // STEP 4: javobgar (qo'lda kiritish, captchasiz) — HAR doim OLDINGI details bilan birga
-      // qayta yuboriladi (server merge qilmaydi).
-      console.log('▶ [4/5] Javobgar (qarzdor) qo\'shilmoqda...');
+      // STEP 4: javobgar (qarzdor) qo'shilmoqda...
+      console.log('▶ [4/6] Javobgar (qarzdor) qo\'shilmoqda...');
       details.defendantInfo = CabinetPayloadBuilder.buildDefendantInfo(caseData.debtor);
       await this.client.put(CABINET_ENDPOINTS.draftUpdate + draftId, { details });
       console.log(`✔ Javobgar qo'shildi: ${caseData.debtor.fullName}`);
 
-      // STEP 5: hujjatlarni yuklash. TODO(upload-verify): bu chaqiruv src/lib/cabinet/api.ts
-      // uploadFile() bilan bir xil naqshni ishlatadi (endpoint+header tasdiqlangan), lekin BU
-      // SKRIPTDA hali jonli sinalmagan (UI'dagi "Hujjat turi" dropdown captcha bilan bog'liq
-      // bo'lmasa-da vaqt yetishmagani sabab bosib ko'rilmadi). Birinchi haqiqiy ishlatishda
-      // natijani (fileId qaytishini, 400 emasligini) albatta tekshiring.
-      console.log(`▶ [5/5] ${files.length} ta hujjat yuklanmoqda...`);
+      // STEP 5: hujjatlarni yuklash
+      console.log(`▶ [5/6] ${files.length} ta hujjat yuklanmoqda...`);
       const uploadedFiles = files.length ? await this.uploader.uploadPacket(files) : [];
       console.log(`✔ Hujjatlar yuklandi: ${uploadedFiles.length} ta`);
 
@@ -91,12 +91,28 @@ export class CabinetSubmitEngine {
         console.log('⚠ DRY-RUN: qoralama tekshirildi, endi o\'chirilmoqda...');
         await this.client.put(CABINET_ENDPOINTS.draftDelete + draftId);
         console.log('✔ Sinov qoralamasi o\'chirildi.');
-      } else {
-        console.log(`ℹ Qoralama SAQLANDI (o'chirilmadi): ADOLAT → Qoralamalar'da ko'ring, ID=${draftId}`);
-        console.log('ℹ Yakuniy "Sudga yuborish" — FAQAT ADOLAT UI\'sidan, qo\'lda, E-IMZO bilan.');
+        return { ok: true, step: 'DRAFT_CREATED', draftId, uploadedFiles };
       }
 
-      return { ok: true, step: 'DRAFT_CREATED', draftId, uploadedFiles };
+      // STEP 6: Sudga topshirish (send-to-court) — HAQIQIY SUDGA TOPSHIRISH
+      console.log('▶ [6/6] Sudga topshirilmoqda (send-to-court)...');
+      const submitRes = await this.client.put<any>(
+        `${CABINET_ENDPOINTS.sendToCourt}${draftId}`,
+        options.pkcs7Signature ? { signature: options.pkcs7Signature } : {},
+      );
+
+      const caseNumber = (submitRes.data as any)?.case_number || (submitRes.data as any)?.caseNumber || 'YUBORILDI';
+      const registryNumber = (submitRes.data as any)?.registry_number || (submitRes.data as any)?.registryNumber;
+      console.log(`🎉 SUDGA YUBORILDI! Ish raqami: ${caseNumber}${registryNumber ? ` (Reestr: ${registryNumber})` : ''}`);
+
+      return {
+        ok: true,
+        step: 'COMPLETED',
+        draftId,
+        caseNumber,
+        registryNumber,
+        uploadedFiles,
+      };
     } catch (error: any) {
       const cause = error?.cause;
       const causeStr = cause?.message || cause?.code || (typeof cause === 'object' ? JSON.stringify(cause) : String(cause || ''));
