@@ -56,6 +56,27 @@ export class CabinetSubmitEngine {
   async submitCase(caseData: SourceCaseData, files: CaseFileToUpload[], options: SubmissionOptions = {}): Promise<SubmissionResult> {
     let draftId: string | undefined;
     try {
+      // STEP 0: HUJJAT TO'LIQLIGI — tarmoqqa chiqishdan OLDIN.
+      //
+      // 2026-09-07 da case 9327 bilan aynan shu holat yuz berdi: bazada 2 ta hujjat yozuvi
+      // bor edi, lekin ikkalasi ham BIR XIL talabnoma kvitansiyasi — imzolangan ariza
+      // umuman yo'q. Skript esa uni bemalol qabul qilib, ADOLAT'da faqat pochta
+      // kvitansiyasidan iborat da'vo yaratdi. Agar yuborish yoqilgan bo'lganida, real
+      // odamga qarshi ARIZASIZ da'vo rasman berilgan bo'lardi.
+      //
+      // Sayt oqimi (prepare-ready -> selectReadyCaseIds) 5 shartni tekshiradi, lekin
+      // to'g'ridan-to'g'ri chaqiruvlar (skript, qayta urinish) uni chetlab o'tadi —
+      // shuning uchun tekshiruv dvigatelning O'ZIDA turishi kerak.
+      const hasAriza = files.some((f) => f.kind === 'ARIZA');
+      if (!hasAriza) {
+        const bor = files.map((f) => f.kind).join(', ') || 'hech narsa';
+        throw new Error(
+          `Imzolangan ARIZA topilmadi — bunday da'voni sudga yuborib bo'lmaydi (sud qaytaradi, ` +
+          `lekin da'vo rasman berilgan bo'lib qoladi). Mavjud hujjatlar: ${bor}. ` +
+          `Avval palatadan imzolangan arizani skanerlab biriktiring.`,
+        );
+      }
+
       // STEP 1: sessiya tekshirish
       console.log('▶ [1/7] Sessiya tekshirilmoqda...');
       const userRes = await this.client.get<{ username: string }>(CABINET_ENDPOINTS.userGet);
