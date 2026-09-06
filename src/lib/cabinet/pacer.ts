@@ -15,6 +15,8 @@
 // kelajakda bir nechta worker ko'tarilsa, chegara BAZAGA (masalan Setting yoki advisory
 // lock) ko'chirilishi kerak.
 
+import { prisma } from '../db';
+
 /** Ikki HTTP so'rovi orasidagi eng kam vaqt. Bitta case ~7 so'rov => ~28s tarqaladi. */
 export const REQUEST_GAP_MS = 4_000;
 
@@ -74,4 +76,28 @@ export function backoff(ms: number): void {
   const until = Date.now() + ms;
   if (until > lastRequestAt + REQUEST_GAP_MS) lastRequestAt = until - REQUEST_GAP_MS;
   if (until > lastCaseAt + CASE_GAP_MS) lastCaseAt = until - CASE_GAP_MS;
+}
+
+// ── Umumiy PAUZA ──────────────────────────────────────────────────────────────────────────
+// Operator butun sudga yuborish jarayonini to'xtatib turishi mumkin (masalan portal
+// javob bermay qolganda yoki hujjatlarda xato topilganda). Job'ning `cancelRequested`
+// maydonidan farqi:
+//   • cancel — BITTA partiyani tugatadi, qolgan ishlar navbatda qoladi;
+//   • pause  — BARCHA firmalarga taalluqli, bazada saqlanadi (restart/deploy'dan keyin ham
+//     kuchda qoladi) va yangi partiya boshlanishini ham to'sadi.
+// Pauzada ishlar PENDING bo'lib qoladi — davom ettirilganda aynan shu joydan ketadi.
+const PAUSE_KEY = 'court_queue_paused';
+
+export async function isQueuePaused(): Promise<boolean> {
+  try {
+    const row = await prisma.setting.findUnique({ where: { key: PAUSE_KEY } });
+    return row?.value === '1';
+  } catch {
+    return false; // sozlama o'qilmasa ish to'xtamasin
+  }
+}
+
+export async function setQueuePaused(paused: boolean): Promise<void> {
+  const value = paused ? '1' : '0';
+  await prisma.setting.upsert({ where: { key: PAUSE_KEY }, create: { key: PAUSE_KEY, value }, update: { value } });
 }

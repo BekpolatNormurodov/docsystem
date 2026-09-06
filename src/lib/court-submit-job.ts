@@ -9,7 +9,7 @@ import { prisma } from './db';
 import { getStoredCabinetSession } from './cabinet/session';
 import { CabinetSubmitEngine } from '../../cabinet-api-skeleton/submitter';
 import { CabinetRequestError } from '../../cabinet-api-skeleton/client';
-import { paceCase, backoff, caseGapFor, REQUEST_GAP_MS, CASE_GAP_MS } from './cabinet/pacer';
+import { paceCase, backoff, caseGapFor, isQueuePaused, REQUEST_GAP_MS, CASE_GAP_MS } from './cabinet/pacer';
 import { audit, AuditAction } from './audit';
 import { resolveCabinetCourtGuid, CABINET_REGION_IDS } from '../../cabinet-api-skeleton/constants';
 import type { SourceCaseData } from '../../cabinet-api-skeleton/builder';
@@ -220,6 +220,14 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
       if (curJob?.cancelRequested) {
         console.log(`[Job ${jobId}] Operator tomonidan bekor qilindi.`);
         stopReason = 'Operator bekor qildi';
+        break;
+      }
+
+      // UMUMIY PAUZA: barcha firmalarga taalluqli. Ishlar PENDING bo'lib qoladi — davom
+      // ettirilganda aynan shu joydan ketadi, hech narsa takrorlanmaydi.
+      if (await isQueuePaused()) {
+        console.log(`[Job ${jobId}] Jarayon pauzada — to'xtatildi.`);
+        stopReason = 'Pauza — operator jarayonni to\'xtatib qo\'ygan';
         break;
       }
 
