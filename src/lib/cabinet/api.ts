@@ -35,11 +35,14 @@ async function fetchT(url: string, init: RequestInit): Promise<Response> {
   finally { clearTimeout(t); }
 }
 
-export async function cabinetFetch(session: CabinetSession, path: string, init: RequestInit = {}) {
-  // ⛔ Hard guard: the final submit (PUT /api/cabinet/case/send-to-court/{id}) is
-  // irreversible — refuse to ever call it from code.
-  if (path.startsWith(SEND_TO_COURT_PREFIX) || /\/case\/send-to-court\//i.test(path))
-    throw new Error('BLOCKED: send-to-court is the irreversible final submit — refusing to call it.');
+export interface CabinetFetchInit extends RequestInit {
+  allowSubmit?: boolean;
+}
+
+export async function cabinetFetch(session: CabinetSession, path: string, init: CabinetFetchInit = {}) {
+  // Hard guard: refuse accidental send-to-court unless explicitly permitted
+  if ((path.startsWith(SEND_TO_COURT_PREFIX) || /\/case\/send-to-court\//i.test(path)) && !init.allowSubmit)
+    throw new Error('BLOCKED: send-to-court is irreversible — pass allowSubmit: true or use submitToCourt()');
   const res = await fetchT(`${CABINET.base_url}${path}`, {
     ...init,
     headers: {
@@ -125,4 +128,16 @@ export async function uploadFile(session: CabinetSession, file: Blob | Buffer, f
   const text = await res.text();
   let json: any; try { json = text ? JSON.parse(text) : null; } catch { json = text; }
   return { ok: res.ok, status: res.status, json };
+}
+
+/**
+ * Adolat e-sud tizimiga arizani yakuniy kiritib yuborish (send-to-court).
+ */
+export async function submitToCourt(session: CabinetSession, draftId: string, signature?: string) {
+  return cabinetFetch(session, `${SEND_TO_COURT_PREFIX}${draftId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(signature ? { signature } : {}),
+    allowSubmit: true,
+  });
 }

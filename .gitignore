@@ -18,3 +18,7 @@ storage/
 
 # Local backups produced by scripts/backup.sh
 backups/
+
+# Local imported test data
+case_*.json
+firm-docs/

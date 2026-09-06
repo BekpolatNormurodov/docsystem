@@ -228,14 +228,36 @@ Da'vo sudyaga rasman taqdim etiladi.
 ## 3. Ushbu Skeletdagi Fayllar Tarkibi
 
 1. `constants.ts` — Portalning barcha rasmiy GUID'lari, endpointlari, hujjat turlari va toifalari.
-2. `types.ts` — 8 ta qadam uchun barcha so'rov va javob modellari (TypeScript interfaces).
+2. `types.ts` — So'rov va javob modellari (TypeScript interfaces).
 3. `client.ts` — `CabinetApiClient` HTTP mijozi (`X-AUTH-TOKEN`, timeouts, error-handling).
 4. `uploader.ts` — `CabinetFileUploader` fayllarni to'g'ri `file_type` GUID bilan yuklovchi modul.
 5. `builder.ts` — Ichki case ma'lumotlarini portal JSON formatiga o'tkazuvchi adapter.
-6. `submitter.ts` — 8 ta qadamni to'liq ketma-ket bajaruvchi markaziy `CabinetSubmitEngine`.
-7. `dry-run.ts` — Portal bilan xavfsiz sinov (dry-run probe) skripti.
+6. `submitter.ts` — To'liq kiritish va sudga topshirishni (`send-to-court`) bajaruvchi markaziy `CabinetSubmitEngine`.
+7. `send-one-live.ts` — Bitta case'ni jonli yoki `--dry-run` orqali sudga kiritish skripti.
+8. `send-batch.ts` — Bir nechta case'larni ketma-ket (sequential) rate-limit kutish vaqti bilan xavfsiz jo'natish dvigateli.
+9. `import-case.ts` — Serverdan olingan case JSON'ni mahalliy bazaga yuklash yordamchisi.
 
 ---
 
-## 4. Asosiy Loyiha Bilan Aloqasi
-Ushbu papka **alohida modul** sifatida yaratilgan. Asosiy kod bazasiga hech qanday o'zgartirish kiritilmadi. Tizim to'liq tayyor bo'lganda, uni xohlagan vaqtda asosiy konveyerga (`prepare-ready` yoki worker) ulab ishlatish mumkin.
+## 4. Ishga Tushirish Buyruqlari
+
+### Bitta ishni sudga topshirish:
+```bash
+# Sinov (qoralama ochib tekshiradi va o'chiradi, sudga yubormaydi)
+npx tsx cabinet-api-skeleton/send-one-live.ts 2118 --dry-run
+
+# Haqiqiy sudga topshirish (send-to-court va bazada COURT_SUBMITTED belgilash)
+npx tsx cabinet-api-skeleton/send-one-live.ts 2118
+```
+
+### Ketma-ket ommaviy yuborish (Batch Submission):
+```bash
+# Firma bo'yicha ketma-ket 5 ta ishni yuborish (har bir ish orasida 15s kutish bilan)
+npx tsx cabinet-api-skeleton/send-batch.ts --firm 1 --limit 5
+
+# Aniq case ID'lar bo'yicha sinov
+npx tsx cabinet-api-skeleton/send-batch.ts --cases 2118,2119 --dry-run
+
+# Maxsus delay bilan (masalan 20 soniya)
+npx tsx cabinet-api-skeleton/send-batch.ts --firm 1 --limit 10 --delay 20
+```
