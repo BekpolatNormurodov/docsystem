@@ -7,6 +7,12 @@ export interface FirmSeed {
   mfo?: string;
   stir?: string;
   postIndex?: string;
+  /** cabinet.sud.uz da'vogar GUID — da'vo shu firma nomidan ochiladi. FAQAT jonli tekshirilgan
+   *  firma uchun yoziladi: seed `update` bilan ishlaydi, ya'ni bu yerda turgan qiymat har
+   *  deploy'da ustiga yoziladi. Qolgan firmalar uchun ATAYIN bo'sh — ular qiymatni Firmalar
+   *  bo'limidan kiritadi yoki tizim portaldan o'zi aniqlaydi (src/lib/cabinet/claimant.ts),
+   *  va bu yerda kalit bo'lmagani uchun seed ularni tegmaydi. */
+  cabinetClaimantId?: string;
 }
 
 // Latin addresses (the ariza is Latin). Two shared blocks from the firms' rekvizit.
@@ -24,7 +30,9 @@ const POST = '100174';
 export const FIRMS_SEED: FirmSeed[] = [
   { code: '12842', shortName: 'BRIGHT FUTURE FINANCING',
     legalName: '«BRIGHT FUTURE FINANCING MIKROMOLIYA TASHKILOTI» MCHJ',
-    address: GURUCHARIQ, bankAccount: '20216000207212842001', mfo: MFO, stir: '311 976 765', postIndex: POST },
+    address: GURUCHARIQ, bankAccount: '20216000207212842001', mfo: MFO, stir: '311 976 765', postIndex: POST,
+    // 2026-09-06 jonli tasdiqlangan (ADOLAT qoralamasidan olingan).
+    cabinetClaimantId: 'a9c49a63-5b0b-48c6-b2fb-48db85dd6f5a' },
   { code: '06292', shortName: 'URBAN FINANCE SOLUTIONS',
     legalName: '«URBAN FINANCE SOLUTIONS MIKROMOLIYA TASHKILOTI» MCHJ',
     address: CHINNIOBOD, bankAccount: '20216000307206292001', mfo: MFO, stir: '311 943 592', postIndex: POST },

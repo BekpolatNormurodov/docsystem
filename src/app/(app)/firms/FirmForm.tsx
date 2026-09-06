@@ -8,7 +8,7 @@ import { BILLING_REGIONS, BILLING_VILOYATS } from '@/core/billing-regions-data';
 
 type FirmFields = Record<
   | 'shortName' | 'legalName' | 'address' | 'bankAccount' | 'mfo' | 'stir' | 'postIndex' | 'phone'
-  | 'region' | 'district' | 'addressLine',
+  | 'region' | 'district' | 'addressLine' | 'cabinetClaimantId',
   string
 >;
 
@@ -25,6 +25,7 @@ function toFields(firm: Firm): FirmFields {
     region: firm.region ?? '',
     district: firm.district ?? '',
     addressLine: firm.addressLine ?? '',
+    cabinetClaimantId: firm.cabinetClaimantId ?? '',
   };
 }
 
@@ -136,6 +137,16 @@ function FirmForm({ firm, onClose }: { firm: Firm; onClose: () => void }) {
         <TextField label="STIR" value={fields.stir} onChange={set('stir')} />
         <TextField label="Pochta indeksi" value={fields.postIndex} onChange={set('postIndex')} />
         <TextField label="Telefon" value={fields.phone} onChange={set('phone')} />
+        {/* Sudga yuborishda da'vo KIM nomidan ochilishini belgilaydi. Bo'sh bo'lsa tizim uni
+            portaldagi mavjud qoralamalardan o'zi topib saqlaydi; topolmasa yuborish to'xtaydi
+            (taxmin qilib boshqa firma nomidan da'vo ochilmasligi uchun). */}
+        <TextField
+          label="ADOLAT da'vogar ID"
+          value={fields.cabinetClaimantId}
+          onChange={set('cabinetClaimantId')}
+          placeholder="masalan a9c49a63-5b0b-48c6-b2fb-48db85dd6f5a"
+          hint="cabinet.sud.uz'da da'vo shu firma nomidan ochiladi. Bo'sh qoldirsangiz — tizim birinchi yuborishda portaldan o'zi aniqlaydi."
+        />
       </div>
       {error && <p className="mt-3 text-sm text-rose-600 dark:text-rose-300">{error}</p>}
 

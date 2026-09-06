@@ -11,33 +11,14 @@ import { CabinetSubmitEngine } from '../../cabinet-api-skeleton/submitter';
 import { CabinetRequestError } from '../../cabinet-api-skeleton/client';
 import { paceCase, backoff, caseGapFor, isQueuePaused, REQUEST_GAP_MS, CASE_GAP_MS } from './cabinet/pacer';
 import { audit, AuditAction } from './audit';
+import { resolveClaimantId } from './cabinet/claimant';
 import { resolveCabinetCourtGuid, CABINET_REGION_IDS } from '../../cabinet-api-skeleton/constants';
 import type { SourceCaseData } from '../../cabinet-api-skeleton/builder';
 import type { CaseFileToUpload } from '../../cabinet-api-skeleton/uploader';
 
-// Har firmaning cabinet.sud.uz akkaunti O'ZINING ORGANIZATION claimant GUID'iga ega — bu
-// da'voni KIM nomidan ochilishini belgilaydi. Noto'g'ri GUID = boshqa firma nomidan da'vo
-// (kreditor bo'lmagan yuridik shaxs sudga chiqadi) — qaytarib bo'lmaydigan xato.
-//
-// Yangi firma qo'shish: o'sha firma kaliti bilan ADOLAT'ga kirib, yangi qoralama yarating va
-// birinchi PUT javobidagi `details.createApplication.claimant` qiymatini shu yerga yozing.
-const CLAIMANT_ID_BY_STIR: Record<string, string> = {
-  '311976765': 'a9c49a63-5b0b-48c6-b2fb-48db85dd6f5a', // BRIGHT FUTURE FINANCING
-};
-
-/** Firma STIR'i bo'yicha claimant GUID. Topilmasa — ATAYIN xato tashlaydi: jim fallback
- *  (avval BRIGHT'nikiga tushib ketardi) qolgan 8 firma uchun boshqa firma nomidan da'vo
- *  ochib yuborardi. Yo'qligi bilinib turgani — noto'g'ri da'vodan ko'ra ancha yaxshi. */
-function claimantIdFor(firmStir: string, firmName: string): string {
-  const id = CLAIMANT_ID_BY_STIR[firmStir];
-  if (!id) {
-    throw new Error(
-      `${firmName} (STIR ${firmStir}) uchun ADOLAT claimant GUID topilmadi. ` +
-      `Bu firma nomidan da'vo ocholmaymiz — CLAIMANT_ID_BY_STIR'ga qo'shing (src/lib/court-submit-job.ts).`,
-    );
-  }
-  return id;
-}
+// Da'vogar (claimant) GUID endi KODDA emas — Firm.cabinetClaimantId dan o'qiladi va kerak
+// bo'lsa portaldan avtomatik aniqlanadi (src/lib/cabinet/claimant.ts). Sabab: har yangi firma
+// uchun deploy qilish shart emas, va eng muhimi — jim fallback yo'q.
 
 // Worker jarayonida so'rov konteksti yo'q — currentUser() yiqiladi va audit JIM yozilmay
 // qoladi. Shuning uchun aktyor aniq beriladi: navbat tizim nomidan ishlaydi.
@@ -153,7 +134,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
   try {
     const firm = await prisma.firm.findUnique({
       where: { id: opts.firmId },
-      select: { id: true, shortName: true, stir: true },
+      select: { id: true, shortName: true, stir: true, cabinetClaimantId: true },
     });
     if (!firm) {
       throw new Error(`Firma topilmadi: id=${opts.firmId}`);
@@ -165,13 +146,12 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
     }
 
     // Cabinet sessiyasini olish
-    let sessionToken = process.env.CABINET_TOKEN;
-    if (!sessionToken) {
-      const sess = await getStoredCabinetSession(firmStir);
-      sessionToken = sess.token;
-    }
+    const sess = await getStoredCabinetSession(firmStir);
+    const sessionToken = process.env.CABINET_TOKEN || sess.token;
 
-    const claimantId = claimantIdFor(firmStir, firm.shortName);
+    // Da'vogar: bazadan; bo'lmasa portaldagi qoralamalardan avtomatik aniqlanib saqlanadi;
+    // u ham bo'lmasa ClaimantUnknownError — taxmin qilib yubormaymiz.
+    const claimantId = await resolveClaimantId(firm, sess);
 
     const engine = new CabinetSubmitEngine({
       token: sessionToken,
