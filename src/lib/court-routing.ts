@@ -103,9 +103,18 @@ export interface Allocation { assignments: { caseId: number; courtId: number }[]
  * bo'lmasa (sud yo'q) — HAMMASI assignments'siz `deferred:[]` bo'lmaydi: cheklovsiz o'tishi uchun
  * `courts.length===0` → hammasi ruxsat (courtId=null bilan), chaqiruvchi buni «cheksiz» deb qaraydi.
  */
-export async function allocateFirmCases(firmId: number, caseIds: number[], now: Date = new Date()): Promise<Allocation | null> {
-  const budgets = await firmCourtBudgets(firmId, now);
-  if (budgets.length === 0) return null; // konfiguratsiya yo'q — cheklovsiz (eski xatti-harakat)
+export async function allocateFirmCases(
+  firmId: number,
+  caseIds: number[],
+  now: Date = new Date(),
+  /** Operator «Sudga yuborish» modalida tanlagan sudlar. Bo'sh/berilmagan — barchasi. */
+  onlyCourtIds?: number[],
+): Promise<Allocation | null> {
+  const all = await firmCourtBudgets(firmId, now);
+  if (all.length === 0) return null; // konfiguratsiya yo'q — cheklovsiz (eski xatti-harakat)
+  const pick = onlyCourtIds && onlyCourtIds.length ? new Set(onlyCourtIds) : null;
+  const budgets = pick ? all.filter((b) => pick.has(b.court.id)) : all;
+  if (budgets.length === 0) return { assignments: [], deferred: [...caseIds] }; // tanlangan sud(lar) firmaga ruxsat etilmagan
   const budgetByCourt = new Map(budgets.map((b) => [b.court.id, b]));
   const primaryId = budgets[0].court.id;
 
@@ -113,13 +122,18 @@ export async function allocateFirmCases(firmId: number, caseIds: number[], now: 
   // yo'q bo'lsa firma asosiy sudi. So'ng har sudning bugungi limiti/oynasi bo'yicha kesamiz (oshgani deferred).
   const rows = await prisma.arizaCase.findMany({ where: { id: { in: caseIds } }, select: { id: true, courtId: true } });
   const wantByCourt = new Map<number, number[]>();
+  const deferredByFilter: number[] = [];
   for (const r of rows) {
+    // MUHIM: ariza allaqachon BOSHQA sudga yozilgan bo'lsa va o'sha sud tanlanmagan bo'lsa —
+    // uni tanlangan sudga KO'CHIRMAYMIZ, chetga suramiz. Aks holda arizada bir sud, da'voda
+    // boshqa sud bo'lib qolardi (ish qaytariladi, lekin da'vo rasman berilgan bo'ladi).
+    if (pick && r.courtId && !pick.has(r.courtId)) { deferredByFilter.push(r.id); continue; }
     const cid = r.courtId && budgetByCourt.has(r.courtId) ? r.courtId : primaryId;
     if (!wantByCourt.has(cid)) wantByCourt.set(cid, []);
     wantByCourt.get(cid)!.push(r.id);
   }
   const assignments: { caseId: number; courtId: number }[] = [];
-  const deferred: number[] = [];
+  const deferred: number[] = [...deferredByFilter];
   for (const [cid, ids] of wantByCourt) {
     const rem = budgetByCourt.get(cid)?.remaining ?? 0;
     assignments.push(...ids.slice(0, rem).map((caseId) => ({ caseId, courtId: cid })));

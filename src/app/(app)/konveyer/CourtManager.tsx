@@ -577,6 +577,57 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged }: {
 }
 
 // ── one firm row ─────────────────────────────────────────────────────────────
+// ── Umumiy pauza: BUTUN sudga yuborish jarayonini to'xtatib turadi ────────────────────────
+// «Bekor» dan farqi: u bitta partiyani tugatadi, bu esa barcha firmalarga taalluqli va
+// bazada saqlanadi — deploy/restart'dan keyin ham kuchda qoladi. Pauzada ishlar navbatda
+// (PENDING) qoladi va davom ettirilganda aynan shu joydan ketadi.
+function PauseSwitch() {
+  const [paused, setPaused] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    fetch('/konveyer/court-queue/pause')
+      .then((r) => r.json())
+      .then((d) => { if (alive) setPaused(d?.paused === true); })
+      .catch(() => { if (alive) setPaused(false); });
+    return () => { alive = false; };
+  }, []);
+
+  const toggle = async () => {
+    if (paused === null || busy) return;
+    setBusy(true);
+    try {
+      const r = await fetch('/konveyer/court-queue/pause', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paused: !paused }),
+      });
+      if (r.ok) setPaused((await r.json())?.paused === true);
+    } catch { /* tarmoq xatosi — holat o'zgarmaydi */ } finally { setBusy(false); }
+  };
+
+  if (paused === null) return null;
+  return (
+    <div className={`flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 ${paused ? 'border-amber-500/40 bg-amber-500/[0.06]' : 'border-line bg-surface'}`}>
+      <span className={`text-xs font-semibold ${paused ? 'text-amber-700 dark:text-amber-300' : 'text-muted'}`}>
+        {paused ? '⏸ Sudga yuborish PAUZADA' : 'Sudga yuborish faol'}
+      </span>
+      <span className="text-[11px] text-muted">
+        {paused
+          ? 'Ketayotgan partiya joriy ishdan keyin to‘xtaydi, yangi partiya boshlanmaydi. Ishlar navbatda qoladi.'
+          : 'Butun jarayonni (barcha firmalar) vaqtincha to‘xtatish mumkin.'}
+      </span>
+      <button
+        onClick={toggle}
+        disabled={busy}
+        className={`ml-auto rounded-lg border px-2.5 py-1 text-[11px] font-semibold outline-none transition-colors focus-visible:ring-2 disabled:opacity-50 ${paused ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 focus-visible:ring-emerald-500/30 dark:text-emerald-300' : 'border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/15 focus-visible:ring-amber-500/30 dark:text-amber-300'}`}
+      >
+        {busy ? '…' : paused ? 'Davom ettirish' : 'Pauza'}
+      </button>
+    </div>
+  );
+}
+
 // ── Sudga yuborish navbati: HAR BIR ISH bo'yicha holat ────────────────────────────────────
 // Job progress'i «3/100» deydi, lekin qaysi ish yiqilgani va NEGA — ko'rinmaydi. Operator
 // aynan shuni bilishi kerak: xato bergan ishni topib, sababini o'qib, tuzatib qayta yuborish.
@@ -928,6 +979,8 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
 
   // ── «Sudga yuborish» modalidagi SUD taqsimoti (ko'rsatkich) ──────────────────
   const [courtBreak, setCourtBreak] = useState<{ firmId: number; courts: { courtId: number | null; shortName: string; count: number }[]; total: number } | null>(null);
+  // Operator tanlagan sudlar. null = hammasi (eski xatti-harakat, hech narsa cheklanmaydi).
+  const [pickedCourts, setPickedCourts] = useState<number[] | null>(null);
   useEffect(() => {
     if (!countAsk) { setCourtBreak(null); return; }
     let alive = true;
@@ -944,14 +997,14 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   // Har item: firma + soni. Joriy (birinchi tugamagan) item bo'yicha holat-mashina:
   // yangi firma → E-IMZO gate (bir marta), imzolangan firma → to'g'ridan yuboriladi;
   // job DONE/FAILED bo'lgach keyingisiga o'tadi (FAILED'da ham to'xtab qolmaydi).
-  type QItem = { id: string; firmId: number; firmName: string; stir: string | null; count: number; status: 'wait' | 'signing' | 'sending' | 'done' | 'error' };
+  type QItem = { id: string; firmId: number; firmName: string; stir: string | null; count: number; courtIds?: number[]; status: 'wait' | 'signing' | 'sending' | 'done' | 'error' };
   const [queue, setQueue] = useState<QItem[]>([]);
   const [queueActive, setQueueActive] = useState(false);
   const signedFirms = useRef<Set<number>>(new Set());
   const [queueGate, setQueueGate] = useState<{ itemId: string; firmId: number; firmName: string; stir: string | null; count: number } | null>(null);
   const qidRef = useRef(0);
-  const addToQueue = (fid: number, fname: string, stir: string | null, count: number) =>
-    setQueue((q) => [...q, { id: `q${++qidRef.current}`, firmId: fid, firmName: fname, stir, count, status: 'wait' as const }]);
+  const addToQueue = (fid: number, fname: string, stir: string | null, count: number, courtIds?: number[]) =>
+    setQueue((q) => [...q, { id: `q${++qidRef.current}`, firmId: fid, firmName: fname, stir, count, courtIds, status: 'wait' as const }]);
 
   useEffect(() => {
     if (!queueActive) return;
@@ -969,7 +1022,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     // cur.status === 'wait'
     if (signedFirms.current.has(cur.firmId)) {
       setQueue((q) => q.map((x) => (x.id === cur.id ? { ...x, status: 'sending' } : x)));
-      startJob(`queue:${cur.id}`, { firmId: cur.firmId, snapshotId, limit: cur.count }, () => {});
+      startJob(`queue:${cur.id}`, { firmId: cur.firmId, snapshotId, limit: cur.count, ...(cur.courtIds?.length ? { courtIds: cur.courtIds } : {}) }, () => {});
     } else {
       setQueue((q) => q.map((x) => (x.id === cur.id ? { ...x, status: 'signing' } : x)));
       setQueueGate({ itemId: cur.id, firmId: cur.firmId, firmName: cur.firmName, stir: cur.stir, count: cur.count });
@@ -1089,6 +1142,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                   <p className="mt-2 text-[11px] text-muted">Ketma-ket yuboriladi. Har firma uchun kalit bir marta so‘raladi. Xato bo‘lsa keyingisiga o‘tadi.</p>
                 </div>
               )}
+              <PauseSwitch />
               <div className="space-y-2">
                 {data.readiness.firms.length === 0
                   ? <EmptyBlock title="Bu snapshotda mijoz yoʻq" hint="Sidebar sanasini tekshiring yoki Hisobotda konveyerni yangilang." />
@@ -1192,16 +1246,18 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
       )}
 
       {countAsk && (
-        <Modal open onClose={() => setCountAsk(null)} title={`Sudga yuborish — ${countAsk.firmName}`} description={`Bir martada eng ko'pi ${Math.min(100, countAsk.max)} ta. Nechtasini yuborasiz?`}
+        <Modal open onClose={() => { setCountAsk(null); setPickedCourts(null); }} title={`Sudga yuborish — ${countAsk.firmName}`} description={`Bir martada eng ko'pi ${Math.min(100, countAsk.max)} ta. Nechtasini yuborasiz?`}
           footer={<>
             <button className="btn-ghost" type="button" onClick={() => setCountAsk(null)}>Bekor</button>
-            <button className="btn-ghost" type="button" disabled={!countAsk.value || countAsk.value < 1}
+            <button className="btn-ghost" type="button"
+              disabled={!countAsk.value || countAsk.value < 1 || (pickedCourts !== null && pickedCourts.length === 0)}
               title="Navbatga qo'shish — bir nechta partiyani ketma-ket yuborish (skayner kabi)"
-              onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const f = firms.find((x) => x.firmId === countAsk.firmId); addToQueue(countAsk.firmId, countAsk.firmName, f?.stir ?? null, v); setCountAsk(null); }}>
+              onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const f = firms.find((x) => x.firmId === countAsk.firmId); addToQueue(countAsk.firmId, countAsk.firmName, f?.stir ?? null, v, pickedCourts ?? undefined); setCountAsk(null); }}>
               + Navbatga
             </button>
-            <button className="btn-primary" type="button" disabled={!countAsk.value || countAsk.value < 1}
-              onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const fid = countAsk.firmId; const au = countAsk.auto; setCountAsk(null); openGate(fid, { limit: v, auto: au }); }}>
+            <button className="btn-primary" type="button"
+              disabled={!countAsk.value || countAsk.value < 1 || (pickedCourts !== null && pickedCourts.length === 0)}
+              onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const fid = countAsk.firmId; const au = countAsk.auto; const cs = pickedCourts; setCountAsk(null); openGate(fid, { limit: v, auto: au, ...(cs && cs.length ? { courtIds: cs } : {}) }); }}>
               {countAsk.auto ? 'Auto boshlash' : 'Yuborish'} ({Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0))})
             </button>
           </>}
@@ -1226,21 +1282,56 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
             <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-line p-2.5">
               <input type="checkbox" checked={countAsk.auto} onChange={(e) => setCountAsk((c) => c && ({ ...c, auto: e.target.checked }))} className="mt-0.5 h-4 w-4 accent-brand-500" />
               <span className="min-w-0">
-                <span className="block text-[12px] font-medium">Auto — har 30 soniyada keyingi paket</span>
-                <span className="block text-[11px] text-muted">Bir marta kalit bilan tasdiqlaysiz; keyin tayyorlar tugaguncha (yoki «To‘xtatish») har 30s da o‘zi yuboradi.</span>
+                <span className="block text-[12px] font-medium">Auto — har 60 soniyada keyingi paket</span>
+                <span className="block text-[11px] text-muted">Bir marta kalit bilan tasdiqlaysiz; keyin tayyorlar tugaguncha (yoki «To‘xtatish») har 60s da o‘zi yuboradi.</span>
               </span>
             </label>
             {courtBreak && courtBreak.firmId === countAsk.firmId && courtBreak.courts.length > 0 && (
               <div className="rounded-lg border border-line p-2.5">
-                <div className="mb-1.5 text-[11px] font-semibold text-muted">Sud bo‘yicha (tayyor {n(courtBreak.total)} ta):</div>
-                <div className="space-y-1">
-                  {courtBreak.courts.map((c) => (
-                    <div key={c.courtId ?? 'none'} className="flex items-center justify-between gap-2 text-xs">
-                      <span className="min-w-0 truncate">{c.shortName}</span>
-                      <span className="shrink-0 tabular-nums font-medium">{n(c.count)}</span>
-                    </div>
-                  ))}
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-muted">Qaysi sudga yuborilsin? (tayyor {n(courtBreak.total)} ta)</span>
+                  {pickedCourts !== null && (
+                    <button onClick={() => setPickedCourts(null)} className="text-[11px] font-medium text-brand-600 underline-offset-2 hover:underline dark:text-brand-400">hammasi</button>
+                  )}
                 </div>
+                <div className="space-y-1">
+                  {courtBreak.courts.map((c) => {
+                    // «Sud tayinlanmagan» (courtId=null) ni alohida tanlab bo'lmaydi — bunday
+                    // ishlar firmaning asosiy sudiga yo'naltiriladi (court-routing.ts).
+                    const selectable = c.courtId != null;
+                    const on = pickedCourts === null || (c.courtId != null && pickedCourts.includes(c.courtId));
+                    return (
+                      <label
+                        key={c.courtId ?? 'none'}
+                        className={`flex items-center justify-between gap-2 rounded px-1.5 py-1 text-xs ${selectable ? 'cursor-pointer hover:bg-surface-2' : 'opacity-60'}`}
+                        title={selectable ? undefined : 'Bu ishlarga sud hali biriktirilmagan — firmaning asosiy sudiga ketadi'}
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <input
+                            type="checkbox"
+                            className="h-3.5 w-3.5 accent-brand-500"
+                            checked={on}
+                            disabled={!selectable}
+                            onChange={(e) => {
+                              if (c.courtId == null) return;
+                              const all = courtBreak.courts.filter((x) => x.courtId != null).map((x) => x.courtId as number);
+                              const cur = pickedCourts === null ? all : pickedCourts;
+                              const next = e.target.checked ? [...new Set([...cur, c.courtId])] : cur.filter((x) => x !== c.courtId);
+                              // Hammasi tanlansa — null (cheklovsiz) holatiga qaytamiz.
+                              setPickedCourts(next.length === all.length ? null : next);
+                            }}
+                          />
+                          <span className="min-w-0 truncate">{c.shortName}</span>
+                        </span>
+                        <span className="shrink-0 tabular-nums font-medium">{n(c.count)}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {pickedCourts !== null && pickedCourts.length === 0 && (
+                  <p className="mt-1.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">Hech bo‘lmasa bitta sud tanlanishi kerak.</p>
+                )}
+                <p className="mt-1.5 text-[10px] leading-snug text-muted">Boshqa sudga allaqachon biriktirilgan ishlar tanlangan sudga ko‘chirilmaydi — ular keyingi safarga qoladi.</p>
               </div>
             )}
             <p className="text-[11px] text-muted">Eng eski (muddati yaqin) tayyor mijozlardan boshlab olinadi.</p>
