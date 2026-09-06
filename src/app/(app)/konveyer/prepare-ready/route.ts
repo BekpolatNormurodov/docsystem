@@ -88,11 +88,17 @@ export async function POST(req: NextRequest) {
     await consumeCourtSend(alloc.assignments);
   }
 
-  // Store the FULL packet options (grafik yoʻq, mark exported) so the worker reconstructs the job
-  // identically to the inline path — not just the case ids.
+  // Saytdan sudga yuborishda real topshirish dvigateli (COURT_SUBMIT) ishlaydi.
+  // Agar exportOnly: true berilsa, faqat ZIP fayl tayyorlash (PACKET) bajariladi.
+  const isExportOnly = body?.exportOnly === true;
+  const jobType = isExportOnly ? 'PACKET' : 'COURT_SUBMIT';
+
   const job = await prisma.job.create({
     data: {
-      type: 'PACKET', status: 'PENDING', snapshotId: snapshotId ?? null, total: sendIds.length,
+      type: jobType,
+      status: 'PENDING',
+      snapshotId: snapshotId ?? null,
+      total: sendIds.length,
       params: { firmId, snapshotId, caseIds: sendIds, ready: true, talabnomaPdf, includeGrafik: false, markExported: true },
     },
   });
