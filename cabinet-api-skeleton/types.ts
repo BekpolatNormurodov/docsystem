@@ -190,3 +190,66 @@ export interface SendToCourtResponse {
   claim_id?: string;
   id?: string;
 }
+
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// SAVE-SUIT — haqiqiy sud ishini yaratish payloadi.
+// Shakli portal frontend bundle'idagi `formToCaseCreate` funksiyasidan olindi (2026-09-06).
+// Batafsil: cabinet-api-skeleton/REAL-API-FINDINGS.md
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+/** Wizard "Hujjatlar" qadamining holati (details.fileUpload). */
+export interface FileUploadSection {
+  claimApplication: UploadedFileRef | null;   // MAJBURIY — asosiy ariza
+  lawyer_order?: UploadedFileRef | null;      // advokat orderi (bizda yo'q)
+  category_files: UploadedFileRef[];          // toifa bo'yicha talab qilinadigan hujjatlar
+  additional_files: UploadedFileRef[];        // qo'shimcha ilovalar
+}
+
+export interface UploadedFileRef {
+  file_id: string;      // POST /case/file/upload qaytargan id
+  type_id: string;      // hujjat turi GUID (CABINET_DOC_TYPES) — jonli tasdiqlangan
+  name?: string | null;
+  mime_type?: string | null;
+  size?: number | null;
+  label?: string | null;
+  category_id?: string | null;
+}
+
+/** save-suit payloadidagi hujjat yozuvi — P0(fileUpload) shuni ishlab chiqaradi. */
+export interface CaseDocumentRef {
+  file_id: string;
+  type_id: string;
+}
+
+/** Sud xarajatlari. `case_details.state_duty_amount` SHUNDAN o'qiladi, ya'ni MAJBURIY. */
+export interface CourtCostsSection {
+  stateFee: number;
+  customStateFee?: number | null;
+  /** Bojdan ozod qilish sababi GUID (GET /guide/duty-reasons). Bo'sh bo'lsa boj to'lanadi
+   *  deb hisoblanadi — bu YURIDIK tanlov, kodda taxmin qilinmaydi. */
+  duty_reason_id?: string | null;
+  receipts?: unknown[];
+}
+
+export interface CaseParticipantEntry {
+  entity: Record<string, unknown>;
+  participant: { type: string; is_main: boolean; is_appellant: boolean };
+  entity_details: Record<string, unknown>;
+}
+
+export interface SaveSuitPayload {
+  case: {
+    doc_date: string;
+    doc_number: string | null;
+    court_id: string;
+    duty_reason_id: string | null;
+  };
+  claim_categories: ClaimCategoryRef[];
+  receipts: unknown[];
+  case_documents: CaseDocumentRef[];
+  case_participants: CaseParticipantEntry[];
+  claim_amounts_with_parts: ClaimAmountWithParts[];
+  claim: { claim_kind: string };
+  case_details: { state_duty_amount: number };
+}

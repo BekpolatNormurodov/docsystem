@@ -36,6 +36,14 @@ export const CABINET_ENDPOINTS = {
   // Fayl yuklash — mavjud, ishlaydi (src/lib/cabinet/api.ts uploadFile bilan bir xil naqsh)
   fileUpload: '/api/cabinet/case/file/upload',           // POST multipart + header file_type:<GUID>
 
+  // ⭐ HAQIQIY ISH YARATISH — 2026-09-06 da portal bundle'idan topildi (REAL-API-FINDINGS.md).
+  // Qoralama (pub-user-draft-cases) faqat wizard holati; sud ishi SHU endpoint bilan yaraladi
+  // va sendToCourt aynan shu qaytargan id ni oladi (draftId ni EMAS). Bizning eski kodda bu
+  // bosqich umuman yo'q edi — shuning uchun hujjatlar ham biriktirilmasdi.
+  saveSuitCivil: '/api/cabinet/case/civil/save-suit',     // POST — to'liq ish payloadi
+  saveSuitEconomic: '/api/cabinet/case/economic/save-suit',
+  dutyReasons: '/api/cabinet/guide/duty-reasons',         // bojdan ozod qilish sabablari
+
   // YAKUNIY YUBORISH — HECH QACHON CHAQIRILMASIN. src/lib/cabinet/api.ts SEND_TO_COURT_PREFIX
   // guard'i shu prefiksni to'sib turadi.
   sendToCourt: '/api/cabinet/case/send-to-court/',       // PUT + {id} — QAYTMAS, faqat inson UI'dan
@@ -43,10 +51,9 @@ export const CABINET_ENDPOINTS = {
 
 /**
  * cabinet.sud.uz tizimidagi rasmiy HUJJAT TURLARI GUID'lari (`file_type` headeri uchun).
- * ESLATMA: bular avvalgi (participant/add kabi noto'g'ri chiqqan) reverse-engineer bosqichidan
- * qolgan — LIVE qayta tasdiqlanmagan, lekin CABINET_CATEGORIES bilan bir manbadan kelgan va u
- * mustaqil tekshiruvda 100% to'g'ri chiqdi, shuning uchun yuqori ishonch bilan qoldirildi.
- * BIRINCHI haqiqiy yuklashda serverning javobini (fileId qaytishi, 400 emasligini) tekshiring.
+ * ✅ 2026-09-06 LIVE TASDIQLANDI: GET /api/cabinet/guide/document-types-list dan olingan 24 ta
+ * turdagi ro'yxat bilan solishtirildi — quyidagi 9 tasining HAMMASI aynan mos chiqdi.
+ * Bu GUID'lar `case_documents[].type_id` va fayl yuklash `file_type` headeri uchun ishlatiladi.
  */
 export const CABINET_DOC_TYPES = {
   ARIZA: '2554784d-b231-4dc9-aadf-819429cfeb70',                    // Palata muhrlagan Ariza (signed-ariza skan)

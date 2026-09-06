@@ -6,8 +6,12 @@
 // "add participant" endpoint'lariga EGA EMAS; hammasi bitta `details` obyektini PUT qiladigan
 // draft-update chaqiruvi. Quyidagi funksiyalar shu haqiqiy shaklni quradi.
 
-import { CABINET_CATEGORIES, CABINET_SUB_CATEGORIES, CABINET_COURT_IDS, CABINET_REGION_IDS } from './constants';
-import type { CreateApplicationInfo, BaseInfo, DefendantInfo, ClaimAmountPartType, CourtInfo } from './types';
+import { CABINET_CATEGORIES, CABINET_SUB_CATEGORIES, CABINET_COURT_IDS, CABINET_REGION_IDS, CABINET_DOC_TYPES } from './constants';
+import type {
+  CreateApplicationInfo, BaseInfo, DefendantInfo, ClaimAmountPartType, CourtInfo,
+  FileUploadSection, UploadedFileRef, CaseDocumentRef, CourtCostsSection,
+  CaseParticipantEntry, SaveSuitPayload,
+} from './types';
 
 export interface SourceCaseData {
   courtId?: string;      // portal court GUID (CABINET_COURT_IDS) — default Yuqorichirchiq bo'lmasa Uchtepa
@@ -145,6 +149,124 @@ export class CabinetPayloadBuilder {
         },
         is_main: true,
       }],
+    };
+  }
+
+  /**
+   * Wizard "Hujjatlar" qadami (details.fileUpload). Birinchi ARIZA turidagi fayl
+   * `claimApplication` bo'ladi (portal uni MAJBURIY deb belgilaydi), qolganlari
+   * `category_files` ga tushadi.
+   */
+  static buildFileUpload(files: UploadedFileRef[]): FileUploadSection {
+    const ariza = files.find((f) => f.type_id === CABINET_DOC_TYPES.ARIZA)
+      ?? files.find((f) => f.type_id === CABINET_DOC_TYPES.DAVO_ARIZASI)
+      ?? null;
+    return {
+      claimApplication: ariza,
+      lawyer_order: null,
+      category_files: files.filter((f) => f !== ariza),
+      additional_files: [],
+    };
+  }
+
+  /**
+   * `P0(fileUpload)` — portal frontendidagi yassilash funksiyasi (main.js dan aynan
+   * o'qildi): har bo'limdan `{file_id, type_id}` yig'iladi, tartibi —
+   * claimApplication → lawyer_order → category_files → additional_files.
+   */
+  static buildCaseDocuments(fu: FileUploadSection): CaseDocumentRef[] {
+    const out: CaseDocumentRef[] = [];
+    const push = (r?: UploadedFileRef | null) => {
+      if (r?.file_id) out.push({ file_id: r.file_id, type_id: r.type_id });
+    };
+    push(fu.claimApplication);
+    push(fu.lawyer_order);
+    for (const f of fu.category_files || []) push(f);
+    for (const f of fu.additional_files || []) push(f);
+    return out;
+  }
+
+  /**
+   * Sud xarajatlari. `case_details.state_duty_amount` SHUNDAN o'qiladi — bo'lmasa portal
+   * yiqiladi, shuning uchun har doim yuboriladi.
+   *
+   * TODO(duty-reason): bojdan ozod qilish ASOSI (duty_reason_id) — YURIDIK tanlov, kodda
+   * taxmin qilinmaydi. GET /guide/duty-reasons 12 ta variant qaytaradi (masalan «Давлат божи
+   * тўғрисидаги қонуннинг 8/9/10-моддасига асосан озод этилган»). Qaysi modda bizning
+   * mikroqarz undirish da'vosiga tegishli ekanini yurist tasdiqlashi va Firm/Setting'ga
+   * yozilishi kerak. Berilmasa — boj to'lanishi kerak deb hisoblanadi.
+   */
+  static buildCourtCosts(opts: { stateFee?: number; dutyReasonId?: string | null } = {}): CourtCostsSection {
+    return {
+      stateFee: opts.stateFee ?? 0,
+      customStateFee: null,
+      duty_reason_id: opts.dutyReasonId ?? null,
+      receipts: [],
+    };
+  }
+
+  /** Da'vogar (bizning firma) — save-suit ishtirokchisi. */
+  static buildClaimantParticipant(data: SourceCaseData): CaseParticipantEntry {
+    return {
+      entity: { id: data.claimantId },
+      participant: { type: 'CLAIMANT', is_main: true, is_appellant: false },
+      entity_details: { is_small_business: false },
+    };
+  }
+
+  /**
+   * Javobgar (qarzdor) — save-suit ishtirokchisi. Shakli portal `getParticipant()`
+   * funksiyasidan olindi: PERSON uchun entity_details ichida is_current/entity_type/
+   * citizenship va shaxs ma'lumotlari.
+   */
+  static buildDefendantParticipant(debtor: SourceCaseData['debtor']): CaseParticipantEntry {
+    const d = CabinetPayloadBuilder.buildDefendantInfo(debtor).defendants[0];
+    return {
+      entity: { pinfl: 0, tin: 0, not_citizen: true },
+      participant: { type: 'DEFENDANT', is_main: true, is_appellant: false },
+      entity_details: {
+        is_current: true,
+        is_small_business: false,
+        entity_type: 'PERSON',
+        photo_id: null,
+        ...d.entity,
+        // buildDefendantInfo `citizenship: null` beradi; portal esa aniq qiymat kutadi —
+        // shuning uchun spread'dan KEYIN qo'yiladi (aks holda null ustiga yozib ketardi).
+        citizenship: d.entity.citizenship ?? 'UZB_CITIZEN',
+      },
+    };
+  }
+
+  /**
+   * HAQIQIY sud ishini yaratish payloadi (POST /api/cabinet/case/civil/save-suit).
+   * Shakli portal bundle'idagi `formToCaseCreate` dan olingan — REAL-API-FINDINGS.md.
+   */
+  static buildSaveSuit(args: {
+    data: SourceCaseData;
+    courtInfo: CourtInfo;
+    createApplication: CreateApplicationInfo;
+    baseInfo: BaseInfo;
+    fileUpload: FileUploadSection;
+    courtCosts: CourtCostsSection;
+  }): SaveSuitPayload {
+    const { data, courtInfo, createApplication, baseInfo, fileUpload, courtCosts } = args;
+    return {
+      case: {
+        doc_date: baseInfo.registry_dt,
+        doc_number: baseInfo.case_number,
+        court_id: createApplication.court,
+        duty_reason_id: courtCosts.duty_reason_id ?? null,
+      },
+      claim_categories: baseInfo.claim_categories,
+      receipts: courtCosts.receipts ?? [],
+      case_documents: CabinetPayloadBuilder.buildCaseDocuments(fileUpload),
+      case_participants: [
+        CabinetPayloadBuilder.buildClaimantParticipant(data),
+        CabinetPayloadBuilder.buildDefendantParticipant(data.debtor),
+      ],
+      claim_amounts_with_parts: baseInfo.claim_amounts_with_parts,
+      claim: { claim_kind: courtInfo.claim_kind },
+      case_details: { state_duty_amount: Number(courtCosts.customStateFee) || Number(courtCosts.stateFee) || 0 },
     };
   }
 }
