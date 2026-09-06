@@ -66,6 +66,9 @@ export class CabinetSubmitEngine {
       // STEP 3: sud/da'vogar + ish turkumi/summa — BITTA PUT (server to'liq details'ni kutadi)
       console.log('▶ [3/6] Sud/da\'vogar + ish turkumi/summa saqlanmoqda...');
       const details: DraftDetails = {
+        // Ish turi — portal buni 1-qadamda kutadi; bizning eski kod yubormasdi va qoralama
+        // form_step=0 da qolib ketardi.
+        courtInfo: CabinetPayloadBuilder.buildCourtInfo(),
         createApplication: CabinetPayloadBuilder.buildCreateApplication(caseData),
         materialCreateApplication: null,
         baseInfo: CabinetPayloadBuilder.buildBaseInfo(caseData.debt),

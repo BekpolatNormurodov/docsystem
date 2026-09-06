@@ -7,7 +7,7 @@
 // draft-update chaqiruvi. Quyidagi funksiyalar shu haqiqiy shaklni quradi.
 
 import { CABINET_CATEGORIES, CABINET_SUB_CATEGORIES, CABINET_COURT_IDS, CABINET_REGION_IDS } from './constants';
-import type { CreateApplicationInfo, BaseInfo, DefendantInfo, ClaimAmountPartType } from './types';
+import type { CreateApplicationInfo, BaseInfo, DefendantInfo, ClaimAmountPartType, CourtInfo } from './types';
 
 export interface SourceCaseData {
   courtId?: string;      // portal court GUID (CABINET_COURT_IDS) — default Yuqorichirchiq bo'lmasa Uchtepa
@@ -44,6 +44,21 @@ export class CabinetPayloadBuilder {
   /** Step 2: Qoralama (Draft) yaratish payload — LIVE tasdiqlangan: haqiqatan {} bo'sh. */
   static buildDraft(): Record<string, never> {
     return {};
+  }
+
+  /**
+   * Wizard 1-qadam: ish turi. Portaldagi UI qoralamasidan (form_step=1) aynan shu shaklda
+   * o'qildi. DECREE = sud buyrug'i tartibi — 111-toifaga («ёзма битимга асосланган ва қарздор
+   * томонидан тан олинган талаб») mos keladi. Boshqa turdagi da'vo kerak bo'lsa bu yerni
+   * parametrlash kerak.
+   */
+  static buildCourtInfo(): CourtInfo {
+    return {
+      instance: 'FIRST',
+      claim_kind: 'DECREE',
+      claim_type: 'CIVIL',
+      claimant_entity_type: 'ORGANIZATION',
+    };
   }
 
   /** Wizard step 1: sud + da'vogar. */

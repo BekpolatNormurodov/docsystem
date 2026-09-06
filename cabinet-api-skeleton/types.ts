@@ -39,13 +39,38 @@ export interface DraftCaseResponse {
 // wizard step in the real UI sends the FULL accumulated `details` object every time it saves,
 // so mirror that: always resend every section you already have, not just the one you changed).
 
+/**
+ * Wizard 1-qadamida yoziladigan ish turi. 2026-09-06 da portaldagi HAQIQIY qoralamadan
+ * (ADOLAT UI'sida qo'lda yaratilgan, form_step=1) aynan shu shaklda o'qildi.
+ * Bizning eski kod bu bo'limni UMUMAN yubormasdi — natijada qoralama form_step=0 da qolib,
+ * portal uni «boshlanmagan» deb hisoblardi.
+ */
+export interface CourtInfo {
+  instance: 'FIRST' | string;                 // birinchi instansiya
+  claim_kind: 'DECREE' | 'SUIT' | string;     // DECREE = sud buyrug'i (bizning 111-toifa)
+  claim_type: 'CIVIL' | string;
+  claimant_entity_type: 'ORGANIZATION' | 'PERSON' | string;
+}
+
 export interface DraftDetails {
+  // Portaldagi haqiqiy `details` 11 bo'limdan iborat (2026-09-06 da draftList'dan o'qildi):
+  // baseInfo, courtInfo, caseSelect, courtCosts, fileUpload, defendantInfo, selectDocuments,
+  // materialBaseInfo, createApplication, administrativeBaseInfo, materialCreateApplication.
+  courtInfo: CourtInfo | null;
   createApplication: CreateApplicationInfo | null;
   materialCreateApplication: unknown | null; // only relevant for claim_kind MATERIAL — unexplored
   baseInfo: BaseInfo | null;
   materialBaseInfo: unknown | null;          // unexplored
+  administrativeBaseInfo?: unknown | null;   // ma'muriy ishlar uchun — bizga tegishli emas
+  caseSelect?: unknown | null;               // shakli aniqlanmagan (portaldagi barcha qoralamalarda null)
   defendantInfo: DefendantInfo | null;
   courtCosts: unknown | null;                // unexplored — see findByReceiptNumber note below
+  // ⛔ Quyidagi ikkitasi HUJJATLARNI qoralamaga bog'laydi. Shakli HALI ANIQLANMAGAN:
+  // portaldagi 4 ta qoralamaning hech biri hujjat biriktirish qadamiga yetmagan, shuning
+  // uchun ikkalasi ham null. Aniqlash uchun ADOLAT UI'sida bitta qoralamaga fayl biriktirib,
+  // draftList'dan qayta o'qish kerak. Shu bajarilmaguncha submitter.ts yuborishni to'xtatadi.
+  fileUpload?: unknown | null;
+  selectDocuments?: unknown | null;
 }
 
 // Step 1 of the UI wizard (sud + da'vogar tanlash).
