@@ -423,6 +423,47 @@ model CourtFeeInvoice {
   @@index([draftId])
 }
 
+// Sudga yuborish navbatidagi BITTA ishning holati. Job (batch) darajasidagi progress'dan
+// farqli — bu har bir case uchun alohida, chidamli (restart'dan keyin ham qoladi) yozuv:
+// qaysi biri navbatda, qaysi biri ketdi, qaysi biri xato bergani va NEGA.
+enum CourtQueueState {
+  PENDING // navbatda, o'z navbatini kutmoqda
+  RUNNING // hozir ishlanmoqda (ADOLAT bilan muloqot ketyapti)
+  DONE // ADOLAT qabul qildi
+  FAILED // xato — lastError'da sabab; qayta bosilsa PENDING'ga qaytadi
+  SKIPPED // allaqachon ketgan / takroriy — hech narsa qilinmadi
+}
+
+// Bitta case'ning sudga yuborish navbatidagi yozuvi. NEGA alohida jadval:
+//  1. ArizaCase ustunlariga qo'shsak faqat OXIRGI urinish qoladi — xatodan keyin qayta
+//     urinilsa, oldingi xato sababi va draftId yo'qoladi (aynan operator ko'rishi kerak
+//     bo'lgan ma'lumot).
+//  2. Idempotentlik: DONE yozuvi bor case ikkinchi marta yuborilmaydi — bitta odamga ikkita
+//     da'vo ochilishi qaytarib bo'lmaydigan xato.
+//  3. Paced worker'ga tor indeks kerak (state, firmId) — ArizaCase katta jadval.
+model CourtQueueItem {
+  id         Int             @id @default(autoincrement())
+  caseId     Int
+  case       ArizaCase       @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  firmId     Int
+  account    String // firma STIR'i, faqat raqamlar (ExternalSession.account bilan bir xil)
+  state      CourtQueueState @default(PENDING)
+  jobId      Int? // qaysi batch (Job) ichida — progress/bekor qilish uchun
+  draftId    String? // ADOLAT qoralama UUID'i (xato bo'lsa ham qoladi — yetim draftni topish uchun)
+  caseNumber String? // ADOLAT bergan ish raqami (muvaffaqiyatli bo'lsa)
+  attempts   Int             @default(0)
+  lastError  String?         @db.Text // operatorga ko'rsatiladigan xato matni
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  // Bitta case uchun bitta navbat yozuvi — takroriy qo'shishni BAZA darajasida to'sadi.
+  @@unique([caseId])
+  @@index([state, firmId])
+  @@index([jobId])
+}
+
 // ===== Konveyer pipeline (talabnoma -> sud -> MIB) =====
 
 enum CaseStage {
@@ -516,6 +557,7 @@ model ArizaCase {
   meta          Json?
   documents     CaseDocument[]
   invoiceRecords InvoiceRecord[]
+  queueItem     CourtQueueItem?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
