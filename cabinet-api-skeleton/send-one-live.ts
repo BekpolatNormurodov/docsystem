@@ -9,11 +9,10 @@
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import { prisma } from '../src/lib/db';
 import { getStoredCabinetSession } from '../src/lib/cabinet/session';
 import { CabinetSubmitEngine } from './submitter';
+import { collectCaseFiles } from '../src/lib/court-submit-job';
 import { resolveCabinetCourtGuid, CABINET_COURT_IDS, CABINET_REGION_IDS } from './constants';
 import type { SourceCaseData } from './builder';
 import type { CaseFileToUpload } from './uploader';
@@ -141,92 +140,13 @@ async function main() {
     },
   };
 
-  // 5. Hujjatlarni diskdan o'qib yig'ish
-  const filesToUpload: CaseFileToUpload[] = [];
-
-  // A) DB dagi CaseDocument yozuvlaridan
-  for (const doc of ac.documents) {
-    try {
-      let fPath = doc.filePath;
-      if (fPath.startsWith('/app/')) {
-        fPath = path.join(process.cwd(), fPath.replace(/^\/app\//, ''));
-      }
-      const buf = await fs.readFile(fPath);
-      let kind: CaseFileToUpload['kind'] = 'OFERTA';
-      if (doc.kind === 'SIGNED_ARIZA' || doc.kind === 'ARIZA') kind = 'ARIZA';
-      else if (doc.kind === 'TALABNOMA') kind = 'TALABNOMA';
-      else if (doc.kind === 'TALABNOMA_RECEIPT') kind = 'TALABNOMA_CHECK';
-      else if (doc.kind === 'GUVOHNOMA') kind = 'GUVOHNOMA';
-      else if (doc.kind === 'ISHONCHNOMA') kind = 'ISHONCHNOMA';
-
-      // Takror hujjatni to'smaymiz-da bo'lmaydi: CaseDocument.kind da unique yo'q, bitta
-      // kvitansiya ikki qatorda turishi mumkin (2026-09-06 sinovida shunday bo'ldi).
-      if (filesToUpload.some((f) => f.fileName === doc.fileName && f.kind === kind)) continue;
-      filesToUpload.push({
-        kind,
-        fileName: doc.fileName,
-        buffer: buf,
-      });
-    } catch {}
-  }
-
-  // B) Diskdagi papkalardan qidirish (Oferta va boshqa ilovalar)
-  const home = process.env.HOME || '';
-  if (ac.clientName) {
-    const candidateDirs = [
-      path.join(home, 'Downloads', 'BRIGHT FUTURE FINANCING 3', `${ac.clientName} ${ac.pinfl}`),
-      path.join(home, 'Downloads', 'BRIGHT FUTURE FINANCING 2', `${ac.clientName} ${ac.pinfl}`),
-      path.join(home, 'Downloads', '5-sud BRIGHT TAYYOR', ac.clientName),
-    ];
-    for (const cDir of candidateDirs) {
-      try {
-        const list = await fs.readdir(cDir);
-        for (const fname of list) {
-          if (!fname.endsWith('.pdf')) continue;
-          if (filesToUpload.some((f) => f.fileName === fname)) continue;
-          const buf = await fs.readFile(path.join(cDir, fname));
-          let kind: CaseFileToUpload['kind'] = 'OFERTA';
-          if (/ariza/i.test(fname)) kind = 'ARIZA';
-          else if (/talabnoma/i.test(fname)) kind = 'TALABNOMA';
-          else if (/receipt|check|td/i.test(fname)) kind = 'TALABNOMA_CHECK';
-          else if (/guvox/i.test(fname)) kind = 'GUVOHNOMA';
-          else if (/ishonch/i.test(fname)) kind = 'ISHONCHNOMA';
-          filesToUpload.push({ kind, fileName: fname, buffer: buf });
-        }
-        if (filesToUpload.length > 1) break;
-      } catch {}
-    }
-  }
-
-  // C) Tashkilot statik hujjatlari (Guvohnoma, Ishonchnoma)
-  const hasGuvox = filesToUpload.some((f) => f.kind === 'GUVOHNOMA');
-  const hasIshonch = filesToUpload.some((f) => f.kind === 'ISHONCHNOMA');
-  if (!hasGuvox) {
-    const paths = [
-      path.join(process.cwd(), 'exports', 'firm-docs', String(ac.firmId), 'GUVOHNOMA-Guvoxnoma_BRIGHT.pdf'),
-      path.join(home, 'Downloads', 'Guvoxnoma BRIGHT.pdf'),
-    ];
-    for (const p of paths) {
-      try {
-        const gBuf = await fs.readFile(p);
-        filesToUpload.push({ kind: 'GUVOHNOMA', fileName: 'Guvoxnoma BRIGHT.pdf', buffer: gBuf });
-        break;
-      } catch {}
-    }
-  }
-  if (!hasIshonch) {
-    const paths = [
-      path.join(process.cwd(), 'exports', 'firm-docs', String(ac.firmId), 'ISHONCHNOMA-Ishonchnoma_BRIGHT.pdf'),
-      path.join(home, 'Downloads', 'Ishonchnoma BRIGHT.pdf'),
-    ];
-    for (const p of paths) {
-      try {
-        const iBuf = await fs.readFile(p);
-        filesToUpload.push({ kind: 'ISHONCHNOMA', fileName: 'Ishonchnoma BRIGHT.pdf', buffer: iBuf });
-        break;
-      } catch {}
-    }
-  }
+  // 5. Hujjatlarni yig'ish — sayt/worker bilan BIR XIL mantiq orqali.
+  //
+  // Avval bu yerda collectCaseFiles ning to'liq NUSXASI turardi va ular vaqt o'tib bir-biridan
+  // uzoqlashdi: firma hujjatlari (guvohnoma/ishonchnoma/shartnoma) tuzatilganda skript eski
+  // nusxada qolib ketardi, ya'ni skript orqali qilingan sinovlar saytdagi haqiqiy paketni
+  // aks ettirmasdi. Endi yagona manba — src/lib/court-submit-job.ts.
+  const filesToUpload: CaseFileToUpload[] = await collectCaseFiles(ac);
 
   console.log(`Yuklanadigan hujjatlar soni: ${filesToUpload.length} ta`);
   filesToUpload.forEach((f, idx) => console.log(`  [${idx + 1}] ${f.kind} -> ${f.fileName}`));
