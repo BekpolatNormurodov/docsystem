@@ -107,5 +107,7 @@ export async function POST(req: NextRequest) {
   enqueueJob(job.id);
 
   // `skipped`/`deferred` additive — existing callers read only jobId/total.
-  return NextResponse.json({ jobId: job.id, total: sendIds.length, skipped, deferred });
+  // `type` — UI uchun: PACKET tugagach ZIP havolasi ko'rsatiladi, COURT_SUBMIT tugagach esa
+  // yakuniy hisobot matni (ZIP yo'q — bu job fayl yaratmaydi, havola 404 berardi).
+  return NextResponse.json({ jobId: job.id, type: jobType, total: sendIds.length, skipped, deferred });
 }

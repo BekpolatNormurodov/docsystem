@@ -32,7 +32,7 @@ interface ClientRow {
 interface ClientCounts { all: number; sendable: number; draft: number; ready: number; exported: number; notready: number }
 interface ClientPage { rows: ClientRow[]; total: number; page: number; pageSize: number; pages: number; counts: ClientCounts; error?: string }
 
-type JobState = { jobId: number; status: string; progress: number; total: number; error?: string };
+type JobState = { jobId: number; status: string; progress: number; total: number; error?: string; message?: string; type?: string };
 
 const n = (x: number) => x.toLocaleString('ru-RU');
 const sum = (v: string) => Number(v).toLocaleString('ru-RU');
@@ -183,6 +183,25 @@ function ExportControl({ job, sendable, onStart }: { job?: JobState; sendable: n
   const running = !!job && (job.status === 'PENDING' || job.status === 'RUNNING');
   const done = job?.status === 'DONE';
   const pct = job && job.total ? Math.min(100, Math.round((job.progress / job.total) * 100)) : 0;
+  // Sudga yuborish (COURT_SUBMIT) job'i fayl YARATMAYDI — unga ZIP havolasi ko'rsatilsa 404
+  // beradi. Uning o'rniga runner yozgan halol hisobot ko'rsatiladi
+  // («N ta yuborildi, M ta XATO, K ta navbatda qoldi»).
+  const isSubmit = job?.type === 'COURT_SUBMIT';
+  if (done && job && isSubmit) {
+    const hadError = /XATO/i.test(job.message || '');
+    return (
+      <div className="flex flex-col items-end gap-1">
+        <span className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${hadError ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'}`}>
+          {job.message || `${job.total} ta yuborildi`}
+        </span>
+        {sendable > 0 && (
+          <button onClick={onStart} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1 text-[11px] font-medium text-muted outline-none transition-colors hover:border-brand-500/40 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30" title={`Keyingi ${Math.min(100, sendable)} ta`}>
+            <IcoBolt /> Yana ({Math.min(100, sendable)})
+          </button>
+        )}
+      </div>
+    );
+  }
   if (done && job) {
     // Keep the download AND, when the firm still has ready-not-exported cases,
     // a «Yana» button so batches of >100 aren't stuck after the first ZIP.
@@ -215,7 +234,11 @@ function ExportControl({ job, sendable, onStart }: { job?: JobState; sendable: n
       {running && job && job.total > 0 && (
         <span className="block h-1 w-28 overflow-hidden rounded-full bg-surface-2"><span className="block h-full rounded-full bg-brand-500 transition-all duration-500 ease-out" style={{ width: `${pct}%` }} /></span>
       )}
-      {job?.status === 'FAILED' && <span className="text-[11px] font-medium text-rose-500" role="alert">{job.error || 'Xatolik'}</span>}
+      {/* Ish davomida oraliq hisobot: «N ta yuborildi, M ta XATO». Daqiqada 1 ta tezlikda
+          progress uzoq qimirlamaydi — bu matn ishlab turganini ko'rsatadi. */}
+      {running && job?.message && <span className="text-[11px] text-muted tabular-nums">{job.message}</span>}
+      {/* Xato: worker yozgan sabab `message`da keladi (route xatosi esa `error`da). */}
+      {job?.status === 'FAILED' && <span className="text-[11px] font-medium text-rose-500" role="alert">{job.message || job.error || 'Xatolik'}</span>}
     </div>
   );
 }
@@ -554,6 +577,88 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged }: {
 }
 
 // ── one firm row ─────────────────────────────────────────────────────────────
+// ── Sudga yuborish navbati: HAR BIR ISH bo'yicha holat ────────────────────────────────────
+// Job progress'i «3/100» deydi, lekin qaysi ish yiqilgani va NEGA — ko'rinmaydi. Operator
+// aynan shuni bilishi kerak: xato bergan ishni topib, sababini o'qib, tuzatib qayta yuborish.
+type QueueRow = {
+  caseId: number; clientName: string | null; pinfl: string | null; state: string;
+  error: string | null; draftId: string | null; caseNumber: string | null; attempts: number;
+};
+const Q_STATE: Record<string, { label: string; tone: string }> = {
+  PENDING: { label: 'Navbatda', tone: 'bg-slate-500/12 text-slate-600 dark:text-slate-300' },
+  RUNNING: { label: 'Ketyapti…', tone: 'bg-sky-500/15 text-sky-700 dark:text-sky-300' },
+  DONE: { label: 'Yuborildi', tone: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' },
+  FAILED: { label: 'Yuborilmadi', tone: 'bg-rose-500/15 text-rose-700 dark:text-rose-300' },
+  SKIPPED: { label: 'Oʻtkazildi', tone: 'bg-amber-500/15 text-amber-700 dark:text-amber-300' },
+};
+
+function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
+  const [data, setData] = useState<{ counts: Record<string, number>; rows: QueueRow[] } | null>(null);
+  const [open, setOpen] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch(`/konveyer/court-queue?firmId=${firmId}`);
+      if (r.ok) setData(await r.json());
+    } catch { /* transient — keyingi tsiklda qayta urinadi */ }
+  }, [firmId]);
+
+  // Ish ketayotganda avtomatik yangilanadi; tugagach bir marta o'qiydi.
+  useEffect(() => {
+    void load();
+    if (!live) return;
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [load, live]);
+
+  const counts = data?.counts;
+  const failed = counts?.FAILED ?? 0;
+  const done = counts?.DONE ?? 0;
+  const waiting = (counts?.PENDING ?? 0) + (counts?.RUNNING ?? 0);
+  if (!counts || (failed + done + waiting) === 0) return null;
+
+  return (
+    <div className="border-t border-line px-3 py-2">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 text-left text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30"
+        aria-expanded={open}
+      >
+        <span className="font-semibold text-muted">Navbat:</span>
+        {done > 0 && <span className={`rounded px-1.5 py-0.5 font-medium tabular-nums ${Q_STATE.DONE.tone}`}>{n(done)} yuborildi</span>}
+        {waiting > 0 && <span className={`rounded px-1.5 py-0.5 font-medium tabular-nums ${Q_STATE.PENDING.tone}`}>{n(waiting)} navbatda</span>}
+        {failed > 0 && <span className={`rounded px-1.5 py-0.5 font-medium tabular-nums ${Q_STATE.FAILED.tone}`}>{n(failed)} yuborilmadi</span>}
+        <span className="ml-auto text-muted">{open ? 'yopish' : 'batafsil'}</span>
+      </button>
+      {open && data && (
+        <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto">
+          {data.rows.map((row) => {
+            const st = Q_STATE[row.state] ?? Q_STATE.PENDING;
+            return (
+              <li key={row.caseId} className="rounded-lg bg-surface-2 px-2 py-1.5 text-[11px]">
+                <div className="flex items-center gap-2">
+                  <span className={`shrink-0 rounded px-1.5 py-0.5 font-medium ${st.tone}`}>{st.label}</span>
+                  <span className="truncate font-medium">{row.clientName || `#${row.caseId}`}</span>
+                  {row.caseNumber && <span className="ml-auto shrink-0 font-mono text-[10px] text-muted">{row.caseNumber}</span>}
+                  {row.attempts > 1 && <span className="shrink-0 text-[10px] text-muted">{row.attempts}-urinish</span>}
+                </div>
+                {/* Xato sababi to'liq ko'rsatiladi — operator shu matndan nima qilishni tushunadi. */}
+                {row.state === 'FAILED' && row.error && (
+                  <p className="mt-1 break-words text-[10px] leading-snug text-rose-600 dark:text-rose-300" role="alert">{row.error}</p>
+                )}
+                {/* Xato bo'lsa ham qoralama yaratilgan bo'lishi mumkin — ADOLAT'da yetim qolmasin. */}
+                {row.state === 'FAILED' && row.draftId && (
+                  <p className="mt-0.5 font-mono text-[10px] text-muted">ADOLAT qoralama: {row.draftId}</p>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function FirmSendRow({ fr, snapshotId, job, startExport, onChanged, drillOpen, onToggleDrill, idx, autoActive, onStopAuto }: {
   fr: FirmReadiness; snapshotId?: number; job?: JobState;
   startExport: (firmId: number, extra: Record<string, unknown>) => void;
@@ -642,6 +747,9 @@ function FirmSendRow({ fr, snapshotId, job, startExport, onChanged, drillOpen, o
         </button>
       </div>
 
+      {/* Navbat holati — ish ketayotganda ham, tugagach ham ko'rinadi (xatolar yo'qolib
+          ketmasligi uchun: operator sababni keyin ham o'qiy oladi). */}
+      <QueuePanel firmId={fr.firmId} live={!!job && (job.status === 'PENDING' || job.status === 'RUNNING')} />
       {drillOpen && (
         <ClientDrilldown firmId={fr.firmId} snapshotId={snapshotId} job={job} startExport={(caseIds) => startExport(fr.firmId, { caseIds })} onChanged={onChanged} />
       )}
@@ -749,11 +857,11 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
       .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
       .then(({ ok, d }) => {
         if (!ok) { setJobs((j) => ({ ...j, [key]: { jobId: 0, status: 'FAILED', progress: 0, total: 0, error: d?.error || 'Xatolik' } })); return; }
-        setJobs((j) => ({ ...j, [key]: { jobId: d.jobId, status: 'PENDING', progress: 0, total: d.total } }));
+        setJobs((j) => ({ ...j, [key]: { jobId: d.jobId, status: 'PENDING', progress: 0, total: d.total, type: d.type } }));
         timers.current[key] = setInterval(async () => {
           try {
             const s = await (await fetch(`/api/jobs/${d.jobId}`)).json();
-            setJobs((j) => (j[key] ? { ...j, [key]: { ...j[key], status: s.status, progress: s.progress, total: s.total } } : j));
+            setJobs((j) => (j[key] ? { ...j, [key]: { ...j[key], status: s.status, progress: s.progress, total: s.total, message: s.message ?? undefined } } : j));
             if (s.status === 'DONE' || s.status === 'FAILED') {
               clearInterval(timers.current[key]); delete timers.current[key];
               if (s.status === 'DONE') onDone();

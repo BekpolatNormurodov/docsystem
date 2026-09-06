@@ -95,18 +95,36 @@ export const CABINET_REGION_IDS = {
 
 /**
  * DB dagi Court yozuvidan cabinet.sud.uz portal GUID'ini aniqlash.
+ *
+ * MUHIM — nega jim fallback OLIB TASHLANDI: avval tanilmagan har qanday sud (va `court=null`)
+ * jimgina UCHTEPA'ga tushardi. Hozir bazada atigi 2 ta sud bor va ikkalasi ham quyida
+ * xaritalangan, ya'ni zarar yo'q edi — lekin Court modeli yangi sud qo'shishni ko'zda tutadi
+ * (dailyQuota, CourtFirmAccess yo'naltirishi). Uchinchi sud qo'shilgan kuni unga
+ * yo'naltirilgan HAR BIR ish sudlov hududi noto'g'ri bo'lgan Uchtepaga topshirilardi —
+ * ish qaytariladi, lekin da'vo allaqachon rasman berilgan bo'ladi.
+ *
+ * Yangi sud qo'shish: ADOLAT'da o'sha sudni tanlab qoralama yarating va
+ * `details.createApplication.court` qiymatini CABINET_COURT_IDS'ga yozing.
  */
 export function resolveCabinetCourtGuid(court?: {
   shortName?: string | null;
   nameUz?: string | null;
   billingCourtId?: string | null;
 } | null): string {
-  if (!court) return CABINET_COURT_IDS.UCHTEPA_CIVIL;
+  if (!court) {
+    throw new Error('Ish qaysi sudga yuborilishi belgilanmagan (courtId bo\'sh) — sudsiz da\'vo yubora olmaymiz.');
+  }
   const s = `${court.shortName || ''} ${court.nameUz || ''}`.toLowerCase();
   if (s.includes('yuqorichirchiq') || s.includes('юкоричирчик') || court.billingCourtId === '587') {
     return CABINET_COURT_IDS.YUQORICHIRCHIQ_CIVIL;
   }
-  return CABINET_COURT_IDS.UCHTEPA_CIVIL;
+  if (s.includes('uchtepa') || s.includes('учтепа') || court.billingCourtId === '525') {
+    return CABINET_COURT_IDS.UCHTEPA_CIVIL;
+  }
+  throw new Error(
+    `"${court.shortName || court.nameUz}" sudi uchun ADOLAT court GUID topilmadi. ` +
+    `Bu sudga da'vo yubora olmaymiz — CABINET_COURT_IDS'ga qo'shing (cabinet-api-skeleton/constants.ts).`,
+  );
 }
 
 // ⛔ FINAL SUBMIT — irreversible. NEVER call without explicit human intent.
