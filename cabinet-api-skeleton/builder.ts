@@ -9,7 +9,7 @@
 import { CABINET_CATEGORIES, CABINET_SUB_CATEGORIES, CABINET_COURT_IDS, CABINET_REGION_IDS, CABINET_DOC_TYPES } from './constants';
 import type {
   CreateApplicationInfo, BaseInfo, DefendantInfo, ClaimAmountPartType, CourtInfo,
-  FileUploadSection, UploadedFileRef, CaseDocumentRef, CourtCostsSection,
+  FileUploadSection, UploadedFileRef, CaseDocumentRef, CourtCostsSection, ClaimAmountWithParts,
   CaseParticipantEntry, SaveSuitPayload,
 } from './types';
 
@@ -238,6 +238,27 @@ export class CabinetPayloadBuilder {
   }
 
   /**
+   * `claim_amounts_with_parts` ichidagi barcha summalarni son-satrga aylantiradi.
+   * 2026-09-06 jonli sinov: save-suit `amount` maydonini SON qabul qilmaydi —
+   * `claim_amounts_with_parts.0.claim_amount_parts.0.amount must be a number string`.
+   * `null` (ishlatilmagan summa turlari) o'z holicha qoldiriladi.
+   */
+  static amountsToNumberStrings(items: ClaimAmountWithParts[]): ClaimAmountWithParts[] {
+    const toStr = (v: unknown): any => {
+      if (v === null || v === undefined || v === '') return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n.toFixed(2) : null;
+    };
+    return (items || []).map((it) => ({
+      ...it,
+      claim_amount: { ...it.claim_amount, amount: toStr(it.claim_amount?.amount) },
+      claim_amount_parts: (it.claim_amount_parts || []).map(
+        (p: { amount: unknown; amount_type: ClaimAmountPartType }) => ({ ...p, amount: toStr(p.amount) }),
+      ),
+    })) as ClaimAmountWithParts[];
+  }
+
+  /**
    * HAQIQIY sud ishini yaratish payloadi (POST /api/cabinet/case/civil/save-suit).
    * Shakli portal bundle'idagi `formToCaseCreate` dan olingan — REAL-API-FINDINGS.md.
    */
@@ -264,7 +285,11 @@ export class CabinetPayloadBuilder {
         CabinetPayloadBuilder.buildClaimantParticipant(data),
         CabinetPayloadBuilder.buildDefendantParticipant(data.debtor),
       ],
-      claim_amounts_with_parts: baseInfo.claim_amounts_with_parts,
+      // Portal `amount` ni SON-SATR sifatida kutadi (400: "must be a number string").
+      // Frontend ham aynan shu konversiyani qiladi — `convertClaimAmountWithPartsToStringNumber`.
+      // Qoralama (details.baseInfo) ichida son bo'lib turaveradi; faqat save-suit paytida
+      // satrga aylantiriladi.
+      claim_amounts_with_parts: CabinetPayloadBuilder.amountsToNumberStrings(baseInfo.claim_amounts_with_parts),
       claim: { claim_kind: courtInfo.claim_kind },
       case_details: { state_duty_amount: Number(courtCosts.customStateFee) || Number(courtCosts.stateFee) || 0 },
     };
