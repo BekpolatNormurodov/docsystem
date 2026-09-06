@@ -13,7 +13,8 @@ const pad = (x: number) => String(x).padStart(2, '0');
 const dt = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 
 const TYPE_LABEL = (r: Row): string =>
-  r.type === 'PACKET' ? (r.arizaOnly ? 'Ariza' : 'To‘liq paket')
+  r.type === 'COURT_SUBMIT' ? 'Sudga yuborish'
+  : r.type === 'PACKET' ? (r.arizaOnly ? 'Ariza' : 'To‘liq paket')
   : r.type === 'OFERTA' ? 'Oferta'
   : r.type === 'TALABNOMA' ? 'Talabnoma PDF'
   : r.type === 'IMPORT' ? 'Import'

@@ -6,6 +6,7 @@ import { prisma } from './db';
 import { runPacketJob, runOfertaJob, runOfertaJobByLoans, runTalabnomaJob, type PacketJobOpts, type OfertaJobOpts } from './prepare-packets';
 import { runTalabnomaFormJob } from './talabnoma-form/job';
 import { runMibReportJob } from './mib/run';
+import { runCourtSubmitJob } from './court-submit-job';
 import type { CaseStage } from '@prisma/client';
 
 const intArr = (v: unknown): number[] => (Array.isArray(v) ? v.map(Number).filter((x) => Number.isInteger(x) && x > 0) : []);
@@ -14,6 +15,18 @@ export async function runJobById(jobId: number): Promise<void> {
   const job = await prisma.job.findUnique({ where: { id: jobId }, select: { id: true, type: true, params: true } });
   if (!job) return;
   const p = (job.params ?? {}) as Record<string, unknown>;
+
+  if (job.type === 'COURT_SUBMIT') {
+    const opts = {
+      firmId: Number(p.firmId),
+      snapshotId: p.snapshotId != null ? Number(p.snapshotId) : undefined,
+      caseIds: intArr(p.caseIds),
+      delayMs: p.delayMs != null ? Number(p.delayMs) : undefined,
+      dryRun: p.dryRun === true,
+    };
+    await runCourtSubmitJob(jobId, opts);
+    return;
+  }
 
   if (job.type === 'PACKET') {
     const opts: PacketJobOpts = {
