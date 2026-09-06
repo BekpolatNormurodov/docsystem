@@ -244,10 +244,14 @@ export class CabinetPayloadBuilder {
    * `null` (ishlatilmagan summa turlari) o'z holicha qoldiriladi.
    */
   static amountsToNumberStrings(items: ClaimAmountWithParts[]): ClaimAmountWithParts[] {
+    // Bo'sh qiymat (null/undefined/'') — "0.00". 2026-09-07 jonli sinov:
+    //   claim_amount_parts.1.amount should not be empty
+    // Ya'ni ISHLATILMAGAN summa turlari ham (moral zarar, jarima, ...) null bo'la olmaydi —
+    // 8 ta turning HAMMASIDA qiymat turishi shart.
     const toStr = (v: unknown): any => {
-      if (v === null || v === undefined || v === '') return null;
+      if (v === null || v === undefined || v === '') return '0.00';
       const n = Number(v);
-      return Number.isFinite(n) ? n.toFixed(2) : null;
+      return Number.isFinite(n) ? n.toFixed(2) : '0.00';
     };
     return (items || []).map((it) => ({
       ...it,
