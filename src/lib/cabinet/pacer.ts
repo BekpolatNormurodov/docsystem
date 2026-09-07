@@ -25,11 +25,18 @@ import { prisma } from '../db';
  * sozlamasidagi 45s interval hech qachon qo'llanmaydi — u allaqachon o'tib bo'lgan.
  * Tezlikni oshirish uchun aynan SHU qiymatni pasaytirish kerak.
  *
- * 2026-09-06 bloki concurrency-6 va NOL kechikishda sodir bo'lgan. Ketma-ket (bitta oqim)
- * 2 soniya undan tubdan xavfsizroq, lekin kerak bo'lsa CABINET_REQUEST_GAP_MS bilan
- * o'zgartiriladi. Pastki chegara 1s — bundan pastga tushirish blokni qaytarish xavfi.
+ * TEZLASHTIRISH SINALDI VA MUVAFFAQIYATSIZ TUGADI (2026-09-07):
+ *   4 soniyada  06:22-06:38  →  12 ta ketdi, 0 xato
+ *   2 soniyada  06:39-06:44  →   0 ta ketdi, 9 ta xato
+ * 2 soniyada portal ~13 daqiqadan keyin hamma narsani rad eta boshladi: hatto eng yengil
+ * `user/get` ham 500 berdi va TLS uzilishlari boshlandi — 2026-09-06 dagi 6 soatlik
+ * blokning aynan o'sha belgilari. Shuning uchun 4 soniyaga qaytarildi.
+ *
+ * Tezlashtirmoqchi bo'lsangiz: KICHIK qadam bilan (masalan 3s), kichik partiyada sinang va
+ * xatolar paydo bo'lishini kuzating. Portal chidamini bilmaymiz — 4s tekshirilgan yagona
+ * xavfsiz qiymat.
  */
-export const REQUEST_GAP_MS = Math.max(1_000, Number(process.env.CABINET_REQUEST_GAP_MS) || 2_000);
+export const REQUEST_GAP_MS = Math.max(1_000, Number(process.env.CABINET_REQUEST_GAP_MS) || 4_000);
 
 /**
  * FAYL YUKLASH uchun alohida, qisqaroq interval.
@@ -39,10 +46,11 @@ export const REQUEST_GAP_MS = Math.max(1_000, Number(process.env.CABINET_REQUEST
  * mantiq chaqiruvi emas: draft yaratish yoki save-suit kabi og'ir emas. Shuning uchun ularga
  * qisqaroq interval beriladi, mantiq chaqiruvlari esa REQUEST_GAP_MS da qoladi.
  *
- * Sekinlikning sababi tarmoq emas — fayllar kichik (40KB-2MB) va bir zumda uzatiladi.
- * Butun kutish BIZNING chegaramiz, shuning uchun uni aniq joyda kamaytirish mantiqiy.
+ * ESLATMA: 0.7 soniya sinalgan emas va XAVFLI. 2026-09-07 da 2 soniyaning o'zi portalni
+ * yiqitdi, ya'ni fayl yuklash ham «yengil» chaqiruv emas ekan. Hozircha REQUEST_GAP bilan
+ * bir xil; pasaytirishdan oldin kichik partiyada sinash shart.
  */
-export const UPLOAD_GAP_MS = Math.max(300, Number(process.env.CABINET_UPLOAD_GAP_MS) || 700);
+export const UPLOAD_GAP_MS = Math.max(1_000, Number(process.env.CABINET_UPLOAD_GAP_MS) || 4_000);
 
 /**
  * Ikki case boshlanishi orasidagi ODATIY eng kam vaqt (daqiqada 1 ta). Haqiqiy qiymat
