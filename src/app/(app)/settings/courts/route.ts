@@ -41,6 +41,9 @@ export async function POST(req: NextRequest) {
       nameUz: String(body.nameUz),
       shortName: String(body.shortName),
       dailyQuota: Number(body.dailyQuota),
+      // Sudga yuborishda ikki ish orasidagi interval. Pastki chegara 5s — 0 yozib qo'yilsa
+      // portalga cheklovsiz urilib ketmasin (2026-09-06 blokidan saboq).
+      sendIntervalSec: Math.max(5, Number(body.sendIntervalSec) || 60),
       cutoffMinutes: Number(body.cutoffMinutes),
       weekdays: Array.isArray(body.weekdays) ? body.weekdays.map(Number) : [1, 2, 3, 4, 5],
       active: body.active !== false,

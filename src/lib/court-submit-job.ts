@@ -13,6 +13,7 @@ import { CabinetRequestError } from '../../cabinet-api-skeleton/client';
 import { paceCase, backoff, caseGapFor, isQueuePaused, REQUEST_GAP_MS, CASE_GAP_MS } from './cabinet/pacer';
 import { audit, AuditAction } from './audit';
 import { resolveClaimantId } from './cabinet/claimant';
+import { releaseCourtSend } from './court-routing';
 import { resolveCabinetCourtGuid, CABINET_REGION_IDS } from '../../cabinet-api-skeleton/constants';
 import type { SourceCaseData } from '../../cabinet-api-skeleton/builder';
 import type { CaseFileToUpload } from '../../cabinet-api-skeleton/uploader';
@@ -615,6 +616,19 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
     // Qolgan (umuman urinilmagan) ishlar PENDING bo'lib qoladi — operator qaytadan bosса
     // aynan shulardan davom etadi.
     const leftover = await prisma.courtQueueItem.count({ where: { jobId, state: { in: ['PENDING', 'RUNNING'] } } });
+
+    // KUNLIK LIMITNI QAYTARISH. `consumeCourtSend` limitni partiya BOSHLANISHIDA yozadi
+    // (courtSentAt) — bu poyga xavfini oldini oladi, lekin haqiqatan yuborilmagan ishlar ham
+    // limitni «yeb» qo'yadi. 2026-09-07 da aynan shunday bo'ldi: 99 ta ish uzilib qoldi,
+    // lekin Sudlar sahifasida «101/200 ishlatilgan» deb turdi. Yuborilmaganlarini qaytaramiz.
+    const notSent = await prisma.courtQueueItem.findMany({
+      where: { jobId, state: { in: ['PENDING', 'RUNNING', 'FAILED'] } },
+      select: { caseId: true },
+    });
+    if (notSent.length) {
+      await releaseCourtSend(notSent.map((x) => x.caseId));
+      console.log(`[Job ${jobId}] ${notSent.length} ta yuborilmagan ishning kunlik limiti qaytarildi.`);
+    }
 
     // HALOL YAKUN: avval xato bo'lsa ham "Barcha ishlar muvaffaqiyatli topshirildi" deb
     // yozilardi — operator 100 ta ish ketdi deb o'ylab, aslida hech biri ketmagan bo'lishi

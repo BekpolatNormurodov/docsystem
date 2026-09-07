@@ -85,7 +85,17 @@ async function resetInterruptedCourtJobs(): Promise<void> {
     });
   }
   const back = await prisma.courtQueueItem.updateMany({ where: { state: 'RUNNING' }, data: { state: 'PENDING' } });
-  console.log(`[worker] ${jobs.length} ta uzilgan sud partiyasi yakunlandi, ${back.count} ta ish navbatga qaytarildi`);
+
+  // Kunlik limitni qaytaramiz: partiya boshlanishida har bir ishga courtSentAt yozilgan,
+  // lekin ular yuborilmadi. Aks holda sud limiti yuborilmagan ishlar bilan «to'lib» qoladi.
+  const stuck = await prisma.courtQueueItem.findMany({
+    where: { jobId: { in: jobs.map((j) => j.id) }, state: { in: ['PENDING', 'FAILED'] } },
+    select: { caseId: true },
+  });
+  if (stuck.length) {
+    await prisma.arizaCase.updateMany({ where: { id: { in: stuck.map((x) => x.caseId) } }, data: { courtSentAt: null } });
+  }
+  console.log(`[worker] ${jobs.length} ta uzilgan sud partiyasi yakunlandi, ${back.count} ta ish navbatga qaytarildi, ${stuck.length} ta limit bo'shatildi`);
 }
 
 // FIX 4: how often the idle poll loop re-runs the orphan sweep (~5 min). The startup sweep alone misses

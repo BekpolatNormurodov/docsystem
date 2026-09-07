@@ -205,7 +205,8 @@ export async function ensureSeedCourt(): Promise<void> {
 
 export interface CourtAdminRow {
   id: number; billingCourtId: string; courtType: string; nameUz: string; shortName: string;
-  dailyQuota: number; cutoffMinutes: number; weekdays: number[]; active: boolean; isDefault: boolean; sortOrder: number;
+  dailyQuota: number;
+  sendIntervalSec?: number; cutoffMinutes: number; weekdays: number[]; active: boolean; isDefault: boolean; sortOrder: number;
   firmIds: number[];
   billingReady: boolean;      // billingCourtId is a real numeric Sud id (else invoices fall back to default)
   usedToday: number;          // bugun shu sudga yuborilgan (courtSentAt) case soni
@@ -227,7 +228,7 @@ export async function courtsForAdmin(now: Date = new Date()): Promise<{ courts: 
   return {
     courts: courts.map((c) => ({
       id: c.id, billingCourtId: c.billingCourtId, courtType: c.courtType, nameUz: c.nameUz, shortName: c.shortName,
-      dailyQuota: c.dailyQuota, cutoffMinutes: c.cutoffMinutes,
+      dailyQuota: c.dailyQuota, sendIntervalSec: c.sendIntervalSec, cutoffMinutes: c.cutoffMinutes,
       weekdays: weekdaysOf(c), active: c.active, isDefault: c.isDefault, sortOrder: c.sortOrder,
       firmIds: c.access.map((a) => a.firmId),
       billingReady: /^\d+$/.test(c.billingCourtId),
@@ -241,7 +242,7 @@ export async function courtsForAdmin(now: Date = new Date()): Promise<{ courts: 
 
 export interface SaveCourtInput {
   id?: number; billingCourtId: string; courtType?: string; nameUz: string; shortName: string;
-  dailyQuota: number; cutoffMinutes: number; weekdays: number[]; active: boolean; isDefault: boolean; sortOrder?: number;
+  dailyQuota: number; sendIntervalSec?: number; cutoffMinutes: number; weekdays: number[]; active: boolean; isDefault: boolean; sortOrder?: number;
   firmIds: number[];
 }
 
@@ -253,6 +254,8 @@ export async function saveCourt(input: SaveCourtInput): Promise<number> {
     nameUz: input.nameUz.trim(),
     shortName: input.shortName.trim(),
     dailyQuota: Math.max(0, Math.floor(input.dailyQuota) || 0),
+    // Pastki chegara 5s: tasodifan 0 kiritilsa portalga cheklovsiz urilib ketmasin.
+    sendIntervalSec: Math.max(5, Math.floor(input.sendIntervalSec ?? 60) || 60),
     cutoffMinutes: Math.min(1440, Math.max(0, Math.floor(input.cutoffMinutes) || 0)),
     weekdays: [...new Set(input.weekdays.map(Number).filter((n) => n >= 0 && n <= 6))].sort() as number[],
     active: !!input.active,

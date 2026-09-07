@@ -10,7 +10,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 interface Firm { id: number; code: string; shortName: string }
 interface Court {
   id: number; billingCourtId: string; courtType: string; nameUz: string; shortName: string;
-  dailyQuota: number; cutoffMinutes: number; weekdays: number[]; active: boolean; isDefault: boolean; sortOrder: number;
+  dailyQuota: number; sendIntervalSec: number; cutoffMinutes: number; weekdays: number[]; active: boolean; isDefault: boolean; sortOrder: number;
   firmIds: number[];
   billingReady: boolean; usedToday: number; windowReason: 'ok' | 'weekend' | 'past-cutoff' | 'inactive'; caseCount: number;
 }
@@ -21,8 +21,8 @@ const DOW = [{ v: 1, l: 'Du' }, { v: 2, l: 'Se' }, { v: 3, l: 'Ch' }, { v: 4, l:
 const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 const toMin = (s: string) => { const [h, m] = s.split(':').map(Number); return (h || 0) * 60 + (m || 0); };
 const n = (x: number) => x.toLocaleString('ru-RU');
-const blankDraft = (): Draft => ({ id: null, billingCourtId: '', courtType: 'CITIZEN', nameUz: '', shortName: '', dailyQuota: 200, cutoffMinutes: 840, weekdays: [1, 2, 3, 4, 5], active: true, isDefault: false, sortOrder: 0, firmIds: [] });
-const toDraft = (c: Court): Draft => ({ id: c.id, billingCourtId: c.billingCourtId, courtType: c.courtType, nameUz: c.nameUz, shortName: c.shortName, dailyQuota: c.dailyQuota, cutoffMinutes: c.cutoffMinutes, weekdays: c.weekdays, active: c.active, isDefault: c.isDefault, sortOrder: c.sortOrder, firmIds: c.firmIds });
+const blankDraft = (): Draft => ({ id: null, billingCourtId: '', courtType: 'CITIZEN', nameUz: '', shortName: '', dailyQuota: 200, sendIntervalSec: 60, cutoffMinutes: 840, weekdays: [1, 2, 3, 4, 5], active: true, isDefault: false, sortOrder: 0, firmIds: [] });
+const toDraft = (c: Court): Draft => ({ id: c.id, billingCourtId: c.billingCourtId, courtType: c.courtType, nameUz: c.nameUz, shortName: c.shortName, dailyQuota: c.dailyQuota, sendIntervalSec: c.sendIntervalSec ?? 60, cutoffMinutes: c.cutoffMinutes, weekdays: c.weekdays, active: c.active, isDefault: c.isDefault, sortOrder: c.sortOrder, firmIds: c.firmIds });
 
 const WINDOW = {
   ok: { label: 'Ochiq', cls: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300', dot: 'bg-emerald-500' },
@@ -184,6 +184,7 @@ function CourtCard({ c, firmName, onEdit, onDelete, busy }: { c: Court; firmName
             : <span className="font-medium text-amber-600 dark:text-amber-400">kiritilmagan ⚠</span>}
         </span>
         <span>· Cutoff <span className="font-medium tabular-nums text-fg">{hhmm(c.cutoffMinutes)}</span></span>
+        <span title="Ikki ish orasidagi kutish — portal bloklamasligi uchun">· Interval <span className="font-medium tabular-nums text-fg">{c.sendIntervalSec ?? 60}s</span></span>
         <span>· {DOW.filter((d) => c.weekdays.includes(d.v)).map((d) => d.l).join(' ') || 'kun yoʻq'}</span>
       </div>
 
@@ -315,6 +316,17 @@ function CourtEditor({ draft, firms, busy, onPatch, onSave, onCancel, isNew }: {
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <label className="field-label">Sud id (billing)
           <input className={`${inp} mt-1 w-full tabular-nums`} value={draft.billingCourtId} onChange={(e) => onPatch({ billingCourtId: e.target.value })} placeholder="525" />
+        </label>
+        <label className="field-label">Yuborish intervali (soniya)
+          <input
+            type="number" min={5} className={`${inp} mt-1 w-full tabular-nums`}
+            value={draft.sendIntervalSec}
+            onChange={(e) => onPatch({ sendIntervalSec: Math.max(5, Number(e.target.value) || 60) })}
+          />
+          <span className="mt-1 block text-[11px] leading-snug text-muted">
+            Ikki ish orasidagi kutish. Portal tez ketma-ket so‘rovlarda bloklaydi — 60 soniyadan pastga
+            tushirishdan oldin kichik partiyada sinab ko‘ring.
+          </span>
         </label>
         <label className="field-label">Kunlik limit
           <input type="number" min={0} className={`${inp} mt-1 w-full tabular-nums`} value={draft.dailyQuota} onChange={(e) => onPatch({ dailyQuota: Math.max(0, Number(e.target.value) || 0) })} />
