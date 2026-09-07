@@ -5,6 +5,8 @@ import { Modal, useConfirm } from '@/ui';
 import { Dropdown } from './Dropdown';
 import { CaseDocs } from './CaseDocs';
 import { KeyPicker } from './KeyPicker';
+// Partiya hajmi — yagona manba (server ham shu qiymat bilan cheklaydi).
+import { MAX_COURT_BATCH } from '@/lib/court-batch';
 
 // ── types (mirror src/lib/court-ready.ts) ────────────────────────────────────
 interface Missing { talabnoma: number; scan: number; oferta: number; receipt: number; boji: number }
@@ -222,8 +224,8 @@ function ExportControl({ job, sendable, onStart }: { job?: JobState; sendable: n
           {job.message || `${job.total} ta yuborildi`}
         </span>
         {sendable > 0 && (
-          <button onClick={onStart} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1 text-[11px] font-medium text-muted outline-none transition-colors hover:border-brand-500/40 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30" title={`Keyingi ${Math.min(100, sendable)} ta`}>
-            <IcoBolt /> Yana ({Math.min(100, sendable)})
+          <button onClick={onStart} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1 text-[11px] font-medium text-muted outline-none transition-colors hover:border-brand-500/40 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30" title={`Keyingi ${Math.min(MAX_COURT_BATCH, sendable)} ta`}>
+            <IcoBolt /> Yana ({Math.min(MAX_COURT_BATCH, sendable)})
           </button>
         )}
       </div>
@@ -238,8 +240,8 @@ function ExportControl({ job, sendable, onStart }: { job?: JobState; sendable: n
           <IcoDown /> {job.total} ta ZIP — yuklab olish
         </a>
         {sendable > 0 && (
-          <button onClick={onStart} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1 text-[11px] font-medium text-muted outline-none transition-colors hover:border-brand-500/40 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30" title={`Keyingi ${Math.min(100, sendable)} ta`}>
-            <IcoBolt /> Yana ({Math.min(100, sendable)})
+          <button onClick={onStart} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1 text-[11px] font-medium text-muted outline-none transition-colors hover:border-brand-500/40 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30" title={`Keyingi ${Math.min(MAX_COURT_BATCH, sendable)} ta`}>
+            <IcoBolt /> Yana ({Math.min(MAX_COURT_BATCH, sendable)})
           </button>
         )}
       </div>
@@ -252,11 +254,11 @@ function ExportControl({ job, sendable, onStart }: { job?: JobState; sendable: n
         disabled={running || sendable === 0}
         aria-busy={running}
         className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm outline-none transition-all hover:bg-brand-600 focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:cursor-not-allowed disabled:opacity-40"
-        title={sendable === 0 ? 'Sudga yuborishga tayyor mijoz yoʻq' : `${Math.min(100, sendable)} ta to'liq tayyor paketni sudga yuborish`}
+        title={sendable === 0 ? 'Sudga yuborishga tayyor mijoz yoʻq' : `${Math.min(MAX_COURT_BATCH, sendable)} ta to'liq tayyor paketni sudga yuborish`}
       >
         {running
           ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> {job?.progress ?? 0}/{job?.total ?? ''}</>
-          : <><IcoBolt /> Sudga yuborish {sendable > 0 ? `(${Math.min(100, sendable)})` : ''}</>}
+          : <><IcoBolt /> Sudga yuborish {sendable > 0 ? `(${Math.min(MAX_COURT_BATCH, sendable)})` : ''}</>}
       </button>
       {running && job && job.total > 0 && (
         <span className="block h-1 w-28 overflow-hidden rounded-full bg-surface-2"><span className="block h-full rounded-full bg-brand-500 transition-all duration-500 ease-out" style={{ width: `${pct}%` }} /></span>
@@ -540,8 +542,8 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged }: {
   const rows = filtered.slice((page - 1) * DRILL_PAGE, (page - 1) * DRILL_PAGE + DRILL_PAGE);
 
   const toggle = useCallback((id: number, v: boolean) => setSelected((s) => { const next = new Set(s); if (v) next.add(id); else next.delete(id); return next; }), []);
-  // «Hammasini belgilash» — barcha filtrlangan navbatdagilar, backend 100 cheklovi bilan (bir paket ≤100).
-  const selectableIds = filter === 'sendable' ? filtered.map((r) => r.caseId).slice(0, 100) : [];
+  // «Hammasini belgilash» — barcha filtrlangan navbatdagilar, backend MAX_COURT_BATCH cheklovi bilan.
+  const selectableIds = filter === 'sendable' ? filtered.map((r) => r.caseId).slice(0, MAX_COURT_BATCH) : [];
   const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
   const someSelected = selectableIds.some((id) => selected.has(id));
   const toggleAll = () => setSelected((prev) => {
@@ -651,7 +653,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged }: {
                         ? <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round"><path d="m20 6-11 11-5-5" /></svg>
                         : <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3.5} strokeLinecap="round"><path d="M6 12h12" /></svg>}
                     </span>
-                    Hammasini belgilash{filtered.length > 100 ? ' (birinchi 100)' : ''}
+                    Hammasini belgilash{filtered.length > MAX_COURT_BATCH ? ` (birinchi ${MAX_COURT_BATCH})` : ''}
                   </label>
                   <div className="flex items-center gap-2">
                     <span className="text-xs tabular-nums text-muted">{n(selected.size)} / {n(filtered.length)}</span>
@@ -1243,10 +1245,10 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   // Navbatni davom ettirish — kalit bilan tasdiqlanadi (yuborish bilan bir xil talab),
   // so'ng bazadagi PENDING ishlardan yangi partiya boshlanadi.
   const runResume = (fid: number) =>
-    startJob(`firm:${fid}`, { firmId: fid, limit: 100 }, () => { void loadRef.current(); loadPending(); }, '/konveyer/court-queue/resume');
+    startJob(`firm:${fid}`, { firmId: fid, limit: MAX_COURT_BATCH }, () => { void loadRef.current(); loadPending(); }, '/konveyer/court-queue/resume');
 
   const runExport = (fid: number, extra: Record<string, unknown> = {}) =>
-    startJob(`firm:${fid}`, { firmId: fid, snapshotId, limit: 100, ...extra }, async () => {
+    startJob(`firm:${fid}`, { firmId: fid, snapshotId, limit: MAX_COURT_BATCH, ...extra }, async () => {
       const fresh = await loadRef.current();
       // AUTO: shu firma auto'da bo'lsa — tayyor qolgan bo'lsa AUTO_MS dan keyin keyingisi.
       const a = autoRef.current;
@@ -1260,7 +1262,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   // «Sudga yuborish» → E-IMZO gate: aniq so'roq (summary) → firma kaliti → parol → yuboriladi.
   // (Bekor qilish kalit talab qilmaydi — u ClientDrilldown ichida oddiy tasdiq modali bilan.)
   const [gate, setGate] = useState<{ firmId: number; firmName: string; stir: string | null; extra: Record<string, unknown>; summary: string } | null>(null);
-  // «Sudga yuborish» (firma darajasida) → avval SONI so'raladi (max 100), keyin E-IMZO gate.
+  // «Sudga yuborish» (firma darajasida) → avval SONI so'raladi (max MAX_COURT_BATCH), keyin E-IMZO gate.
   // Drilldownда qo'lda tanlanган (caseIds) yoki soni allaqachon berilган bo'lsa — to'g'ridan gate.
   const [countAsk, setCountAsk] = useState<{ firmId: number; firmName: string; max: number; value: number; auto: boolean } | null>(null);
   // ZIP eksport modali — sudga YUBORMAYDI, faqat hujjatlarni bitta arxivga yig'adi.
@@ -1272,7 +1274,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     const cnt = Array.isArray(ids) ? ids.length : (typeof lim === 'number' ? lim : null);
     setGate({
       firmId: fid, firmName: f?.firmName ?? `Firma ${fid}`, stir: f?.stir ?? null, extra,
-      summary: cnt != null ? `${cnt} ta mijozni sudga yuborasiz. Firma kaliti bilan tasdiqlang.` : 'Tayyor mijozlarni (bir martada ≤100) sudga yuborasiz. Firma kaliti bilan tasdiqlang.',
+      summary: cnt != null ? `${cnt} ta mijozni sudga yuborasiz. Firma kaliti bilan tasdiqlang.` : `Tayyor mijozlarni (bir martada ≤${MAX_COURT_BATCH}) sudga yuborasiz. Firma kaliti bilan tasdiqlang.`,
     });
   };
   const startExport = (fid: number, extra: Record<string, unknown> = {}) => {
@@ -1280,7 +1282,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     // Qo'lda tanlanган yoki soni berilган → to'g'ridan gate. Aks holda — soni so'raymiz.
     if (Array.isArray(ids) || (extra as { limit?: unknown }).limit != null) { openGate(fid, extra); return; }
     const fr = data?.readiness.firms.find((f) => f.firmId === fid);
-    const max = Math.min(100, fr?.sendable ?? 0);
+    const max = Math.min(MAX_COURT_BATCH, fr?.sendable ?? 0);
     if (max <= 0) return; // yuboriladigan yo'q
     setCountAsk({ firmId: fid, firmName: fr?.firmName ?? `Firma ${fid}`, max, value: max, auto: false });
   };
@@ -1439,7 +1441,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                 </div>
               )}
               <div className="rounded-lg border border-line bg-surface-2/30 px-3 py-2 text-[11px] leading-relaxed text-muted">
-                Faqat <b className="font-medium text-fg">to'liq tayyor</b> (talabnoma, imzolangan skan, oferta, check/kvitansiya, boji — invoice raqami) mijozlar sudga yuboriladi. Har firma <b className="font-medium text-fg">alohida</b>, bir martada <b className="font-medium text-fg">max 100 ta</b>. Grafik qo'shilmaydi. «Batafsil» — kim tayyor, kimda nima yetishmayotganini ko'rish, hujjat biriktirish.
+                Faqat <b className="font-medium text-fg">to'liq tayyor</b> (talabnoma, imzolangan skan, oferta, check/kvitansiya, boji — invoice raqami) mijozlar sudga yuboriladi. Har firma <b className="font-medium text-fg">alohida</b>, bir martada <b className="font-medium text-fg">max {MAX_COURT_BATCH} ta</b>. Grafik qo'shilmaydi. «Batafsil» — kim tayyor, kimda nima yetishmayotganini ko'rish, hujjat biriktirish.
               </div>
               {queue.length > 0 && (
                 <div className="rounded-xl border border-brand-500/30 bg-brand-500/[0.05] p-3">

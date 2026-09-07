@@ -3,7 +3,7 @@ import { requireStep } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { konveyerSnapshots } from '@/lib/konveyer';
 import { enqueueJob } from '@/lib/job-dispatch';
-import { selectReadyCaseIds, validateSelectedCaseIds, FIRM_REQUIRED_DOCS, FIRM_DOC_LABEL } from '@/lib/court-ready';
+import { selectReadyCaseIds, validateSelectedCaseIds, FIRM_REQUIRED_DOCS, FIRM_DOC_LABEL, MAX_COURT_BATCH } from '@/lib/court-ready';
 import { allocateFirmCases, consumeCourtSend, firmCourtBudgets } from '@/lib/court-routing';
 import { isQueuePaused } from '@/lib/cabinet/pacer';
 
@@ -16,7 +16,7 @@ const num = (v: unknown): number | undefined => {
 
 // POST { firmId, snapshotId?, limit?, includeExported?, talabnomaPdf? } —
 // «Sudga chiqarish»: build the FULL ready packet (talabnoma+ariza+skan-slot+oferta
-// +boji, NO grafik) for up to `limit` (max 100) fully-ready, not-yet-exported cases
+// +boji, NO grafik) for up to `limit` (max MAX_COURT_BATCH) fully-ready, not-yet-exported cases
 // of ONE firm, into one ZIP, and stamp them exported. Returns { jobId, total }.
 export async function POST(req: NextRequest) {
   // Match the read routes + the /sud page guard — the side-effectful export must
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
   const snaps = await konveyerSnapshots();
   const rawSnap = num(body?.snapshotId);
   const snapshotId = rawSnap && snaps.some((s) => s.id === rawSnap) ? rawSnap : snaps[0]?.id;
-  const limit = Math.min(100, Math.max(1, num(body?.limit) ?? 100));
+  const limit = Math.min(MAX_COURT_BATCH, Math.max(1, num(body?.limit) ?? MAX_COURT_BATCH));
   // ZIP eksporti sudga hech narsa yubormaydi: sud kunlik limitini band qilmaydi va
   // «allaqachon chiqarilgan» filtri faqat SHU oqimga tegishli. Shuning uchun bayroq
   // case tanlashdan ham, allokatsiyadan ham OLDIN aniqlanadi.
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
   // Distinct, capped selection (Prisma `in` collapses duplicates, so dedupe first
   // to keep the `skipped` count honest).
   const uniqIds = Array.isArray(body?.caseIds)
-    ? [...new Set((body.caseIds as unknown[]).map(Number).filter((x): x is number => Number.isInteger(x) && x > 0))].slice(0, 100)
+    ? [...new Set((body.caseIds as unknown[]).map(Number).filter((x): x is number => Number.isInteger(x) && x > 0))].slice(0, MAX_COURT_BATCH)
     : null;
   const caseIds = uniqIds?.length
     // `forExport` — faqat ZIP oqimi allaqachon chiqarilganini o'tkazib yuboradi. Sudga

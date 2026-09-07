@@ -645,3 +645,6 @@ export async function courtReturns(snapshotId?: number, firmId?: number): Promis
     docCount: r._count.documents,
   }));
 }
+
+// Partiya hajmi alohida modulda (client ham ishlatadi — u yerda prisma bo'lmasligi kerak).
+export { MAX_COURT_BATCH } from './court-batch';
