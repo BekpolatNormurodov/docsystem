@@ -42,7 +42,33 @@ export async function GET() {
     acc.set(g.firmId, row);
   }
 
-  return NextResponse.json({
-    firms: [...acc.values()].sort((a, b) => (b.pending + b.running) - (a.pending + a.running)),
+  // FAOL PARTIYALAR. Worker bir vaqtda BITTA job bajaradi, qolganlari PENDING bo'lib
+  // navbatda turadi. Bu ma'lumotsiz operator «BRIGHT nega boshlanmayapti?» deb o'ylaydi —
+  // holbuki u URBAN tugashini kutyapti. Shuning uchun har firmaga o'z partiyasining
+  // holati va navbatdagi o'rni qo'shiladi.
+  const jobs = await prisma.job.findMany({
+    where: { type: 'COURT_SUBMIT', status: { in: ['PENDING', 'RUNNING'] } },
+    select: { id: true, status: true, progress: true, total: true, params: true },
+    orderBy: { id: 'asc' },
   });
+  const jobByFirm = new Map<number, { jobId: number; status: string; progress: number; total: number; queuePos: number }>();
+  let waitingPos = 0;
+  for (const j of jobs) {
+    const fid = Number((j.params as { firmId?: number } | null)?.firmId);
+    if (!Number.isInteger(fid) || jobByFirm.has(fid)) continue;
+    if (j.status === 'PENDING') waitingPos += 1;
+    jobByFirm.set(fid, {
+      jobId: j.id, status: j.status, progress: j.progress, total: j.total,
+      queuePos: j.status === 'PENDING' ? waitingPos : 0,
+    });
+  }
+
+  const rows = [...acc.values()].map((r) => ({ ...r, job: jobByFirm.get(r.firmId) ?? null }));
+  // Faol partiyasi bor firmalar tepada — operator avval nima ketayotganini ko'rsin.
+  rows.sort((a, b) => {
+    const w = (x: typeof a) => (x.job?.status === 'RUNNING' ? 0 : x.job ? 1 : 2);
+    return w(a) - w(b) || (b.pending + b.running) - (a.pending + a.running);
+  });
+
+  return NextResponse.json({ firms: rows });
 }

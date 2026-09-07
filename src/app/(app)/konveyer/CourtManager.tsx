@@ -1119,7 +1119,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   // NAVBAT SAHIFA YANGILANGANDA YO'QOLMASIN. Partiya ro'yxati faqat React state'da edi —
   // reload'da yo'qolardi va operator navbat bekor bo'ldi deb o'ylardi. Aslida har ishning
   // holati bazada (CourtQueueItem), shuning uchun navbat SHUNDAN tiklanadi.
-  const [pendingQ, setPendingQ] = useState<{ firmId: number; firmName: string; stir: string | null; pending: number; running: number }[]>([]);
+  const [pendingQ, setPendingQ] = useState<{ firmId: number; firmName: string; stir: string | null; pending: number; running: number; job?: { jobId: number; status: string; progress: number; total: number; queuePos: number } | null }[]>([]);
   const loadPending = useCallback(() => {
     fetch('/konveyer/court-queue/pending')
       .then((r) => r.json())
@@ -1520,7 +1520,17 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                         <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted">
                           {n(q.pending + q.running)} ta navbatda
                         </span>
-                        {q.running > 0 ? (
+                        {q.job?.status === 'RUNNING' ? (
+                          <span className="shrink-0 rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-sky-700 dark:text-sky-300">
+                            ketmoqda {n(q.job.progress)}/{n(q.job.total)}
+                          </span>
+                        ) : q.job?.status === 'PENDING' ? (
+                          /* Worker bir vaqtda bitta partiya bajaradi — bu firma o'z navbatini
+                             kutyapti. O'rnini ko'rsatamiz, aks holda «nega boshlanmayapti?». */
+                          <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300" title={`Partiya #${q.job.jobId} navbatda — oldingisi tugagach o'zi boshlanadi`}>
+                            navbatda · {q.job.queuePos}-o‘rin
+                          </span>
+                        ) : q.running > 0 ? (
                           <span className="shrink-0 rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300">ketmoqda</span>
                         ) : (
                           <button
