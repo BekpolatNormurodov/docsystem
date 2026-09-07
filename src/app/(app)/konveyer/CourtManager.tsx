@@ -930,9 +930,10 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
   );
 }
 
-function FirmSendRow({ fr, snapshotId, job, startExport, onChanged, drillOpen, onToggleDrill, idx, autoActive, onStopAuto }: {
+function FirmSendRow({ fr, snapshotId, job, startExport, onZip, onChanged, drillOpen, onToggleDrill, idx, autoActive, onStopAuto }: {
   fr: FirmReadiness; snapshotId?: number; job?: JobState;
   startExport: (firmId: number, extra: Record<string, unknown>) => void;
+  onZip?: () => void;
   onChanged: () => void; drillOpen: boolean; onToggleDrill: () => void; idx: number;
   autoActive?: boolean; onStopAuto?: () => void;
 }) {
@@ -1002,7 +1003,20 @@ function FirmSendRow({ fr, snapshotId, job, startExport, onChanged, drillOpen, o
             </button>
           </div>
         ) : docsOk ? (
-          <ExportControl job={job} sendable={fr.sendable} onStart={() => startExport(fr.firmId, {})} />
+          <div className="flex items-center gap-2">
+            {/* ZIP — hujjatlarni faylga chiqarish. Sudga YUBORMAYDI: portalga tegmaydi,
+                shuning uchun pauza va sud limiti unga taalluqli emas. */}
+            <button
+              type="button"
+              onClick={() => onZip?.()}
+              disabled={fr.sendable === 0}
+              title={fr.sendable > 0 ? `${fr.sendable} ta tayyor mijoz hujjatlarini bitta ZIP qilib yuklab olish` : 'Tayyor mijoz yo‘q'}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-muted outline-none transition-colors hover:border-brand-500/40 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <IcoDown /> ZIP
+            </button>
+            <ExportControl job={job} sendable={fr.sendable} onStart={() => startExport(fr.firmId, {})} />
+          </div>
         ) : (
           <button type="button" disabled title={docsTip}
             className="inline-flex shrink-0 cursor-not-allowed items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-700 opacity-90 dark:text-amber-300">
@@ -1187,6 +1201,8 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   // «Sudga yuborish» (firma darajasida) → avval SONI so'raladi (max 100), keyin E-IMZO gate.
   // Drilldownда qo'lda tanlanган (caseIds) yoki soni allaqachon berilган bo'lsa — to'g'ridan gate.
   const [countAsk, setCountAsk] = useState<{ firmId: number; firmName: string; max: number; value: number; auto: boolean } | null>(null);
+  // ZIP eksport modali — sudga YUBORMAYDI, faqat hujjatlarni bitta arxivga yig'adi.
+  const [zipAsk, setZipAsk] = useState<{ firmId: number; firmName: string; max: number; value: number } | null>(null);
   const openGate = (fid: number, extra: Record<string, unknown> = {}) => {
     const f = firms.find((x) => x.firmId === fid);
     const ids = (extra as { caseIds?: unknown }).caseIds;
@@ -1407,6 +1423,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                       snapshotId={snapshotId}
                       job={jobs[`firm:${fr.firmId}`]}
                       startExport={startExport}
+                      onZip={() => setZipAsk({ firmId: fr.firmId, firmName: fr.firmName, max: fr.sendable, value: Math.min(100, fr.sendable) })}
                       onChanged={load}
                       drillOpen={openFirm === fr.firmId}
                       onToggleDrill={() => setOpenFirm((o) => (o === fr.firmId ? null : fr.firmId))}
@@ -1496,6 +1513,64 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
             </div>
           )}
         </div>
+      )}
+
+      {/* ZIP eksport — hujjatlarni bitta arxivga yig'ib yuklab olish.
+          Sudga YUBORMAYDI: portalga bitta ham so'rov ketmaydi, shuning uchun E-IMZO,
+          pauza va sud kunlik limiti bu yerda qo'llanmaydi. */}
+      {zipAsk && (
+        <Modal
+          open
+          onClose={() => setZipAsk(null)}
+          title={`ZIP yuklab olish — ${zipAsk.firmName}`}
+          description={`Tayyor mijozlarning hujjatlari bitta arxivga yig'iladi. Sudga yuborilmaydi.`}
+          footer={<>
+            <button className="btn-ghost" type="button" onClick={() => setZipAsk(null)}>Bekor</button>
+            <button
+              className="btn-primary" type="button"
+              disabled={!zipAsk.value || zipAsk.value < 1}
+              onClick={() => {
+                const v = Math.max(1, Math.min(zipAsk.max, Math.floor(zipAsk.value) || 0));
+                const fid = zipAsk.firmId;
+                setZipAsk(null);
+                // exportOnly: sudga yuborish emas, faqat ZIP (PACKET job).
+                startExport(fid, { limit: v, exportOnly: true });
+              }}
+            >
+              ZIP tayyorlash ({Math.max(1, Math.min(zipAsk.max, Math.floor(zipAsk.value) || 0))})
+            </button>
+          </>}
+        >
+          <div className="space-y-3">
+            <label className="field-label">Nechta mijoz
+              <input
+                type="number" min={1} max={Math.min(100, zipAsk.max)} autoFocus
+                className="input mt-1 w-full tabular-nums"
+                value={zipAsk.value}
+                onChange={(e) => setZipAsk((c) => c && ({ ...c, value: Math.max(1, Math.min(c.max, Number(e.target.value) || 0)) }))}
+              />
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {[10, 25, 50, 100].filter((x) => x <= Math.min(100, zipAsk.max)).map((x) => (
+                <button key={x} type="button" onClick={() => setZipAsk((c) => c && ({ ...c, value: x }))}
+                  className={`rounded-lg px-2 py-1 text-[11px] font-medium transition-colors ${zipAsk.value === x ? 'bg-brand-500/15 text-brand-700 dark:text-brand-300' : 'text-muted hover:bg-surface-2'}`}>
+                  {x}
+                </button>
+              ))}
+              {zipAsk.max > 0 && (
+                <button type="button" onClick={() => setZipAsk((c) => c && ({ ...c, value: Math.min(100, c.max) }))}
+                  className="rounded-lg px-2 py-1 text-[11px] font-medium text-muted transition-colors hover:bg-surface-2">
+                  hammasi ({Math.min(100, zipAsk.max)})
+                </button>
+              )}
+            </div>
+            <div className="rounded-lg border border-line p-2.5 text-[11px] leading-snug text-muted">
+              <span className="font-medium text-fg">Filtr: «Tayyor»</span> — 5 shart to'liq bajarilgan mijozlar
+              (talabnoma + imzolangan skan + oferta + kvitansiya + boji). Arxivda har mijoz uchun
+              alohida papka bo'ladi. Bir martada eng ko'pi 100 ta.
+            </div>
+          </div>
+        </Modal>
       )}
 
       {countAsk && (
