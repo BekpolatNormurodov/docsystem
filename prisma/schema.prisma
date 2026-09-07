@@ -506,6 +506,13 @@ model Court {
   // Bu chegara GLOBAL qo'llanadi (src/lib/cabinet/pacer.ts): firma navbatlari alohida bo'lsa
   // ham portalga umumiy tezlik bir xil, chunki sud.uz bizni chiqish IP bo'yicha ko'radi.
   sendIntervalSec Int     @default(60)
+  // Sud ADOLAT (cabinet.sud.uz) orqali elektron ariza QABUL QILADIMI.
+  // false bo'lsa UI'da ko'rinadi, lekin tanlab bo'lmaydi va sababi yoziladi — operator
+  // "nega bu ishlar ketmayapti?" deb izlanib yurmasin. 2026-09-07: Yuqorichirchiq sudi
+  // save-suit'da «Танланган суд учун канцелярия ходими фойдаланувчиси киритилмаган»
+  // qaytardi — bu sud tomonidagi sozlama, ADOLAT administratori hal qiladi.
+  cabinetEnabled Boolean @default(true)
+  cabinetNote    String? // nega yopiqligi (UI'da ko'rsatiladi)
   cutoffMinutes  Int      @default(840) // yarim tundan daqiqa; 14:00=840, 18:00=1080 (Asia/Tashkent)
   weekdays       Json     @default("[1,2,3,4,5]") // getDay(): Yak=0..Shan=6; default Dush–Juma
   active         Boolean  @default(true)

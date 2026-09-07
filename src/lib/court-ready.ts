@@ -296,7 +296,15 @@ export async function firmReadyClients(opts: {
 /** Yuborishga TAYYOR (sendable) case'larni SUD bo'yicha guruhlaydi — «Sudga yuborish»
  *  modalida qaysi sudga nechta ketishini ko'rsatish uchun (faqat ko'rsatkich; yuborish
  *  baribir firma bo'yicha). Gate flagsFor bilan bir xil (25.08/aktiv snapshot). */
-export interface CourtBreakdownItem { courtId: number | null; shortName: string; count: number }
+export interface CourtBreakdownItem {
+  courtId: number | null;
+  shortName: string;
+  count: number;
+  /** Sud ADOLAT orqali elektron ariza qabul qiladimi (Court.cabinetEnabled). */
+  enabled: boolean;
+  /** Yopiq bo'lsa — sababi (operatorga ko'rsatiladi). */
+  note: string | null;
+}
 export async function sendableCourtBreakdown(opts: { snapshotId?: number; firmId: number }): Promise<{ courts: CourtBreakdownItem[]; total: number }> {
   const firm = await prisma.firm.findUnique({ where: { id: opts.firmId }, select: { id: true, code: true } });
   if (!firm) return { courts: [], total: 0 };
@@ -309,18 +317,42 @@ export async function sendableCourtBreakdown(opts: { snapshotId?: number; firmId
   ]);
   const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
   const receiptIds = await receiptCaseIdSet(cases.map((c) => c.id));
+
+  // BARCHA faol sudlar ro'yxatdan boshlanadi — tayyor ishi bo'lmagani ham, ADOLAT'da yopig'i
+  // ham ko'rinsin. Avval faqat ishi borlari chiqardi va operator yopiq sudni umuman ko'rmasdi:
+  // «nega bu ishlar ketmayapti?» degan savol javobsiz qolardi.
+  const allCourts = await prisma.court.findMany({
+    where: { active: true },
+    select: { id: true, shortName: true, cabinetEnabled: true, cabinetNote: true, sortOrder: true },
+    orderBy: { sortOrder: 'asc' },
+  });
   const byCourt = new Map<string, CourtBreakdownItem>();
+  for (const c of allCourts) {
+    byCourt.set(String(c.id), {
+      courtId: c.id, shortName: c.shortName, count: 0,
+      enabled: c.cabinetEnabled, note: c.cabinetNote ?? null,
+    });
+  }
+
   let total = 0;
   for (const c of cases) {
     const fl = flagsFor(c as CaseRow, signedIds, receiptIds, ofertaPinfls);
     if (!fl.sendable) continue;
     total++;
     const key = String(c.courtId ?? 'none');
-    const item = byCourt.get(key) ?? { courtId: c.courtId ?? null, shortName: c.court?.shortName ?? 'Sud tayinlanmagan', count: 0 };
+    const item = byCourt.get(key) ?? {
+      courtId: c.courtId ?? null,
+      shortName: c.court?.shortName ?? 'Sud tayinlanmagan',
+      count: 0, enabled: true, note: null,
+    };
     item.count++;
     byCourt.set(key, item);
   }
-  return { courts: [...byCourt.values()].sort((a, b) => b.count - a.count), total };
+  // Ishi borlari tepada; yopiq sudlar pastda (lekin ko'rinadi).
+  const courts = [...byCourt.values()].sort((a, b) =>
+    Number(b.enabled) - Number(a.enabled) || b.count - a.count,
+  );
+  return { courts, total };
 }
 
 /** Yuborishga tayyor (ready && !exported && bosqich sudga chiqmagan) case id'lari,

@@ -37,6 +37,28 @@ type JobState = { jobId: number; status: string; progress: number; total: number
 const n = (x: number) => x.toLocaleString('ru-RU');
 const sum = (v: string) => Number(v).toLocaleString('ru-RU');
 
+/**
+ * JSON kutilgan so'rov uchun yagona o'quvchi.
+ *
+ * NEGA kerak: sessiya tugaganda server login sahifasiga yo'naltiradi va brauzer uni
+ * KUZATIB borib **200 + HTML** oladi. Ya'ni `res.ok` true bo'ladi, `res.json()` esa
+ * «Unexpected token '<', "<!DOCTYPE"... is not valid JSON» deb yiqiladi — operator
+ * uchun umuman tushunarsiz xato. Endi content-type tekshiriladi va aniq sabab yoziladi.
+ */
+async function getJson<T = any>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, init);
+  const ct = res.headers.get('content-type') ?? '';
+  if (!ct.includes('application/json')) {
+    if (res.redirected || res.url.includes('/login')) {
+      throw new Error('Sessiya tugagan — sahifani yangilab, qaytadan kiring.');
+    }
+    throw new Error(`Server JSON qaytarmadi (${res.status}). Sahifani yangilab ko‘ring.`);
+  }
+  const data = await res.json();
+  if (!res.ok) throw new Error((data as any)?.error || `Server xatosi (${res.status})`);
+  return data as T;
+}
+
 // Literal class strings only (Tailwind JIT can't see interpolated names).
 const TONE: Record<string, string> = {
   slate: 'bg-slate-500/12 text-slate-600 dark:text-slate-300',
@@ -392,9 +414,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged }: {
     const qs = new URLSearchParams({ firmId: String(firmId) });
     if (snapshotId) qs.set('s', String(snapshotId));
     try {
-      const res = await fetch(`/konveyer/court-ready/clients?${qs.toString()}`, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`Server xatosi (${res.status})`);
-      const d = await res.json();
+      const d = await getJson(`/konveyer/court-ready/clients?${qs.toString()}`, { cache: 'no-store' });
       if (my !== reqRef.current) return;
       setData(d); loadedOnce.current = true;
     } catch (e) {
@@ -968,9 +988,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     if (firmId) qs.set('firmId', String(firmId));
     if (selectedId) qs.set('s', String(selectedId));
     try {
-      const res = await fetch(`/konveyer/court-ready?${qs.toString()}`, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`Server xatosi (${res.status})`);
-      const d = await res.json();
+      const d = await getJson(`/konveyer/court-ready?${qs.toString()}`, { cache: 'no-store' });
       if (my !== reqRef.current) return null;
       setData(d); setLastLoaded(new Date()); loadedOnce.current = true;
       return d as Data;
@@ -1067,7 +1085,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   };
 
   // ── «Sudga yuborish» modalidagi SUD taqsimoti (ko'rsatkich) ──────────────────
-  const [courtBreak, setCourtBreak] = useState<{ firmId: number; courts: { courtId: number | null; shortName: string; count: number }[]; total: number } | null>(null);
+  const [courtBreak, setCourtBreak] = useState<{ firmId: number; courts: { courtId: number | null; shortName: string; count: number; enabled?: boolean; note?: string | null }[]; total: number } | null>(null);
   // Operator tanlagan sudlar. null = hammasi (eski xatti-harakat, hech narsa cheklanmaydi).
   const [pickedCourts, setPickedCourts] = useState<number[] | null>(null);
   useEffect(() => {
@@ -1371,8 +1389,12 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
             <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-line p-2.5">
               <input type="checkbox" checked={countAsk.auto} onChange={(e) => setCountAsk((c) => c && ({ ...c, auto: e.target.checked }))} className="mt-0.5 h-4 w-4 accent-brand-500" />
               <span className="min-w-0">
-                <span className="block text-[12px] font-medium">Auto — har 60 soniyada keyingi paket</span>
-                <span className="block text-[11px] text-muted">Bir marta kalit bilan tasdiqlaysiz; keyin tayyorlar tugaguncha (yoki «To‘xtatish») har 60s da o‘zi yuboradi.</span>
+                <span className="block text-[12px] font-medium">Auto — partiyalarni ketma-ket davom ettirish</span>
+                <span className="block text-[11px] text-muted">
+                  Bir martada eng ko‘pi 100 ta yuboriladi. Auto yoqilsa, partiya tugagach keyingisi
+                  o‘zi boshlanadi va kalit qayta so‘ralmaydi — tayyorlar tugaguncha (yoki «To‘xtatish»gacha).
+                  Ishlar orasidagi kutish esa doim bor: u sud sozlamasidan olinadi (standart 60s).
+                </span>
               </span>
             </label>
             {courtBreak && courtBreak.firmId === countAsk.firmId && courtBreak.courts.length > 0 && (
@@ -1385,34 +1407,49 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                 </div>
                 <div className="space-y-1">
                   {courtBreak.courts.map((c) => {
-                    // «Sud tayinlanmagan» (courtId=null) ni alohida tanlab bo'lmaydi — bunday
-                    // ishlar firmaning asosiy sudiga yo'naltiriladi (court-routing.ts).
-                    const selectable = c.courtId != null;
-                    const on = pickedCourts === null || (c.courtId != null && pickedCourts.includes(c.courtId));
+                    // Tanlab bo'lmaydigan ikki holat:
+                    //  • courtId=null — «Sud tayinlanmagan»: bunday ishlar firmaning asosiy
+                    //    sudiga yo'naltiriladi (court-routing.ts);
+                    //  • enabled=false — sud ADOLAT orqali elektron ariza qabul qilmaydi.
+                    //    Bunday sud RO'YXATDAN OLIB TASHLANMAYDI, aksincha sababi bilan
+                    //    ko'rsatiladi — aks holda operator ishlari nega ketmayotganini bilmaydi.
+                    const closed = c.enabled === false;
+                    const selectable = c.courtId != null && !closed;
+                    const on = !closed && (pickedCourts === null || (c.courtId != null && pickedCourts.includes(c.courtId)));
                     return (
                       <label
                         key={c.courtId ?? 'none'}
-                        className={`flex items-center justify-between gap-2 rounded px-1.5 py-1 text-xs ${selectable ? 'cursor-pointer hover:bg-surface-2' : 'opacity-60'}`}
-                        title={selectable ? undefined : 'Bu ishlarga sud hali biriktirilmagan — firmaning asosiy sudiga ketadi'}
+                        className={`flex items-start justify-between gap-2 rounded px-1.5 py-1 text-xs ${selectable ? 'cursor-pointer hover:bg-surface-2' : 'opacity-70'}`}
+                        title={closed ? (c.note ?? 'Bu sud ADOLAT orqali elektron ariza qabul qilmaydi')
+                          : selectable ? undefined : 'Bu ishlarga sud hali biriktirilmagan — firmaning asosiy sudiga ketadi'}
                       >
-                        <span className="flex min-w-0 items-center gap-2">
+                        <span className="flex min-w-0 items-start gap-2">
                           <input
                             type="checkbox"
-                            className="h-3.5 w-3.5 accent-brand-500"
+                            className="mt-0.5 h-3.5 w-3.5 accent-brand-500"
                             checked={on}
                             disabled={!selectable}
                             onChange={(e) => {
                               if (c.courtId == null) return;
-                              const all = courtBreak.courts.filter((x) => x.courtId != null).map((x) => x.courtId as number);
+                              const all = courtBreak.courts
+                                .filter((x) => x.courtId != null && x.enabled !== false)
+                                .map((x) => x.courtId as number);
                               const cur = pickedCourts === null ? all : pickedCourts;
                               const next = e.target.checked ? [...new Set([...cur, c.courtId])] : cur.filter((x) => x !== c.courtId);
                               // Hammasi tanlansa — null (cheklovsiz) holatiga qaytamiz.
                               setPickedCourts(next.length === all.length ? null : next);
                             }}
                           />
-                          <span className="min-w-0 truncate">{c.shortName}</span>
+                          <span className="min-w-0">
+                            <span className={`block truncate ${closed ? 'text-muted line-through' : ''}`}>{c.shortName}</span>
+                            {closed && (
+                              <span className="mt-0.5 block text-[10px] leading-snug text-amber-600 dark:text-amber-400">
+                                {c.note ?? 'ADOLAT’da elektron qabul yoqilmagan — sud administratori hal qiladi'}
+                              </span>
+                            )}
+                          </span>
                         </span>
-                        <span className="shrink-0 tabular-nums font-medium">{n(c.count)}</span>
+                        <span className={`shrink-0 tabular-nums font-medium ${closed ? 'text-muted' : ''}`}>{n(c.count)}</span>
                       </label>
                     );
                   })}
