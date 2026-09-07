@@ -71,6 +71,10 @@ export async function POST(req: NextRequest) {
     ? [...new Set((body.courtIds as unknown[]).map(Number).filter((x) => Number.isInteger(x) && x > 0))]
     : undefined;
 
+  // ZIP eksporti sudga hech narsa yubormaydi — shuning uchun sudning kunlik qabul
+  // quvvatini BAND QILMASLIGI kerak. Shu sabab bu bayroq allokatsiyadan OLDIN aniqlanadi.
+  const isExportOnly = body?.exportOnly === true;
+
   let sendIds = caseIds;
   let deferred = 0;
   const alloc = await allocateFirmCases(firmId, caseIds, new Date(), courtIds);
@@ -94,12 +98,14 @@ export async function POST(req: NextRequest) {
       );
     }
     // Limitni darhol iste'mol qilamiz (count-at-write) — courtId + courtSentAt yoziladi.
-    await consumeCourtSend(alloc.assignments);
+    // markSent=false (ZIP): sud biriktiriladi (ariza matni uchun kerak), lekin kunlik
+    // limit band qilinmaydi. 2026-09-07: BRIGHT'ning ZIP job'i Yuqorichirchiqda 100 joyni
+    // bekorga band qilib qo'ygan edi.
+    await consumeCourtSend(alloc.assignments, new Date(), !isExportOnly);
   }
 
   // Saytdan sudga yuborishda real topshirish dvigateli (COURT_SUBMIT) ishlaydi.
   // Agar exportOnly: true berilsa, faqat ZIP fayl tayyorlash (PACKET) bajariladi.
-  const isExportOnly = body?.exportOnly === true;
   const jobType = isExportOnly ? 'PACKET' : 'COURT_SUBMIT';
 
   // Umumiy pauza YANGI partiyani ham to'sadi (faqat ketayotganini emas). ZIP tayyorlash

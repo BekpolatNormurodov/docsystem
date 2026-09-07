@@ -143,10 +143,26 @@ export async function allocateFirmCases(
 }
 
 /** Taqsimlangan case'larni «yuborilgan» deb belgilaydi: courtId + courtSentAt=now (limit sanog'i). */
-export async function consumeCourtSend(assignments: { caseId: number; courtId: number }[], now: Date = new Date()): Promise<void> {
+export async function consumeCourtSend(
+  assignments: { caseId: number; courtId: number }[],
+  now: Date = new Date(),
+  /**
+   * `false` — sudni BIRIKTIRADI, lekin kunlik limitni BAND QILMAYDI.
+   *
+   * ZIP eksporti uchun shunday: paket faqat fayl tayyorlaydi, sudga hech narsa bormaydi,
+   * shuning uchun sudning kunlik qabul quvvatini yeyishi noto'g'ri. 2026-09-07 da aynan
+   * shu sabab Yuqorichirchiqda «100/1000 band» ko'rinardi — BRIGHT uchun ZIP job'i
+   * (PACKET 100/100) ishlagan, sudga esa bitta ham da'vo ketmagan (u sud ADOLAT'da yopiq).
+   * `courtId` baribir yoziladi: ariza matnida qaysi sudga murojaat qilinayotgani ko'rsatiladi.
+   */
+  markSent: boolean = true,
+): Promise<void> {
   if (!assignments.length) return;
   await prisma.$transaction(
-    assignments.map((a) => prisma.arizaCase.update({ where: { id: a.caseId }, data: { courtId: a.courtId, courtSentAt: now } })),
+    assignments.map((a) => prisma.arizaCase.update({
+      where: { id: a.caseId },
+      data: markSent ? { courtId: a.courtId, courtSentAt: now } : { courtId: a.courtId },
+    })),
   );
 }
 
