@@ -798,6 +798,47 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
       });
     }
 
+    // ── «KETYAPTI» BO'LIB QOLGAN YOZUVLARNI YAKUNLASH ───────────────────────────────────
+    //
+    // Sikl `break` bilan chiqqanda ayni paytdagi ish RUNNING bo'lib qolib ketardi. 2026-09-07
+    // da operator ekranda BIR VAQTDA UCHTA «Ketyapti…» ko'rdi, holbuki dvigatel bir daqiqada
+    // bittadan yuboradi: ikkitasi o'lgan partiyalardan (#231, #232) qolgan arvoh edi — blok
+    // shoxi ishni yakunlamasdan chiqib ketgan. Bu shunchaki chalkash ko'rinish emas: bunday
+    // yozuv `resume` ga ham tushmaydi (u faqat PENDING oladi), ya'ni ish navbatdan
+    // butunlay tushib qolardi.
+    //
+    // Tuzatishni har bir `break` yoniga emas, SHU YERGA qo'ydik: partiya qanday tugashidan
+    // qat'i nazar (break, xato, normal yakun) o'zidan keyin RUNNING yozuv qoldirmaydi.
+    //
+    // Portalda IZI BOR ishlar (sud ish raqami yozilgan yoki case'da courtCaseId bor)
+    // navbatga QAYTARILMAYDI — ular save-suit'dan o'tgan bo'lishi mumkin va qayta yuborish
+    // ayni odamga ikkinchi da'vo ochadi.
+    const leftRunning = await prisma.courtQueueItem.findMany({
+      where: { jobId, state: 'RUNNING' },
+      select: { id: true, caseId: true, caseNumber: true, case: { select: { courtCaseId: true } } },
+    });
+    if (leftRunning.length) {
+      const risky = leftRunning.filter((x) => x.caseNumber || x.case?.courtCaseId);
+      const safe = leftRunning.filter((x) => !x.caseNumber && !x.case?.courtCaseId);
+      if (risky.length) {
+        await prisma.courtQueueItem.updateMany({
+          where: { id: { in: risky.map((x) => x.id) } },
+          data: {
+            state: 'FAILED', step: null, finishedAt: new Date(),
+            lastError: 'Partiya uzilganda ADOLAT\'da ish allaqachon yaratilgan edi — qayta yuborilmaydi '
+              + '(ikkinchi da\'vo xavfi). Portalda holatini qo\'lda tekshiring.',
+          },
+        });
+      }
+      if (safe.length) {
+        await prisma.courtQueueItem.updateMany({
+          where: { id: { in: safe.map((x) => x.id) } },
+          data: { state: 'PENDING', step: null },
+        });
+      }
+      console.log(`[Job ${jobId}] ${safe.length} ta yarim qolgan ish navbatga qaytarildi${risky.length ? `, ${risky.length} tasi portalda izi borligi uchun qo'lda tekshiriladi` : ''}`);
+    }
+
     // Qolgan (umuman urinilmagan) ishlar PENDING bo'lib qoladi — operator qaytadan bosса
     // aynan shulardan davom etadi.
     const leftover = await prisma.courtQueueItem.count({ where: { jobId, state: { in: ['PENDING', 'RUNNING'] } } });
