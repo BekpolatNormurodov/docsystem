@@ -17,8 +17,19 @@
 
 import { prisma } from '../db';
 
-/** Ikki HTTP so'rovi orasidagi eng kam vaqt. Bitta case ~7 so'rov => ~28s tarqaladi. */
-export const REQUEST_GAP_MS = 4_000;
+/**
+ * Ikki HTTP so'rovi orasidagi eng kam vaqt — HAQIQIY cheklovchi.
+ *
+ * Bitta ish 15 ta hujjat bilan ~23 so'rov qiladi (sessiya, qoralama, 2×PUT, 15 yuklash,
+ * kvitansiya, save-suit, send-to-court). 4 soniyada bu 92 soniya bo'ladi, ya'ni sud
+ * sozlamasidagi 45s interval hech qachon qo'llanmaydi — u allaqachon o'tib bo'lgan.
+ * Tezlikni oshirish uchun aynan SHU qiymatni pasaytirish kerak.
+ *
+ * 2026-09-06 bloki concurrency-6 va NOL kechikishda sodir bo'lgan. Ketma-ket (bitta oqim)
+ * 2 soniya undan tubdan xavfsizroq, lekin kerak bo'lsa CABINET_REQUEST_GAP_MS bilan
+ * o'zgartiriladi. Pastki chegara 1s — bundan pastga tushirish blokni qaytarish xavfi.
+ */
+export const REQUEST_GAP_MS = Math.max(1_000, Number(process.env.CABINET_REQUEST_GAP_MS) || 2_000);
 
 /**
  * Ikki case boshlanishi orasidagi ODATIY eng kam vaqt (daqiqada 1 ta). Haqiqiy qiymat

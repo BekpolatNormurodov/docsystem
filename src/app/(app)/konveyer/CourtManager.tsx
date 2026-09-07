@@ -821,13 +821,19 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
     }
   }, [firmId]);
 
-  // Ish ketayotganda avtomatik yangilanadi; tugagach bir marta o'qiydi.
+  // Ish ketayotganda avtomatik yangilanadi.
+  //
+  // `live` — SHU brauzerda boshlangan job bor-yo'qligi. Lekin partiya terminaldan ham
+  // boshlanishi mumkin (scripts/court-resume.ts) — u holda brauzer bilmaydi va panel qotib
+  // qolardi: bosqichlar («Hujjatlar (15 ta)») umuman ko'rinmasdi. Shuning uchun navbatda
+  // ishlanayotgan yozuv bo'lsa ham yangilab turamiz.
+  const activeNow = (data?.counts?.RUNNING ?? 0) + (data?.counts?.PENDING ?? 0) > 0;
   useEffect(() => {
     void load();
-    if (!live) return;
-    const t = setInterval(load, 5000);
+    if (!live && !activeNow) return;
+    const t = setInterval(load, 4000);
     return () => clearInterval(t);
-  }, [load, live]);
+  }, [load, live, activeNow]);
 
   const counts = data?.counts;
   const failed = counts?.FAILED ?? 0;
