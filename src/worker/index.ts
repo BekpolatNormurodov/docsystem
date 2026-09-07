@@ -73,6 +73,27 @@ async function failStaleOrphans(): Promise<void> {
  * PENDING'ga qaytariladi: uning taqdiri nomaʼlum, lekin idempotentlik uni himoya qiladi.
  */
 async function resetInterruptedCourtJobs(): Promise<void> {
+  // 1) Kunlik limitni MOSLASHTIRISH — jobdan mustaqil.
+  //
+  // `consumeCourtSend` partiya boshlanishida har bir ishga courtSentAt yozadi (limit sanog'i).
+  // Ish yuborilmasa bu yozuv qolib ketadi va sud limiti «to'lib» ko'rinadi: 2026-09-07 da
+  // Uchtepa «101/200 ishlatilgan» deb turdi, aslida atigi 2 ta ish ketgan edi.
+  //
+  // Shuning uchun har startda solishtiramiz: navbatda TUGAMAGAN (PENDING/FAILED) va bosqichi
+  // sudda BO'LMAGAN ishlarning courtSentAt'i tozalanadi. Haqiqatan yuborilganlar (DONE yoki
+  // stage=COURT_SUBMITTED) tegilmaydi — ular limitni haqli ravishda band qiladi.
+  const stale = await prisma.courtQueueItem.findMany({
+    where: {
+      state: { in: ['PENDING', 'FAILED'] },
+      case: { courtSentAt: { not: null }, stage: { not: 'COURT_SUBMITTED' } },
+    },
+    select: { caseId: true },
+  });
+  if (stale.length) {
+    await prisma.arizaCase.updateMany({ where: { id: { in: stale.map((x) => x.caseId) } }, data: { courtSentAt: null } });
+    console.log(`[worker] ${stale.length} ta yuborilmagan ishning kunlik limiti bo'shatildi`);
+  }
+
   const jobs = await prisma.job.findMany({ where: { status: 'RUNNING', type: 'COURT_SUBMIT' }, select: { id: true, progress: true, total: true } });
   if (jobs.length === 0) return;
   for (const j of jobs) {
