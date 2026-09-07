@@ -206,6 +206,7 @@ const IcoRefresh = ({ spin }: { spin?: boolean }) => (
   <svg className={`h-4 w-4 ${spin ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 3v6h-6" /></svg>
 );
 const IcoBolt = () => <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" /></svg>;
+const IcoPlus = () => <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>;
 const IcoDown = () => <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 3v12" /><path d="m8 11 4 4 4-4" /></svg>;
 
 // The «Chiqarish» control, driven by the PARENT-owned job (survives firm-filter/tab switches).
@@ -256,12 +257,17 @@ function ExportControl({ job, sendable, onStart, batchActive }: {
       </div>
     );
   }
-  // Serverda partiya bor — bosish MUMKIN EMAS: prepare-ready 409 qaytaradi. Tugmani
-  // yoqilgan holda qoldirish operatorni yolg'on umidga soladi va navbatni xatolar bilan
-  // to'ldiradi.
+  // Serverda partiya ketayotgan bo'lsa tugma O'CHIRILMAYDI — u «Navbatga qo'shish» ga
+  // aylanadi.
+  //
+  // Nega: prepare-ready bir firmaga ikkinchi partiyani rad etadi (409) va bu TO'G'RI —
+  // ikkita parallel partiya bir odamga ikkita da'vo ochishi mumkin. Lekin operator uchun
+  // «kut, keyin qaytib kel va yana bos» degani — soatlab ekranni kuzatish. Endi ish
+  // brauzerdagi yuborish navbatiga tushadi va ketayotgan partiya tugashi bilan O'ZI
+  // boshlanadi (kalit ham qayta so'ralmaydi — firma bir marta imzolangan).
   const busyServer = !!batchActive;
   const serverRunning = batchActive?.status === 'RUNNING';
-  const blocked = running || busyServer || sendable === 0;
+  const blocked = running || sendable === 0;
   return (
     <div className="flex flex-col items-end gap-1">
       <button
@@ -271,17 +277,25 @@ function ExportControl({ job, sendable, onStart, batchActive }: {
         className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm outline-none transition-all hover:bg-brand-600 focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:cursor-not-allowed disabled:opacity-40"
         title={
           busyServer
-            ? `Bu firmaning partiyasi allaqachon ${serverRunning ? 'ketmoqda' : 'navbatda'} (#${batchActive!.jobId}). Tugashini kuting — ikkinchi partiya ochilsa bir odamga ikkita da'vo ketishi mumkin.`
+            ? `Bu firmaning partiyasi hozir ${serverRunning ? 'ketmoqda' : 'navbatda'} (#${batchActive!.jobId}). Yangi partiya YUBORISH NAVBATIGA qo'shiladi va o'sha tugashi bilan o'zi boshlanadi — kalit qayta so'ralmaydi.`
             : sendable === 0 ? 'Sudga yuborishga tayyor mijoz yoʻq'
               : `${Math.min(MAX_COURT_BATCH, sendable)} ta to'liq tayyor paketni sudga yuborish`
         }
       >
-        {running || serverRunning
+        {running
           ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> Yuborilmoqda</>
           : busyServer
-            ? <><IcoBolt /> Navbatda{batchActive!.queuePos ? ` · ${batchActive!.queuePos}-o‘rin` : ''}</>
+            ? <><IcoPlus /> Navbatga qo‘shish {sendable > 0 ? `(${Math.min(MAX_COURT_BATCH, sendable)})` : ''}</>
             : <><IcoBolt /> Sudga yuborish {sendable > 0 ? `(${Math.min(MAX_COURT_BATCH, sendable)})` : ''}</>}
       </button>
+      {/* Ketayotgan partiya — operator nimani kutayotganini bilsin. */}
+      {busyServer && (
+        <span className="text-[10px] text-muted">
+          {serverRunning
+            ? `#${batchActive!.jobId} ketmoqda — yangi partiya undan keyin boshlanadi`
+            : `#${batchActive!.jobId} navbatda${batchActive!.queuePos ? ` (${batchActive!.queuePos}-o‘rin)` : ''}`}
+        </span>
+      )}
       {/* Xato: worker yozgan sabab `message`da keladi (route xatosi esa `error`da). */}
       {/* Xato: FAILED holatida server sababi (`message`), yoki holat o'qilmay qolganda
           (masalan sessiya tugadi) poller yozgan `error` — u RUNNING paytida ham chiqishi
@@ -766,12 +780,12 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
                         <button onClick={() => setSelected(new Set())} className="btn-ghost text-xs">Bekor</button>
                         <button
                           onClick={doExport}
-                          disabled={running || !!batchActive}
+                          disabled={running}
                           title={batchActive
-                            ? `Bu firmaning partiyasi allaqachon ${batchActive.status === 'RUNNING' ? 'ketmoqda' : 'navbatda'} (#${batchActive.jobId}). Tugashini kuting.`
+                            ? `Bu firmaning partiyasi hozir ${batchActive.status === 'RUNNING' ? 'ketmoqda' : 'navbatda'} (#${batchActive.jobId}). Belgilangan ishlar yuborish navbatiga qo'shiladi va o'sha tugashi bilan boshlanadi.`
                             : `${n(selected.size)} ta belgilangan ishni sudga yuborish`}
                           className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-40">
-                          <IcoBolt /> {batchActive ? 'Partiya ketmoqda' : `Sudga yuborish (${n(selected.size)})`}
+                          {batchActive ? <><IcoPlus /> Navbatga qo‘shish ({n(selected.size)})</> : <><IcoBolt /> Sudga yuborish ({n(selected.size)})</>}
                         </button>
                       </>
                     )}
@@ -1575,8 +1589,26 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   const signedFirms = useRef<Set<number>>(new Set());
   const [queueGate, setQueueGate] = useState<{ itemId: string; firmId: number; firmName: string; stir: string | null; count: number } | null>(null);
   const qidRef = useRef(0);
-  const addToQueue = (fid: number, fname: string, stir: string | null, count: number, courtIds?: number[]) =>
+  // Navbatga qo'shilishi bilan navbat O'ZI yoqiladi.
+  //
+  // Ilgari operator ikki marta bosishi kerak edi: «+ Navbatga», keyin «Boshlash». Ketayotgan
+  // partiya ustiga qo'shilganda esa bu ayniqsa noqulay edi — u qaytib kelib, tugaganini
+  // ko'rib, keyin «Boshlash» bosishi kerak edi. Endi qo'shish = «shu ishlarni yubor»:
+  // navbat bo'sh bo'lsa darhol boshlanadi, band bo'lsa o'z navbatini kutadi. To'xtatish
+  // uchun navbat panelida «To'xtatish» bor.
+  const addToQueue = (fid: number, fname: string, stir: string | null, count: number, courtIds?: number[]) => {
     setQueue((q) => [...q, { id: `q${++qidRef.current}`, firmId: fid, firmName: fname, stir, count, courtIds, status: 'wait' as const }]);
+    setQueueActive(true);
+  };
+
+  // Har firma uchun serverda FAOL partiya (RUNNING yoki navbatda PENDING). Manba —
+  // `pendingQ` (5 soniyada yangilanadi), ya'ni boshqa oynadan yoki avtomat davom
+  // ettirishdan boshlangan partiya ham hisobga olinadi.
+  const activeBatchByFirm = React.useMemo(() => {
+    const m = new Map<number, { jobId: number; status: string; queuePos: number }>();
+    for (const q of pendingQ) if (q.job) m.set(q.firmId, q.job);
+    return m;
+  }, [pendingQ]);
 
   useEffect(() => {
     if (!queueActive) return;
@@ -1594,6 +1626,15 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     }
     if (cur.status === 'signing') return; // gate ochiq — imzo kutilyapti
     // cur.status === 'wait'
+    //
+    // SHU FIRMADA SERVERDA PARTIYA KETAYOTGAN BO'LSA — KUTAMIZ.
+    //
+    // prepare-ready bir firmaga ikkinchi partiyani rad etadi (409). Ilgari navbat buni
+    // bilmasdi: darhol yuborar, 409 olardi va yozuv qizil «xato» bo'lib qolardi — operator
+    // esa ishni qo'lda qaytadan qo'shishga majbur bo'lardi. Endi yozuv shunchaki navbatda
+    // turadi va oldingi partiya tugashi bilan O'ZI boshlanadi (`activeBatchByFirm` har 5
+    // soniyada yangilanadi, ya'ni bu effekt o'zi qayta ishga tushadi).
+    if (activeBatchByFirm.has(cur.firmId)) return;
     if (signedFirms.current.has(cur.firmId)) {
       setQueue((q) => q.map((x) => (x.id === cur.id ? { ...x, status: 'sending' } : x)));
       startJob(`queue:${cur.id}`, { firmId: cur.firmId, snapshotId, limit: cur.count, ...(cur.courtIds?.length ? { courtIds: cur.courtIds } : {}) }, () => {});
@@ -1601,16 +1642,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
       setQueue((q) => q.map((x) => (x.id === cur.id ? { ...x, status: 'signing' } : x)));
       setQueueGate({ itemId: cur.id, firmId: cur.firmId, firmName: cur.firmName, stir: cur.stir, count: cur.count });
     }
-  }, [jobs, queue, queueActive, snapshotId, startJob]);
-
-  // Har firma uchun serverda FAOL partiya (RUNNING yoki navbatda PENDING). Manba —
-  // `pendingQ` (5 soniyada yangilanadi), ya'ni boshqa oynadan yoki avtomat davom
-  // ettirishdan boshlangan partiya ham hisobga olinadi.
-  const activeBatchByFirm = React.useMemo(() => {
-    const m = new Map<number, { jobId: number; status: string; queuePos: number }>();
-    for (const q of pendingQ) if (q.job) m.set(q.firmId, q.job);
-    return m;
-  }, [pendingQ]);
+  }, [jobs, queue, queueActive, snapshotId, startJob, activeBatchByFirm]);
 
   const firmOpts = [{ value: 'all', label: 'Hamma firma' }, ...firms.map((f) => ({ value: String(f.firmId), label: f.firmName, hint: n(f.total) }))];
   const ov = data?.readiness.overall;
@@ -1760,10 +1792,15 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                     {queue.map((it) => {
                       const job = jobs[`queue:${it.id}`];
                       const pct = job && job.total ? Math.min(100, Math.round((job.progress / job.total) * 100)) : 0;
+                      // Firmada serverda partiya ketayotgan bo'lsa yozuv KUTADI — buni aytib
+                      // qo'yish shart, aks holda «navbatda» deb turgan yozuv qotib qolgandek
+                      // ko'rinadi va operator uni o'chirib qaytadan qo'shadi.
+                      const heldBy = it.status === 'wait' ? activeBatchByFirm.get(it.firmId) : undefined;
                       const badge = it.status === 'done' ? ['bg-emerald-500/15 text-emerald-700 dark:text-emerald-300', 'tayyor']
                         : it.status === 'error' ? ['bg-rose-500/15 text-rose-600 dark:text-rose-300', 'xato']
                         : it.status === 'sending' ? ['bg-brand-500/15 text-brand-700 dark:text-brand-300', 'yuborilyapti']
                         : it.status === 'signing' ? ['bg-amber-500/15 text-amber-700 dark:text-amber-300', 'imzo']
+                        : heldBy ? ['bg-sky-500/12 text-sky-700 dark:text-sky-300', 'kutmoqda']
                         : ['bg-surface-2 text-muted', 'navbatda'];
                       // Xato sababi — chipning O'ZIDA. Ilgari faqat qizil «xato» so'zi turardi
                       // va operator sahifada sababni topa olmasdi.
@@ -1773,6 +1810,11 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                           <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${badge[0]}`}>{badge[1]}</span>
                           <span className="min-w-0 flex-1 truncate font-medium">{it.firmName} · {n(it.count)} ta</span>
                           {it.status === 'sending' && <span className="shrink-0 tabular-nums text-muted">{n(job?.progress ?? 0)}/{n(job?.total || it.count)} ({pct}%)</span>}
+                          {heldBy && (
+                            <span className="shrink-0 text-[11px] text-muted" title={`Shu firmada partiya #${heldBy.jobId} ketmoqda — u tugashi bilan bu o'zi boshlanadi`}>
+                              #{heldBy.jobId} tugashini kutmoqda
+                            </span>
+                          )}
                           {it.status === 'error' && (
                             <button type="button" onClick={() => setQueue((q) => q.filter((x) => x.id !== it.id))} title="Ro‘yxatdan olib tashlash"
                               className="shrink-0 rounded px-1 text-muted transition-colors hover:text-rose-500">✕</button>
@@ -2047,21 +2089,29 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
         </Modal>
       )}
 
-      {countAsk && (
+      {countAsk && (() => { const askBusy = activeBatchByFirm.get(countAsk.firmId) ?? null; return (
         <Modal open onClose={() => { setCountAsk(null); setPickedCourts(null); }} title={`Sudga yuborish — ${countAsk.firmName}`} description={`Bir martada eng ko'pi ${Math.min(MAX_COURT_BATCH, countAsk.max)} ta. Nechtasini yuborasiz?`}
           footer={<>
             <button className="btn-ghost" type="button" onClick={() => setCountAsk(null)}>Bekor</button>
-            <button className="btn-ghost" type="button"
+            {/* Firmada partiya ketayotgan bo'lsa TO'G'RIDAN yuborish mumkin emas (server 409
+                qaytaradi) — bunda yagona to'g'ri amal navbatga qo'shish, shuning uchun u
+                asosiy tugmaga aylanadi va «Yuborish» yashiriladi. Aks holda operator
+                bosadigan tugma bosilishi bilan xato bo'lardi. */}
+            <button className={askBusy ? 'btn-primary' : 'btn-ghost'} type="button"
               disabled={!countAsk.value || countAsk.value < 1 || (pickedCourts !== null && pickedCourts.length === 0)}
-              title="Navbatga qo'shish — bir nechta partiyani ketma-ket yuborish (skayner kabi)"
-              onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const f = firms.find((x) => x.firmId === countAsk.firmId); addToQueue(countAsk.firmId, countAsk.firmName, f?.stir ?? null, v, pickedCourts ?? undefined); setCountAsk(null); }}>
-              + Navbatga
+              title={askBusy
+                ? `#${askBusy.jobId} tugashi bilan bu partiya o'zi boshlanadi — kalit qayta so'ralmaydi`
+                : "Navbatga qo'shish — bir nechta partiyani ketma-ket yuborish (skayner kabi)"}
+              onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const f = firms.find((x) => x.firmId === countAsk.firmId); addToQueue(countAsk.firmId, countAsk.firmName, f?.stir ?? null, v, pickedCourts ?? undefined); setCountAsk(null); setPickedCourts(null); }}>
+              + Navbatga{askBusy ? ` (${Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0))})` : ''}
             </button>
-            <button className="btn-primary" type="button"
-              disabled={!countAsk.value || countAsk.value < 1 || (pickedCourts !== null && pickedCourts.length === 0)}
-              onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const fid = countAsk.firmId; const au = countAsk.auto; const cs = pickedCourts; setCountAsk(null); openGate(fid, { limit: v, auto: au, ...(cs && cs.length ? { courtIds: cs } : {}) }); }}>
-              {countAsk.auto ? 'Auto boshlash' : 'Yuborish'} ({Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0))})
-            </button>
+            {!askBusy && (
+              <button className="btn-primary" type="button"
+                disabled={!countAsk.value || countAsk.value < 1 || (pickedCourts !== null && pickedCourts.length === 0)}
+                onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const fid = countAsk.firmId; const au = countAsk.auto; const cs = pickedCourts; setCountAsk(null); setPickedCourts(null); openGate(fid, { limit: v, auto: au, ...(cs && cs.length ? { courtIds: cs } : {}) }); }}>
+                {countAsk.auto ? 'Auto boshlash' : 'Yuborish'} ({Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0))})
+              </button>
+            )}
           </>}
         >
           <div className="space-y-3">
@@ -2158,7 +2208,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
             <p className="text-[11px] text-muted">Eng eski (muddati yaqin) tayyor mijozlardan boshlab olinadi.</p>
           </div>
         </Modal>
-      )}
+      ); })()}
 
       {gate && (
         <KeyPicker
