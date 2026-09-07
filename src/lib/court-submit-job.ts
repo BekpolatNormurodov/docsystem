@@ -15,7 +15,7 @@ import { audit, AuditAction } from './audit';
 import { resolveClaimantId } from './cabinet/claimant';
 import { releaseCourtSend } from './court-routing';
 import { noteQueueBlocked, resetQueueBackoff } from './court-auto-resume';
-import { resolveCabinetCourtGuid, CABINET_REGION_IDS } from '../../cabinet-api-skeleton/constants';
+import { resolveCabinetCourtGuid, regionForCourt } from '../../cabinet-api-skeleton/constants';
 import type { SourceCaseData } from '../../cabinet-api-skeleton/builder';
 import type { CaseFileToUpload } from '../../cabinet-api-skeleton/uploader';
 
@@ -507,7 +507,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
 
       const caseData: SourceCaseData = {
         courtId: courtGuid,
-        regionId: CABINET_REGION_IDS.TOSHKENT_VILOYATI,
+        regionId: regionForCourt(courtGuid), // region sudning o'zidan olinadi
         claimantId,
         receiptNumber: ac.receiptNumber ?? null,
         firm: { stir: firmStir },

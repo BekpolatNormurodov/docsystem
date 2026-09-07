@@ -14,7 +14,7 @@ import { getStoredCabinetSession } from '../src/lib/cabinet/session';
 import { CabinetSubmitEngine } from './submitter';
 import { collectCaseFiles, assertFirmDocsBelongToFirm } from '../src/lib/court-submit-job';
 import { resolveClaimantId } from '../src/lib/cabinet/claimant';
-import { resolveCabinetCourtGuid, CABINET_COURT_IDS, CABINET_REGION_IDS } from './constants';
+import { resolveCabinetCourtGuid, CABINET_COURT_IDS, regionForCourt } from './constants';
 import type { SourceCaseData } from './builder';
 import type { CaseFileToUpload } from './uploader';
 
@@ -126,7 +126,7 @@ async function main() {
 
   const caseData: SourceCaseData = {
     courtId: courtGuid,
-    regionId: CABINET_REGION_IDS.TOSHKENT_VILOYATI,
+    regionId: regionForCourt(courtGuid), // region sudning o'zidan olinadi
     claimantId,
     receiptNumber: ac.receiptNumber ?? null,
     firm: { stir: firmStir },

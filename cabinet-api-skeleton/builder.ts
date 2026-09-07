@@ -6,7 +6,7 @@
 // "add participant" endpoint'lariga EGA EMAS; hammasi bitta `details` obyektini PUT qiladigan
 // draft-update chaqiruvi. Quyidagi funksiyalar shu haqiqiy shaklni quradi.
 
-import { CABINET_CATEGORIES, CABINET_SUB_CATEGORIES, CABINET_COURT_IDS, CABINET_REGION_IDS, CABINET_DOC_TYPES } from './constants';
+import { CABINET_CATEGORIES, CABINET_SUB_CATEGORIES, CABINET_COURT_IDS, CABINET_REGION_IDS, CABINET_DOC_TYPES, regionForCourt } from './constants';
 import type {
   CreateApplicationInfo, BaseInfo, DefendantInfo, ClaimAmountPartType, CourtInfo,
   FileUploadSection, UploadedFileRef, CaseDocumentRef, CourtCostsSection, ClaimAmountWithParts,
@@ -70,9 +70,12 @@ export class CabinetPayloadBuilder {
 
   /** Wizard step 1: sud + da'vogar. */
   static buildCreateApplication(data: SourceCaseData): CreateApplicationInfo {
+    const court = data.courtId || CABINET_COURT_IDS.UCHTEPA_CIVIL;
     return {
-      region: data.regionId || CABINET_REGION_IDS.TOSHKENT_VILOYATI,
-      court: data.courtId || CABINET_COURT_IDS.UCHTEPA_CIVIL,
+      // Region SUDDAN kelib chiqadi (regionForCourt). Avval hamma sudga bitta «Тошкент
+      // вилояти» yuborilardi — Uchtepa esa «Тошкент шаҳар»ники.
+      region: data.regionId || regionForCourt(court),
+      court,
       claimant: data.claimantId,
       small_business: false,
       claimant_type: 'ORGANIZATION',

@@ -22,17 +22,18 @@ async function main() {
   // Court to'lgach create'ni o'tkazib yuboradi, `court_seed_bright` bayrog'i qayta ishlashdan saqlaydi.
   await ensureSeedCourt();
 
-  // Yuqorichirchiq sudi ADOLAT orqali elektron ariza QABUL QILMAYDI (2026-09-07 jonli
-  // tekshiruv: save-suit «Танланган суд учун канцелярия ходими фойдаланувчиси киритилмаган»
-  // qaytardi; ayni payloadning o'zi Uchtepa'da o'tdi). Sud bu holatni tuzatgach, admin
-  // «Sudlar»dan qayta yoqadi — shuning uchun bu yozuv FAQAT hech kim tegmagan (cabinetNote
-  // bo'sh) sudga qo'llanadi va operator qaroriga har deployda qaytib zid kelmaydi.
+  // NOTO'G'RI TASHXIS TUZATILDI (2026-09-07). Bir necha soat davomida Yuqorichirchiq sudi
+  // «ADOLAT'da elektron ariza qabul qilmaydi» deb yopiq turdi — save-suit «Танланган суд
+  // учун канцелярия ходими фойдаланувчиси киритилмаган» qaytargani uchun. Aslida sabab
+  // BIZDA edi: CABINET_COURT_IDS.YUQORICHIRCHIQ_CIVIL da eskirgan GUID turgan, portalning
+  // sudlar ro'yxatida bunday id UMUMAN yo'q edi — portal sudni topolmagani uchun uning
+  // kantselyariyasini ham topolmagan. To'g'ri GUID qo'yilgach sud oddiy ishlaydi.
+  //
+  // Shuning uchun o'sha yopiq belgini olib tashlaymiz. Faqat AYNAN o'sha avtomatik yozuvni
+  // tozalaymiz — operator qo'lda boshqa sabab yozgan bo'lsa, unga tegilmaydi.
   await prisma.court.updateMany({
-    where: { shortName: { contains: 'Yuqorichirchiq' }, cabinetNote: null },
-    data: {
-      cabinetEnabled: false,
-      cabinetNote: 'ADOLAT’da bu sud uchun kantselyariya xodimi biriktirilmagan — elektron ariza qabul qilinmaydi',
-    },
+    where: { cabinetNote: { contains: 'kantselyariya xodimi biriktirilmagan' } },
+    data: { cabinetEnabled: true, cabinetNote: null },
   });
 
   console.log('seeded admin + firms + courts');

@@ -92,8 +92,33 @@ export const CABINET_SUB_CATEGORIES = {
  */
 export const CABINET_COURT_IDS = {
   UCHTEPA_CIVIL: 'f494f85e-b130-433d-ba9c-4afb3620f431',
-  YUQORICHIRCHIQ_CIVIL: 'b564e622-83b4-4b55-a50d-40c266ec0fa7',
+  // 2026-09-07 TUZATILDI. Avvalgi qiymat `b564e622-83b4-4b55-a50d-40c266ec0fa7` XATO edi —
+  // portalning fuqarolik sudlari ro'yxatida (95 ta) bunday id UMUMAN YO'Q. Natijada
+  // save-suit «Танланган суд учун канцелярия ходими фойдаланувчиси киритилмаган» deb
+  // qaytarardi: portal sudni topa olmagani uchun uning kantselyariyasini ham topolmagan.
+  // Biz buni «sud elektron ariza qabul qilmaydi» deb tushunib, BRIGHT'ning 3759 ta ishini
+  // bekorga to'xtatib qo'ygan edik. To'g'ri qiymat GET /api/public/guides/courts?court_type=CIVIL
+  // dan olindi.
+  YUQORICHIRCHIQ_CIVIL: '5d077967-1ed1-44ac-8c8e-c76e2f276737',
 } as const;
+
+/**
+ * Sud -> REGION GUID. Region sudning o'zidan kelib chiqadi, shuning uchun uni alohida
+ * taxmin qilmaymiz: portal guide'ida har sudda `region_id` bor va biz aynan o'shani
+ * yuboramiz.
+ *
+ * Avval BARCHA sudlar uchun bitta «Тошкент вилояти» yuborilardi — Uchtepa esa aslida
+ * «Тошкент шаҳар»ga tegishli. Uchtepa baribir ishlagani uchun bu sezilmay qolgan edi.
+ */
+export const CABINET_COURT_REGION: Record<string, string> = {
+  [/* Uchtepa */ 'f494f85e-b130-433d-ba9c-4afb3620f431']: '358a7de4-a9ad-b29d-05e0-02de02b06b76', // Тошкент шаҳар
+  [/* Yuqorichirchiq */ '5d077967-1ed1-44ac-8c8e-c76e2f276737']: '7b339e6d-1151-d564-001f-bbfa8e5552ab', // Тошкент вилояти
+};
+
+/** Sud GUID'i bo'yicha uning regioni. Noma'lum sud uchun — Toshkent viloyati (zaxira). */
+export function regionForCourt(courtGuid?: string | null): string {
+  return (courtGuid && CABINET_COURT_REGION[courtGuid]) || CABINET_REGION_IDS.TOSHKENT_VILOYATI;
+}
 
 /** Toshkent viloyati/shahar region GUID — LIVE TASDIQLANGAN (createApplication.region maydoni). */
 export const CABINET_REGION_IDS = {
