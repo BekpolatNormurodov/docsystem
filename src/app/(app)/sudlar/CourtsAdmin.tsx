@@ -72,17 +72,6 @@ export function CourtsAdmin() {
     } catch (e) { setErr(e instanceof Error ? e.message : 'Saqlanmadi'); }
     finally { setBusy(false); }
   };
-  const remove = async (c: Court) => {
-    if (!confirm(`«${c.shortName || c.nameUz}» sudini oʻchirasizmi?`)) return;
-    setBusy(true); setErr(null);
-    try {
-      const res = await fetch('/settings/courts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id: c.id }) });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d?.error || 'Oʻchirilmadi');
-      apply(d); flash('Oʻchirildi');
-    } catch (e) { setErr(e instanceof Error ? e.message : 'Oʻchirilmadi'); }
-    finally { setBusy(false); }
-  };
 
   const firmName = useMemo(() => new Map(firms.map((f) => [f.id, f.shortName])), [firms]);
   const totalToday = courts?.reduce((s, c) => s + c.usedToday, 0) ?? 0;
@@ -134,7 +123,7 @@ export function CourtsAdmin() {
             editing === c.id && draft ? (
               <CourtEditor key={c.id} draft={draft} firms={firms} busy={busy} onPatch={patch} onSave={save} onCancel={cancel} />
             ) : (
-              <CourtCard key={c.id} c={c} firmName={firmName} onEdit={() => startEdit(c)} onDelete={() => remove(c)} busy={busy} />
+              <CourtCard key={c.id} c={c} firmName={firmName} onEdit={() => startEdit(c)} busy={busy} />
             ),
           )}
         </div>
@@ -146,7 +135,7 @@ export function CourtsAdmin() {
 }
 
 // ── Read view: live quota meter + window + billing warning + firm chips ──────
-function CourtCard({ c, firmName, onEdit, onDelete, busy }: { c: Court; firmName: Map<number, string>; onEdit: () => void; onDelete: () => void; busy: boolean }) {
+function CourtCard({ c, firmName, onEdit, busy }: { c: Court; firmName: Map<number, string>; onEdit: () => void; busy: boolean }) {
   const win = WINDOW[c.windowReason];
   const pct = c.dailyQuota > 0 ? Math.min(100, Math.round((c.usedToday / c.dailyQuota) * 100)) : 0;
   const remaining = Math.max(0, c.dailyQuota - c.usedToday);
@@ -168,9 +157,6 @@ function CourtCard({ c, firmName, onEdit, onDelete, busy }: { c: Court; firmName
         <div className="flex shrink-0 gap-1">
           <button onClick={onEdit} disabled={busy} aria-label="Tahrirlash" className="grid h-7 w-7 place-items-center rounded-lg border border-line text-muted transition-colors hover:border-brand-500/40 hover:text-fg disabled:opacity-50">
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
-          </button>
-          <button onClick={onDelete} disabled={busy} aria-label="Oʻchirish" className="grid h-7 w-7 place-items-center rounded-lg border border-line text-muted transition-colors hover:border-rose-500/40 hover:text-rose-500 disabled:opacity-50">
-            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
           </button>
         </div>
       </div>

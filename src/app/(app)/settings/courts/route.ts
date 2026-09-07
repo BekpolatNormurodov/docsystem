@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
-import { courtsForAdmin, ensureSeedCourt, saveCourt, deleteCourt, setFirmCourtsAccess } from '@/lib/court-routing';
+import { courtsForAdmin, ensureSeedCourt, saveCourt, setFirmCourtsAccess } from '@/lib/court-routing';
 
 export const runtime = 'nodejs';
 
@@ -17,12 +17,15 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const action = body?.action;
   try {
+    // Sudni O'CHIRISH — ATAYIN yopilgan (admin uchun ham). Sudga minglab ish va ularning
+    // ADOLAT'dagi da'volari bog'langan; yozuv yo'qolsa yo'naltirish, kunlik limit sanog'i va
+    // «Qaytganlar» tarixi buziladi. Sud ishlatilmasa — «Active» bayrog'ini o'chirish yetarli:
+    // u yo'naltirishdan chiqadi, lekin tarix saqlanadi.
     if (action === 'delete') {
-      const id = Number(body?.id);
-      if (!id) return NextResponse.json({ error: 'id kerak' }, { status: 400 });
-      const r = await deleteCourt(id);
-      if (!r.ok) return NextResponse.json({ error: r.reason }, { status: 409 });
-      return NextResponse.json(await courtsForAdmin());
+      return NextResponse.json(
+        { error: 'Sudni o‘chirib bo‘lmaydi — unga bog‘langan ishlar va tarix yo‘qoladi. Ishlatmaslik uchun «Active» bayrog‘ini o‘chiring.' },
+        { status: 405 },
+      );
     }
     if (action === 'firmCourts') {
       const firmId = Number(body?.firmId);
