@@ -29,6 +29,13 @@ x-app-env: &app-env
     # itself (same public IP, different NAT path — see docker/cabinet-proxy). Route ONLY cabinet.sud.uz
     # calls (src/lib/cabinet/api.ts) through the host-network cabinet-proxy sidecar via HTTP CONNECT.
     CABINET_PROXY_URL: "http://host.docker.internal:3128"
+    # ⛔ YAKUNIY SUDGA YUBORISH kaliti. "1" bo'lsa tizim ADOLAT'da tayyorlangan ishni
+    # send-to-court bilan RASMAN sudga topshiradi — bu QAYTARIB BO'LMAYDI va real
+    # odamlarga qarshi real da'vo ochiladi. Bo'sh/boshqa qiymatda ish ADOLAT'da to'liq
+    # tayyorlanadi, lekin yuborilmaydi (operator portalda ko'rib, qo'lda yuboradi).
+    # Yoqishdan oldin kamida bitta ishni portalda ko'zdan kechiring: hujjatlari,
+    # tomonlari (da'vogar AYNAN shu firma) va summasi to'g'rimi.
+    CABINET_ALLOW_SEND_TO_COURT: "${CABINET_ALLOW_SEND_TO_COURT:-0}"
 
 # Lets a bridge-networked container reach the host itself — needed to reach the cabinet-proxy
 # sidecar, which runs with network_mode:host precisely so its egress matches the host's reliable path.

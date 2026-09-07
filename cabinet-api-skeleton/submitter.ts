@@ -228,16 +228,31 @@ export class CabinetSubmitEngine {
       // muvaffaqiyat deb o'qib «SUDGA TOPSHIRILDI» yozib, bazani COURT_SUBMITTED qilib
       // qo'yishardi (2026-09-07 da case 9327 bilan aynan shunday bo'ldi). Sudga
       // topshirilmagan ish HECH QACHON topshirilgan deb belgilanmasligi kerak.
-      if (!options.confirmedLiveVerified) {
+      // YOQISH KALITI — ATAYIN muhit o'zgaruvchisida, kodda emas:
+      //   CABINET_ALLOW_SEND_TO_COURT=1
+      // Sabab: bu kalit yoqilgach tizim REAL odamlarga qarshi REAL da'volarni rasman
+      // beradi va qaytarib bo'lmaydi. Bunday qarorni kod (yoki uni yozgan kishi) emas,
+      // operator ONGLI ravishda, o'z muhitida qabul qilishi kerak. Kod tarafida
+      // `confirmedLiveVerified` bilan ham berish mumkin (chaqiruvchi aniq uzatsa).
+      //
+      // YOQISHDAN OLDIN kamida bitta ish shu holatda oxirigacha o'tsin va ADOLAT'da
+      // ko'zdan kechirilsin: hujjatlari (ariza + oferta + chek + firma hujjatlari),
+      // tomonlari (da'vogar AYNAN shu firma, javobgar to'g'ri shaxs) va summasi.
+      // 2026-09-07 holati: har sinov yangi nuqson ochdi (summa formati → bo'sh summa →
+      // sud sozlamasi → kvitansiya 500 → boshqa firmaning ishonchnomasi), ya'ni birorta
+      // ish hali toza o'tmagan.
+      const allowSend = options.confirmedLiveVerified === true
+        || process.env.CABINET_ALLOW_SEND_TO_COURT === '1';
+      if (!allowSend) {
         return {
           ok: false,
           step: 'DRAFT_CREATED',
           draftId,
           caseId,
           uploadedFiles,
-          error: `Sud ishi ADOLAT'da to'liq tayyorlandi (id=${caseId}, ${suitPayload.case_documents.length} ta hujjat). ` +
-            `Yakuniy yuborish hali avtomatik emas — payloadning 3 qismi jonli tasdiqlanmagan. ` +
-            `Portalda ochib tekshiring va qo'lda yuboring; to'g'ri chiqsa avtomatik rejim ochiladi.`,
+          error: `Sud ishi ADOLAT'da to'liq tayyorlandi (id=${caseId}, ${suitPayload.case_documents.length} ta hujjat), ` +
+            `lekin YAKUNIY YUBORISH o'chirilgan. Portalda ochib tekshiring va qo'lda yuboring. ` +
+            `Avtomatik yuborishni yoqish uchun: CABINET_ALLOW_SEND_TO_COURT=1 (.env.production).`,
         };
       }
 
