@@ -28,6 +28,8 @@ interface ClientRow {
   talabnoma: boolean; talabnomaDelivered: boolean; receipt: boolean; scan: boolean; oferta: boolean; boji: boolean;
   ready: boolean; exported: boolean; draft: boolean; sendable: boolean; totalDebt: string; daysLeft: number | null;
   receiptNumber: string | null;
+  // Sud — «Batafsil» ichidagi filtr uchun (firma ishlari bir necha sudga bo'lingan bo'lishi mumkin).
+  courtId: number | null; courtName: string | null; courtEnabled: boolean;
 }
 interface ClientCounts { all: number; sendable: number; draft: number; ready: number; exported: number; notready: number }
 interface ClientPage { rows: ClientRow[]; total: number; page: number; pageSize: number; pages: number; counts: ClientCounts; error?: string }
@@ -482,16 +484,34 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged }: {
 
   // Client-side filter + search + pagination over the full row set — instant, no refetch.
   const DRILL_PAGE = 12;
+
+  // Firmaning ishlari bir necha sudga bo'lingan bo'lishi mumkin va ulardan biri ADOLAT'da
+  // yopiq bo'lishi mumkin (BRIGHT: Yuqorichirchiq yopiq, Uchtepa ochiq). Sud bo'yicha filtr
+  // operatorga ochiq sudnikini ajratib yuborish imkonini beradi — aks holda firma butunlay
+  // to'xtab qolardi.
+  const courtOptions = React.useMemo(() => {
+    const m = new Map<string, { id: number | null; name: string; enabled: boolean; count: number }>();
+    for (const r of data?.rows ?? []) {
+      const k = String(r.courtId ?? 'none');
+      const it = m.get(k) ?? { id: r.courtId ?? null, name: r.courtName ?? 'Sud tayinlanmagan', enabled: r.courtEnabled !== false, count: 0 };
+      it.count++;
+      m.set(k, it);
+    }
+    return [...m.values()].sort((a, b) => b.count - a.count);
+  }, [data]);
+  const [courtFilter, setCourtFilter] = useState<number | null | 'all'>('all');
+
   const filtered = React.useMemo(() => {
     const src = data?.rows ?? [];
     const needle = debouncedQ.trim().toLowerCase();
     return src.filter((r) => {
       const okFilter = filter === 'sendable' ? r.sendable : filter === 'draft' ? r.draft : filter === 'ready' ? r.ready : filter === 'exported' ? r.exported : filter === 'notready' ? !r.ready : true;
       if (!okFilter) return false;
+      if (courtFilter !== 'all' && (r.courtId ?? null) !== courtFilter) return false;
       if (needle && !`${r.clientName ?? ''} ${r.pinfl ?? ''}`.toLowerCase().includes(needle)) return false;
       return true;
     });
-  }, [data, filter, debouncedQ]);
+  }, [data, filter, debouncedQ, courtFilter]);
   const pages = Math.max(1, Math.ceil(filtered.length / DRILL_PAGE));
   const rows = filtered.slice((page - 1) * DRILL_PAGE, (page - 1) * DRILL_PAGE + DRILL_PAGE);
 
@@ -539,6 +559,45 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged }: {
         <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
         <input value={q} onChange={(e) => setQ(e.target.value)} aria-label="Mijoz qidirish" placeholder="F.I.O yoki PINFL…" className="w-full rounded-xl border border-line bg-surface py-2 pl-10 pr-3 text-sm outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15" />
       </div>
+
+      {/* SUD bo'yicha filtr — firma ishlari bir necha sudga bo'lingan bo'lsa ko'rinadi.
+          Yopiq sud (ADOLAT qabul qilmaydi) alohida belgilanadi, chunki undagi ishlarni
+          tanlash mumkin bo'lsa-da, yuborish baribir xato beradi. */}
+      {courtOptions.length > 1 && (
+        <div className="mb-2 flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] font-medium text-muted">Sud:</span>
+          <button
+            onClick={() => { setCourtFilter('all'); setPage(1); }}
+            className={`rounded-lg px-2 py-1 text-[11px] font-medium transition-colors ${courtFilter === 'all' ? 'bg-brand-500/15 text-brand-700 dark:text-brand-300' : 'text-muted hover:bg-surface-2'}`}
+          >
+            Hammasi
+          </button>
+          {courtOptions.map((c) => {
+            const on = courtFilter === c.id;
+            return (
+              <button
+                key={String(c.id ?? 'none')}
+                onClick={() => { setCourtFilter(c.id); setPage(1); }}
+                title={c.enabled ? undefined : 'ADOLAT’da bu sud elektron ariza qabul qilmaydi'}
+                className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-colors ${
+                  on ? 'bg-brand-500/15 text-brand-700 dark:text-brand-300' : 'text-muted hover:bg-surface-2'
+                }`}
+              >
+                {!c.enabled && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden />}
+                <span className={c.enabled ? '' : 'opacity-70'}>{c.name}</span>
+                <span className="tabular-nums opacity-70">{n(c.count)}</span>
+              </button>
+            );
+          })}
+          {/* Yopiq sud tanlangan bo'lsa — oldindan ogohlantiramiz. Yuborish baribir xato
+              beradi, lekin buni bosishdan OLDIN bilgan ma'qul. */}
+          {courtFilter !== 'all' && courtOptions.find((c) => c.id === courtFilter && !c.enabled) && (
+            <span className="w-full text-[10px] leading-snug text-amber-600 dark:text-amber-400">
+              Bu sud ADOLAT’da elektron ariza qabul qilmaydi — yuborish xato beradi. Sud administratori yoqishi kerak.
+            </span>
+          )}
+        </div>
+      )}
 
       {loading && !data ? (
         <div className="space-y-1.5">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-14 animate-pulse rounded-xl bg-surface-2" />)}</div>

@@ -235,6 +235,11 @@ export interface ClientReadyRow {
   ready: boolean;
   exported: boolean;
   draft: boolean;
+  /** Ish qaysi sudga yo'naltirilgan (filtr uchun; tayinlanmagan bo'lsa null). */
+  courtId: number | null;
+  courtName: string | null;
+  /** Sud ADOLAT orqali elektron ariza qabul qiladimi. */
+  courtEnabled: boolean;
   sendable: boolean;
   totalDebt: string;
   daysLeft: number | null;
@@ -263,7 +268,15 @@ export async function firmReadyClients(opts: {
   const [cases, ofertaPinfls] = await Promise.all([
     prisma.arizaCase.findMany({
       where: { firmId: firm.id, ...(opts.snapshotId ? { snapshotId: opts.snapshotId } : {}) },
-      select: { id: true, pinfl: true, clientName: true, stage: true, talabnomaAt: true, receiptNumber: true, meta: true, totalDebt: true, dueAt: true },
+      select: {
+        id: true, pinfl: true, clientName: true, stage: true, talabnomaAt: true, receiptNumber: true,
+        meta: true, totalDebt: true, dueAt: true,
+        // Sud — «Batafsil» ro'yxatida filtr uchun. Firmaning ishlari bir necha sudga
+        // bo'lingan bo'lishi mumkin (BRIGHT: Yuqorichirchiq + Uchtepa) va ulardan biri
+        // ADOLAT'da yopiq bo'lsa, operator ochiq sudnikini ajratib yubora olishi kerak.
+        courtId: true,
+        court: { select: { shortName: true, cabinetEnabled: true } },
+      },
       orderBy: [{ dueAt: 'asc' }, { id: 'asc' }],
     }),
     ofertaPinflSet(opts.snapshotId, firm.code),
@@ -295,6 +308,9 @@ export async function firmReadyClients(opts: {
       totalDebt: String(c.totalDebt),
       daysLeft: c.dueAt ? ((v: number) => (v < 0 ? Math.floor(v) : Math.ceil(v)))((c.dueAt.getTime() - now) / day) : null,
       receiptNumber: c.receiptNumber,
+      courtId: c.courtId ?? null,
+      courtName: c.court?.shortName ?? null,
+      courtEnabled: c.court ? c.court.cabinetEnabled !== false : true,
     });
   }
   return { rows, total: rows.length, page: 1, pageSize: rows.length, pages: 1, counts };
