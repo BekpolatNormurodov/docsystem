@@ -861,6 +861,13 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
         <span className="flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums">
           {done > 0 && <span className="font-semibold text-emerald-600 dark:text-emerald-400">{n(done)} ketdi</span>}
           {waiting > 0 && <span className="text-muted">{n(waiting)} navbatda</span>}
+          {/* Taxminiy vaqt — har ish ~60s. Busiz ro'yxat «qotib qolgan»dek ko'rinadi:
+              operator har daqiqada bittadan ketayotganini bilmasa, xato deb o'ylaydi. */}
+          {live && waiting > 0 && (
+            <span className="text-muted" title="Har ish orasida sud sozlamasidagi interval (standart 60s)">
+              ≈{waiting >= 60 ? `${Math.round(waiting / 60)} soat` : `${waiting} daq`}
+            </span>
+          )}
           {failed > 0 && <span className="font-semibold text-rose-600 dark:text-rose-400">{n(failed)} yuborilmadi</span>}
           <svg
             className={`h-3.5 w-3.5 text-muted transition-transform ${open ? 'rotate-180' : ''}`}
@@ -871,7 +878,7 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
 
       {open && data && (
         <ul className="mt-2 max-h-72 space-y-1 overflow-y-auto pr-0.5">
-          {data.rows.map((row) => {
+          {data.rows.map((row, i) => {
             const st = Q_STATE[row.state] ?? Q_STATE.PENDING;
             const failedRow = row.state === 'FAILED';
             return (
@@ -880,6 +887,8 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
                 className={`rounded-lg border px-2 py-1.5 text-[11px] ${failedRow ? 'border-rose-500/30 bg-rose-500/[0.05]' : 'border-transparent bg-surface-2'}`}
               >
                 <div className="flex items-center gap-2">
+                  {/* Tartib raqami — 99 ta ish orasida qaysi biri qayerdaligini ko'rish uchun. */}
+                  <span className="w-6 shrink-0 text-right tabular-nums text-muted">{i + 1}.</span>
                   <span className={`shrink-0 rounded px-1.5 py-0.5 font-medium ${st.tone}`}>{st.label}</span>
                   <span className="min-w-0 truncate font-medium">{row.clientName || `#${row.caseId}`}</span>
                   {row.attempts > 1 && (
