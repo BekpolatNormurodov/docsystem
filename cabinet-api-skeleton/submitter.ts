@@ -153,31 +153,41 @@ export class CabinetSubmitEngine {
       // «invoiceStatus is not valid» (400) qaytadi — ya'ni bu ayni paytda boji tekshiruvi ham.
       let receipts: unknown[] = [];
       if (caseData.receiptNumber) {
-        try {
-          const rr = await this.client.post<any>(CABINET_ENDPOINTS.findByReceiptNumber, {
-            receipt_number: caseData.receiptNumber,
-            receiptNumber: caseData.receiptNumber,
-          });
-          const rec = (rr.data as any)?.receipt ?? rr.data;
-          if (rec) {
-            console.log(`✔ Kvitansiya tasdiqlandi: ${caseData.receiptNumber} — ${rec.invoiceStatus ?? '?'} ${rec.paidAmount ?? ''}`);
+        // Kvitansiya tekshiruvi. Portal to'lov holatini ham tekshiradi: to'lanmagan uchun
+        // 400 «invoiceStatus is not valid» qaytadi — bu HAQIQIY sabab, ish to'xtaydi.
+        //
+        // Lekin 502/503/504 va timeout — portalning vaqtinchalik nosozligi, kvitansiyaga
+        // aloqasi yo'q (2026-09-07: AXMADJONOV ishida nginx 502 keldi va ish behuda
+        // «Yuborilmadi» bo'lib qoldi). Bunda qayta urinamiz, keyin ham bo'lmasa —
+        // kvitansiyani TEKSHIRMASDAN davom etamiz: u save-suit uchun majburiy emas
+        // (payloadga qo'shilmaydi), tekshiruv faqat qo'shimcha himoya edi.
+        const TRIES = 3;
+        for (let attempt = 1; attempt <= TRIES; attempt++) {
+          try {
+            const rr = await this.client.post<any>(CABINET_ENDPOINTS.findByReceiptNumber, {
+              receipt_number: caseData.receiptNumber,
+              receiptNumber: caseData.receiptNumber,
+            });
+            const rec = (rr.data as any)?.receipt ?? rr.data;
+            if (rec) console.log(`✔ Kvitansiya tasdiqlandi: ${caseData.receiptNumber} — ${rec.invoiceStatus ?? '?'} ${rec.paidAmount ?? ''}`);
+            break;
+          } catch (e: any) {
+            const kind = e?.kind as string | undefined;
+            const transient = kind === 'SERVER' || kind === 'BLOCKED' || kind === 'RATE_LIMIT';
+            if (!transient) {
+              // 4xx — kvitansiya haqiqatan nosoz (masalan to'lanmagan). Ish to'xtaydi.
+              throw new Error(
+                `Pochta kvitansiyasi (${caseData.receiptNumber}) portalda tasdiqlanmadi: ${e.message?.slice(0, 200)}. ` +
+                `To'lov amalga oshirilganini tekshiring.`,
+              );
+            }
+            if (attempt === TRIES) {
+              console.warn(`⚠ Kvitansiya tekshiruvi ${TRIES} marta portal nosozligi bilan tugadi — tekshirmasdan davom etamiz.`);
+              break;
+            }
+            console.warn(`⚠ Kvitansiya tekshiruvi (${attempt}/${TRIES}) portal nosozligi: ${kind}. Qayta urinamiz...`);
+            await new Promise((r) => setTimeout(r, 5_000 * attempt));
           }
-          // MUHIM: topilgan yozuv save-suit payloadiga QO'SHILMAYDI.
-          // 2026-09-07 jonli sinov: find-by-receipt-number javobini `receipts[]` ga qo'ysak
-          // server 500 beradi — «Cannot set properties of undefined (setting 'is_court_billing')»,
-          // ya'ni backend bu yerda BOSHQA shakldagi yozuv kutadi (wizard formasida
-          // courtCosts = {duty_reason_id, post_reason_id, receipts, claimCategories,
-          // postFee, vccFee, stateFee} — receipts qanday to'ldirilishi hali aniqlanmagan).
-          // `receipts: []` bilan save-suit MUVAFFAQIYATLI o'tgani tasdiqlangan, shuning uchun
-          // qidiruv faqat TO'LOV TEKSHIRUVI sifatida ishlatiladi: to'lanmagan kvitansiya
-          // portalda 400 «invoiceStatus is not valid» beradi va ish shu yerda to'xtaydi.
-          // TODO(receipts-shape): to'g'ri shakl aniqlangach shu yerda `receipts` to'ldirilsin.
-        } catch (e: any) {
-          // Kvitansiya topilmasa/to'lanmagan bo'lsa da'vo asossiz qoladi — to'xtatamiz.
-          throw new Error(
-            `Pochta kvitansiyasi (${caseData.receiptNumber}) portalda tasdiqlanmadi: ${e.message?.slice(0, 200)}. ` +
-            `To'lov amalga oshirilganini tekshiring.`,
-          );
         }
       }
       const courtCosts = CabinetPayloadBuilder.buildCourtCosts({ dutyReasonId: options.dutyReasonId ?? null, receipts });
