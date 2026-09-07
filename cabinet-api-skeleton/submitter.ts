@@ -67,13 +67,21 @@ export class CabinetSubmitEngine {
       // Sayt oqimi (prepare-ready -> selectReadyCaseIds) 5 shartni tekshiradi, lekin
       // to'g'ridan-to'g'ri chaqiruvlar (skript, qayta urinish) uni chetlab o'tadi —
       // shuning uchun tekshiruv dvigatelning O'ZIDA turishi kerak.
-      const hasAriza = files.some((f) => f.kind === 'ARIZA');
-      if (!hasAriza) {
+      // Ikkita hujjatsiz da'vo yuborilmaydi:
+      //   ARIZA  — palatada imzolangan ariza skani (da'voning o'zi);
+      //   OFERTA — mikroqarz shartnomasi. Bizning toifamiz 111 «yozma bitimga asoslangan
+      //            talab», ya'ni oferta da'voning HUQUQIY ASOSI. Usiz da'vo asossiz.
+      const need: { kind: CaseFileToUpload['kind']; label: string; hint: string }[] = [
+        { kind: 'ARIZA', label: 'imzolangan ariza', hint: 'palatadan kelgan imzolangan arizani skanerlab biriktiring' },
+        { kind: 'OFERTA', label: 'oferta (mikroqarz shartnomasi)', hint: 'oferta portfel ma\'lumotidan yaratiladi — kredit yozuvlari va chromium borligini tekshiring' },
+      ];
+      const missing = need.filter((x) => !files.some((f) => f.kind === x.kind));
+      if (missing.length) {
         const bor = files.map((f) => f.kind).join(', ') || 'hech narsa';
         throw new Error(
-          `Imzolangan ARIZA topilmadi — bunday da'voni sudga yuborib bo'lmaydi (sud qaytaradi, ` +
-          `lekin da'vo rasman berilgan bo'lib qoladi). Mavjud hujjatlar: ${bor}. ` +
-          `Avval palatadan imzolangan arizani skanerlab biriktiring.`,
+          `Yetishmayotgan hujjat: ${missing.map((m) => m.label).join(', ')}. ` +
+          `Bunday da'voni sudga yuborib bo'lmaydi — sud qaytaradi, lekin da'vo rasman berilgan ` +
+          `bo'lib qoladi. Mavjud hujjatlar: ${bor}. Nima qilish kerak: ${missing.map((m) => m.hint).join('; ')}.`,
         );
       }
 

@@ -206,6 +206,67 @@ export async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
     }
   }
 
+  // D) OFERTA (mikroqarz shartnomasi) — har kredit uchun bittadan, generatsiya qilinadi.
+  //
+  // NEGA MUHIM: bizning da'vo toifasi 111 — «yozma bitimga asoslangan talab». Oferta aynan
+  // o'sha YOZMA BITIM, ya'ni da'voning huquqiy asosi. Usiz da'vo — asossiz da'vo.
+  //
+  // Bu ZIP paketda (buildCasePacket) ANCHADAN BERI bor edi, lekin API orqali yuborishda
+  // yo'q edi: ikki yo'l vaqt o'tib bir-biridan uzoqlashib ketgan. Ya'ni qo'lda ZIP olib
+  // topshirilgan ish to'liq, tizim orqali yuborilgani esa shartnomasiz ketardi.
+  //
+  // Chromium worker konteynerida bor; bo'lmasa oferta yaratilmaydi va yuqoridagi
+  // to'liqlik tekshiruvi ishni to'xtatadi — chala paket sudga ketmaydi.
+  try {
+    const { chromium } = await import('playwright');
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const { buildCaseOfertas } = await import('./konveyer-packet');
+      const res = await buildCaseOfertas(ac.id, browser);
+      for (const f of res?.files ?? []) {
+        if (filesToUpload.some((x) => x.fileName === f.name)) continue;
+        filesToUpload.push({ kind: 'OFERTA', fileName: f.name, buffer: f.buf });
+      }
+    } finally {
+      await browser.close().catch(() => {});
+    }
+  } catch (e) {
+    console.error(`[court-submit] Case #${ac.id}: oferta yaratilmadi —`, e instanceof Error ? e.message : e);
+  }
+
+  // E) Boji kvitansiyasi (billing.sud.uz invoice PDF).
+  //
+  // ADOLAT'da bunga alohida hujjat turi bor: «Почта харажати тўланганлиги тўғрисида
+  // маълумотнома» (CABINET_DOC_TYPES.POCHTA_XARAJATI_KVITANSIYA).
+  //
+  // ESLATMA: ZIP paketda bu ATAYIN yo'q (konveyer-packet.ts izohi: raqam arizaning ichida
+  // ketadi, PDF esa kerak emas). Sudga API orqali yuborishda esa operator qarori bo'yicha
+  // BIRIKTIRILADI — ikkala yo'l bu nuqtada ataylab farq qiladi.
+  if (ac.invoiceNo || ac.receiptNumber) {
+    const rec = await prisma.invoiceRecord.findFirst({
+      where: {
+        OR: [
+          { caseId: ac.id },
+          { invoiceNo: String(ac.invoiceNo ?? ac.receiptNumber) },
+        ],
+        pdfPath: { not: null },
+      },
+      select: { invoiceNo: true, pdfPath: true },
+      orderBy: { id: 'desc' },
+    });
+    if (rec?.pdfPath) {
+      try {
+        let p = rec.pdfPath;
+        if (p.startsWith('/app/')) p = path.join(process.cwd(), p.replace(/^\/app\//, ''));
+        else if (!path.isAbsolute(p)) p = path.join(process.cwd(), p);
+        const buf = await fs.readFile(p);
+        filesToUpload.push({ kind: 'BOJI_RECEIPT', fileName: `Kvitansiya_${rec.invoiceNo}.pdf`, buffer: buf });
+      } catch (e) {
+        console.error(`[court-submit] Case #${ac.id}: boji kvitansiyasi o'qilmadi (${rec.pdfPath})`, e instanceof Error ? e.message : e);
+      }
+    }
+  }
+
   return filesToUpload;
 }
 
