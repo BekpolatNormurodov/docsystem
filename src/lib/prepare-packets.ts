@@ -101,7 +101,10 @@ export interface PacketJobOpts {
 /** Runs a bulk packet job to completion. Never throws — failures are recorded on
  *  the Job row so the fire-and-forget caller needs no catch. */
 export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<void> {
-  await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING' } });
+  // `message: null` — oldingi urinishdan qolgan matnni tozalaymiz. Uzilgan job qayta
+  // boshlanganda «Uzilib qoldi (24/100)» yozuvi qolib ketar va job TUGAGANDAN keyin ham
+  // operatorga ko'rinardi: muvaffaqiyatli ZIP «uzilib qolgan» deb turardi.
+  await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING', message: null } });
   const arizaOnly = opts.arizaOnly === true;
   // Ariza-only needs no chromium (ariza is a .docx) — force the PDF/browser off.
   const withPdf = !arizaOnly && opts.talabnomaPdf !== false;
@@ -292,7 +295,10 @@ const safeName = (s: string, n = 70) => (s || 'hujjat').replace(/[^\p{L}\p{N}._ 
  *  loans, which may include people with no arizaCase). One oferta per loan, grouped by client
  *  folder, one shared browser. Same streaming/backpressure guarantees as the other jobs. */
 export async function runOfertaJobByLoans(jobId: number, loanIds: number[], insurancePct = 0): Promise<void> {
-  await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING' } });
+  // `message: null` — oldingi urinishdan qolgan matnni tozalaymiz. Uzilgan job qayta
+  // boshlanganda «Uzilib qoldi (24/100)» yozuvi qolib ketar va job TUGAGANDAN keyin ham
+  // operatorga ko'rinardi: muvaffaqiyatli ZIP «uzilib qolgan» deb turardi.
+  await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING', message: null } });
   let browser: Browser | null = null;
   let output: fs.WriteStream | null = null;
   const zipPath = path.join(EXPORTS_DIR, `${jobId}.zip`);
@@ -389,7 +395,10 @@ export async function runOfertaJobByLoans(jobId: number, loanIds: number[], insu
  *  throws — the outcome is recorded on the Job row. On success it advances the talabnoma track
  *  (talabnomaAt) for the firm's debt>0 clients — the reyestr set — matching the single-case routes. */
 export async function runTalabnomaJob(jobId: number, opts: TalabnomaScope, singleCase = false): Promise<void> {
-  await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING' } });
+  // `message: null` — oldingi urinishdan qolgan matnni tozalaymiz. Uzilgan job qayta
+  // boshlanganda «Uzilib qoldi (24/100)» yozuvi qolib ketar va job TUGAGANDAN keyin ham
+  // operatorga ko'rinardi: muvaffaqiyatli ZIP «uzilib qolgan» deb turardi.
+  await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING', message: null } });
   let browser: Browser | null = null;
   let output: fs.WriteStream | null = null;
   const zipPath = path.join(EXPORTS_DIR, `${jobId}.zip`);
@@ -520,7 +529,10 @@ export interface OfertaJobOpts {
  *  in several firms gets all their ofertas together). Same robust streaming/backpressure
  *  pattern as runPacketJob. Never throws — the outcome is recorded on the Job row. */
 export async function runOfertaJob(jobId: number, opts: OfertaJobOpts): Promise<void> {
-  await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING' } });
+  // `message: null` — oldingi urinishdan qolgan matnni tozalaymiz. Uzilgan job qayta
+  // boshlanganda «Uzilib qoldi (24/100)» yozuvi qolib ketar va job TUGAGANDAN keyin ham
+  // operatorga ko'rinardi: muvaffaqiyatli ZIP «uzilib qolgan» deb turardi.
+  await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING', message: null } });
   let browser: Browser | null = null;
   let output: fs.WriteStream | null = null;
   const zipPath = path.join(EXPORTS_DIR, `${jobId}.zip`);
