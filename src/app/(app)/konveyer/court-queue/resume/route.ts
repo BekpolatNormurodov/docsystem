@@ -42,9 +42,26 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // TAKROR JOB'NI TO'SISH. 2026-09-07: URBAN uchun 16 soniya farq bilan IKKITA job yaralgan
+  // (206 RUNNING 3/9 va 207 PENDING 0/9 — bir xil 9 ta ish). Sabab: bu endpoint RUNNING
+  // holatdagi ishlarni ham olib ketardi, ya'ni ketayotgan partiyani qaytadan navbatga
+  // qo'yardi. Ikki qatlamli himoya:
+  //   1) shu firmada faol job bo'lsa — umuman yangi job yaratmaymiz;
+  //   2) faqat PENDING ishlar olinadi (RUNNING — boshqa job egallagan).
+  const active = await prisma.job.findFirst({
+    where: { type: 'COURT_SUBMIT', status: { in: ['PENDING', 'RUNNING'] } },
+    select: { id: true, status: true, params: true },
+  });
+  if (active && Number((active.params as { firmId?: number } | null)?.firmId) === firmId) {
+    return NextResponse.json(
+      { error: `Bu firma uchun partiya allaqachon ${active.status === 'RUNNING' ? 'ketmoqda' : 'navbatda'} (#${active.id}). Tugashini kuting.` },
+      { status: 409 },
+    );
+  }
+
   const limit = Math.min(100, Math.max(1, Number(body?.limit) || 100));
   const items = await prisma.courtQueueItem.findMany({
-    where: { firmId, state: { in: ['PENDING', 'RUNNING'] } },
+    where: { firmId, state: 'PENDING' },
     select: { caseId: true },
     orderBy: { id: 'asc' },
     take: limit,

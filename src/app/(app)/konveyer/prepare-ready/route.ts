@@ -112,6 +112,23 @@ export async function POST(req: NextRequest) {
 
   // Umumiy pauza YANGI partiyani ham to'sadi (faqat ketayotganini emas). ZIP tayyorlash
   // portalga tegmaydi — u pauzadan qat'i nazar ishlayveradi.
+  // BIR FIRMAGA IKKITA PARTIYA bo'lmasin. Operator tugmani ikki marta bosса yoki sahifa
+  // ikki joyda ochiq bo'lsa, bir xil ishlar ustidan ikkita job yaralardi. Ishning o'zi
+  // ikki marta yuborilmaydi (DONE tekshiruvi bor), lekin navbat chalkashadi va operator
+  // qaysi biri haqiqiy ekanini bilmaydi. ZIP eksportiga bu cheklov tegishli emas.
+  if (!isExportOnly) {
+    const active = await prisma.job.findFirst({
+      where: { type: 'COURT_SUBMIT', status: { in: ['PENDING', 'RUNNING'] } },
+      select: { id: true, status: true, params: true },
+    });
+    if (active && Number((active.params as { firmId?: number } | null)?.firmId) === firmId) {
+      return NextResponse.json(
+        { error: `Bu firma uchun partiya allaqachon ${active.status === 'RUNNING' ? 'ketmoqda' : 'navbatda'} (#${active.id}). Tugashini kuting yoki «Bekor» qiling.` },
+        { status: 409 },
+      );
+    }
+  }
+
   if (!isExportOnly && (await isQueuePaused())) {
     return NextResponse.json(
       { error: 'Sudga yuborish jarayoni pauzada. Davom ettirish uchun «Davom ettirish» tugmasini bosing.' },
