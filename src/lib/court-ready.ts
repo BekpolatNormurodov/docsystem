@@ -53,7 +53,7 @@ function metaHas(meta: unknown, key: string): boolean {
 function isExported(meta: unknown): boolean { return metaHas(meta, 'exportedAt'); }
 function isDraftMeta(meta: unknown): boolean { return metaHas(meta, 'draftAt'); }
 
-function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<number>, ofertaPinfls: Set<string>): DocFlags {
+function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<number>, ofertaPinfls: Set<string>, paidReceipts?: Set<string>): DocFlags {
   const talabnoma = !!c.talabnomaAt;
   // SKAN = imzolangan ariza SHU case'ga biriktirilgan (CaseDocument SIGNED_ARIZA) — paket
   // bilan bir xil manba. Ilgari global PINFL to'plami ishlatilardi: bir odam (PINFL) boshqa
@@ -65,7 +65,10 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
   const receipt = receiptCaseIds.has(c.id);
   // `boji` = invoice RAQAMI (receiptNumber) bor. Invoice PDF sudga ketmaydi, ammo raqami
   // ariza ichiga yoziladi — raqamsiz ariza chala, shuning uchun `boji` MAJBURIY gate.
-  const boji = !!c.receiptNumber;
+  // `boji` = kvitansiya raqami bor VA U TO'LANGAN. To'lanmagani portalda 400 beradi, ya'ni
+  // «tayyor» deb ko'rsatish yolg'on bo'lardi. `paidReceipts` berilmagan eski chaqiruvlarda
+  // eski xatti-harakat saqlanadi (faqat raqam borligi).
+  const boji = !!c.receiptNumber && (!paidReceipts || paidReceipts.has(c.receiptNumber));
   const ready = talabnoma && scan && oferta && receipt && boji;
   // «Yuborilgan» — meta.exportedAt (ZIP paket chiqarilgani) YOKI bosqichi allaqachon sudda.
   //
@@ -97,6 +100,23 @@ async function caseIdSetByKind(caseIds: number[], kind: string): Promise<Set<num
   return new Set(docs.map((d) => d.caseId));
 }
 const signedCaseIdSet = (caseIds: number[]) => caseIdSetByKind(caseIds, 'SIGNED_ARIZA');
+
+// TO'LANGAN kvitansiya raqamlari to'plami.
+//
+// NEGA KERAK: portal `save-suit` dan oldin kvitansiyani tekshiradi va TO'LANMAGANI uchun
+// «invoiceStatus is not valid» (400) qaytaradi — da'vo umuman ketmaydi. Ilgari `boji`
+// sharti faqat RAQAM borligini tekshirardi, shuning uchun to'lanmagan kvitansiyali ish ham
+// «Tayyor» ko'rinardi va partiyaga tushib, portalda yiqilardi. 2026-09-07 holati: raqami
+// bor 3602 ta ishning 329 tasida kvitansiya CREATED (to'lanmagan).
+async function paidReceiptSet(numbers: string[]): Promise<Set<string>> {
+  const uniq = [...new Set(numbers.filter(Boolean))];
+  if (!uniq.length) return new Set();
+  const rows = await prisma.billingCheckInvoice.findMany({
+    where: { number: { in: uniq }, invoiceStatus: 'PAID' },
+    select: { number: true },
+  });
+  return new Set(rows.map((r) => r.number));
+}
 const receiptCaseIdSet = (caseIds: number[]) => caseIdSetByKind(caseIds, 'TALABNOMA_RECEIPT');
 
 // Talabnoma xat.hippo'da YETKAZILGAN (kvitansiya/check bor) mijozlar PINFL to'plami.
@@ -184,6 +204,7 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
     if (cases.length === 0) return null;
     const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
     const receiptIds = await receiptCaseIdSet(cases.map((c) => c.id));
+    const paidReceipts = await paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]);
 
     const fr: FirmReadiness = {
       firmId: f.id, firmName: f.shortName, total: cases.length,
@@ -193,7 +214,7 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
       docs: firmDocsStatus(f.id),
     };
     for (const c of cases as CaseRow[]) {
-      const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls);
+      const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls, paidReceipts);
       if (fl.ready) fr.ready++;
       if (fl.exported) fr.exported++;
       if (fl.submitted) fr.submitted++;
@@ -302,6 +323,7 @@ export async function firmReadyClients(opts: {
   ]);
   const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
     const receiptIds = await receiptCaseIdSet(cases.map((c) => c.id));
+    const paidReceipts = await paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]);
   const deliveredPinfls = await talabnomaDeliveredPinflSet(firm.code);
   const now = Date.now();
   const day = 86400000;
@@ -312,7 +334,7 @@ export async function firmReadyClients(opts: {
   const counts: ClientReadyCounts = { all: 0, sendable: 0, draft: 0, ready: 0, exported: 0, submitted: 0, notready: 0 };
   const rows: ClientReadyRow[] = [];
   for (const c of cases) {
-    const fl = flagsFor(c as CaseRow, signedIds, receiptIds, ofertaPinfls);
+    const fl = flagsFor(c as CaseRow, signedIds, receiptIds, ofertaPinfls, paidReceipts);
     counts.all++;
     if (fl.sendable) counts.sendable++;
     if (fl.draft) counts.draft++;
@@ -362,6 +384,7 @@ export async function sendableCourtBreakdown(opts: { snapshotId?: number; firmId
   ]);
   const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
   const receiptIds = await receiptCaseIdSet(cases.map((c) => c.id));
+  const paidReceipts = await paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]);
 
   // BARCHA faol sudlar ro'yxatdan boshlanadi — tayyor ishi bo'lmagani ham, ADOLAT'da yopig'i
   // ham ko'rinsin. Avval faqat ishi borlari chiqardi va operator yopiq sudni umuman ko'rmasdi:
@@ -381,7 +404,7 @@ export async function sendableCourtBreakdown(opts: { snapshotId?: number; firmId
 
   let total = 0;
   for (const c of cases) {
-    const fl = flagsFor(c as CaseRow, signedIds, receiptIds, ofertaPinfls);
+    const fl = flagsFor(c as CaseRow, signedIds, receiptIds, ofertaPinfls, paidReceipts);
     if (!fl.sendable) continue;
     total++;
     const key = String(c.courtId ?? 'none');
@@ -418,9 +441,10 @@ export async function selectReadyCaseIds(opts: {
   ]);
   const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
     const receiptIds = await receiptCaseIdSet(cases.map((c) => c.id));
+    const paidReceipts = await paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]);
   const picked: number[] = [];
   for (const c of cases as CaseRow[]) {
-    const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls);
+    const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls, paidReceipts);
     if (!fl.ready) continue;
     if (SENT_STAGES.has(c.stage)) continue;
     // ZIP olingani HECH QAYERDA to'siq emas: u sudga hech narsa yubormaydi va shunchaki
@@ -451,9 +475,10 @@ export async function validateSelectedCaseIds(opts: {
   ]);
   const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
     const receiptIds = await receiptCaseIdSet(cases.map((c) => c.id));
+    const paidReceipts = await paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]);
   return (cases as CaseRow[])
     .filter((c) => {
-      const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls);
+      const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls, paidReceipts);
       return fl.ready && !SENT_STAGES.has(c.stage);
     })
     .map((c) => c.id)
