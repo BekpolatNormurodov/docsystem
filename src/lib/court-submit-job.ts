@@ -354,6 +354,31 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
     // bo'lib qoladi, shuning uchun partiya umuman boshlanmasin.
     await assertFirmDocsBelongToFirm(firm.id, firm.shortName);
 
+    // OSILIB QOLGAN KUNLIK LIMITNI QAYTARISH (o'z-o'zini tuzatish).
+    //
+    // `consumeCourtSend` limitni partiya boshlanishida band qiladi (courtSentAt) va job
+    // OXIRIDA yuborilmaganlarini qaytaradi. Lekin worker o'rtada o'lsa (deploy/restart) o'sha
+    // yakuniy blok umuman ishlamaydi va joylar abadiy band bo'lib qoladi. 2026-09-07 da
+    // shunday bo'ldi: Yuqorichirchiqda 100/1000 band ko'rinardi, holbuki o'sha sudga
+    // BITTA ham da'vo ketmagan (u ADOLAT'da yopiq), Uchtepada esa 101 banddan atigi 32 tasi
+    // haqiqiy edi.
+    //
+    // Shuning uchun har partiya boshida: sudga TOPSHIRILMAGAN (stage sudda emas, courtCaseId
+    // yo'q), lekin limitni band qilib turgan ishlarning belgisini tozalaymiz. Haqiqatan
+    // topshirilganlarga TEGILMAYDI.
+    const released = await prisma.arizaCase.updateMany({
+      where: {
+        firmId: firm.id,
+        courtSentAt: { not: null },
+        courtCaseId: null,
+        stage: { notIn: ['COURT_SUBMITTED', 'COURT_ACCEPTED', 'MIB_SUBMITTED', 'CLOSED'] },
+      },
+      data: { courtSentAt: null },
+    });
+    if (released.count) {
+      console.log(`[Job ${jobId}] ${released.count} ta osilib qolgan kunlik limit joyi bo'shatildi.`);
+    }
+
     const engine = new CabinetSubmitEngine({
       token: sessionToken,
       account: firmStir,
