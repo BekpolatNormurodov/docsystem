@@ -975,7 +975,7 @@ function FirmSendRow({ fr, snapshotId, job, startExport, onChanged, drillOpen, o
         {autoActive ? (
           <div className="inline-flex shrink-0 items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" /> Auto{job && (job.status === 'RUNNING' || job.status === 'PENDING') ? ' · yuborilyapti' : ' · 30s kutmoqda'}
+              <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" /> Auto{job && (job.status === 'RUNNING' || job.status === 'PENDING') ? ' · yuborilyapti' : ' · keyingi partiya 60s dan keyin'}
             </span>
             <button type="button" onClick={() => onStopAuto?.()} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 px-2.5 py-1.5 text-xs font-semibold text-rose-600 outline-none transition-colors hover:bg-rose-500/10 focus-visible:ring-2 focus-visible:ring-rose-500/30 dark:text-rose-300">
               To‘xtatish
@@ -1135,8 +1135,8 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
 
   const snapshotId = data?.snapshotId ?? selectedId;
 
-  // ── AUTO rejim: bir marta imzolangach, har 30s da keyingi paketni O'ZI yuboradi ────────────
-  // (tugagach 30s kutib, firma hali tayyor bo'lsa keyingi partiyani boshlaydi; tayyor tugasa yoki
+  // ── AUTO rejim: bir marta imzolangach, keyingi PARTIYAlarni o'zi boshlaydi ─────────────────
+  // (partiya tugagach AUTO_MS kutib, firma hali tayyor bo'lsa keyingisini boshlaydi; tayyor tugasa yoki
   //  «To'xtatish» bosilsa — to'xtaydi). Qayta E-IMZO so'ralmaydi — operator auto'ni yoqib tasdiqlagan.
   // AUTO rejim: partiya tugagach keyingisi shuncha kutib boshlanadi. 30s edi — portal
   // tezlik cheklovi uchun juda tez (bir partiya tugashi bilan darrov keyingisi urilardi).
@@ -1152,7 +1152,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   const runExport = (fid: number, extra: Record<string, unknown> = {}) =>
     startJob(`firm:${fid}`, { firmId: fid, snapshotId, limit: 100, ...extra }, async () => {
       const fresh = await loadRef.current();
-      // AUTO: shu firma auto'da bo'lsa — tayyor qolgan bo'lsa 30s dan keyin keyingisi.
+      // AUTO: shu firma auto'da bo'lsa — tayyor qolgan bo'lsa AUTO_MS dan keyin keyingisi.
       const a = autoRef.current;
       if (a && a.firmId === fid) {
         const fr = fresh?.readiness.firms.find((f) => f.firmId === fid);
