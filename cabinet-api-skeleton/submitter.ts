@@ -146,9 +146,18 @@ export class CabinetSubmitEngine {
           });
           const rec = (rr.data as any)?.receipt ?? rr.data;
           if (rec) {
-            receipts = [rec];
-            console.log(`✔ Kvitansiya topildi: ${caseData.receiptNumber} — ${rec.invoiceStatus ?? '?'} ${rec.paidAmount ?? ''}`);
+            console.log(`✔ Kvitansiya tasdiqlandi: ${caseData.receiptNumber} — ${rec.invoiceStatus ?? '?'} ${rec.paidAmount ?? ''}`);
           }
+          // MUHIM: topilgan yozuv save-suit payloadiga QO'SHILMAYDI.
+          // 2026-09-07 jonli sinov: find-by-receipt-number javobini `receipts[]` ga qo'ysak
+          // server 500 beradi — «Cannot set properties of undefined (setting 'is_court_billing')»,
+          // ya'ni backend bu yerda BOSHQA shakldagi yozuv kutadi (wizard formasida
+          // courtCosts = {duty_reason_id, post_reason_id, receipts, claimCategories,
+          // postFee, vccFee, stateFee} — receipts qanday to'ldirilishi hali aniqlanmagan).
+          // `receipts: []` bilan save-suit MUVAFFAQIYATLI o'tgani tasdiqlangan, shuning uchun
+          // qidiruv faqat TO'LOV TEKSHIRUVI sifatida ishlatiladi: to'lanmagan kvitansiya
+          // portalda 400 «invoiceStatus is not valid» beradi va ish shu yerda to'xtaydi.
+          // TODO(receipts-shape): to'g'ri shakl aniqlangach shu yerda `receipts` to'ldirilsin.
         } catch (e: any) {
           // Kvitansiya topilmasa/to'lanmagan bo'lsa da'vo asossiz qoladi — to'xtatamiz.
           throw new Error(
