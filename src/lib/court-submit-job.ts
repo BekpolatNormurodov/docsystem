@@ -98,6 +98,13 @@ export async function assertFirmDocsBelongToFirm(firmId: number, firmName: strin
     } catch { return null; }
   };
 
+  // ISHONCHNOMA ataylab umumiy: guruhda vakolatnoma BRIGHT nomidan rasmiylashtirilgan va
+  // barcha firmalar uchun bir xil hujjat ishlatiladi (operator 2026-09-07 da tasdiqladi).
+  // Shuning uchun u faqat OGOHLANTIRISH beradi — ishni to'xtatmaydi.
+  // GUVOHNOMA (davlat ro'yxatidan o'tganlik) va SHARTNOMA esa har firmada O'ZINIKI bo'lishi
+  // shart — boshqa firmanikini yuborish da'voni asossiz qiladi, shuning uchun ular TO'SADI.
+  const WARN_ONLY = new Set(['ISHONCHNOMA']);
+
   const mine = all.filter((d) => d.firmId === firmId);
   for (const doc of mine) {
     const h = await hashOf(doc.filePath);
@@ -105,9 +112,14 @@ export async function assertFirmDocsBelongToFirm(firmId: number, firmName: strin
     for (const other of all) {
       if (other.firmId === firmId || other.kind !== doc.kind) continue;
       if ((await hashOf(other.filePath)) !== h) continue;
+      const who = other.firm?.shortName ?? 'boshqa firma';
+      if (WARN_ONLY.has(String(doc.kind))) {
+        console.warn(`⚠ ${firmName}: «${doc.kind}» ${who}'niki bilan bir xil fayl (ataylab umumiy deb belgilangan).`);
+        continue;
+      }
       throw new Error(
-        `${firmName} uchun «${doc.kind}» hujjati ${other.firm?.shortName ?? 'boshqa firma'}'niki bilan ` +
-        `AYNAN bir xil fayl. Bu hujjat ${firmName} nomidan vakolat bermaydi — sud da'voni qaytaradi. ` +
+        `${firmName} uchun «${doc.kind}» hujjati ${who}'niki bilan AYNAN bir xil fayl. ` +
+        `Bu hujjat ${firmName} nomidan vakolat bermaydi — sud da'voni qaytaradi. ` +
         `Firmalar → ${firmName} → «Hujjatlar»dan to'g'ri faylni yuklang.`,
       );
     }
