@@ -71,9 +71,15 @@ export class CabinetSubmitEngine {
       //   ARIZA  — palatada imzolangan ariza skani (da'voning o'zi);
       //   OFERTA — mikroqarz shartnomasi. Bizning toifamiz 111 «yozma bitimga asoslangan
       //            talab», ya'ni oferta da'voning HUQUQIY ASOSI. Usiz da'vo asossiz.
+      //   TALABNOMA + uning KVITANSIYASI — da'vodan oldin qarzdorga talab qo'yilgani va
+      //            u yetkazilgani isboti. Ikkisi juft: xatning MAZMUNI va yetkazilganlik
+      //            dalili. Bittasi yetishmasa sud «talab qo'yilganmi?» degan savolga
+      //            javob topa olmaydi.
       const need: { kind: CaseFileToUpload['kind']; label: string; hint: string }[] = [
         { kind: 'ARIZA', label: 'imzolangan ariza', hint: 'palatadan kelgan imzolangan arizani skanerlab biriktiring' },
         { kind: 'OFERTA', label: 'oferta (mikroqarz shartnomasi)', hint: 'oferta portfel ma\'lumotidan yaratiladi — kredit yozuvlari va chromium borligini tekshiring' },
+        { kind: 'TALABNOMA', label: 'talabnoma (talab xati)', hint: 'talabnoma PDF portfel ma\'lumotidan yaratiladi — chromium va kredit yozuvlarini tekshiring' },
+        { kind: 'TALABNOMA_CHECK', label: 'talabnoma kvitansiyasi', hint: 'xat.hippo (UZPOST) yetkazish kvitansiyasini biriktiring' },
       ];
       const missing = need.filter((x) => !files.some((f) => f.kind === x.kind));
       if (missing.length) {

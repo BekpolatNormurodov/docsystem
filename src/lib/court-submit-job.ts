@@ -239,11 +239,46 @@ export async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
         if (filesToUpload.some((x) => x.fileName === f.name)) continue;
         filesToUpload.push({ kind: 'OFERTA', fileName: f.name, buffer: f.buf });
       }
+
+      // E) TALABNOMANING O'ZI (qarzni to'lash haqidagi talab xati).
+      //
+      // Hozirgacha sudga faqat uning YETKAZILGANLIK KVITANSIYASI (TALABNOMA_CHECK) ketardi —
+      // ya'ni «xat yuborilgani» isboti bor edi, lekin XATNING O'ZI yo'q edi. Sud uchun ikkisi
+      // ham kerak: da'vodan oldin qarzdorga talab qo'yilganini ko'rsatish uchun xatning
+      // MAZMUNI (qancha, qaysi shartnoma bo'yicha, qachongacha) muhim.
+      // ZIP paketda bu hujjat bor edi (buildCasePacket 1-bo'lim) — API oqimida yo'q edi.
+      if (!filesToUpload.some((f) => f.kind === 'TALABNOMA')) {
+        try {
+          const [{ buildTalabnomaRows }, { renderTalabnomaPdf }] = await Promise.all([
+            import('./hippo/talabnoma-excel'),
+            import('./hippo/talabnoma-pdf'),
+          ]);
+          const [snap, firm, loans] = await Promise.all([
+            ac.snapshotId ? prisma.snapshot.findUnique({ where: { id: ac.snapshotId }, select: { reportDate: true } }) : null,
+            ac.kod ? prisma.firm.findUnique({ where: { code: ac.kod } }) : null,
+            prisma.loan.findMany({
+              where: { snapshotId: ac.snapshotId ?? undefined, pinfl: ac.pinfl, ...(ac.kod ? { branchCode: ac.kod } : {}) },
+              orderBy: { id: 'asc' },
+            }),
+          ]);
+          const rows = buildTalabnomaRows(loans as any, snap?.reportDate ?? new Date());
+          if (rows.length) {
+            const buf = await renderTalabnomaPdf(rows[0], browser, firm ?? undefined);
+            filesToUpload.push({
+              kind: 'TALABNOMA',
+              fileName: `Talabnoma_${(ac.clientName || ac.pinfl || ac.id).toString().replace(/[\\/:*?"<>|]/g, '_')}.pdf`,
+              buffer: buf,
+            });
+          }
+        } catch (e) {
+          console.error(`[court-submit] Case #${ac.id}: talabnoma PDF yaratilmadi —`, e instanceof Error ? e.message : e);
+        }
+      }
     } finally {
       await browser.close().catch(() => {});
     }
   } catch (e) {
-    console.error(`[court-submit] Case #${ac.id}: oferta yaratilmadi —`, e instanceof Error ? e.message : e);
+    console.error(`[court-submit] Case #${ac.id}: oferta/talabnoma yaratilmadi —`, e instanceof Error ? e.message : e);
   }
 
   // E) Boji kvitansiyasi (billing.sud.uz invoice PDF).
