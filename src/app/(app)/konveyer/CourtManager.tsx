@@ -794,7 +794,7 @@ function PauseSwitch() {
 // aynan shuni bilishi kerak: xato bergan ishni topib, sababini o'qib, tuzatib qayta yuborish.
 type QueueRow = {
   caseId: number; clientName: string | null; pinfl: string | null; state: string;
-  error: string | null; draftId: string | null; caseNumber: string | null; attempts: number;
+  error: string | null; draftId: string | null; caseNumber: string | null; attempts: number; step?: string | null;
 };
 const Q_STATE: Record<string, { label: string; tone: string }> = {
   PENDING: { label: 'Navbatda', tone: 'bg-slate-500/12 text-slate-600 dark:text-slate-300' },
@@ -891,6 +891,11 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
                   <span className="w-6 shrink-0 text-right tabular-nums text-muted">{i + 1}.</span>
                   <span className={`shrink-0 rounded px-1.5 py-0.5 font-medium ${st.tone}`}>{st.label}</span>
                   <span className="min-w-0 truncate font-medium">{row.clientName || `#${row.caseId}`}</span>
+                  {/* Ayni paytdagi bosqich — faqat ketayotgan ish uchun. Busiz «Ketyapti»
+                      60 soniya qimirlamay turadi va qotib qolgandek ko'rinadi. */}
+                  {row.state === 'RUNNING' && row.step && (
+                    <span className="shrink-0 rounded bg-sky-500/12 px-1.5 py-0.5 text-[10px] text-sky-700 dark:text-sky-300">{row.step}</span>
+                  )}
                   {row.attempts > 1 && (
                     <span className="shrink-0 rounded bg-surface px-1 text-[10px] text-muted" title={`${row.attempts} marta urinilgan`}>
                       {row.attempts}×

@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
     orderBy: [{ updatedAt: 'desc' }],
     take: 300,
     select: {
-      caseId: true, state: true, lastError: true, draftId: true, caseNumber: true,
+      caseId: true, state: true, lastError: true, draftId: true, caseNumber: true, step: true,
       attempts: true, startedAt: true, finishedAt: true,
       case: { select: { clientName: true, pinfl: true } },
     },
@@ -42,6 +42,7 @@ export async function GET(req: NextRequest) {
       clientName: it.case?.clientName ?? null,
       pinfl: it.case?.pinfl ?? null,
       state: it.state,
+      step: it.step,
       error: it.lastError,
       draftId: it.draftId,
       caseNumber: it.caseNumber,

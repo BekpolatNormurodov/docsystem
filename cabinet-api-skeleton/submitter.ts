@@ -22,6 +22,9 @@ export interface SubmissionOptions {
   dutyReasonId?: string | null;
   /** save-suit oqimi jonli tekshirilgach TRUE qilinadi — shundan keyin yakuniy yuborish ishlaydi. */
   confirmedLiveVerified?: boolean;
+  /** Har bosqichda chaqiriladi — chaqiruvchi buni bazaga yozib UI'da ko'rsatadi.
+   *  Bitta ish 60 soniyagacha davom etadi; bosqichsiz UI qotib qolgandek ko'rinadi. */
+  onStep?: (step: string) => void;
 }
 
 export interface SubmissionResult {
@@ -92,11 +95,13 @@ export class CabinetSubmitEngine {
       }
 
       // STEP 1: sessiya tekshirish
+      options.onStep?.('Sessiya');
       console.log('▶ [1/7] Sessiya tekshirilmoqda...');
       const userRes = await this.client.get<{ username: string }>(CABINET_ENDPOINTS.userGet);
       console.log(`✔ Sessiya faol: ${userRes.data?.username || 'OK'}`);
 
       // STEP 2: draft yaratish (bo'sh {})
+      options.onStep?.('Qoralama ochilmoqda');
       console.log('▶ [2/7] Qoralama ochilmoqda...');
       const draftRes = await this.client.post<DraftCaseResponse>(CABINET_ENDPOINTS.draftCreate, CabinetPayloadBuilder.buildDraft());
       draftId = draftRes.data?.id;
@@ -104,6 +109,7 @@ export class CabinetSubmitEngine {
       console.log(`✔ Qoralama yaratildi: ID = ${draftId}`);
 
       // STEP 3: sud/da'vogar + ish turkumi/summa — BITTA PUT (server to'liq details'ni kutadi)
+      options.onStep?.('Sud va summa');
       console.log('▶ [3/7] Sud/da\'vogar + ish turkumi/summa saqlanmoqda...');
       const details: DraftDetails = {
         // Ish turi — portal buni 1-qadamda kutadi; bizning eski kod yubormasdi va qoralama
@@ -120,12 +126,14 @@ export class CabinetSubmitEngine {
       console.log('✔ Saqlandi.');
 
       // STEP 4: javobgar (qarzdor) qo'shilmoqda...
+      options.onStep?.('Javobgar');
       console.log('▶ [4/7] Javobgar (qarzdor) qo\'shilmoqda...');
       details.defendantInfo = CabinetPayloadBuilder.buildDefendantInfo(caseData.debtor);
       await this.client.put(CABINET_ENDPOINTS.draftUpdate + draftId, { details });
       console.log(`✔ Javobgar qo'shildi: ${caseData.debtor.fullName}`);
 
       // STEP 5: hujjatlarni yuklash + qoralamaga BIRIKTIRISH
+      options.onStep?.(`Hujjatlar (${files.length} ta)`);
       console.log(`▶ [5/7] ${files.length} ta hujjat yuklanmoqda...`);
       const uploadedFiles = files.length ? await this.uploader.uploadPacket(files) : [];
       console.log(`✔ Hujjatlar yuklandi: ${uploadedFiles.length} ta`);
@@ -192,6 +200,7 @@ export class CabinetSubmitEngine {
       // payloadga aylantirib POST qiladi, va keyingi qadam aynan shu qaytargan `case id` ni
       // oladi (draftId ni EMAS). Bizning eski kodda bu bosqich UMUMAN yo'q edi — shuning
       // uchun hujjatlar ham biriktirilmasdi. Batafsil: REAL-API-FINDINGS.md
+      options.onStep?.('Sud ishi yaratilmoqda');
       console.log('▶ [6/7] Sud ishi yaratilmoqda (save-suit)...');
       const suitPayload = CabinetPayloadBuilder.buildSaveSuit({
         data: caseData,
@@ -263,6 +272,7 @@ export class CabinetSubmitEngine {
       }
 
       // STEP 7: Sudga topshirish — save-suit qaytargan CASE id bilan (draftId bilan EMAS).
+      options.onStep?.('Sudga topshirilmoqda');
       console.log('▶ [7/7] Sudga topshirilmoqda (send-to-court)...');
       const submitRes = await this.client.put<any>(
         `${CABINET_ENDPOINTS.sendToCourt}${caseId}`,

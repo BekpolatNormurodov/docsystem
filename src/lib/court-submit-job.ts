@@ -499,7 +499,14 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
 
       try {
         const filesToUpload = await collectCaseFiles(ac);
-        const result = await engine.submitCase(caseData, filesToUpload, { dryRun: isDryRun });
+        const result = await engine.submitCase(caseData, filesToUpload, {
+          dryRun: isDryRun,
+          // Bosqichni bazaga yozamiz — UI navbat panelida «Ketyapti · Hujjatlar (15 ta)»
+          // deb ko'rsatadi. Yozuv muhim emas: yiqilsa ish to'xtamasin.
+          onStep: (step) => {
+            void prisma.courtQueueItem.update({ where: { caseId: ac.id }, data: { step } }).catch(() => {});
+          },
+        });
 
         if (result.ok && !isDryRun) {
           await prisma.arizaCase.update({

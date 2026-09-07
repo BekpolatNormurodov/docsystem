@@ -60,6 +60,34 @@ async function failStaleOrphans(): Promise<void> {
   if (res.count > 0) console.log(`[worker] marked ${res.count} orphaned RUNNING job(s) FAILED`);
 }
 
+/**
+ * Sudga yuborish partiyasi worker qayta ishga tushganda TIRIK QOLMAYDI — uni davom ettirish
+ * mantig'i yo'q, jarayon o'lgach ish shunchaki to'xtaydi. Umumiy orphan sweep esa 15 daqiqa
+ * kutadi (STALE_MS), ya'ni shu vaqt davomida UI «Yuborilmoqda» deb YOLG'ON ko'rsatib turadi
+ * va operator kutib o'tiraveradi (2026-09-07: deploy partiyani uzdi, job 15 daqiqa RUNNING
+ * bo'lib qoldi).
+ *
+ * Shuning uchun startda COURT_SUBMIT joblari DARHOL yakunlanadi. Ishlarning o'zi yo'qolmaydi:
+ * CourtQueueItem'dagi PENDING qatorlar joyida qoladi va operator qayta bosganda aynan shu
+ * joydan davom etadi (caseId unique — takror yuborilmaydi). RUNNING qolgan bitta ish ham
+ * PENDING'ga qaytariladi: uning taqdiri nomaʼlum, lekin idempotentlik uni himoya qiladi.
+ */
+async function resetInterruptedCourtJobs(): Promise<void> {
+  const jobs = await prisma.job.findMany({ where: { status: 'RUNNING', type: 'COURT_SUBMIT' }, select: { id: true, progress: true, total: true } });
+  if (jobs.length === 0) return;
+  for (const j of jobs) {
+    await prisma.job.update({
+      where: { id: j.id },
+      data: {
+        status: 'FAILED',
+        message: `Uzilib qoldi (${j.progress}/${j.total} yuborilgan) — worker qayta ishga tushdi. Qolganini yuborish uchun qaytadan bosing, takrorlanmaydi.`,
+      },
+    });
+  }
+  const back = await prisma.courtQueueItem.updateMany({ where: { state: 'RUNNING' }, data: { state: 'PENDING' } });
+  console.log(`[worker] ${jobs.length} ta uzilgan sud partiyasi yakunlandi, ${back.count} ta ish navbatga qaytarildi`);
+}
+
 // FIX 4: how often the idle poll loop re-runs the orphan sweep (~5 min). The startup sweep alone misses
 // a job left RUNNING by a mid-render restart: at boot it is younger than STALE_MS and thus skipped, and
 // nothing rechecks it afterward. Re-sweeping on idle eventually fails it once it ages past STALE_MS.
@@ -68,6 +96,7 @@ const ORPHAN_SWEEP_MS = 5 * 60_000;
 async function loop(): Promise<void> {
   console.log('[worker] started — polling PENDING PACKET/OFERTA/TALABNOMA jobs every', POLL_MS, 'ms');
   await failStaleOrphans().catch((e) => console.error('[worker] orphan sweep failed', e));
+  await resetInterruptedCourtJobs().catch((e) => console.error('[worker] sud partiyasini tiklash xatosi', e));
   let lastSweep = Date.now();
   while (!stopping) {
     try {

@@ -456,6 +456,11 @@ model CourtQueueItem {
   state      CourtQueueState @default(PENDING)
   jobId      Int? // qaysi batch (Job) ichida — progress/bekor qilish uchun
   draftId    String? // ADOLAT qoralama UUID'i (xato bo'lsa ham qoladi — yetim draftni topish uchun)
+  // Ish ayni paytda QAYSI bosqichda ekani (operatorga ko'rsatiladi). Bitta ish ~7 qadamdan
+  // iborat va 60 soniyagacha davom etadi — bosqichsiz UI shunchaki «Ketyapti» deb turadi va
+  // qotib qolgandek ko'rinadi. Masalan: «Qoralama», «Hujjatlar (5/15)», «Sud ishi».
+  step       String?
+
   caseNumber String? // ADOLAT bergan ish raqami (muvaffaqiyatli bo'lsa)
   attempts   Int             @default(0)
   lastError  String?         @db.Text // operatorga ko'rsatiladigan xato matni
