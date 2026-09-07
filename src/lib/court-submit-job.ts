@@ -142,12 +142,18 @@ export async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
         fPath = path.join(process.cwd(), fPath.replace(/^\/app\//, ''));
       }
       const buf = await fs.readFile(fPath);
-      let kind: CaseFileToUpload['kind'] = 'OFERTA';
-      if (doc.kind === 'SIGNED_ARIZA' || doc.kind === 'ARIZA') kind = 'ARIZA';
-      else if (doc.kind === 'TALABNOMA') kind = 'TALABNOMA';
-      else if (doc.kind === 'TALABNOMA_RECEIPT') kind = 'TALABNOMA_CHECK';
-      else if (doc.kind === 'GUVOHNOMA') kind = 'GUVOHNOMA';
-      else if (doc.kind === 'ISHONCHNOMA') kind = 'ISHONCHNOMA';
+      // NOTANISH tur «OFERTA» BO'LMASLIGI kerak. Ilgari standart qiymat OFERTA edi, ya'ni
+      // istalgan qo'lda yuklangan/nomalum turdagi fayl «oferta» bo'lib hisoblanardi va
+      // MAJBURIY «oferta bormi?» tekshiruvini ALDAB o'tardi — da'vo haqiqiy shartnomasiz,
+      // lekin «to'liq» deb ketardi. Endi notanish tur BOSHQA_HUJJATLAR bo'ladi: u sudga
+      // baribir biriktiriladi, lekin yozma asos o'rnini BOSMAYDI.
+      const KIND_MAP: Record<string, CaseFileToUpload['kind']> = {
+        SIGNED_ARIZA: 'ARIZA', ARIZA: 'ARIZA',
+        TALABNOMA: 'TALABNOMA', TALABNOMA_RECEIPT: 'TALABNOMA_CHECK',
+        GUVOHNOMA: 'GUVOHNOMA', ISHONCHNOMA: 'ISHONCHNOMA',
+        SHARTNOMA: 'SHARTNOMA', OFERTA: 'OFERTA',
+      };
+      const kind: CaseFileToUpload['kind'] = KIND_MAP[String(doc.kind)] ?? 'BOSHQA';
 
       // TAKRORNI TO'SISH: CaseDocument.kind da unique cheklov yo'q, shuning uchun bitta
       // hujjat (masalan Talabnoma kvitansiyasi) ikki qatorda turishi mumkin — 2026-09-06
@@ -157,33 +163,14 @@ export async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
     } catch {}
   }
 
-  // B) Diskdagi papkalardan qidirish (Oferta va boshqa ilovalar)
-  const home = process.env.HOME || '';
-  if (ac.clientName) {
-    const candidateDirs = [
-      path.join(home, 'Downloads', 'BRIGHT FUTURE FINANCING 3', `${ac.clientName} ${ac.pinfl}`),
-      path.join(home, 'Downloads', 'BRIGHT FUTURE FINANCING 2', `${ac.clientName} ${ac.pinfl}`),
-      path.join(home, 'Downloads', '5-sud BRIGHT TAYYOR', ac.clientName),
-    ];
-    for (const cDir of candidateDirs) {
-      try {
-        const list = await fs.readdir(cDir);
-        for (const fname of list) {
-          if (!fname.endsWith('.pdf')) continue;
-          if (filesToUpload.some((f) => f.fileName === fname)) continue;
-          const buf = await fs.readFile(path.join(cDir, fname));
-          let kind: CaseFileToUpload['kind'] = 'OFERTA';
-          if (/ariza/i.test(fname)) kind = 'ARIZA';
-          else if (/talabnoma/i.test(fname)) kind = 'TALABNOMA';
-          else if (/receipt|check|td/i.test(fname)) kind = 'TALABNOMA_CHECK';
-          else if (/guvox/i.test(fname)) kind = 'GUVOHNOMA';
-          else if (/ishonch/i.test(fname)) kind = 'ISHONCHNOMA';
-          filesToUpload.push({ kind, fileName: fname, buffer: buf });
-        }
-        if (filesToUpload.length > 1) break;
-      } catch {}
-    }
-  }
+  // B) (OLIB TASHLANDI) Diskdagi `$HOME/Downloads/BRIGHT FUTURE FINANCING …` papkalari.
+  //
+  // Bu blok firmani UMUMAN tekshirmasdan, nomida BRIGHT yozilgan papkalardan fayl olib
+  // istalgan firmaning da'vosiga biriktirardi — ya'ni URBAN'ning da'vosiga BRIGHT'ning
+  // hujjati tushishi mumkin edi. Bundan tashqari fayl NOMI bo'yicha tur taxmin qilinardi
+  // (`/ariza/i` va h.k.), ya'ni tasodifiy nomli fayl «ariza» bo'lib majburiy tekshiruvni
+  // aldardi. Productionda bu yo'llar mavjud emas (dev mashinaning papkalari), shuning
+  // uchun blok butunlay olib tashlandi — hujjatlar faqat BAZADAN olinadi.
 
   // C) Firma hujjatlari (guvohnoma / ishonchnoma / shartnoma) — BAZADAN.
   //

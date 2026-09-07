@@ -19,6 +19,7 @@ import { prisma } from './db';
 import { enqueueJob } from './job-dispatch';
 import { allocateFirmCases, consumeCourtSend } from './court-routing';
 import { isQueuePaused } from './cabinet/pacer';
+import { MAX_COURT_BATCH } from './court-batch';
 
 /** Blokdan keyingi kutish jadvali (daqiqa). Oxirgisi keyin ham takrorlanaveradi. */
 export const BACKOFF_MINUTES = [5, 5, 5, 30, 60, 120];
@@ -62,11 +63,11 @@ async function backoffElapsed(): Promise<boolean> {
  * Navbatda tugamagan ishlar uchun yangi COURT_SUBMIT job yaratadi (saytdagi tugma bilan bir xil).
  * Qaytaradi: yaratilgan job id yoki null (yaratilmagan sabab bilan).
  */
-export async function createResumeJob(firmId: number, limit = 100): Promise<{ jobId: number; count: number } | null> {
+export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH): Promise<{ jobId: number; count: number } | null> {
   const pending = await prisma.courtQueueItem.findMany({
     where: { firmId, state: { in: ['PENDING', 'FAILED'] } },
     orderBy: { id: 'asc' },
-    take: Math.min(100, Math.max(1, limit)),
+    take: Math.min(MAX_COURT_BATCH, Math.max(1, limit)),
     select: { caseId: true },
   });
   if (pending.length === 0) return null;

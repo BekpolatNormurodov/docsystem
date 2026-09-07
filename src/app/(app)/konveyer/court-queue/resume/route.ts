@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import { enqueueJob } from '@/lib/job-dispatch';
 import { FIRM_REQUIRED_DOCS, FIRM_DOC_LABEL } from '@/lib/court-ready';
 import { isQueuePaused } from '@/lib/cabinet/pacer';
+import { MAX_COURT_BATCH } from '@/lib/court-batch';
 
 export const runtime = 'nodejs';
 
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const limit = Math.min(100, Math.max(1, Number(body?.limit) || 100));
+  const limit = Math.min(MAX_COURT_BATCH, Math.max(1, Number(body?.limit) || MAX_COURT_BATCH));
   const items = await prisma.courtQueueItem.findMany({
     where: { firmId, state: 'PENDING' },
     select: { caseId: true },

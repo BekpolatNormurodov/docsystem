@@ -1762,7 +1762,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
       )}
 
       {countAsk && (
-        <Modal open onClose={() => { setCountAsk(null); setPickedCourts(null); }} title={`Sudga yuborish — ${countAsk.firmName}`} description={`Bir martada eng ko'pi ${Math.min(100, countAsk.max)} ta. Nechtasini yuborasiz?`}
+        <Modal open onClose={() => { setCountAsk(null); setPickedCourts(null); }} title={`Sudga yuborish — ${countAsk.firmName}`} description={`Bir martada eng ko'pi ${Math.min(MAX_COURT_BATCH, countAsk.max)} ta. Nechtasini yuborasiz?`}
           footer={<>
             <button className="btn-ghost" type="button" onClick={() => setCountAsk(null)}>Bekor</button>
             <button className="btn-ghost" type="button"
@@ -1780,17 +1780,17 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
         >
           <div className="space-y-3">
             <label className="block">
-              <span className="field-label">Soni (1–{Math.min(100, countAsk.max)})</span>
-              <input type="number" min={1} max={Math.min(100, countAsk.max)} value={countAsk.value}
+              <span className="field-label">Soni (1–{Math.min(MAX_COURT_BATCH, countAsk.max)})</span>
+              <input type="number" min={1} max={Math.min(MAX_COURT_BATCH, countAsk.max)} value={countAsk.value}
                 onChange={(e) => { const raw = Math.floor(Number(e.target.value) || 0); setCountAsk((c) => c && ({ ...c, value: Math.max(0, Math.min(c.max, raw)) })); }}
                 className="mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm tabular-nums outline-none focus:border-brand-500 focus-visible:ring-2 focus-visible:ring-brand-500/30" autoFocus />
             </label>
             <div className="flex flex-wrap gap-1.5">
-              {[10, 25, 50, 100].filter((q) => q <= countAsk.max).map((q) => (
+              {[10, 25, 50, 100, MAX_COURT_BATCH].filter((q, i, a) => q <= countAsk.max && a.indexOf(q) === i).map((q) => (
                 <button key={q} type="button" onClick={() => setCountAsk((c) => c && ({ ...c, value: q }))}
                   className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${countAsk.value === q ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line text-muted hover:border-brand-500/40'}`}>{q}</button>
               ))}
-              {countAsk.max < 100 && (
+              {countAsk.max < MAX_COURT_BATCH && (
                 <button type="button" onClick={() => setCountAsk((c) => c && ({ ...c, value: c.max }))}
                   className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${countAsk.value === countAsk.max ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line text-muted hover:border-brand-500/40'}`}>Hammasi ({countAsk.max})</button>
               )}

@@ -10,6 +10,7 @@
 // Bu modul faqat DB o'qiydi — chiqarilgan-yo'qligini ArizaCase.meta.exportedAt
 // da saqlaymiz (schema o'zgarmasdan, db push kerak emas).
 import { prisma } from './db';
+import { MAX_COURT_BATCH } from './court-batch';
 import type { CaseStage } from '@prisma/client';
 import { STAGE_LABEL } from './konveyer';
 import { performLabel } from './hippo/mail-status';
@@ -487,7 +488,7 @@ export async function validateSelectedCaseIds(opts: {
       return fl.ready && !SENT_STAGES.has(c.stage);
     })
     .map((c) => c.id)
-    .slice(0, Math.min(100, opts.limit ?? 100));
+    .slice(0, Math.min(MAX_COURT_BATCH, opts.limit ?? MAX_COURT_BATCH));
 }
 
 /** Chiqarilgan deb belgilash — ArizaCase.meta.exportedAt (JSON merge, schema
