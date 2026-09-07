@@ -38,6 +38,29 @@ export class CabinetRequestError extends Error {
   }
 }
 
+/**
+ * Portal javobidan ODAM O'QIYDIGAN xato matnini ajratadi.
+ *
+ * Portal nosozlikda nginx'ning HTML sahifasini qaytaradi va u butunligicha xato matniga
+ * tushardi: navbat panelida operator «<html> <head><title>500 Internal Server Error...»
+ * degan bir ekran xom kodni ko'rardi. Endi HTML aniqlanadi va qisqa, tushunarli matn
+ * yoziladi — sabab baribir status kodida.
+ */
+function humanError(json: any, status: number, fallback: string): string {
+  const raw = typeof json === 'string' ? json : (json?.message || json?.error || '');
+  const text = String(raw || '');
+  const looksHtml = /<html|<!doctype|<head|<title/i.test(text);
+  if (!text || looksHtml) {
+    if (status >= 500) return `portal ichki xatosi (${status}) — vaqtinchalik, qayta uriniladi`;
+    if (status === 429) return 'portal so\'rovlar sonini cheklamoqda (429)';
+    if (status === 401 || status === 403) return 'sessiya tugagan yoki ruxsat yo\'q';
+    if (status === 404) return 'manzil topilmadi (404)';
+    return fallback;
+  }
+  // Juda uzun matnni ham kesamiz — navbat paneli bitta qatorga mo'ljallangan.
+  return text.length > 200 ? `${text.slice(0, 200)}…` : text;
+}
+
 function kindForStatus(status: number): CabinetErrorKind {
   if (status === 401 || status === 403) return 'AUTH';
   if (status === 429) return 'RATE_LIMIT';
@@ -96,9 +119,9 @@ export class CabinetApiClient {
       }
 
       if (!res.ok) {
-        const errMsg = json?.message || json?.error || (typeof json === 'string' ? json : `HTTP ${res.status}`);
+        const errMsg = humanError(json, res.status, `HTTP ${res.status}`);
         throw new CabinetRequestError(
-          `Cabinet API Error [${res.status}] at ${path}: ${errMsg}`,
+          `${path.replace('/api/cabinet/', '')} — ${errMsg}`,
           kindForStatus(res.status),
           res.status,
         );
@@ -118,16 +141,21 @@ export class CabinetApiClient {
           'BLOCKED',
         );
       }
+      // Tarmoq darajasidagi nosozlik. Texnik matn («Client network socket disconnected
+      // before secure TLS connection was established», ECONNRESET va h.k.) logda qoladi,
+      // operatorga esa qisqa sabab ko'rsatiladi — u baribir bir xil narsani bildiradi:
+      // portalga ulanib bo'lmadi.
       const cause = e.cause;
-      const causeStr = cause?.message || cause?.code || (typeof cause === 'object' ? JSON.stringify(cause) : String(cause || ''));
-      const detail = causeStr ? ` (Sabab: ${causeStr})` : '';
-      console.error(`❌ [CabinetApiClient Xatolik] URL: ${url}`);
-      console.error(`   Xato: ${e.message}${detail}`);
-      if (cause?.stack) {
-        console.error(`   Cause Stack:`, cause.stack);
-      }
-      // fetch failed / ECONNREFUSED / ETIMEDOUT — hammasi tarmoq darajasi.
-      throw new CabinetRequestError(`${e.message}${detail}`, 'BLOCKED');
+      const code = String(cause?.code || '');
+      const causeStr = cause?.message || code || String(cause || '');
+      console.error(`❌ [CabinetApiClient] ${url}: ${e.message}${causeStr ? ` (${causeStr})` : ''}`);
+      if (cause?.stack) console.error('   Cause Stack:', cause.stack);
+      const human = /socket disconnected|ECONNRESET|other side closed|EPIPE/i.test(causeStr)
+        ? 'portal ulanishni uzdi — vaqtinchalik, qayta uriniladi'
+        : code === 'ENOTFOUND' || code === 'EAI_AGAIN' ? 'portal manzili topilmadi (DNS)'
+        : code === 'ECONNREFUSED' ? 'portal ulanishni rad etdi'
+        : 'portalga ulanib bo\'lmadi';
+      throw new CabinetRequestError(human, 'BLOCKED');
     } finally {
       clearTimeout(timer);
     }
@@ -194,7 +222,7 @@ export class CabinetApiClient {
 
       if (!res.ok) {
         throw new CabinetRequestError(
-          `Fayl yuklashda xatolik [${res.status}]: ${json?.message || text}`,
+          `Fayl yuklashda: ${humanError(json, res.status, `HTTP ${res.status}`)}`,
           kindForStatus(res.status),
           res.status,
         );
