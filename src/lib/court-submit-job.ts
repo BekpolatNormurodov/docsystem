@@ -392,6 +392,14 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
       select: { caseId: true },
     });
     const doneIds = new Set(already.map((q) => q.caseId));
+    // ADOLAT'da ishi BOR (courtCaseId yozilgan) case'lar ham o'tkazib yuboriladi — ular
+    // yakuniy qadamda uzilgan bo'lishi mumkin, lekin da'vo rasman berilgan bo'lishi
+    // ehtimoli bor. Qayta yuborish = bir odamga ikkinchi da'vo.
+    const withCase = await prisma.arizaCase.findMany({
+      where: { id: { in: opts.caseIds }, courtCaseId: { not: null } },
+      select: { id: true },
+    });
+    for (const c of withCase) doneIds.add(c.id);
     const pendingIds = opts.caseIds.filter((id) => !doneIds.has(id));
     if (doneIds.size > 0) {
       console.log(`[Job ${jobId}] ${doneIds.size} ta ish allaqachon yuborilgan — o'tkazib yuborildi.`);
@@ -613,14 +621,39 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
         } else {
           failCount++;
           await syncCourtCabinetState(ac.courtId, false, result.error);
+          // Xato TURI endi natijada keladi (submitter uni yutmaydi). AUTH — sessiya
+          // o'lgan: qolgan ishlarni urinib ko'rish mantiqsiz, hammasi bir xil yiqiladi
+          // va operator yuzlab soxta xato ko'radi. BLOCKED/RATE_LIMIT — portalni yanada
+          // bosmaymiz.
+          if (result.kind === 'AUTH' || result.kind === 'BLOCKED' || result.kind === 'RATE_LIMIT') {
+            if (result.kind !== 'AUTH') backoff(15 * 60_000);
+            stopReason = result.kind === 'AUTH'
+              ? 'Cabinet sessiyasi tugagan — E-IMZO bilan qayta imzolang, so\'ng davom eting'
+              : `Portal javob bermayapti (${result.kind}) — navbat to'xtatildi, keyinroq davom eting`;
+            console.error(`⛔ [Job ${jobId}] Navbat to'xtatildi: ${stopReason}`);
+            break;
+          }
           console.error(`❌ [Job ${jobId}] Case #${ac.id} xatolik: ${result.error}`);
           await prisma.courtQueueItem.update({
             where: { caseId: ac.id },
             data: {
               state: 'FAILED', finishedAt: new Date(),
               lastError: result.error ?? 'Nomaʼlum xato', draftId: result.draftId ?? null,
+              caseNumber: result.caseId ?? null,
             },
           });
+          // ⚠ ADOLAT'da ISH YARATILGAN, lekin yakuniy qadam uzilgan bo'lishi mumkin —
+          // portal so'rovni allaqachon bajargan bo'lsa da'vo RASMAN berilgan. Bunday ishni
+          // «yuborilmagan» deb qoldirib bo'lmaydi: keyingi partiyada qayta tanlanib,
+          // AYNI ODAMGA IKKINCHI da'vo ochilardi. Shuning uchun id darhol yoziladi va
+          // keyingi tanlovlarda bu ish chetlab o'tiladi (courtCaseId bo'yicha).
+          if (result.caseId) {
+            await prisma.arizaCase.update({
+              where: { id: ac.id },
+              data: { courtCaseId: result.caseId },
+            });
+            console.error(`⚠ [Job ${jobId}] Case #${ac.id}: ADOLAT'da ish YARATILGAN (${result.caseId}), lekin yakunlanmadi — qayta yuborilmaydi, qo'lda tekshiring.`);
+          }
           await audit(AuditAction.COURT_SUBMIT, {
             actor: QUEUE_ACTOR,
             target: `case:${ac.id}`,

@@ -9,7 +9,7 @@
 // merge qilmaydi, to'liq holatni saqlaydi). Fayllar mavjud (va ishlaydigan)
 // src/lib/cabinet/api.ts uploadFile() bilan bir xil `file_type` header naqshi orqali yuklanadi.
 
-import { CabinetApiClient } from './client';
+import { CabinetApiClient, CabinetRequestError, type CabinetErrorKind } from './client';
 import { CabinetFileUploader, type CaseFileToUpload } from './uploader';
 import { CabinetPayloadBuilder, type SourceCaseData } from './builder';
 import { CABINET_ENDPOINTS } from './constants';
@@ -35,6 +35,8 @@ export interface SubmissionResult {
   caseNumber?: string;
   registryNumber?: string;
   uploadedFiles?: UploadedCabinetFile[];
+  /** Xato turi (AUTH/BLOCKED/RATE_LIMIT/BAD_REQUEST/SERVER) — chaqiruvchi shunga qarab qaror qiladi. */
+  kind?: CabinetErrorKind;
   error?: string;
 }
 
@@ -58,6 +60,10 @@ export class CabinetSubmitEngine {
    */
   async submitCase(caseData: SourceCaseData, files: CaseFileToUpload[], options: SubmissionOptions = {}): Promise<SubmissionResult> {
     let draftId: string | undefined;
+    // save-suit qaytargan HAQIQIY sud ishi id'si. try'dan TASHQARIDA — chunki keyingi
+    // qadam (send-to-court) uzilsa ham bu id yo'qolmasligi shart: portal so'rovni
+    // allaqachon bajargan bo'lishi mumkin, ya'ni da'vo rasman berilgan.
+    let caseId: string | undefined;
     try {
       // STEP 0: HUJJAT TO'LIQLIGI — tarmoqqa chiqishdan OLDIN.
       //
@@ -222,8 +228,12 @@ export class CabinetSubmitEngine {
       });
       const suitRes = await this.client.post<any>(CABINET_ENDPOINTS.saveSuitCivil, suitPayload);
       const suitData = suitRes.data as Record<string, any> | undefined;
-      const caseId: string | undefined =
-        suitData?.id || suitData?.case_id || suitData?.caseId || suitData?.case?.id;
+      // DIQQAT: `caseId` ATAYIN try'dan TASHQARIDA e'lon qilingan (pastdagi `let`).
+      // Ilgari u shu yerda `const` edi va catch bloki unga kira olmasdi — natijada
+      // save-suit muvaffaqiyatli o'tib, keyin send-to-court uzilsa, ADOLAT'da YARATILGAN
+      // haqiqiy ish id'si faqat log'da qolardi. Ish esa FAILED bo'lib, keyingi partiyada
+      // qayta tanlanardi va AYNI ODAMGA IKKINCHI da'vo ochilardi.
+      caseId = suitData?.id || suitData?.case_id || suitData?.caseId || suitData?.case?.id;
       if (!caseId) {
         throw new Error(
           `Sud ishi yaratildi, lekin javobdan id olinmadi. Javob: ${JSON.stringify(suitData)?.slice(0, 400)}. ` +
@@ -310,7 +320,18 @@ export class CabinetSubmitEngine {
       const cause = error?.cause;
       const causeStr = cause?.message || cause?.code || (typeof cause === 'object' ? JSON.stringify(cause) : String(cause || ''));
       console.error('❌ Xatolik:', error.message, causeStr ? `(Sabab: ${causeStr})` : '');
-      return { ok: false, step: 'FAILED', draftId, error: `${error.message} ${causeStr ? '(' + causeStr + ')' : ''}`.trim() };
+      return {
+        ok: false,
+        step: 'FAILED',
+        draftId,
+        // caseId BOR bo'lsa — ADOLAT'da ish ALLAQACHON yaratilgan. Chaqiruvchi buni
+        // saqlashi SHART, aks holda ish qayta yuboriladi va ikkinchi da'vo ochiladi.
+        caseId,
+        // Xato TURI ham yuqoriga chiqadi: ilgari u shu catch ichida yo'qolardi va
+        // chaqiruvchidagi AUTH-to'xtatish hamda blok-himoyasi hech qachon ishlamasdi.
+        kind: error instanceof CabinetRequestError ? error.kind : undefined,
+        error: `${error.message} ${causeStr ? '(' + causeStr + ')' : ''}`.trim(),
+      };
     }
   }
 }

@@ -44,6 +44,7 @@ interface CaseRow {
   stage: CaseStage;
   talabnomaAt: Date | null;
   receiptNumber: string | null;
+  courtCaseId?: string | null;
   meta: unknown;
 }
 
@@ -77,7 +78,11 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
   // chiqib ketdi, «Yuborilgan»ga esa meta.exportedAt yo'qligi uchun tushmadi. API oqimi
   // exportedAt yozmaydi (u ZIP eksportining belgisi), shuning uchun bosqichning o'zi ham
   // hisobga olinadi.
-  const submitted = SENT_STAGES.has(c.stage);
+  // `courtCaseId` — ADOLAT'da ish ALLAQACHON yaratilgan. Bosqich hali COURT_SUBMITTED
+  // bo'lmasligi mumkin (yakuniy qadam uzilgan), lekin da'vo rasman berilgan bo'lishi
+  // ehtimoli bor — shuning uchun bunday ish QAYTA yuborilmaydi. Aks holda bir odamga
+  // ikkita da'vo ochilardi (2026-09-07 auditida topilgan).
+  const submitted = SENT_STAGES.has(c.stage) || !!c.courtCaseId;
   const exported = isExported(c.meta) || submitted;
   const draft = !exported && isDraftMeta(c.meta); // qoralama-sinov qilingan, hali haqiqiy yuborilmagan
   // «Tayyor» = ready va SUDGA hali ketmagan.
@@ -196,7 +201,7 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
     const [cases, ofertaPinfls] = await Promise.all([
       prisma.arizaCase.findMany({
         where: { firmId: f.id, ...(snapshotId ? { snapshotId } : {}) },
-        select: { id: true, pinfl: true, stage: true, talabnomaAt: true, receiptNumber: true, meta: true },
+        select: { id: true, pinfl: true, stage: true, talabnomaAt: true, receiptNumber: true, courtCaseId: true, meta: true },
         orderBy: { id: 'asc' },
       }),
       ofertaPinflSet(snapshotId, f.code),
@@ -378,7 +383,7 @@ export async function sendableCourtBreakdown(opts: { snapshotId?: number; firmId
   const [cases, ofertaPinfls] = await Promise.all([
     prisma.arizaCase.findMany({
       where: { firmId: firm.id, ...(opts.snapshotId ? { snapshotId: opts.snapshotId } : {}) },
-      select: { id: true, pinfl: true, stage: true, talabnomaAt: true, receiptNumber: true, meta: true, courtId: true, court: { select: { shortName: true } } },
+      select: { id: true, pinfl: true, stage: true, talabnomaAt: true, receiptNumber: true, courtCaseId: true, meta: true, courtId: true, court: { select: { shortName: true } } },
     }),
     ofertaPinflSet(opts.snapshotId, firm.code),
   ]);
@@ -434,7 +439,7 @@ export async function selectReadyCaseIds(opts: {
   const [cases, ofertaPinfls] = await Promise.all([
     prisma.arizaCase.findMany({
       where: { firmId: firm.id, ...(opts.snapshotId ? { snapshotId: opts.snapshotId } : {}) },
-      select: { id: true, pinfl: true, stage: true, talabnomaAt: true, receiptNumber: true, meta: true },
+      select: { id: true, pinfl: true, stage: true, talabnomaAt: true, receiptNumber: true, courtCaseId: true, meta: true },
       orderBy: [{ dueAt: 'asc' }, { id: 'asc' }],
     }),
     ofertaPinflSet(opts.snapshotId, firm.code),
@@ -468,7 +473,7 @@ export async function validateSelectedCaseIds(opts: {
   const [cases, ofertaPinfls] = await Promise.all([
     prisma.arizaCase.findMany({
       where: { id: { in: opts.caseIds }, firmId: firm.id, ...(opts.snapshotId ? { snapshotId: opts.snapshotId } : {}) },
-      select: { id: true, pinfl: true, stage: true, talabnomaAt: true, receiptNumber: true, meta: true },
+      select: { id: true, pinfl: true, stage: true, talabnomaAt: true, receiptNumber: true, courtCaseId: true, meta: true },
       orderBy: [{ dueAt: 'asc' }, { id: 'asc' }],
     }),
     ofertaPinflSet(opts.snapshotId, firm.code),
