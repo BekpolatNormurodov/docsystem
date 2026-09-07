@@ -36,7 +36,8 @@ interface ClientRow {
 interface ClientCounts { all: number; sendable: number; draft: number; ready: number; exported: number; submitted: number; notready: number }
 interface ClientPage { rows: ClientRow[]; total: number; page: number; pageSize: number; pages: number; counts: ClientCounts; error?: string }
 
-type JobState = { jobId: number; status: string; progress: number; total: number; error?: string; message?: string; type?: string };
+// `asked` — operator nechta so'ragani (server topgani `total` dan kam bo'lishi mumkin).
+type JobState = { jobId: number; status: string; progress: number; total: number; error?: string; message?: string; type?: string; asked?: number };
 
 const n = (x: number) => x.toLocaleString('ru-RU');
 const sum = (v: string) => Number(v).toLocaleString('ru-RU');
@@ -279,9 +280,12 @@ function ExportControl({ job, sendable, onStart }: { job?: JobState; sendable: n
 // sud tugmasi «Yuborilmoqda» bo'lib qolardi va navbat paneli jonlanardi — sudga bitta ham
 // so'rov ketmagan bo'lsa ham (2026-09-07). ZIP portalga umuman tegmaydi: u faqat serverda
 // PDF render qiladi, shuning uchun sud tugmasini ham bloklamasligi kerak.
-function ZipControl({ job, sendable, onStart }: { job?: JobState; sendable: number; onStart: () => void }) {
+function ZipControl({ job, sendable, onStart, onCancel }: { job?: JobState; sendable: number; onStart: () => void; onCancel?: (jobId: number) => void }) {
   const running = !!job && (job.status === 'PENDING' || job.status === 'RUNNING');
   const pct = job && job.total ? Math.round((job.progress / job.total) * 100) : 0;
+  // Operator so'ragan son bilan server topgani farq qilsa — AYTAMIZ. Jim farq aynan
+  // «616 so'radim, 100 chiqdi» chalkashligini keltirib chiqargan edi.
+  const short = job?.asked != null && job.total > 0 && job.asked > job.total ? job.asked - job.total : 0;
 
   if (job?.status === 'DONE' && job.jobId) {
     return (
@@ -311,6 +315,19 @@ function ZipControl({ job, sendable, onStart }: { job?: JobState; sendable: numb
         <div className="h-1 w-full overflow-hidden rounded-full bg-surface-2" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="ZIP tayyorlanmoqda">
           <div className="h-full rounded-full bg-brand-500 transition-[width] duration-500" style={{ width: `${Math.max(3, pct)}%` }} />
         </div>
+        {short > 0 && (
+          <span className="text-right text-[10px] text-amber-600 dark:text-amber-400">
+            {n(job!.asked!)} soralgan, {n(job!.total)} tasi tayyor edi
+          </span>
+        )}
+        {/* Bekor — ilgari yo'q edi: noto'g'ri son bilan boshlangan ZIP tugashini kutishdan
+            boshqa chora qolmasdi (va u soatlab ketishi mumkin). */}
+        {onCancel && job!.jobId > 0 && (
+          <button type="button" onClick={() => onCancel(job!.jobId)}
+            className="text-[11px] font-medium text-muted underline-offset-2 outline-none transition-colors hover:text-rose-600 hover:underline focus-visible:ring-2 focus-visible:ring-rose-500/30">
+            {job!.message === 'Bekor qilinmoqda…' ? 'Bekor qilinmoqda…' : 'Bekor'}
+          </button>
+        )}
       </div>
     );
   }
@@ -1117,10 +1134,11 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
   );
 }
 
-function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onChanged, drillOpen, onToggleDrill, idx, autoActive, onStopAuto }: {
+function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCancel, onChanged, drillOpen, onToggleDrill, idx, autoActive, onStopAuto }: {
   fr: FirmReadiness; snapshotId?: number; job?: JobState; zipJob?: JobState;
   startExport: (firmId: number, extra: Record<string, unknown>) => void;
   onZip?: () => void;
+  onZipCancel?: (jobId: number) => void;
   onChanged: () => void; drillOpen: boolean; onToggleDrill: () => void; idx: number;
   autoActive?: boolean; onStopAuto?: () => void;
 }) {
@@ -1195,7 +1213,7 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onChange
           <div className="flex items-center gap-2">
             {/* ZIP — hujjatlarni faylga chiqarish. Sudga YUBORMAYDI: portalga tegmaydi,
                 shuning uchun pauza va sud limiti unga taalluqli emas. */}
-            <ZipControl job={zipJob} sendable={fr.sendable} onStart={() => onZip?.()} />
+            <ZipControl job={zipJob} sendable={fr.sendable} onStart={() => onZip?.()} onCancel={onZipCancel} />
             <ExportControl job={job} sendable={fr.sendable} onStart={() => startExport(fr.firmId, {})} />
           </div>
         ) : (
@@ -1347,6 +1365,33 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   // `endpoint` — odatda partiya tanlash (prepare-ready), lekin navbatni DAVOM ETTIRISHDA
   // boshqa yo'l ishlatiladi (court-queue/resume): u yangi tanlov qilmaydi, bazadagi PENDING
   // ishlarni oladi. Shuning uchun manzil parametr bo'ldi.
+  // Bitta job'ni kuzatish. `startJob` dan AJRATILDI, chunki uni ikki joy ishlatadi:
+  // yangi boshlangan job va sahifa yangilangach BAZADAN topilgan, allaqachon ketayotgan job.
+  const pollJob = useCallback((key: string, jobId: number, onDone: () => void) => {
+    if (timers.current[key]) return;
+    let pollFails = 0;
+    timers.current[key] = setInterval(async () => {
+      try {
+        const s = await getJson(`/api/jobs/${jobId}`);
+        pollFails = 0;
+        setJobs((j) => (j[key] ? { ...j, [key]: { ...j[key], status: s.status, progress: s.progress, total: s.total, message: s.message ?? undefined } } : j));
+        if (s.status === 'DONE' || s.status === 'FAILED' || s.status === 'CANCELED') {
+          clearInterval(timers.current[key]); delete timers.current[key];
+          if (s.status === 'DONE') onDone();
+        }
+      } catch (e) {
+        // Bitta-ikkita uzilish — tarmoq g'ijimi, davom etamiz. Lekin ketma-ket 5 marta
+        // (~10s) yiqilsa sabab jiddiy (odatda sessiya tugagan): avval bu jimgina yutilardi
+        // va progress abadiy qotib qolardi — operator ish ketyapti deb o'ylab turaverardi.
+        if (++pollFails >= 5) {
+          clearInterval(timers.current[key]); delete timers.current[key];
+          const msg = e instanceof Error ? e.message : 'Holatni o‘qib bo‘lmadi';
+          setJobs((j) => (j[key] ? { ...j, [key]: { ...j[key], error: msg } } : j));
+        }
+      }
+    }, 2000);
+  }, []);
+
   const startJob = useCallback((key: string, body: Record<string, unknown>, onDone: () => void, endpoint = '/konveyer/prepare-ready') => {
     if (timers.current[key]) return; // already running
     setJobs((j) => ({ ...j, [key]: { jobId: 0, status: 'PENDING', progress: 0, total: 0 } }));
@@ -1354,30 +1399,47 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
       .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
       .then(({ ok, d }) => {
         if (!ok) { setJobs((j) => ({ ...j, [key]: { jobId: 0, status: 'FAILED', progress: 0, total: 0, error: d?.error || 'Xatolik' } })); return; }
-        setJobs((j) => ({ ...j, [key]: { jobId: d.jobId, status: 'PENDING', progress: 0, total: d.total, type: d.type } }));
-        let pollFails = 0;
-        timers.current[key] = setInterval(async () => {
-          try {
-            const s = await getJson(`/api/jobs/${d.jobId}`);
-            pollFails = 0;
-            setJobs((j) => (j[key] ? { ...j, [key]: { ...j[key], status: s.status, progress: s.progress, total: s.total, message: s.message ?? undefined } } : j));
-            if (s.status === 'DONE' || s.status === 'FAILED') {
-              clearInterval(timers.current[key]); delete timers.current[key];
-              if (s.status === 'DONE') onDone();
-            }
-          } catch (e) {
-            // Bitta-ikkita uzilish — tarmoq g'ijimi, davom etamiz. Lekin ketma-ket 5 marta
-            // (~10s) yiqilsa sabab jiddiy (odatda sessiya tugagan): avval bu jimgina yutilardi
-            // va progress abadiy qotib qolardi — operator ish ketyapti deb o'ylab turaverardi.
-            if (++pollFails >= 5) {
-              clearInterval(timers.current[key]); delete timers.current[key];
-              const msg = e instanceof Error ? e.message : 'Holatni o‘qib bo‘lmadi';
-              setJobs((j) => (j[key] ? { ...j, [key]: { ...j[key], error: msg } } : j));
-            }
-          }
-        }, 2000);
+        // `asked` — operator NECHTA so'ragani. Server topgani (`d.total`) undan kam bo'lishi
+        // mumkin (masalan tayyorlari kamaygan). Ilgari bu farq jim yo'qolardi va operator
+        // «616 so'ragandim, nega 100?» degan savol bilan qolardi.
+        const asked = typeof body.limit === 'number' ? (body.limit as number) : undefined;
+        setJobs((j) => ({ ...j, [key]: { jobId: d.jobId, status: 'PENDING', progress: 0, total: d.total, type: d.type, asked } }));
+        pollJob(key, d.jobId, onDone);
       })
       .catch(() => setJobs((j) => ({ ...j, [key]: { jobId: 0, status: 'FAILED', progress: 0, total: 0, error: 'Tarmoq xatosi' } })));
+  }, [pollJob]);
+
+  // KETAYOTGAN ZIP SAHIFA YANGILANGANDA YO'QOLMASIN.
+  //
+  // ZIP holati faqat brauzer xotirasida edi: F5 bosilsa progress kartasi butunlay
+  // g'oyib bo'lardi, ish esa serverda davom etardi. Operator uni ko'ra ham, bekor ham
+  // qila olmasdi va yangi ZIP bosib ustiga ikkinchisini qo'shib yuborardi.
+  // Job'lar bazada — shundan tiklaymiz (sud navbati bilan bir xil qoida).
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const d = await getJson('/api/jobs?type=PACKET&limit=30');
+        if (!alive || !Array.isArray(d?.rows)) return;
+        const seen = new Set<number>();
+        for (const r of d.rows) {                       // eng yangisidan (createdAt desc)
+          const fid = Number(r?.firmId);
+          if (!Number.isInteger(fid) || fid <= 0 || seen.has(fid)) continue;
+          seen.add(fid);
+          if (r.status !== 'PENDING' && r.status !== 'RUNNING') continue;
+          const key = `zip:${fid}`;
+          setJobs((j) => (j[key] ? j : { ...j, [key]: { jobId: r.id, status: r.status, progress: r.progress, total: r.total, type: 'PACKET' } }));
+          pollJob(key, r.id, () => { void loadRef.current(); });
+        }
+      } catch { /* tiklash ixtiyoriy — xato bo'lsa oddiy holatda qolamiz */ }
+    })();
+    return () => { alive = false; };
+  }, [pollJob]);
+
+  // ZIP'ni to'xtatish. Server yarim tayyor arxivni o'chiradi va job CANCELED bo'ladi.
+  const cancelJob = useCallback(async (key: string, jobId: number) => {
+    try { await fetch(`/api/jobs/${jobId}`, { method: 'POST' }); } catch { /* poll baribir ko'radi */ }
+    setJobs((j) => (j[key] ? { ...j, [key]: { ...j[key], message: 'Bekor qilinmoqda…' } } : j));
   }, []);
 
   const snapshotId = data?.snapshotId ?? selectedId;
@@ -1756,6 +1818,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                       zipJob={jobs[`zip:${fr.firmId}`]}
                       startExport={startExport}
                       onZip={() => setZipAsk({ firmId: fr.firmId, firmName: fr.firmName, max: fr.sendable, value: Math.min(MAX_ZIP_BATCH, fr.sendable) })}
+                      onZipCancel={(jobId) => { void cancelJob(`zip:${fr.firmId}`, jobId); }}
                       onChanged={load}
                       drillOpen={openFirm === fr.firmId}
                       onToggleDrill={() => setOpenFirm((o) => (o === fr.firmId ? null : fr.firmId))}

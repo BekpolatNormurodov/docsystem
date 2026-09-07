@@ -34,6 +34,9 @@ export async function GET(req: NextRequest) {
       total: j.total,
       message: j.message,
       hasResult: !!j.resultPath,
+      // firmId ham qaytadi: sahifa yangilangach ketayotgan ZIP'ni AYNAN o'z firmasiga
+      // qaytarib ulash uchun kerak (nom bo'yicha moslash mo'rt).
+      firmId: Number.isInteger(fid) && fid > 0 ? fid : null,
       firmName: Number.isInteger(fid) && fid > 0 ? (nameById.get(fid) ?? `firma ${fid}`) : 'Hamma firma',
       arizaOnly: p.arizaOnly === true,
       createdAt: j.createdAt,

@@ -139,6 +139,14 @@ services:
     # chromium writes shared-memory to /dev/shm; Docker's 64MB default makes it crash under parallel
     # rendering. 1GB is comfortable headroom for a high WORKER_CONCURRENCY on a big-CPU backend.
     shm_size: "1gb"
+    # tini'ni PID 1 qilib qo'yadi — «zombi» jarayonlarni yig'ib turadi.
+    #
+    # Chromium har ish uchun yangi jarayon ochadi; `npm run worker` PID 1 bo'lganда u
+    # tugagan bolalarni reap qilmaydi va ular <defunct> bo'lib to'planadi (2026-09-07:
+    # bir necha daqiqada 8 ta, sud partiyasida har ish uchun 2 tadan — 111 ta ishlik
+    # partiya ~222 ta zombi PID qoldiradi). Container'ning PID limiti tugasa worker
+    # yangi chromium ocholmay qoladi.
+    init: true
     # Pinned name = Compose refuses `--scale worker=2`; the orphan-sweep assumes a single executor.
     container_name: docsystem_worker
     command: ["npm", "run", "worker"]

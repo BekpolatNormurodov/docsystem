@@ -1,4 +1,6 @@
 import 'dotenv/config';
+import fsp from 'node:fs/promises';
+import path from 'node:path';
 import { prisma } from '../lib/db';
 import { runJobById } from '../lib/job-runner';
 import { firmsDueForSync, syncFirm, AUTO_EVERY_MS } from '../lib/billing-check/sync';
@@ -49,6 +51,89 @@ async function claimNext(): Promise<number | null> {
   if (!job) return null;
   const claimed = await prisma.job.updateMany({ where: { id: job.id, status: 'PENDING' }, data: { status: 'RUNNING' } });
   return claimed.count > 0 ? job.id : null; // lost the race → caller retries next tick
+}
+
+/**
+ * ZIP/hujjat job'i worker bilan birga o'ladi — startda uni DARHOL hal qilamiz.
+ *
+ * MUAMMO (2026-09-07, operator: «zip 0/100 deyabdi»): worker qayta ishga tushdi va PACKET
+ * job #224 bazada RUNNING 24/100 bo'lib qoldi. Uni hech kim davom ettirmadi va hech kim
+ * yiqilgan deb ham belgilamadi: `failStaleOrphans` faqat updatedAt STALE_MS (15 daqiqa)
+ * dan eski job'ni oladi, bu esa endigina uzilgan job uchun to'g'ri kelmaydi. Natijada
+ * operator ~20 daqiqa qimirlamaydigan «24/100» ga qarab o'tirdi, keyin job jimgina
+ * FAILED bo'ldi va ZIP butunlay yo'qoldi.
+ *
+ * Worker BITTA nusxada ishlaydi (compose'da container_name pinlangan), ya'ni worker
+ * endigina ko'tarilgan paytda RUNNING turgan hujjat job'i TIRIK BO'LISHI MUMKIN EMAS.
+ * Shuning uchun:
+ *   • yarim yozilgan arxiv o'chiriladi (37 MB chala ZIP diskda qolib ketgandi);
+ *   • job PENDING'ga qaytariladi va o'zi qaytadan boshlanadi — ZIP faqat qayta render,
+ *     u tashqi tizimga hech narsa yubormaydi, shuning uchun takrorlash xavfsiz;
+ *   • lekin CHEKSIZ emas: job worker'ni ikki marta yiqitgan bo'lsa (yoki deploy ketma-ket
+ *     kelsa) uchinchisida FAILED bo'ladi. Aks holda «har startda 616 ta mijozni qaytadan
+ *     render qilish» tsikliga tushib qolish mumkin.
+ */
+const MAX_AUTO_RESTARTS = 2;
+const EXPORTS_DIR = path.join(process.cwd(), 'exports');
+
+async function resumeInterruptedDocJobs(): Promise<void> {
+  const jobs = await prisma.job.findMany({
+    where: { status: 'RUNNING', type: { in: DOC_TYPES as unknown as string[] } },
+    select: { id: true, type: true, progress: true, total: true, params: true },
+  });
+  if (jobs.length === 0) return;
+  let resumed = 0;
+  let failed = 0;
+  for (const j of jobs) {
+    // Chala arxiv — bu job qaytadan boshlanadi yoki yiqiladi; ikkala holatda ham u keraksiz.
+    await fsp.rm(path.join(EXPORTS_DIR, `${j.id}.zip`), { force: true }).catch(() => {});
+    const p = (j.params ?? {}) as Record<string, unknown>;
+    const tries = Number(p.autoRestarts ?? 0);
+    if (tries >= MAX_AUTO_RESTARTS) {
+      await prisma.job.update({
+        where: { id: j.id },
+        data: {
+          status: 'FAILED',
+          message: `Uzilib qoldi (${j.progress}/${j.total}) va ${MAX_AUTO_RESTARTS} marta avtomatik qayta boshlangan — to'xtatildi. Qaytadan bosing.`,
+        },
+      });
+      failed++;
+    } else {
+      await prisma.job.update({
+        where: { id: j.id },
+        data: {
+          status: 'PENDING',
+          progress: 0,
+          resultPath: null,
+          message: `Uzilib qoldi (${j.progress}/${j.total}) — avtomatik qaytadan boshlanmoqda.`,
+          params: { ...p, autoRestarts: tries + 1 },
+        },
+      });
+      resumed++;
+    }
+  }
+  console.log(`[worker] uzilgan hujjat job'lari: ${resumed} ta qaytadan boshlanadi, ${failed} ta to'xtatildi`);
+}
+
+/**
+ * Har qanday turdagi ABADIY «RUNNING» job'ni yopish.
+ *
+ * `failStaleOrphans` faqat worker o'zi bajaradigan turlarni ko'radi. Web jarayonida inline
+ * ketadigan turlar (MIB_RUN va h.k.) esa jarayon o'lsa MANGU RUNNING bo'lib qoladi:
+ * 2026-09-07 da bazada 17 KUN oldingi 6 ta MIB_RUN «ketyapti» bo'lib turgan edi va
+ * jurnalда ish hamon davom etayotgandek ko'rinardi.
+ *
+ * Chegara ataylab juda katta (6 soat): bu yerda maqsad tirik ishni to'xtatish emas, faqat
+ * aniq o'lganini yopish. Hech bir job 6 soat davom etmaydi.
+ */
+const DEAD_MS = 6 * 60 * 60_000;
+
+async function failLongDeadJobs(): Promise<void> {
+  const res = await prisma.job.updateMany({
+    where: { status: 'RUNNING', updatedAt: { lt: new Date(Date.now() - DEAD_MS) } },
+    data: { status: 'FAILED', message: 'Jarayon uzilgan — bu job tugamagan holda qolib ketgan.' },
+  });
+  if (res.count > 0) console.log(`[worker] ${res.count} ta abadiy «ketyapti» job yopildi`);
 }
 
 // One-time, at startup: a doc-job left RUNNING with no fresh progress (updatedAt older than STALE_MS)
@@ -146,6 +231,9 @@ const ORPHAN_SWEEP_MS = 5 * 60_000;
 
 async function loop(): Promise<void> {
   console.log('[worker] started — polling PENDING PACKET/OFERTA/TALABNOMA jobs every', POLL_MS, 'ms');
+  // TARTIB MUHIM: avval endigina uzilganlarni qaytadan boshlaymiz, keyin eski o'liklarni yopamiz.
+  await resumeInterruptedDocJobs().catch((e) => console.error('[worker] uzilgan hujjat job\'larini tiklash xatosi', e));
+  await failLongDeadJobs().catch((e) => console.error('[worker] eski job sweep xatosi', e));
   await failStaleOrphans().catch((e) => console.error('[worker] orphan sweep failed', e));
   await resetInterruptedCourtJobs().catch((e) => console.error('[worker] sud partiyasini tiklash xatosi', e));
   let lastSweep = Date.now();
