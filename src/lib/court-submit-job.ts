@@ -392,6 +392,9 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
 
     let okCount = 0;
     let failCount = 0;
+    // Ketma-ket portal nosozliklari — shu songa yetganda navbat to'xtaydi (haqiqiy blok belgisi).
+    let consecutiveBlocked = 0;
+    const MAX_CONSECUTIVE_BLOCKED = 3;
     let stopReason: string | null = null;
 
     for (let idx = 0; idx < targetCases.length; idx++) {
@@ -534,6 +537,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
 
         if (result.ok) {
           okCount++;
+          consecutiveBlocked = 0; // muvaffaqiyat — portal sog'lom, hisoblagich nolga
           await syncCourtCabinetState(ac.courtId, true);
           await prisma.courtQueueItem.update({
             where: { caseId: ac.id },
@@ -590,17 +594,33 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
           },
         });
 
-        // CIRCUIT BREAKER: sessiya o'lgan yoki portal bloklagan bo'lsa — qolgan ishlarni
-        // urinib ko'rish mantiqsiz (hammasi bir xil yiqiladi) va blokni yomonlashtiradi.
-        // Navbat to'xtaydi, qolganlar PENDING bo'lib qoladi — operator sababni tuzatib,
-        // qaytadan bosadi va aynan shu joydan davom etadi.
-        if (err instanceof CabinetRequestError && err.stopsQueue) {
-          if (err.kind === 'RATE_LIMIT' || err.kind === 'BLOCKED') backoff(15 * 60_000);
-          stopReason = err.kind === 'AUTH'
-            ? 'Cabinet sessiyasi tugagan — E-IMZO bilan qayta imzolang, so\'ng davom eting'
-            : `Portal javob bermayapti (${err.kind}) — navbat to'xtatildi, keyinroq davom eting`;
+        // CIRCUIT BREAKER.
+        //
+        // SESSIYA (AUTH) — darhol to'xtaymiz: token o'lgan, keyingi har bir ish ham
+        // yiqiladi, urinishning ma'nosi yo'q.
+        //
+        // TARMOQ/PORTAL (BLOCKED, RATE_LIMIT) — bitta xato hali blok degani emas. Portal
+        // vaqti-vaqti bilan 502 yoki timeout beradi (2026-09-07 da aynan shunday bo'ldi).
+        // Avval SHU YERDA butun partiya to'xtardi: bitta tasodifiy timeout 90 ta qolgan
+        // ishni to'xtatib qo'yardi. Endi KETMA-KET 3 marta bo'lsagina to'xtaymiz — bu
+        // haqiqiy blokning belgisi. Bitta-ikkitasi bo'lsa o'sha ish FAILED bo'ladi
+        // (keyin qayta uriniladi) va navbat davom etaveradi.
+        if (err instanceof CabinetRequestError && err.kind === 'AUTH') {
+          stopReason = 'Cabinet sessiyasi tugagan — E-IMZO bilan qayta imzolang, so\'ng davom eting';
           console.error(`⛔ [Job ${jobId}] Navbat to'xtatildi: ${stopReason}`);
           break;
+        }
+        if (err instanceof CabinetRequestError && err.stopsQueue) {
+          consecutiveBlocked++;
+          console.warn(`⚠ [Job ${jobId}] Portal nosozligi (${err.kind}) — ketma-ket ${consecutiveBlocked}/${MAX_CONSECUTIVE_BLOCKED}`);
+          if (consecutiveBlocked >= MAX_CONSECUTIVE_BLOCKED) {
+            backoff(15 * 60_000);
+            stopReason = `Portal ketma-ket ${consecutiveBlocked} marta javob bermadi — navbat to'xtatildi, keyinroq davom eting`;
+            console.error(`⛔ [Job ${jobId}] ${stopReason}`);
+            break;
+          }
+          // Qisqa nafas olib davom etamiz — portal o'ziga kelishi mumkin.
+          await new Promise((r) => setTimeout(r, 10_000));
         }
       }
 
