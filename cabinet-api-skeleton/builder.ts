@@ -120,21 +120,32 @@ export class CabinetPayloadBuilder {
   }
 
   /**
-   * Wizard step 3: javobgar (qarzdor). PINFL bo'yicha avto-qidirish (captcha) automatlashtira
-   * olinmadi (2026-09-06, ~6 urinish — bosim network so'rov chiqarmadi). "Men JShShIR ni
-   * bilmayman" (isPinflUnknown:true) — captchasiz, rasmiy qo'lda-kiritish yo'li ishlatiladi;
-   * bizning bazamizda debtor haqida yetarli ma'lumot bor, hukumat registridan qidirish shart emas.
+   * Wizard 3-qadam: javobgar (qarzdor).
+   *
+   * JShShIR (PINFL) — MAJBURIY. 2026-09-07 da sud ishni RAD ETDI:
+   *   «Жавобгар ЖШШИР маълумотлари тўлиқ киритилмаган, ушбу маълумотларини қайтадан киритинг»
+   *
+   * Ilgari bu yerda DOIM `isPinflUnknown: true` yuborilardi — «Men JShShIR ni bilmayman»
+   * yo'li tanlangan edi, chunki UI'dagi PINFL bo'yicha QIDIRUV captcha bilan yopiq va uni
+   * avtomatlashtira olmagandik. Lekin captcha faqat REGISTRDAN MA'LUMOT TORTISH uchun —
+   * bizda PINFL portfelda allaqachon bor, qidirish umuman shart emas. Uni yubormaslik
+   * har bir da'voni rad etilishiga olib kelardi.
+   *
+   * PINFL bo'lmagan (kam uchraydigan) holatda eski qo'lda-kiritish yo'liga tushamiz.
    */
   static buildDefendantInfo(debtor: SourceCaseData['debtor']): DefendantInfo {
     const parts = (debtor.fullName || '').trim().split(/\s+/);
+    const pinfl = (debtor.pinfl || '').replace(/\D/g, '');
+    const hasPinfl = pinfl.length === 14;
     return {
       claimants: null,
       defendants: [{
         entity_type: 'PERSON',
         first_name: null, last_name: null, middle_name: null, org_name: null, details: null,
-        isPinflUnknown: true,
+        isPinflUnknown: !hasPinfl,
         isTinUnknown: null,
         entity: {
+          pinfl: hasPinfl ? pinfl : null,
           first_name: debtor.firstName || parts[1] || 'SHAXS',
           last_name: debtor.lastName || parts[0] || 'QARZDOR',
           middle_name: debtor.middleName || parts.slice(2).join(' ') || null,
@@ -231,8 +242,15 @@ export class CabinetPayloadBuilder {
    */
   static buildDefendantParticipant(debtor: SourceCaseData['debtor']): CaseParticipantEntry {
     const d = CabinetPayloadBuilder.buildDefendantInfo(debtor).defendants[0];
+    const pinfl = (debtor.pinfl || '').replace(/\D/g, '');
+    const hasPinfl = pinfl.length === 14;
     return {
-      entity: { pinfl: 0, tin: 0, not_citizen: true },
+      // `pinfl: 0` — portal frontendidagi BOSHLANG'ICH qiymat edi (bo'sh forma), biz esa uni
+      // ko'chirib olib, haqiqiy PINFL o'rniga nol yuborardik. Sud aynan shuning uchun
+      // «ЖШШИР маълумотлари тўлиқ киритилмаган» deb rad etgan (2026-09-07).
+      entity: hasPinfl
+        ? { pinfl, tin: 0, not_citizen: false }
+        : { pinfl: 0, tin: 0, not_citizen: true },
       participant: { type: 'DEFENDANT', is_main: true, is_appellant: false },
       entity_details: {
         is_current: true,

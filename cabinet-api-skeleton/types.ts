@@ -139,9 +139,18 @@ export interface DefendantInfo {
 export interface DefendantEntry {
   entity_type: 'PERSON';
   first_name: null; last_name: null; middle_name: null; org_name: null; details: null; // unused when entity_type=PERSON
-  isPinflUnknown: true;            // always true for the manual-entry path
+  // JShShIR (PINFL) MA'LUM bo'lsa — false, va `entity.pinfl` to'ldiriladi.
+  //
+  // 2026-09-07: sud ishni RAD ETDI — «Жавобгар ЖШШИР маълумотлари тўлиқ киритилмаган,
+  // ушбу маълумотларини қайтадан киритинг». Ilgari bu maydon DOIM true edi (captcha
+  // sababli PINFL bo'yicha qidiruv avtomatlashtirilmagani uchun «bilmayman» yo'li
+  // tanlangandi) — lekin captcha faqat REGISTRDAN QIDIRISH uchun kerak, bizda esa PINFL
+  // allaqachon bor. Uni yubormaslik har bir da'voni rad etilishiga olib kelardi.
+  isPinflUnknown: boolean;
   isTinUnknown: null;
   entity: {
+    /** Javobgarning JShShIR raqami — sud MAJBURIY talab qiladi. */
+    pinfl?: string | null;
     first_name: string; last_name: string; middle_name: string | null;
     passport_serial: string | null; passport_number: string | null;
     phone: string | null; citizenship: string | null;
