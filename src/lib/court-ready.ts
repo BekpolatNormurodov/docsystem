@@ -229,7 +229,7 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
 }
 
 // ── Per-client (case-level) drill-down: the 4-doc checklist, filterable ───────
-export type ReadyFilter = 'all' | 'sendable' | 'draft' | 'ready' | 'exported' | 'notready';
+export type ReadyFilter = 'all' | 'sendable' | 'draft' | 'ready' | 'exported' | 'submitted' | 'notready';
 export interface ClientReadyRow {
   caseId: number;
   clientName: string | null;
@@ -257,7 +257,7 @@ export interface ClientReadyRow {
   daysLeft: number | null;
   receiptNumber: string | null; // real boji kvitansiya № (for the drill-down CaseDocs invoice slot)
 }
-export interface ClientReadyCounts { all: number; sendable: number; draft: number; ready: number; exported: number; notready: number }
+export interface ClientReadyCounts { all: number; sendable: number; draft: number; ready: number; exported: number; submitted: number; notready: number }
 export interface ClientReadyPage {
   rows: ClientReadyRow[];
   total: number;
@@ -273,7 +273,7 @@ export interface ClientReadyPage {
 export async function firmReadyClients(opts: {
   snapshotId?: number; firmId: number;
 }): Promise<ClientReadyPage> {
-  const empty: ClientReadyPage = { rows: [], total: 0, page: 1, pageSize: 0, pages: 1, counts: { all: 0, sendable: 0, draft: 0, ready: 0, exported: 0, notready: 0 } };
+  const empty: ClientReadyPage = { rows: [], total: 0, page: 1, pageSize: 0, pages: 1, counts: { all: 0, sendable: 0, draft: 0, ready: 0, exported: 0, submitted: 0, notready: 0 } };
 
   const firm = await prisma.firm.findUnique({ where: { id: opts.firmId }, select: { id: true, code: true } });
   if (!firm) return empty;
@@ -302,7 +302,7 @@ export async function firmReadyClients(opts: {
   // ALL rows + counts in ONE query — the drill-down filters/searches/paginates client-side, so a
   // filter or page switch never re-hits the DB. That per-interaction refetch (each loading the whole
   // firm's cases + meta) was the «juda sekin»; now the firm is loaded once when the drill-down opens.
-  const counts: ClientReadyCounts = { all: 0, sendable: 0, draft: 0, ready: 0, exported: 0, notready: 0 };
+  const counts: ClientReadyCounts = { all: 0, sendable: 0, draft: 0, ready: 0, exported: 0, submitted: 0, notready: 0 };
   const rows: ClientReadyRow[] = [];
   for (const c of cases) {
     const fl = flagsFor(c as CaseRow, signedIds, receiptIds, ofertaPinfls);
@@ -310,7 +310,10 @@ export async function firmReadyClients(opts: {
     if (fl.sendable) counts.sendable++;
     if (fl.draft) counts.draft++;
     if (fl.ready) counts.ready++;
-    if (fl.exported) counts.exported++;
+    // «Chiqarilgan» = ZIP olingan, LEKIN sudga ketmagan. Sudga ketgani alohida sanaladi —
+    // aks holda operator ZIP eksportini sudga yuborish deb o'qiydi (2026-09-07 holati).
+    if (fl.submitted) counts.submitted++;
+    else if (fl.exported) counts.exported++;
     if (!fl.ready) counts.notready++;
     rows.push({
       caseId: c.id, clientName: c.clientName, pinfl: c.pinfl, stage: c.stage, stageLabel: STAGE_LABEL[c.stage],

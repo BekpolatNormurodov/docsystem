@@ -9,10 +9,10 @@ import { KeyPicker } from './KeyPicker';
 // ── types (mirror src/lib/court-ready.ts) ────────────────────────────────────
 interface Missing { talabnoma: number; scan: number; oferta: number; receipt: number; boji: number }
 interface FirmDocsStatus { complete: boolean; missing: string[]; present: string[] }
-interface FirmReadiness { firmId: number; firmName: string; total: number; ready: number; exported: number; draft: number; sendable: number; missing: Missing; almost: Missing; docs: FirmDocsStatus }
+interface FirmReadiness { firmId: number; firmName: string; total: number; ready: number; exported: number; submitted: number; draft: number; sendable: number; missing: Missing; almost: Missing; docs: FirmDocsStatus }
 // Sud paketiga qo'shiladigan firma hujjatlari — 3 tasi ham kerak.
 const FIRM_DOCS_ALL = ['guvohnoma', 'ishonchnoma', 'shartnoma'];
-interface Overall { total: number; ready: number; exported: number; draft: number; sendable: number; missing: Missing; almost: Missing }
+interface Overall { total: number; ready: number; exported: number; submitted: number; draft: number; sendable: number; missing: Missing; almost: Missing }
 interface StatusBucket { code: string; label: string; tone: string; count: number; source: string }
 interface StatusBoard { total: number; matched: number; buckets: StatusBucket[]; sources: Record<string, number> }
 interface ReturnCase {
@@ -22,16 +22,16 @@ interface ReturnCase {
 }
 interface Data { snapshotId?: number; readiness: { firms: FirmReadiness[]; overall: Overall }; statusBoard: StatusBoard; returns: ReturnCase[] }
 
-type ReadyFilter = 'all' | 'sendable' | 'draft' | 'ready' | 'exported' | 'notready';
+type ReadyFilter = 'all' | 'sendable' | 'draft' | 'ready' | 'exported' | 'submitted' | 'notready';
 interface ClientRow {
   caseId: number; clientName: string | null; pinfl: string | null; stage: string; stageLabel: string;
   talabnoma: boolean; talabnomaDelivered: boolean; receipt: boolean; scan: boolean; oferta: boolean; boji: boolean;
-  ready: boolean; exported: boolean; draft: boolean; sendable: boolean; totalDebt: string; daysLeft: number | null;
+  ready: boolean; exported: boolean; submitted: boolean; draft: boolean; sendable: boolean; totalDebt: string; daysLeft: number | null;
   receiptNumber: string | null;
   // Sud — «Batafsil» ichidagi filtr uchun (firma ishlari bir necha sudga bo'lingan bo'lishi mumkin).
   courtId: number | null; courtName: string | null; courtEnabled: boolean;
 }
-interface ClientCounts { all: number; sendable: number; draft: number; ready: number; exported: number; notready: number }
+interface ClientCounts { all: number; sendable: number; draft: number; ready: number; exported: number; submitted: number; notready: number }
 interface ClientPage { rows: ClientRow[]; total: number; page: number; pageSize: number; pages: number; counts: ClientCounts; error?: string }
 
 type JobState = { jobId: number; status: string; progress: number; total: number; error?: string; message?: string; type?: string };
@@ -283,13 +283,19 @@ const CLIENT_FILTERS: { key: ReadyFilter; label: string; icon: React.JSX.Element
   { key: 'notready', label: 'Tayyor emas', icon: svg(<><circle cx="12" cy="12" r="9" /><path d="M12 8v4M12 16h.01" /></>), activeCls: 'bg-rose-500/15 text-rose-600 dark:text-rose-300', iconCls: 'text-rose-500' },
   { key: 'sendable', label: 'Tayyor', icon: svg(<><circle cx="12" cy="12" r="9" /><path d="m8.5 12 2.5 2.5 4.5-5" /></>), activeCls: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300', iconCls: 'text-emerald-500' },
   { key: 'draft', label: 'Qoralama', icon: svg(<><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></>), activeCls: 'bg-violet-500/15 text-violet-600 dark:text-violet-300', iconCls: 'text-violet-500' },
-  { key: 'exported', label: 'Yuborilgan', icon: svg(<><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4Z" /></>), activeCls: 'bg-sky-500/15 text-sky-600 dark:text-sky-300', iconCls: 'text-sky-500' },
+  // «Chiqarilgan» = ZIP paketi olingan, sudga HALI ketmagan. «Sudda» = da'vo rasman berilgan.
+  // Ilgari ikkalasi bitta «Yuborilgan» tab'ida edi va BRIGHT'da «Yuborilgan 100» ko'rinardi,
+  // holbuki o'sha 100 tadan bittasi ham sudga ketmagan edi (2026-09-07).
+  { key: 'exported', label: 'Chiqarilgan', icon: svg(<><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 3v12" /><path d="m8 11 4 4 4-4" /></>), activeCls: 'bg-sky-500/15 text-sky-600 dark:text-sky-300', iconCls: 'text-sky-500' },
+  { key: 'submitted', label: 'Sudda', icon: svg(<><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4Z" /></>), activeCls: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-300', iconCls: 'text-indigo-500' },
   { key: 'all', label: 'Hammasi', icon: svg(<><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></>), activeCls: 'bg-slate-500/15 text-slate-700 dark:text-slate-300', iconCls: 'text-slate-500' },
 ];
 // Firma qatoridagi qisqa xulosa — tab'lar bilan bir xil ikon/rang (Tayyor emas · Tayyor · Qoralama · Yuborilgan),
 // «batafsil» yopiq paytda ko'rinadi. `all` chiqmaydi (u umumiy jami).
 const firmStatValue = (fr: FirmReadiness, key: ReadyFilter): number =>
-  key === 'notready' ? fr.total - fr.ready : key === 'sendable' ? fr.sendable : key === 'draft' ? fr.draft : key === 'exported' ? fr.exported : fr.total;
+  key === 'notready' ? fr.total - fr.ready : key === 'sendable' ? fr.sendable : key === 'draft' ? fr.draft
+    // «Chiqarilgan» dan sudga ketganlarini ayiramiz — aks holda bitta ish ikkala sanoqda turadi.
+    : key === 'exported' ? Math.max(0, fr.exported - fr.submitted) : key === 'submitted' ? fr.submitted : fr.total;
 const filterMeta = (key: ReadyFilter) => CLIENT_FILTERS.find((f) => f.key === key)!;
 // Rangli ikon (summary kartalari uchun) — tab'lar bilan bir xil.
 const statIcon = (key: ReadyFilter) => { const m = filterMeta(key); return <span className={m.iconCls}>{m.icon}</span>; };
@@ -445,8 +451,10 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged }: {
   // OPTIMISTIK o'zgartirsak (undo), sonlar DARROV to'g'rilanadi — butun ro'yxatni qayta yuklash shart emas.
   const counts = React.useMemo<ClientCounts | undefined>(() => {
     if (!data) return undefined;
-    const c: ClientCounts = { all: 0, sendable: 0, draft: 0, ready: 0, exported: 0, notready: 0 };
-    for (const r of data.rows) { c.all++; if (r.sendable) c.sendable++; if (r.draft) c.draft++; if (r.ready) c.ready++; if (r.exported) c.exported++; if (!r.ready) c.notready++; }
+    const c: ClientCounts = { all: 0, sendable: 0, draft: 0, ready: 0, exported: 0, submitted: 0, notready: 0 };
+    // «Chiqarilgan» va «Sudda» — ATAYIN bir-birini istisno qiladi: sudga ketgan ish
+    // «Chiqarilgan» sanog'ida turmaydi, aks holda bitta ish ikki joyda ko'rinadi.
+    for (const r of data.rows) { c.all++; if (r.sendable) c.sendable++; if (r.draft) c.draft++; if (r.ready) c.ready++; if (r.submitted) c.submitted++; else if (r.exported) c.exported++; if (!r.ready) c.notready++; }
     return c;
   }, [data]);
   // Bitta qatorni joyida yangilash (optimistik) — to'liq refetch/flash yo'q.
@@ -502,7 +510,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged }: {
   const courtOptions = React.useMemo(() => {
     const m = new Map<string, { id: number | null; name: string; enabled: boolean; count: number }>();
     for (const r of data?.rows ?? []) {
-      const okFilter = filter === 'sendable' ? r.sendable : filter === 'draft' ? r.draft : filter === 'ready' ? r.ready : filter === 'exported' ? r.exported : filter === 'notready' ? !r.ready : true;
+      const okFilter = filter === 'sendable' ? r.sendable : filter === 'draft' ? r.draft : filter === 'ready' ? r.ready : filter === 'submitted' ? !!r.submitted : filter === 'exported' ? (r.exported && !r.submitted) : filter === 'notready' ? !r.ready : true;
       if (!okFilter) continue;
       const k = String(r.courtId ?? 'none');
       const it = m.get(k) ?? { id: r.courtId ?? null, name: r.courtName ?? 'Sud tayinlanmagan', enabled: r.courtEnabled !== false, count: 0 };
@@ -524,7 +532,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged }: {
     const src = data?.rows ?? [];
     const needle = debouncedQ.trim().toLowerCase();
     return src.filter((r) => {
-      const okFilter = filter === 'sendable' ? r.sendable : filter === 'draft' ? r.draft : filter === 'ready' ? r.ready : filter === 'exported' ? r.exported : filter === 'notready' ? !r.ready : true;
+      const okFilter = filter === 'sendable' ? r.sendable : filter === 'draft' ? r.draft : filter === 'ready' ? r.ready : filter === 'submitted' ? !!r.submitted : filter === 'exported' ? (r.exported && !r.submitted) : filter === 'notready' ? !r.ready : true;
       if (!okFilter) return false;
       if (courtFilter !== 'all' && (r.courtId ?? null) !== courtFilter) return false;
       if (needle && !`${r.clientName ?? ''} ${r.pinfl ?? ''}`.toLowerCase().includes(needle)) return false;
