@@ -13,18 +13,15 @@ import { prisma } from '../src/lib/db';
 import { getStoredCabinetSession } from '../src/lib/cabinet/session';
 import { CabinetSubmitEngine } from './submitter';
 import { collectCaseFiles } from '../src/lib/court-submit-job';
+import { resolveClaimantId } from '../src/lib/cabinet/claimant';
 import { resolveCabinetCourtGuid, CABINET_COURT_IDS, CABINET_REGION_IDS } from './constants';
 import type { SourceCaseData } from './builder';
 import type { CaseFileToUpload } from './uploader';
 
-// TODO(claimant-lookup): har firmaning cabinet.sud.uz akkaunti O'ZINING bitta ORGANIZATION
-// claimant GUID'iga ega (E-IMZO kaliti bilan kirilganda "Da'vogar nomi" shu firmaga avtomatik
-// tushadi — 2026-09-06 browserda tasdiqlangan). Hozircha faqat BRIGHT uchun bitta marta qo'lda
-// aniqlangan (yangi draft yaratib, birinchi javobdagi details.createApplication.claimant'ni
-// o'qib). Boshqa firmalar (URBAN/COMMUNITY/...) uchun xuddi shu usulda topib shu yerga qo'shing.
-const CLAIMANT_ID_BY_STIR: Record<string, string> = {
-  '311976765': 'a9c49a63-5b0b-48c6-b2fb-48db85dd6f5a', // BRIGHT FUTURE FINANCING
-};
+// Da'vogar GUID endi qattiq yozilgan lug'atda emas — src/lib/cabinet/claimant.ts uni
+// Firm.cabinetClaimantId dan o'qiydi yoki portaldan (user/entities, STIR bo'yicha aniq
+// moslik) topib bazaga yozib qo'yadi. Bu yerdagi eski nusxa faqat BRIGHT'ni bilardi va
+// qolgan firmalar uchun skript ishlamasdi.
 
 async function main() {
   const caseId = Number(process.argv[2]);
@@ -73,18 +70,23 @@ async function main() {
 
   // 2. Firmaning cabinet.sud.uz sessiyasini olish
   let sessionToken = process.env.CABINET_TOKEN;
-  if (!sessionToken) {
+  let sessionForClaimant: Awaited<ReturnType<typeof getStoredCabinetSession>> | undefined;
+  {
     try {
       const session = await getStoredCabinetSession(firmStir);
-      sessionToken = session.token;
+      sessionForClaimant = session;
+      if (!sessionToken) sessionToken = session.token;
       console.log(`✔ Faol Cabinet sessiyasi topildi (Foydalanuvchi: ${session.user.username || 'OK'})`);
     } catch (e: any) {
-      console.error(`❌ Firmaning cabinet sessiyasi topilmadi yoki muddati o'tgan: ${e.message}`);
-      console.error(`Iltimos, saytda «Ulanishlar» orqali E-IMZO bilan qayta kiring yoki CABINET_TOKEN env o'rnating.`);
-      process.exit(1);
+      if (sessionToken) {
+        console.log('✔ Maxsus CABINET_TOKEN ishlatiladi (saqlangan sessiya yo\'q).');
+        // Sessiyasiz da'vogarni portaldan topib bo'lmaydi — Firm.cabinetClaimantId shart.
+      } else {
+        console.error(`❌ Firmaning cabinet sessiyasi topilmadi yoki muddati o'tgan: ${e.message}`);
+        console.error(`Iltimos, saytda «Ulanishlar» orqali E-IMZO bilan qayta kiring yoki CABINET_TOKEN env o'rnating.`);
+        process.exit(1);
+      }
     }
-  } else {
-    console.log(`✔ Maxsus CABINET_TOKEN muhit o'zgaruvchisidan olindi.`);
   }
 
   // 3. Portfeldagi kreditlar
@@ -112,9 +114,13 @@ async function main() {
   const passportSn: string = firstLoan?.passportSn || rawLoan['Паспорт'] || '';
   const passportClean = passportSn.replace(/\s+/g, '').toUpperCase();
 
-  const claimantId = CLAIMANT_ID_BY_STIR[firmStir];
-  if (!claimantId) {
-    console.error(`❌ ${ac.firm.shortName} (STIR ${firmStir}) uchun claimantId topilmadi. CLAIMANT_ID_BY_STIR'ga qo'shing (izohga qarang).`);
+  // Da'vogar: bazadan; bo'lmasa portaldan STIR bo'yicha aniq topib saqlanadi.
+  let claimantId: string;
+  try {
+    claimantId = await resolveClaimantId(ac.firm, sessionForClaimant);
+    console.log(`✔ Da'vogar (claimant): ${claimantId}`);
+  } catch (e: any) {
+    console.error(`❌ ${e.message}`);
     process.exit(1);
   }
 
