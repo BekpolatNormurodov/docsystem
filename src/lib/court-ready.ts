@@ -510,8 +510,20 @@ export async function markCasesExported(caseIds: number[]): Promise<void> {
  *  return to «Tayyor». Undo of a real send OR a qoralama. Returns how many were actually reverted. */
 export async function undoCaseState(caseIds: number[]): Promise<number> {
   if (!caseIds.length) return 0;
-  // Sud kunlik limitini ham qaytaramiz — bekor qilingan yuborish quotani band qilib qolmasin.
-  await prisma.arizaCase.updateMany({ where: { id: { in: caseIds.slice(0, 200) } }, data: { courtSentAt: null } }).catch(() => {});
+  // Sud kunlik limitini qaytaramiz — bekor qilingan yuborish quotani band qilib qolmasin.
+  //
+  // LEKIN: SUDGA HAQIQATAN ketgan ishga tegilmaydi. Ilgari shart yo'q edi va «Bekor qilish»
+  // sudda turgan da'voning ham `courtSentAt` ini tozalab yuborardi — sud kunlik limiti
+  // soxta bo'shab qolardi va o'sha kuni limitdan ORTIQ ariza yuborilishi mumkin edi
+  // (2026-09-07 auditi). Sudga ketgani `stage` yoki `courtCaseId` bilan aniqlanadi.
+  await prisma.arizaCase.updateMany({
+    where: {
+      id: { in: caseIds.slice(0, 200) },
+      courtCaseId: null,
+      stage: { notIn: ['COURT_SUBMITTED', 'COURT_ACCEPTED', 'MIB_SUBMITTED', 'CLOSED'] },
+    },
+    data: { courtSentAt: null },
+  }).catch(() => {});
   const rows = await prisma.arizaCase.findMany({ where: { id: { in: caseIds.slice(0, 200) } }, select: { id: true, meta: true } });
   let reverted = 0;
   await Promise.all(rows.map((r) => {

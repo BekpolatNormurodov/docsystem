@@ -353,9 +353,14 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
     // Shuning uchun har partiya boshida: sudga TOPSHIRILMAGAN (stage sudda emas, courtCaseId
     // yo'q), lekin limitni band qilib turgan ishlarning belgisini tozalaymiz. Haqiqatan
     // topshirilganlarga TEGILMAYDI.
+    // DIQQAT: SHU partiyaning ishlariga TEGILMAYDI. Ular hozirgina `consumeCourtSend` bilan
+    // band qilingan va hali yuborilmagan — «osilib qolgan» ta'rifiga to'g'ri keladi, lekin
+    // ularni bo'shatish sudning kunlik limitini SOXTA bo'shatadi: partiya davom etaveradi
+    // va limitdan ortiq ariza ketishi mumkin (2026-09-07 auditi).
     const released = await prisma.arizaCase.updateMany({
       where: {
         firmId: firm.id,
+        id: { notIn: opts.caseIds },
         courtSentAt: { not: null },
         courtCaseId: null,
         stage: { notIn: ['COURT_SUBMITTED', 'COURT_ACCEPTED', 'MIB_SUBMITTED', 'CLOSED'] },

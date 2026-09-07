@@ -6,7 +6,9 @@ import { CABINET_DOC_TYPES } from './constants';
 import type { UploadedCabinetFile } from './types';
 
 export interface CaseFileToUpload {
-  kind: 'ARIZA' | 'TALABNOMA' | 'TALABNOMA_CHECK' | 'ISHONCHNOMA' | 'GUVOHNOMA' | 'OFERTA' | 'SHARTNOMA' | 'BOJI_RECEIPT';
+  // `BOSHQA` — turi aniqlanmagan hujjat. ATAYIN alohida: ilgari notanish tur «OFERTA»
+  // bo'lib qolardi va majburiy «yozma asos bormi?» tekshiruvini aldab o'tardi.
+  kind: 'ARIZA' | 'TALABNOMA' | 'TALABNOMA_CHECK' | 'ISHONCHNOMA' | 'GUVOHNOMA' | 'OFERTA' | 'SHARTNOMA' | 'BOJI_RECEIPT' | 'BOSHQA';
   fileName: string;
   buffer: Buffer;
 }

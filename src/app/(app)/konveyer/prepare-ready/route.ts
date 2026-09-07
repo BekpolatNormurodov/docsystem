@@ -117,11 +117,15 @@ export async function POST(req: NextRequest) {
   // ikki marta yuborilmaydi (DONE tekshiruvi bor), lekin navbat chalkashadi va operator
   // qaysi biri haqiqiy ekanini bilmaydi. ZIP eksportiga bu cheklov tegishli emas.
   if (!isExportOnly) {
-    const active = await prisma.job.findFirst({
+    // Faol partiyalarning HAMMASI ko'rib chiqiladi. Ilgari `findFirst` bilan faqat bitta
+    // tasodifiy job olinardi: boshqa firmada partiya ketayotgan bo'lsa, bu firmaning
+    // takroriga to'siq JIM ishlamay qolardi (2026-09-07 auditi).
+    const actives = await prisma.job.findMany({
       where: { type: 'COURT_SUBMIT', status: { in: ['PENDING', 'RUNNING'] } },
       select: { id: true, status: true, params: true },
     });
-    if (active && Number((active.params as { firmId?: number } | null)?.firmId) === firmId) {
+    const active = actives.find((j) => Number((j.params as { firmId?: number } | null)?.firmId) === firmId);
+    if (active) {
       return NextResponse.json(
         { error: `Bu firma uchun partiya allaqachon ${active.status === 'RUNNING' ? 'ketmoqda' : 'navbatda'} (#${active.id}). Tugashini kuting yoki «Bekor» qiling.` },
         { status: 409 },

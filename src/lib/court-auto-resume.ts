@@ -64,8 +64,19 @@ async function backoffElapsed(): Promise<boolean> {
  * Qaytaradi: yaratilgan job id yoki null (yaratilmagan sabab bilan).
  */
 export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH): Promise<{ jobId: number; count: number } | null> {
+  // ADOLAT'da ishi BOR (courtCaseId yozilgan) case QAYTA YUBORILMAYDI.
+  //
+  // FAILED har doim «sudga ketmadi» degani EMAS: save-suit muvaffaqiyatli o'tib,
+  // send-to-court uzilgan bo'lishi mumkin — portal so'rovni bajargan, ya'ni da'vo rasman
+  // berilgan, bizda esa xato yozilgan. Bunday ishni avtomatik qayta yuborish AYNI ODAMGA
+  // IKKINCHI da'vo ochadi (2026-09-07 auditi). Shuning uchun id yozilgan ishlar
+  // avtomatikaga umuman tushmaydi — ularni operator qo'lda tekshiradi.
   const pending = await prisma.courtQueueItem.findMany({
-    where: { firmId, state: { in: ['PENDING', 'FAILED'] } },
+    where: {
+      firmId,
+      state: { in: ['PENDING', 'FAILED'] },
+      case: { courtCaseId: null },
+    },
     orderBy: { id: 'asc' },
     take: Math.min(MAX_COURT_BATCH, Math.max(1, limit)),
     select: { caseId: true },
