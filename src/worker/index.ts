@@ -2,6 +2,10 @@ import 'dotenv/config';
 import { prisma } from '../lib/db';
 import { runJobById } from '../lib/job-runner';
 import { firmsDueForSync, syncFirm, AUTO_EVERY_MS } from '../lib/billing-check/sync';
+import { FIRMS } from '../lib/firms';
+import { getStoredCabinetSession } from '../lib/cabinet/session';
+import { ingestCabinetStatuses } from '../lib/cabinet/status-ingest';
+import { SessionExpiredError } from '../lib/session-store';
 
 // Standalone background worker. Runs in its own process (a Docker container in production) and is the
 // ONLY executor of the heavy document jobs when the web app runs with JOB_MODE=worker. It polls the
@@ -129,7 +133,46 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
   });
 }
 
+// Sudga yuborilgan ishlarning TAQDIRINI kuzatib turadi (qabul qilindi / qaytarildi / qaror).
+//
+// Nega kerak: ish sudga topshirilgandan keyin uning holati faqat cabinet.sud.uz'da o'zgaradi —
+// bizga hech narsa kelmaydi. ingestCabinetStatuses kodi bor edi, lekin uni FAQAT qo'lda
+// skriptlar chaqirardi (scripts/sync-all.ts va h.k.), cron ham yo'q edi. Natijada
+// ClientCaseStatus jadvali BO'SH turardi va «Qaytganlar» sahifasi hech qachon to'lmasdi:
+// yuz-minglab ish yuborilgandan keyin ham nima bo'lganini hech kim bilmasdi.
+//
+// Yengil: har firma uchun 12 ta ro'yxat so'rovi (CATS × LISTS), case-per-request emas.
+// Firmalar orasida pauza bor — portalga bir zumda urilmasin (2026-09-06 blokidan saboq).
+const COURT_STATUS_EVERY_MS = 30 * 60_000;
+const COURT_STATUS_FIRM_GAP_MS = 15_000;
+
+async function courtStatusSyncLoop(): Promise<void> {
+  console.log(`[worker] sud status sync: har ${Math.round(COURT_STATUS_EVERY_MS / 60_000)} daqiqada`);
+  await new Promise((r) => setTimeout(r, 90_000)); // migrate/DB tayyor bo'lsin
+  while (!stopping) {
+    for (const f of FIRMS) {
+      if (stopping) break;
+      try {
+        const s = await getStoredCabinetSession(f.stir);
+        const r = await ingestCabinetStatuses(s, f.branchCode);
+        if (r.totalCases > 0) {
+          console.log(`[worker] sud status ${f.branchCode}: ${r.totalCases} ta ish (mos ${r.matched})`);
+        }
+      } catch (e) {
+        // Sessiya yo'q / portal bloklangan — bu firma shu tsiklda o'tkazib yuboriladi.
+        // Xato butun siklni to'xtatmasligi kerak: bitta firmaning sessiyasi tugagani
+        // qolganlarining kuzatuvini o'chirmasin.
+        const msg = e instanceof SessionExpiredError ? 'sessiya yo\'q' : (e as Error).message?.slice(0, 120);
+        if (!(e instanceof SessionExpiredError)) console.error(`[worker] sud status ${f.branchCode}: ${msg}`);
+      }
+      await new Promise((r) => setTimeout(r, COURT_STATUS_FIRM_GAP_MS));
+    }
+    await new Promise((r) => setTimeout(r, COURT_STATUS_EVERY_MS));
+  }
+}
+
 void billingAutoSyncLoop().catch((e) => console.error('[worker] billing auto-sync fatal', e));
+void courtStatusSyncLoop().catch((e) => console.error('[worker] sud status sync fatal', e));
 
 loop().catch((e) => {
   console.error('[worker] fatal', e);
