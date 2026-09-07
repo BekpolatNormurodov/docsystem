@@ -961,6 +961,7 @@ function EmptyBlock({ title, hint }: { title: string; hint?: string }) {
 
 // ── main ─────────────────────────────────────────────────────────────────────
 export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: { firms: { firmId: number; firmName: string; total: number; stir?: string | null }[]; selectedId?: number; initialData?: Data | null; tab?: 'send' | 'stat' | 'returns' }) {
+  const confirmQ = useConfirm(); // navbatni to'xtatish/tozalash — qaytarib bo'lmaydigan amallar
   const [firmId, setFirmId] = useState<number | null>(null);
   const [data, setData] = useState<Data | null>(initialData ?? null);
   const [loading, setLoading] = useState(!initialData);
@@ -1217,10 +1218,33 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                         <button type="button" onClick={() => setQueueActive(true)} disabled={!queue.some((x) => x.status === 'wait')}
                           className="inline-flex items-center gap-1 rounded-lg bg-brand-500 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-brand-600 disabled:opacity-50"><IcoBolt /> Boshlash</button>
                       ) : (
-                        <button type="button" onClick={() => setQueueActive(false)}
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const left = queue.filter((x) => x.status === 'wait').length;
+                            const ok = await confirmQ({
+                              title: 'Navbatni to‘xtatishmi?',
+                              description: left > 0
+                                ? `Ketayotgan partiya oxirigacha boradi, keyin to‘xtaydi. Navbatda ${n(left)} ta partiya qoladi — keyin «Boshlash» bilan davom ettirishingiz mumkin.`
+                                : 'Ketayotgan partiya oxirigacha boradi, keyin yangi partiya boshlanmaydi.',
+                              confirmLabel: 'Ha, to‘xtatilsin', danger: true,
+                            });
+                            if (ok) setQueueActive(false);
+                          }}
                           className="inline-flex items-center gap-1 rounded-lg border border-rose-500/40 px-2.5 py-1 text-[11px] font-medium text-rose-600 transition-colors hover:bg-rose-500/10 dark:text-rose-300">To‘xtatish</button>
                       )}
-                      <button type="button" onClick={() => setQueue((q) => q.filter((x) => x.status === 'sending' || x.status === 'signing'))}
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const drop = queue.filter((x) => x.status !== 'sending' && x.status !== 'signing').length;
+                          if (drop === 0) return;
+                          const ok = await confirmQ({
+                            title: 'Navbat tozalansinmi?',
+                            description: `${n(drop)} ta yozuv ro‘yxatdan o‘chiriladi (ketayotgani qoladi). Yuborilgan ishlarga ta’sir qilmaydi — faqat navbat ro‘yxati tozalanadi.`,
+                            confirmLabel: 'Ha, tozalansin', danger: true,
+                          });
+                          if (ok) setQueue((q) => q.filter((x) => x.status === 'sending' || x.status === 'signing'));
+                        }}
                         className="rounded-lg border border-line px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:border-brand-500/40 hover:text-fg">Tozalash</button>
                     </div>
                   </div>

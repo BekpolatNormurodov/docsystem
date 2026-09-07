@@ -24,6 +24,38 @@ import type { CaseFileToUpload } from '../../cabinet-api-skeleton/uploader';
 // qoladi. Shuning uchun aktyor aniq beriladi: navbat tizim nomidan ishlaydi.
 const QUEUE_ACTOR = { username: 'tizim (sud navbati)', role: 'system' };
 
+/** Sud ADOLAT'da elektron qabulni yoqmaganini bildiruvchi xato (portal o'zbekcha-kirillcha yozadi). */
+const COURT_CLOSED_RE = /канцелярия|kantselyariya/i;
+
+/**
+ * Sudning ADOLAT holatini HAQIQIY natijadan yangilaydi.
+ *
+ * Nega kerak: bu bayroq bir marta qo'lda qo'yilsa, sud muammoni tuzatgach ham abadiy yopiq
+ * bo'lib qolardi va operator buni bilmasdi. Endi bayroq o'z-o'zidan boshqariladi:
+ *   • «канцелярия ходими киритилмаган» xatosi kelsa → sud yopiq deb belgilanadi;
+ *   • o'sha sudga ish MUVAFFAQIYATLI ketsa → qayta ochiladi.
+ * Ya'ni holat har safar jonli traffikdan tasdiqlanadi, taxmindan emas.
+ */
+async function syncCourtCabinetState(courtId: number | null | undefined, ok: boolean, errText?: string) {
+  if (!courtId) return;
+  try {
+    if (ok) {
+      await prisma.court.updateMany({
+        where: { id: courtId, cabinetEnabled: false },
+        data: { cabinetEnabled: true, cabinetNote: null },
+      });
+    } else if (errText && COURT_CLOSED_RE.test(errText)) {
+      await prisma.court.updateMany({
+        where: { id: courtId, cabinetEnabled: true },
+        data: {
+          cabinetEnabled: false,
+          cabinetNote: 'ADOLAT’da bu sud uchun kantselyariya xodimi biriktirilmagan — elektron ariza qabul qilinmaydi',
+        },
+      });
+    }
+  } catch { /* holat belgisi yordamchi ma'lumot — yozilmasa ish to'xtamasin */ }
+}
+
 // Tezlik endi src/lib/cabinet/pacer.ts da — GLOBAL (barcha firma navbatlari uchun bitta) va
 // SO'ROV darajasida. Eski DEFAULT_DELAY_MS faqat case'lar orasida 8s kutardi, bitta case
 // ichidagi ~7 so'rov esa bir zumda otilardi — aynan shu naqsh 2026-09-06 da bloklangan.
@@ -335,6 +367,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
 
         if (result.ok) {
           okCount++;
+          await syncCourtCabinetState(ac.courtId, true);
           await prisma.courtQueueItem.update({
             where: { caseId: ac.id },
             data: {
@@ -354,6 +387,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
           });
         } else {
           failCount++;
+          await syncCourtCabinetState(ac.courtId, false, result.error);
           console.error(`❌ [Job ${jobId}] Case #${ac.id} xatolik: ${result.error}`);
           await prisma.courtQueueItem.update({
             where: { caseId: ac.id },
@@ -373,6 +407,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
         }
       } catch (err: any) {
         failCount++;
+        await syncCourtCabinetState(ac.courtId, false, String(err?.message || err));
         console.error(`❌ [Job ${jobId}] Case #${ac.id} istisno:`, err.message);
         await prisma.courtQueueItem.update({
           where: { caseId: ac.id },
