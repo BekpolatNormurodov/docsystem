@@ -10,10 +10,10 @@
 // uriladi. Shuning uchun navbatlar mantiqan alohida, lekin TEZLIK CHEGARASI global: bu
 // modul butun jarayon bo'yicha bitta.
 //
-// Cheklov: chegara PROSESS ichida ishlaydi. Productionda joblar faqat worker konteynerida
-// bajariladi (JOB_MODE=worker), ya'ni bitta jarayon — shuning uchun bu yetarli. Agar
-// kelajakda bir nechta worker ko'tarilsa, chegara BAZAGA (masalan Setting yoki advisory
-// lock) ko'chirilishi kerak.
+// Chegara ikki qatlamli: jarayon ichida (tez) va BAZA orqali (jarayonlararo). Ikkinchisi
+// 2026-09-07 da qo'shildi — avval faqat xotirada edi va `docker exec` bilan ishga tushirilgan
+// skript worker bilan bir vaqtda ishlaganda portalga ikki barobar tezlikda urilib, fayl
+// yuklashda ulanish uzilgan edi.
 
 import { prisma } from '../db';
 
@@ -74,14 +74,63 @@ let chain: Promise<void> = Promise.resolve();
 let lastRequestAt = 0;
 let lastCaseAt = 0;
 
+// ── JARAYONLARARO chegara (baza orqali) ───────────────────────────────────────────────────
+//
+// 2026-09-07: chegara faqat XOTIRADA edi, ya'ni har jarayon o'zinikini yuritardi. Worker
+// partiyani yuritayotganda `docker exec ... send-one-live.ts` alohida jarayonda ishga
+// tushirildi — ikkalasi bir-birini ko'rmadi va portalga IKKI BAROBAR tezlikda urildi.
+// Natija: fayl yuklashda «fetch failed (other side closed)». Endi so'rov huquqi BAZADAN
+// olinadi, shuning uchun worker, skript va sayt — hammasi bitta chegarani baham ko'radi.
+const SLOT_KEY = 'cabinet_last_request_at';
+
 /**
- * Har bir cabinet HTTP so'rovidan OLDIN chaqiriladi. Oldingi so'rovdan REQUEST_GAP_MS
- * o'tmagan bo'lsa — kutadi. Chaqiruvlar navbat bo'ylab ketma-ket o'tadi.
+ * So'rov huquqini ATOMAR oladi: yozuvni faqat «oxirgi so'rovdan gapMs o'tgan bo'lsa»
+ * yangilaydi. MySQL qatorni qulflagani uchun ikki jarayon bir vaqtda muvaffaqiyatli
+ * yangilay olmaydi — yutqazgani kutib qayta uradi.
+ *
+ * Baza javob bermasa (`null`) — chaqiruvchi xotiradagi chegaraga tushadi: tarmoq
+ * cheklovi buzilgandan ko'ra ish sekin ketgani yaxshi, lekin butunlay to'xtab qolmasin.
+ */
+async function claimSlotViaDb(gapMs: number): Promise<'ok' | 'busy' | null> {
+  try {
+    const now = Date.now();
+    const n = await prisma.$executeRaw`
+      UPDATE Setting SET value = ${String(now)}
+      WHERE \`key\` = ${SLOT_KEY} AND CAST(value AS UNSIGNED) <= ${now - gapMs}
+    `;
+    if (n > 0) return 'ok';
+    // Yozuv yo'q bo'lsa — bir marta yaratamiz (keyingi urinishda oddiy yo'ldan ketadi).
+    const exists = await prisma.setting.findUnique({ where: { key: SLOT_KEY }, select: { key: true } });
+    if (!exists) {
+      await prisma.setting.create({ data: { key: SLOT_KEY, value: '0' } }).catch(() => {});
+      return 'busy';
+    }
+    return 'busy';
+  } catch {
+    return null; // baza mavjud emas / xato — xotiradagi chegaraga tushamiz
+  }
+}
+
+/**
+ * Har bir cabinet HTTP so'rovidan OLDIN chaqiriladi. Oldingi so'rovdan `gapMs` o'tmagan
+ * bo'lsa — kutadi. Chegara BARCHA jarayonlar uchun umumiy (baza orqali); baza ishlamasa
+ * jarayon ichidagi zanjir zaxira bo'lib qoladi.
  */
 export function paceRequest(gapMs: number = REQUEST_GAP_MS): Promise<void> {
   const next = chain.then(async () => {
-    const wait = lastRequestAt + gapMs - Date.now();
-    if (wait > 0) await sleep(wait);
+    // 1) Jarayon ichidagi chegara — arzon va darrov ishlaydi.
+    const localWait = lastRequestAt + gapMs - Date.now();
+    if (localWait > 0) await sleep(localWait);
+
+    // 2) Jarayonlararo chegara. Har urinish orasida qisqa kutish; umumiy kutish
+    //    gapMs ning 3 barobaridan oshsa — o'tkazamiz (tiqilib qolmaslik uchun).
+    const deadline = Date.now() + gapMs * 3;
+    for (;;) {
+      const r = await claimSlotViaDb(gapMs);
+      if (r === 'ok' || r === null) break;
+      if (Date.now() > deadline) break;
+      await sleep(Math.min(gapMs, 1_000));
+    }
     lastRequestAt = Date.now();
   });
   // Zanjir hech qachon uzilmasin: bitta chaqiruvdagi xato keyingilarini bloklamasligi kerak.
