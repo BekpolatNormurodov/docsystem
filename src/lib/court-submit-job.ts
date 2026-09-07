@@ -659,13 +659,38 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
           // o'lgan: qolgan ishlarni urinib ko'rish mantiqsiz, hammasi bir xil yiqiladi
           // va operator yuzlab soxta xato ko'radi. BLOCKED/RATE_LIMIT — portalni yanada
           // bosmaymiz.
-          if (result.kind === 'AUTH' || result.kind === 'BLOCKED' || result.kind === 'RATE_LIMIT') {
-            if (result.kind !== 'AUTH') backoff(15 * 60_000);
-            stopReason = result.kind === 'AUTH'
-              ? 'Cabinet sessiyasi tugagan — E-IMZO bilan qayta imzolang, so\'ng davom eting'
-              : `Portal javob bermayapti (${result.kind}) — navbat to'xtatildi, keyinroq davom eting`;
+          // SESSIYA (AUTH) — darhol to'xtaymiz: token o'lgan, keyingi har bir ish ham
+          // yiqiladi.
+          if (result.kind === 'AUTH') {
+            stopReason = 'Cabinet sessiyasi tugagan — E-IMZO bilan qayta imzolang, so\'ng davom eting';
             console.error(`⛔ [Job ${jobId}] Navbat to'xtatildi: ${stopReason}`);
             break;
+          }
+          // BLOCKED/RATE_LIMIT — BITTA hodisa yetarli DALIL EMAS.
+          //
+          // 2026-09-07: portal bitta so'rovga 30 soniyada javob bermadi, kod uni «blok» deb
+          // hisoblab 41 talik partiyani DARHOL o'ldirdi va butun navbatga 15 daqiqalik
+          // sovutish qo'ydi. Portal esa sog'lom edi — keyingi tekshiruvda 0.13 soniyada
+          // javob berdi. Ya'ni bitta sekin so'rov uchun operator 15 daqiqa qotib turgan
+          // ekranga qarab o'tirdi.
+          //
+          // `consecutiveBlocked` hisoblagichi shu ish uchun yozilgan edi, lekin bu shox
+          // undan OLDIN `break` qilgani uchun hech qachon ishlamasdi. Endi: har hodisada
+          // qisqa sovutish va keyingi ishga o'tamiz; navbat faqat KETMA-KET
+          // MAX_CONSECUTIVE_BLOCKED marta bo'lganda to'xtaydi — bu haqiqiy blok belgisi.
+          if (result.kind === 'BLOCKED' || result.kind === 'RATE_LIMIT') {
+            consecutiveBlocked++;
+            if (consecutiveBlocked >= MAX_CONSECUTIVE_BLOCKED) {
+              backoff(15 * 60_000);
+              const b = await noteQueueBlocked();
+              stopReason = `Portal ketma-ket ${consecutiveBlocked} marta javob bermadi (${result.kind}) — ${b.waitMin} daqiqadan keyin avtomat qayta urinadi`;
+              console.error(`⛔ [Job ${jobId}] Navbat to'xtatildi: ${stopReason}`);
+              break;
+            }
+            // Qisqa nafas: 30s, 60s — portal o'ziga kelishi mumkin, partiya esa yashaydi.
+            const cool = 30_000 * consecutiveBlocked;
+            console.warn(`⚠ [Job ${jobId}] Portal javob bermadi (${result.kind}, ${consecutiveBlocked}/${MAX_CONSECUTIVE_BLOCKED}) — ${cool / 1000}s kutib davom etamiz.`);
+            backoff(cool);
           }
           console.error(`❌ [Job ${jobId}] Case #${ac.id} xatolik: ${result.error}`);
           // Boji to'lanmagan — bu NOSOZLIK emas. Preflight buni bazadan tutadi, lekin

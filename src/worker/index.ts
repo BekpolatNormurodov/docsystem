@@ -193,6 +193,31 @@ async function resetInterruptedCourtJobs(): Promise<void> {
   // navbat yozuvi RUNNING bo'lib qolgan holatda u UMUMAN ishlamasdi. Natijada sahifa
   // yashil puls bilan «Yuborilmoqda» deb turar, ish esa hech qachon davom etmasdi —
   // `resume` faqat PENDING yozuvlarni oladi, ya'ni o'sha ish navbatdan tushib qolardi.
+  //
+  // LEKIN HAMMASINI EMAS. Ish `save-suit` dan O'TIB, `send-to-court` da uzilgan bo'lishi
+  // mumkin — bunda ADOLAT'da da'vo ALLAQACHON yaratilgan. Uni «navbatda» deb qaytarish
+  // AYNI ODAMGA IKKINCHI da'vo ochadi, ya'ni qaytarib bo'lmaydigan zarar. Shuning uchun
+  // faqat portalda IZI YO'Q ishlar qaytariladi: sud ish raqami ham, `courtCaseId` ham
+  // yozilmagan. Izi borlari FAILED bo'lib qoladi va operator ularni qo'lda tekshiradi.
+  const risky = await prisma.courtQueueItem.findMany({
+    where: {
+      state: 'RUNNING',
+      OR: [{ caseNumber: { not: null } }, { case: { courtCaseId: { not: null } } }],
+    },
+    select: { id: true, caseId: true },
+  });
+  if (risky.length) {
+    await prisma.courtQueueItem.updateMany({
+      where: { id: { in: risky.map((r) => r.id) } },
+      data: {
+        state: 'FAILED',
+        step: null,
+        lastError: 'Worker uzilganda ADOLAT\'da ish allaqachon yaratilgan edi — qayta yuborilmaydi '
+          + '(ikkinchi da\'vo xavfi). Portalda holatini qo\'lda tekshiring.',
+      },
+    });
+    console.warn(`[worker] ${risky.length} ta uzilgan ish ADOLAT'da izi borligi uchun QAYTA YUBORILMAYDI (case: ${risky.map((r) => r.caseId).join(', ')})`);
+  }
   const zombie = await prisma.courtQueueItem.updateMany({
     where: { state: 'RUNNING' },
     data: { state: 'PENDING', step: null },

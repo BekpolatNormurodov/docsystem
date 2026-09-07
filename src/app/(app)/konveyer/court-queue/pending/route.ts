@@ -64,10 +64,13 @@ export async function GET() {
   // holati va navbatdagi o'rni qo'shiladi.
   const jobs = await prisma.job.findMany({
     where: { type: 'COURT_SUBMIT', status: { in: ['PENDING', 'RUNNING'] } },
-    select: { id: true, status: true, progress: true, total: true, params: true },
+    // `message` — dvigatel yozib turadigan JONLI holat («keyingisi 802s dan keyin»).
+    // Busiz portal sovutish davrida ekran 15 daqiqa qimirlamay turadi va operator
+    // «osilib qoldi» deb o'ylab, ketayotgan partiyani bekor qiladi (2026-09-07).
+    select: { id: true, status: true, progress: true, total: true, params: true, message: true },
     orderBy: { id: 'asc' },
   });
-  const jobByFirm = new Map<number, { jobId: number; status: string; progress: number; total: number; queuePos: number }>();
+  const jobByFirm = new Map<number, { jobId: number; status: string; progress: number; total: number; queuePos: number; message: string | null }>();
   let waitingPos = 0;
   for (const j of jobs) {
     const fid = Number((j.params as { firmId?: number } | null)?.firmId);
@@ -76,6 +79,7 @@ export async function GET() {
     jobByFirm.set(fid, {
       jobId: j.id, status: j.status, progress: j.progress, total: j.total,
       queuePos: j.status === 'PENDING' ? waitingPos : 0,
+      message: j.message ?? null,
     });
   }
 

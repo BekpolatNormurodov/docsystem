@@ -1349,7 +1349,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   // NAVBAT SAHIFA YANGILANGANDA YO'QOLMASIN. Partiya ro'yxati faqat React state'da edi —
   // reload'da yo'qolardi va operator navbat bekor bo'ldi deb o'ylardi. Aslida har ishning
   // holati bazada (CourtQueueItem), shuning uchun navbat SHUNDAN tiklanadi.
-  const [pendingQ, setPendingQ] = useState<{ firmId: number; firmName: string; stir: string | null; pending: number; running: number; done: number; failed: number; skipped: number; job?: { jobId: number; status: string; progress: number; total: number; queuePos: number } | null }[]>([]);
+  const [pendingQ, setPendingQ] = useState<{ firmId: number; firmName: string; stir: string | null; pending: number; running: number; done: number; failed: number; skipped: number; job?: { jobId: number; status: string; progress: number; total: number; queuePos: number; message?: string | null } | null }[]>([]);
   const loadPending = useCallback(() => {
     fetch('/konveyer/court-queue/pending')
       .then((r) => r.json())
@@ -1900,6 +1900,13 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                           /* Navbatda ish yo'q — faqat xato/o'tkazilganlar qolgan. «Davom
                              ettirish» bu yerda YOLG'ON tugma bo'lardi: bosilsa 400 qaytarardi. */
                           <span className="shrink-0 text-[11px] text-muted">Navbat tugagan — quyidagi firma qatoridan sababini ko‘ring</span>
+                        )}
+                        {/* DVIGATEL NIMA QILAYOTGANI — so'zma-so'z.
+                            Portal sovutish davrida («keyingisi 802s dan keyin») ekran 15
+                            daqiqa qimirlamaydi. Bu matnsiz operator ish osilib qolgan deb
+                            o'ylaydi va ketayotgan partiyani bekor qiladi. */}
+                        {q.job?.status === 'RUNNING' && q.job.message && (
+                          <p className="w-full text-[11px] leading-snug text-muted" role="status">{q.job.message}</p>
                         )}
                       </div>
                       );
