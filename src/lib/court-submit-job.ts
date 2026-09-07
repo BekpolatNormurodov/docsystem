@@ -503,14 +503,41 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
 
       try {
         const filesToUpload = await collectCaseFiles(ac);
-        const result = await engine.submitCase(caseData, filesToUpload, {
-          dryRun: isDryRun,
-          // Bosqichni bazaga yozamiz — UI navbat panelida «Ketyapti · Hujjatlar (15 ta)»
-          // deb ko'rsatadi. Yozuv muhim emas: yiqilsa ish to'xtamasin.
-          onStep: (step) => {
-            void prisma.courtQueueItem.update({ where: { caseId: ac.id }, data: { step } }).catch(() => {});
-          },
-        });
+
+        // ISH DARAJASIDA QAYTA URINISH.
+        //
+        // Portal vaqti-vaqti bilan 500/502 beradi (2026-09-07: 96 tadan 3 tasi «Fayl
+        // yuklashda xatolik [500]» bo'ldi). Bu ishning ma'lumotiga aloqasi yo'q — portal
+        // o'zi qoqilgan. Avval bunday ish darrov «Yuborilmadi» bo'lib qolar va operator
+        // uni qo'lda qayta yuborishi kerak edi. Endi o'sha zahoti 2 marta qayta uriniladi.
+        //
+        // FAQAT vaqtinchalik xatolarda: ma'lumot nosoz bo'lsa (400 — arizasiz, kvitansiya
+        // to'lanmagan) qayta urinish behuda va zararli, u darrov FAILED bo'ladi.
+        //
+        // Eslatma: qayta urinishda YANGI qoralama yaratiladi (oldingisi ADOLAT'da yetim
+        // qoladi). Bu ataylab: yetim qoralama zararsiz, yuborilmagan da'vo esa yo'qotish.
+        const CASE_TRIES = 3;
+        let result!: Awaited<ReturnType<typeof engine.submitCase>>;
+        for (let t = 1; t <= CASE_TRIES; t++) {
+          try {
+            result = await engine.submitCase(caseData, filesToUpload, {
+              dryRun: isDryRun,
+              // Bosqichni bazaga yozamiz — UI navbat panelida «Ketyapti · Hujjatlar (15 ta)»
+              // deb ko'rsatadi. Yozuv muhim emas: yiqilsa ish to'xtamasin.
+              onStep: (step) => {
+                const label = t > 1 ? `${step} (${t}-urinish)` : step;
+                void prisma.courtQueueItem.update({ where: { caseId: ac.id }, data: { step: label } }).catch(() => {});
+              },
+            });
+            break;
+          } catch (e: any) {
+            const kind = e?.kind as string | undefined;
+            const transient = kind === 'SERVER' || kind === 'BLOCKED' || kind === 'RATE_LIMIT';
+            if (!transient || t === CASE_TRIES) throw e;
+            console.warn(`⚠ [Job ${jobId}] ${caseIndexStr} portal nosozligi (${kind}) — ${t}/${CASE_TRIES}, qayta urinamiz...`);
+            await new Promise((r) => setTimeout(r, 8_000 * t));
+          }
+        }
 
         if (result.ok && !isDryRun) {
           await prisma.arizaCase.update({
