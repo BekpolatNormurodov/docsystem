@@ -100,6 +100,22 @@ async function resetInterruptedCourtJobs(): Promise<void> {
     console.log(`[worker] ${stale.length} ta yuborilmagan ishning kunlik limiti bo'shatildi`);
   }
 
+  // 2) OSILIB QOLGAN «RUNNING» NAVBAT YOZUVLARI — jobdan MUSTAQIL.
+  //
+  // Sudga yuborish partiyasi jarayon bilan birga o'ladi, ya'ni worker endigina ishga
+  // tushgan paytda birorta ish HAQIQATAN «ketayotgan» bo'lishi mumkin emas. Ilgari bu
+  // tozalash `jobs.length === 0` sharti ortida edi: job allaqachon FAILED bo'lib, faqat
+  // navbat yozuvi RUNNING bo'lib qolgan holatda u UMUMAN ishlamasdi. Natijada sahifa
+  // yashil puls bilan «Yuborilmoqda» deb turar, ish esa hech qachon davom etmasdi —
+  // `resume` faqat PENDING yozuvlarni oladi, ya'ni o'sha ish navbatdan tushib qolardi.
+  const zombie = await prisma.courtQueueItem.updateMany({
+    where: { state: 'RUNNING' },
+    data: { state: 'PENDING', step: null },
+  });
+  if (zombie.count > 0) {
+    console.log(`[worker] ${zombie.count} ta osilib qolgan «ketyapti» yozuvi navbatga qaytarildi`);
+  }
+
   const jobs = await prisma.job.findMany({ where: { status: 'RUNNING', type: 'COURT_SUBMIT' }, select: { id: true, progress: true, total: true } });
   if (jobs.length === 0) return;
   for (const j of jobs) {
@@ -111,8 +127,6 @@ async function resetInterruptedCourtJobs(): Promise<void> {
       },
     });
   }
-  const back = await prisma.courtQueueItem.updateMany({ where: { state: 'RUNNING' }, data: { state: 'PENDING' } });
-
   // Kunlik limitni qaytaramiz: partiya boshlanishida har bir ishga courtSentAt yozilgan,
   // lekin ular yuborilmadi. Aks holda sud limiti yuborilmagan ishlar bilan «to'lib» qoladi.
   const stuck = await prisma.courtQueueItem.findMany({
@@ -122,7 +136,7 @@ async function resetInterruptedCourtJobs(): Promise<void> {
   if (stuck.length) {
     await prisma.arizaCase.updateMany({ where: { id: { in: stuck.map((x) => x.caseId) } }, data: { courtSentAt: null } });
   }
-  console.log(`[worker] ${jobs.length} ta uzilgan sud partiyasi yakunlandi, ${back.count} ta ish navbatga qaytarildi, ${stuck.length} ta limit bo'shatildi`);
+  console.log(`[worker] ${jobs.length} ta uzilgan sud partiyasi yakunlandi, ${stuck.length} ta limit bo'shatildi`);
 }
 
 // FIX 4: how often the idle poll loop re-runs the orphan sweep (~5 min). The startup sweep alone misses

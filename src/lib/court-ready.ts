@@ -114,7 +114,11 @@ const signedCaseIdSet = (caseIds: number[]) => caseIdSetByKind(caseIds, 'SIGNED_
 // sharti faqat RAQAM borligini tekshirardi, shuning uchun to'lanmagan kvitansiyali ish ham
 // «Tayyor» ko'rinardi va partiyaga tushib, portalda yiqilardi. 2026-09-07 holati: raqami
 // bor 3602 ta ishning 329 tasida kvitansiya CREATED (to'lanmagan).
-async function paidReceiptSet(numbers: string[]): Promise<Set<string>> {
+//
+// EKSPORT: shu manbadan sudga yuborish dvigateli (court-submit-job) va avtomat davom
+// ettiruvchi (court-auto-resume) ham foydalanadi. Ilgari har biri o'z so'rovini yozgandi —
+// «to'langan» ta'rifi uch joyda ayri-ayri turardi va biri o'zgarsa qolgani eskirib qolardi.
+export async function paidReceiptSet(numbers: string[]): Promise<Set<string>> {
   const uniq = [...new Set(numbers.filter(Boolean))];
   if (!uniq.length) return new Set();
   const rows = await prisma.billingCheckInvoice.findMany({

@@ -14,6 +14,7 @@ import { paceCase, backoff, caseGapFor, isQueuePaused, REQUEST_GAP_MS, CASE_GAP_
 import { audit, AuditAction } from './audit';
 import { resolveClaimantId } from './cabinet/claimant';
 import { releaseCourtSend } from './court-routing';
+import { paidReceiptSet } from './court-ready';
 import { noteQueueBlocked, resetQueueBackoff } from './court-auto-resume';
 import { resolveCabinetCourtGuid, regionForCourt } from '../../cabinet-api-skeleton/constants';
 import type { SourceCaseData } from '../../cabinet-api-skeleton/builder';
@@ -397,27 +398,70 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
       console.log(`[Job ${jobId}] ${doneIds.size} ta ish allaqachon yuborilgan — o'tkazib yuborildi.`);
     }
 
-    const targetCases = await prisma.arizaCase.findMany({
+    let targetCases = await prisma.arizaCase.findMany({
       where: { id: { in: pendingIds } },
       include: { firm: true, court: true, documents: true },
       orderBy: { id: 'asc' },
     });
 
+    // ── DAVLAT BOJI PREFLIGHT ────────────────────────────────────────────────────────────
+    //
+    // To'lanmagan bojli ishni portalga OLIB CHIQMAYMIZ. Portal `find-by-receipt-number`
+    // da 400 «invoiceStatus is not valid» beradi, lekin bu bosqichgacha ish qoralama
+    // yaratib, 10 ta hujjat yuklab bo'lgan bo'lardi — ADOLAT'da yetim qoralama qolardi.
+    //
+    // 2026-09-07: BRIGHT partiyasidagi 193 ta ishning 78 tasi aynan shunday edi. Bizning
+    // bazamiz ham (BillingCheckInvoice.invoiceStatus = CREATED) buni BILARDI, ya'ni
+    // portalga chiqishning umuman keragi yo'q edi.
+    //
+    // Bunday ish FAILED emas, SKIPPED bo'ladi: bu nosozlik emas, ish shunchaki hali
+    // yuborishga tayyor emas. Qayta urinish hech narsani o'zgartirmaydi — to'lov kerak.
+    // To'langach `invoiceStatus` PAID bo'ladi va ish o'zi navbatga qaytadi.
+    const paidNos = await paidReceiptSet(targetCases.map((c) => c.receiptNumber ?? ''));
+    const unpaid = targetCases.filter((c) => !c.receiptNumber || !paidNos.has(c.receiptNumber));
+    const sendCases = targetCases.filter((c) => c.receiptNumber && paidNos.has(c.receiptNumber));
+
     // Navbat yozuvlarini tayyorlash: har case PENDING holatida ko'rinadi (operator darhol
     // "navbatda" deb ko'radi, ish boshlanishini kutmasdan).
-    for (const ac of targetCases) {
+    for (const ac of sendCases) {
       await prisma.courtQueueItem.upsert({
         where: { caseId: ac.id },
         create: { caseId: ac.id, firmId: firm.id, account: firmStir, state: 'PENDING', jobId },
         update: { state: 'PENDING', jobId, lastError: null, finishedAt: null },
       });
     }
+    if (unpaid.length) {
+      const why = (c: { receiptNumber: string | null }) => c.receiptNumber
+        ? `Davlat boji to'lanmagan (kvitansiya ${c.receiptNumber}). Buxgalteriyaga to'lovga bering — to'langach ish o'zi navbatga qaytadi.`
+        : 'Davlat boji kvitansiyasi (invoice raqami) yo\'q. Avval invoice yarating.';
+      for (const ac of unpaid) {
+        await prisma.courtQueueItem.upsert({
+          where: { caseId: ac.id },
+          create: { caseId: ac.id, firmId: firm.id, account: firmStir, state: 'SKIPPED', jobId, lastError: why(ac), finishedAt: new Date() },
+          update: { state: 'SKIPPED', jobId, lastError: why(ac), finishedAt: new Date(), step: null },
+        });
+      }
+      // Kunlik sud limitini QAYTARAMIZ: partiya tuzilishida bu ishlarga courtSentAt
+      // yozilgan edi (count-at-write), lekin ular yuborilmaydi. Bo'shatmasak sud limiti
+      // yuborilmagan ishlar bilan «to'lib» qoladi.
+      await prisma.arizaCase.updateMany({
+        where: { id: { in: unpaid.map((c) => c.id) }, stage: { not: 'COURT_SUBMITTED' } },
+        data: { courtSentAt: null },
+      });
+      console.log(`[Job ${jobId}] ${unpaid.length} ta ish boji to'lanmagani uchun o'tkazib yuborildi (portalga chiqilmadi).`);
+    }
+    targetCases = sendCases;
+    // Partiya haqiqiy hajmi — o'tkazib yuborilganlarsiz. Busiz progress «0/195» bo'lib
+    // qotib turardi, holbuki yuboriladigan ish 115 ta edi.
+    await prisma.job.update({ where: { id: jobId }, data: { total: targetCases.length } }).catch(() => {});
 
     console.log(`[Job ${jobId}] Sudga topshirish boshlandi: ${targetCases.length} ta ish (${firm.shortName})`);
     console.log(`[Job ${jobId}] Tezlik: har so'rov orasida ${REQUEST_GAP_MS / 1000}s, ishlar orasida sud sozlamasi bo'yicha (default ${CASE_GAP_MS / 1000}s)`);
 
     let okCount = 0;
     let failCount = 0;
+    // Boji to'lanmagani uchun o'tkazib yuborilganlar — «xato» emas, alohida sanaladi.
+    let skipCount = unpaid.length;
     // Ketma-ket portal nosozliklari — shu songa yetganda navbat to'xtaydi (haqiqiy blok belgisi).
     let consecutiveBlocked = 0;
     const MAX_CONSECUTIVE_BLOCKED = 3;
@@ -626,10 +670,23 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
             break;
           }
           console.error(`❌ [Job ${jobId}] Case #${ac.id} xatolik: ${result.error}`);
+          // Boji to'lanmagan — bu NOSOZLIK emas. Preflight buni bazadan tutadi, lekin
+          // to'lov holati portalda boshqacha bo'lishi mumkin (yoki kvitansiya partiya
+          // boshlangandan keyin bekor qilingan). Bunday ish SKIPPED bo'ladi: avtomat
+          // qayta urinish uni cheksiz aylantirmaydi, operator esa sababini ko'radi.
+          const skipUnpaid = result.reason === 'UNPAID_RECEIPT';
+          if (skipUnpaid) {
+            failCount--; // «xato» emas — pastdagi hisobga tushmasin
+            skipCount++;
+            await prisma.arizaCase.updateMany({
+              where: { id: ac.id, stage: { not: 'COURT_SUBMITTED' } },
+              data: { courtSentAt: null },
+            });
+          }
           await prisma.courtQueueItem.update({
             where: { caseId: ac.id },
             data: {
-              state: 'FAILED', finishedAt: new Date(),
+              state: skipUnpaid ? 'SKIPPED' : 'FAILED', finishedAt: new Date(),
               lastError: result.error ?? 'Nomaʼlum xato', draftId: result.draftId ?? null,
               caseNumber: result.caseId ?? null,
             },
@@ -711,7 +768,10 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
       // 15 daqiqa qimirlamagan RUNNING job'ni o'lik deb belgilaydi; biz har ~60s yozamiz).
       await prisma.job.update({
         where: { id: jobId },
-        data: { progress: idx + 1, message: `${okCount} ta yuborildi, ${failCount} ta xato` },
+        data: {
+          progress: idx + 1,
+          message: `${okCount} ta yuborildi, ${failCount} ta xato${skipCount ? `, ${skipCount} ta boji to'lanmagan` : ''}`,
+        },
       });
     }
 
@@ -737,6 +797,9 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
     // mumkin edi. Endi holat aniq raqamlar bilan ko'rinadi.
     const parts = [`${okCount} ta yuborildi`];
     if (failCount > 0) parts.push(`${failCount} ta XATO`);
+    // Boji to'lanmaganlar ALOHIDA ko'rsatiladi: bu xato emas va operator qiladigan ish
+    // ham boshqa — kodni tuzatish emas, to'lovni o'tkazish.
+    if (skipCount > 0) parts.push(`${skipCount} ta boji to'lanmagan (o'tkazildi)`);
     if (doneIds.size > 0) parts.push(`${doneIds.size} ta avval yuborilgan (o'tkazildi)`);
     if (leftover > 0) parts.push(`${leftover} ta navbatda qoldi`);
     if (stopReason) parts.push(`— ${stopReason}`);
@@ -745,6 +808,8 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
       where: { id: jobId },
       data: {
         // Bironta ish ketmagan bo'lsa bu muvaffaqiyat emas — FAILED deb ko'rsatiladi.
+        // O'tkazib yuborilganlar (boji to'lanmagan) buni FAILED qilmaydi: dvigatel to'g'ri
+        // ishladi, yuboradigan ish bo'lmagan xolos.
         status: okCount === 0 && failCount > 0 ? 'FAILED' : 'DONE',
         message: parts.join(', '),
       },
@@ -755,7 +820,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
       target: `firm:${firm.id}`,
       detail: {
         natija: 'partiya yakunlandi', firma: firm.shortName, jobId,
-        yuborildi: okCount, xato: failCount, avvalYuborilgan: doneIds.size,
+        yuborildi: okCount, xato: failCount, bojiTolanmagan: skipCount, avvalYuborilgan: doneIds.size,
         navbatdaQoldi: leftover, toxtashSababi: stopReason, dryRun: isDryRun,
       },
     });

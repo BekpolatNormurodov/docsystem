@@ -37,6 +37,13 @@ export interface SubmissionResult {
   uploadedFiles?: UploadedCabinetFile[];
   /** Xato turi (AUTH/BLOCKED/RATE_LIMIT/BAD_REQUEST/SERVER) — chaqiruvchi shunga qarab qaror qiladi. */
   kind?: CabinetErrorKind;
+  /**
+   * Xatoning MA'NOSI (texnik turi emas). Hozircha bitta qiymat:
+   *   UNPAID_RECEIPT — davlat boji to'lanmagan. Bu «nosozlik» emas, ish shunchaki HALI
+   *   yuborishga tayyor emas: qayta urinish hech narsani o'zgartirmaydi, to'lov kerak.
+   *   Chaqiruvchi shunga qarab ishni FAILED emas, SKIPPED qiladi va qayta urinmaydi.
+   */
+  reason?: 'UNPAID_RECEIPT';
   error?: string;
 }
 
@@ -106,6 +113,61 @@ export class CabinetSubmitEngine {
       const userRes = await this.client.get<{ username: string }>(CABINET_ENDPOINTS.userGet);
       console.log(`✔ Sessiya faol: ${userRes.data?.username || 'OK'}`);
 
+      // STEP 1b: DAVLAT BOJI — qoralama yaratishdan OLDIN.
+      //
+      // NEGA AYNAN SHU YERDA: ilgari bu tekshiruv 5-qadamda, qoralama yaratilib 10 ta
+      // hujjat yuklangandan KEYIN turardi. To'lanmagan kvitansiyali ish shu bosqichgacha
+      // yetib borar, keyin 400 bilan yiqilar va ADOLAT'da YETIM QORALAMA + 10 ta behuda
+      // yuklangan fayl qolib ketardi (2026-09-07: BRIGHT partiyasida 78 ta to'lanmagan
+      // ish shunday «ishlanayotgan» edi — har biri ~1 daqiqa va 15 ta so'rov).
+      //
+      // Kvitansiyaning O'ZI payloadga qo'shilmaydi (portal xom obyektni qabul qilmaydi),
+      // ya'ni bu chaqiruv faqat TEKSHIRUV. Shuning uchun uni eng arzon joyga —
+      // hech qanday nojo'ya ta'sirdan oldinga — ko'chirdik.
+      if (caseData.receiptNumber) {
+        // Portal to'lov holatini ham tekshiradi: to'lanmagan uchun 400 «invoiceStatus is
+        // not valid» qaytadi — bu HAQIQIY sabab, ish to'xtaydi (lekin hech narsa buzilmaydi:
+        // hali qoralama ham, yuklangan fayl ham yo'q).
+        //
+        // 502/503/504 va timeout esa portalning vaqtinchalik nosozligi, kvitansiyaga
+        // aloqasi yo'q (2026-09-07: AXMADJONOV ishida nginx 502 keldi va ish behuda
+        // «Yuborilmadi» bo'lib qoldi). Bunda qayta urinamiz, keyin ham bo'lmasa —
+        // TEKSHIRMASDAN davom etamiz: u save-suit uchun majburiy emas.
+        options.onStep?.('Boji tekshiruvi');
+        const TRIES = 3;
+        for (let attempt = 1; attempt <= TRIES; attempt++) {
+          try {
+            const rr = await this.client.post<any>(CABINET_ENDPOINTS.findByReceiptNumber, {
+              receipt_number: caseData.receiptNumber,
+              receiptNumber: caseData.receiptNumber,
+            });
+            const rec = (rr.data as any)?.receipt ?? rr.data;
+            if (rec) console.log(`✔ Kvitansiya tasdiqlandi: ${caseData.receiptNumber} — ${rec.invoiceStatus ?? '?'} ${rec.paidAmount ?? ''}`);
+            break;
+          } catch (e: any) {
+            const kind = e?.kind as string | undefined;
+            const transient = kind === 'SERVER' || kind === 'BLOCKED' || kind === 'RATE_LIMIT';
+            if (!transient) {
+              // 4xx — kvitansiya haqiqatan nosoz (deyarli har doim: to'lanmagan).
+              // `UNPAID_RECEIPT` — chaqiruvchi buni «xato» emas, «hozircha yubora
+              // olmaymiz» deb ajratishi uchun (navbatda FAILED emas, SKIPPED bo'ladi).
+              const err: any = new Error(
+                `Davlat boji to'lanmagan: kvitansiya ${caseData.receiptNumber} portalda tasdiqlanmadi ` +
+                `(${e.message?.slice(0, 160)}). Buxgalteriyaga to'lovga bering — to'langach ish o'zi ketadi.`,
+              );
+              err.reason = 'UNPAID_RECEIPT';
+              throw err;
+            }
+            if (attempt === TRIES) {
+              console.warn(`⚠ Kvitansiya tekshiruvi ${TRIES} marta portal nosozligi bilan tugadi — tekshirmasdan davom etamiz.`);
+              break;
+            }
+            console.warn(`⚠ Kvitansiya tekshiruvi (${attempt}/${TRIES}) portal nosozligi: ${kind}. Qayta urinamiz...`);
+            await new Promise((r) => setTimeout(r, 5_000 * attempt));
+          }
+        }
+      }
+
       // STEP 2: draft yaratish (bo'sh {})
       options.onStep?.('Qoralama ochilmoqda');
       console.log('▶ [2/7] Qoralama ochilmoqda...');
@@ -154,49 +216,7 @@ export class CabinetSubmitEngine {
         mime_type: 'application/pdf',
       }));
       const fileUpload = CabinetPayloadBuilder.buildFileUpload(fileRefs);
-      // To'langan pochta kvitansiyasini portaldan topib da'voga biriktiramiz. Portal bu
-      // chaqiruvda to'lov holatini ham tekshiradi: to'lanmagan kvitansiya uchun
-      // «invoiceStatus is not valid» (400) qaytadi — ya'ni bu ayni paytda boji tekshiruvi ham.
-      let receipts: unknown[] = [];
-      if (caseData.receiptNumber) {
-        // Kvitansiya tekshiruvi. Portal to'lov holatini ham tekshiradi: to'lanmagan uchun
-        // 400 «invoiceStatus is not valid» qaytadi — bu HAQIQIY sabab, ish to'xtaydi.
-        //
-        // Lekin 502/503/504 va timeout — portalning vaqtinchalik nosozligi, kvitansiyaga
-        // aloqasi yo'q (2026-09-07: AXMADJONOV ishida nginx 502 keldi va ish behuda
-        // «Yuborilmadi» bo'lib qoldi). Bunda qayta urinamiz, keyin ham bo'lmasa —
-        // kvitansiyani TEKSHIRMASDAN davom etamiz: u save-suit uchun majburiy emas
-        // (payloadga qo'shilmaydi), tekshiruv faqat qo'shimcha himoya edi.
-        const TRIES = 3;
-        for (let attempt = 1; attempt <= TRIES; attempt++) {
-          try {
-            const rr = await this.client.post<any>(CABINET_ENDPOINTS.findByReceiptNumber, {
-              receipt_number: caseData.receiptNumber,
-              receiptNumber: caseData.receiptNumber,
-            });
-            const rec = (rr.data as any)?.receipt ?? rr.data;
-            if (rec) console.log(`✔ Kvitansiya tasdiqlandi: ${caseData.receiptNumber} — ${rec.invoiceStatus ?? '?'} ${rec.paidAmount ?? ''}`);
-            break;
-          } catch (e: any) {
-            const kind = e?.kind as string | undefined;
-            const transient = kind === 'SERVER' || kind === 'BLOCKED' || kind === 'RATE_LIMIT';
-            if (!transient) {
-              // 4xx — kvitansiya haqiqatan nosoz (masalan to'lanmagan). Ish to'xtaydi.
-              throw new Error(
-                `Pochta kvitansiyasi (${caseData.receiptNumber}) portalda tasdiqlanmadi: ${e.message?.slice(0, 200)}. ` +
-                `To'lov amalga oshirilganini tekshiring.`,
-              );
-            }
-            if (attempt === TRIES) {
-              console.warn(`⚠ Kvitansiya tekshiruvi ${TRIES} marta portal nosozligi bilan tugadi — tekshirmasdan davom etamiz.`);
-              break;
-            }
-            console.warn(`⚠ Kvitansiya tekshiruvi (${attempt}/${TRIES}) portal nosozligi: ${kind}. Qayta urinamiz...`);
-            await new Promise((r) => setTimeout(r, 5_000 * attempt));
-          }
-        }
-      }
-      const courtCosts = CabinetPayloadBuilder.buildCourtCosts({ dutyReasonId: options.dutyReasonId ?? null, receipts });
+      const courtCosts = CabinetPayloadBuilder.buildCourtCosts({ dutyReasonId: options.dutyReasonId ?? null, receipts: [] });
       details.fileUpload = fileUpload;
       details.courtCosts = courtCosts;
       await this.client.put(CABINET_ENDPOINTS.draftUpdate + draftId, { details });
@@ -330,6 +350,7 @@ export class CabinetSubmitEngine {
         // Xato TURI ham yuqoriga chiqadi: ilgari u shu catch ichida yo'qolardi va
         // chaqiruvchidagi AUTH-to'xtatish hamda blok-himoyasi hech qachon ishlamasdi.
         kind: error instanceof CabinetRequestError ? error.kind : undefined,
+        reason: error?.reason === 'UNPAID_RECEIPT' ? 'UNPAID_RECEIPT' : undefined,
         error: `${error.message} ${causeStr ? '(' + causeStr + ')' : ''}`.trim(),
       };
     }

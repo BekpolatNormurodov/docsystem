@@ -20,6 +20,7 @@ import { enqueueJob } from './job-dispatch';
 import { allocateFirmCases, consumeCourtSend } from './court-routing';
 import { isQueuePaused } from './cabinet/pacer';
 import { MAX_COURT_BATCH } from './court-batch';
+import { paidReceiptSet } from './court-ready';
 
 /** Blokdan keyingi kutish jadvali (daqiqa). Oxirgisi keyin ham takrorlanaveradi. */
 export const BACKOFF_MINUTES = [5, 5, 5, 30, 60, 120];
@@ -71,16 +72,67 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH): 
   // berilgan, bizda esa xato yozilgan. Bunday ishni avtomatik qayta yuborish AYNI ODAMGA
   // IKKINCHI da'vo ochadi (2026-09-07 auditi). Shuning uchun id yozilgan ishlar
   // avtomatikaga umuman tushmaydi — ularni operator qo'lda tekshiradi.
-  const pending = await prisma.courtQueueItem.findMany({
+  const cap = Math.min(MAX_COURT_BATCH, Math.max(1, limit));
+
+  // HALI URINILMAGANLAR BIRINCHI.
+  //
+  // Ilgari PENDING va FAILED bitta so'rovda, `id asc` bo'yicha olinardi — ya'ni navbat
+  // boshidagi eski XATO ishlar har partiyada birinchi bo'lib qayta urinilardi va hali
+  // umuman urinilmagan ishlar ortda qolardi. 2026-09-07 da aynan shu bo'ldi: boji
+  // to'lanmagan #3505 va #3536 har safar partiyaning boshiga chiqib, har biri qoralama
+  // yaratib yiqilardi (5-urinish), qolgan 190 ta ish esa qimirlamasdi.
+  const fresh = await prisma.courtQueueItem.findMany({
+    where: { firmId, state: 'PENDING', case: { courtCaseId: null } },
+    orderBy: { id: 'asc' },
+    take: cap,
+    select: { caseId: true },
+  });
+
+  // XATO BERGANLARNI QAYTA URINISH — CHEKLANGAN.
+  //
+  // Cheksiz qayta urinish ma'nosiz va zararli: har urinish ADOLAT'da qoralama yaratadi
+  // va portalga ~15 ta so'rov yuboradi. Uchinchi urinishdan keyin sabab deyarli har doim
+  // doimiy (hujjat yo'q, sud noto'g'ri, boji to'lanmagan) — uni kod emas, odam tuzatadi.
+  // Bunday ishlar navbatda FAILED bo'lib ko'rinib turadi va operator qo'lda qayta
+  // yuborishi mumkin; avtomatika esa ularni tinch qo'yadi.
+  const MAX_AUTO_ATTEMPTS = 3;
+  const retry = fresh.length >= cap ? [] : await prisma.courtQueueItem.findMany({
     where: {
       firmId,
-      state: { in: ['PENDING', 'FAILED'] },
+      state: 'FAILED',
+      attempts: { lt: MAX_AUTO_ATTEMPTS },
       case: { courtCaseId: null },
     },
     orderBy: { id: 'asc' },
-    take: Math.min(MAX_COURT_BATCH, Math.max(1, limit)),
+    take: cap - fresh.length,
     select: { caseId: true },
   });
+
+  // BOJI TO'LANGANLAR NAVBATGA QAYTADI.
+  //
+  // Boji to'lanmagan ish SKIPPED bo'ladi (xato emas — hali tayyor emas). Lekin buxgalteriya
+  // to'lovni o'tkazgach u O'ZI qaytishi kerak, aks holda operator har bir ishni qo'lda
+  // qidirib topib qayta bosishga majbur bo'ladi va «to'langach ish o'zi ketadi» degan va'da
+  // yolg'on bo'lib qoladi. Shu sababli SKIPPED'lar orasidan kvitansiyasi ENDI PAID
+  // bo'lganlari qaytariladi; to'lanmaganlari esa tegilmaydi (portalga behuda chiqmaydi).
+  const revived: { caseId: number }[] = [];
+  const room = cap - fresh.length - retry.length;
+  if (room > 0) {
+    const skipped = await prisma.courtQueueItem.findMany({
+      where: { firmId, state: 'SKIPPED', case: { courtCaseId: null } },
+      orderBy: { id: 'asc' },
+      select: { caseId: true, case: { select: { receiptNumber: true } } },
+    });
+    if (skipped.length) {
+      const paid = await paidReceiptSet(skipped.map((x) => x.case?.receiptNumber ?? ''));
+      for (const x of skipped) {
+        if (revived.length >= room) break;
+        if (x.case?.receiptNumber && paid.has(x.case.receiptNumber)) revived.push({ caseId: x.caseId });
+      }
+    }
+  }
+
+  const pending = [...fresh, ...revived, ...retry];
   if (pending.length === 0) return null;
 
   const caseIds = pending.map((p) => p.caseId);
@@ -116,9 +168,11 @@ export async function autoResumeTick(): Promise<string | null> {
   if (running > 0) return null;                             // ish allaqachon ketyapti
 
   // Qaysi firmalarda tugamagan ish bor — eng ko'pidan boshlaymiz.
+  // SKIPPED ham hisobga olinadi: firmada faqat boji to'langan SKIPPED ish qolgan bo'lsa ham
+  // partiya boshlanishi kerak (createResumeJob o'zi tanlaydi, tanlanmasa null qaytaradi).
   const groups = await prisma.courtQueueItem.groupBy({
     by: ['firmId'],
-    where: { state: { in: ['PENDING', 'FAILED'] } },
+    where: { state: { in: ['PENDING', 'FAILED', 'SKIPPED'] } },
     _count: { _all: true },
     orderBy: { _count: { firmId: 'desc' } },
   });

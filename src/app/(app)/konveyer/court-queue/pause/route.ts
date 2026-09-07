@@ -13,15 +13,22 @@ export const runtime = 'nodejs';
 // nechtasi ketdi, nechtasi xato bergan.
 export async function GET() {
   await requireStep('sud:send');
-  const [paused, pausedFirms, grouped] = await Promise.all([
+  const [paused, pausedFirms, grouped, activeJobs] = await Promise.all([
     isQueuePaused(),
     pausedFirmIds(),
     prisma.courtQueueItem.groupBy({ by: ['state'], _count: { _all: true } }),
+    // «Hozir HAQIQATAN ish ketyaptimi?» — buni faqat JOB bila oladi.
+    //
+    // Ilgari UI buni `counts.RUNNING > 0` dan chiqarardi. Lekin worker uzilganda navbat
+    // yozuvi RUNNING bo'lib QOLIB KETADI (job o'ldi, yozuv qolgan) — va sahifa yashil
+    // puls bilan «Yuborilmoqda» deb YOLG'ON ko'rsatib turardi, aslida hech nima
+    // ketmayotgan bo'lsa ham (2026-09-07, deploy partiyani uzganda).
+    prisma.job.count({ where: { type: 'COURT_SUBMIT', status: 'RUNNING' } }),
   ]);
   const counts: Record<string, number> = { PENDING: 0, RUNNING: 0, DONE: 0, FAILED: 0, SKIPPED: 0 };
   for (const g of grouped) counts[g.state] = g._count._all;
   // `pausedFirms` — alohida to'xtatilgan firmalar (umumiy pauzadan mustaqil).
-  return NextResponse.json({ paused, pausedFirms, counts });
+  return NextResponse.json({ paused, pausedFirms, counts, running: activeJobs > 0 });
 }
 
 // POST { paused: boolean, firmId?: number } — sudga yuborishni to'xtatib turish / davom ettirish.

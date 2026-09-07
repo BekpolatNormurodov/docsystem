@@ -20,6 +20,19 @@ export async function GET(req: NextRequest) {
   const firmId = num(req.nextUrl.searchParams.get('firmId'));
   if (!firmId) return NextResponse.json({ error: 'firmId kerak' }, { status: 400 });
 
+  // RAQAMLAR — BUTUN NAVBAT bo'yicha, ro'yxat esa cheklangan.
+  //
+  // Ilgari ikkalasi ham bitta `take: 300` so'rovdan chiqardi: 200 dan katta navbatda
+  // sanoq JIM ravishda kesilardi va UI «195 navbatda» o'rniga «300» ko'rsatardi.
+  // Sanoq — groupBy (arzon, to'liq), ro'yxat — alohida sahifa.
+  const grouped = await prisma.courtQueueItem.groupBy({
+    by: ['state'],
+    where: { firmId },
+    _count: { _all: true },
+  });
+  const counts = { PENDING: 0, RUNNING: 0, DONE: 0, FAILED: 0, SKIPPED: 0 } as Record<string, number>;
+  for (const g of grouped) counts[g.state] = g._count._all;
+
   const items = await prisma.courtQueueItem.findMany({
     where: { firmId },
     orderBy: [{ updatedAt: 'desc' }],
@@ -31,11 +44,10 @@ export async function GET(req: NextRequest) {
     },
   });
 
-  const counts = { PENDING: 0, RUNNING: 0, DONE: 0, FAILED: 0, SKIPPED: 0 } as Record<string, number>;
-  for (const it of items) counts[it.state] = (counts[it.state] ?? 0) + 1;
-
   // Xatolar tepada: operator birinchi navbatda shularni ko'rishi kerak.
-  const rank: Record<string, number> = { FAILED: 0, RUNNING: 1, PENDING: 2, DONE: 3, SKIPPED: 4 };
+  // SKIPPED xatolardan keyin darhol: u ham operator ARALASHUVINI talab qiladi (boji
+  // to'lovi), shunchaki «tugagan» emas — DONE bilan bir joyda ko'milib ketmasligi kerak.
+  const rank: Record<string, number> = { FAILED: 0, RUNNING: 1, SKIPPED: 2, PENDING: 3, DONE: 4 };
   const rows = items
     .map((it) => ({
       caseId: it.caseId,
@@ -51,5 +63,7 @@ export async function GET(req: NextRequest) {
     }))
     .sort((a, b) => (rank[a.state] ?? 9) - (rank[b.state] ?? 9));
 
-  return NextResponse.json({ counts, rows });
+  // Ro'yxat kesilgan bo'lsa — jim qolmaymiz. Operator «hammasi shu» deb o'ylamasin.
+  const totalAll = Object.values(counts).reduce((a, b) => a + b, 0);
+  return NextResponse.json({ counts, rows, shown: rows.length, totalAll, truncated: totalAll > rows.length });
 }

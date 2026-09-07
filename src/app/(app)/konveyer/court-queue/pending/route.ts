@@ -4,7 +4,8 @@ import { prisma } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
-// GET — FIRMA bo'yicha navbatda qolgan (PENDING/RUNNING) ishlar soni.
+// GET — FIRMA bo'yicha navbat manzarasi: qolgani, ketgani, xatosi va o'tkazib
+// yuborilgani (boji to'lanmagan).
 //
 // NEGA KERAK: «Yuborish navbati» faqat brauzer xotirasida (React state) turardi — sahifa
 // yangilansa yo'qolardi va operator navbat bekor bo'ldi deb o'ylardi. Aslida ma'lumot
@@ -14,9 +15,17 @@ export const runtime = 'nodejs';
 export async function GET() {
   await requireStep('sud:send');
 
+  // BARCHA holatlar olinadi, faqat PENDING/RUNNING emas.
+  //
+  // NEGA: panel «ketmoqda 0/195» deb job progressini ko'rsatar, firma qatori esa
+  // navbat sanog'idan «5 ketdi, 195 navbatda» derdi — bir-biriga zid ikki raqam ekranda
+  // 40 piksel masofada turardi (2026-09-07). Endi IKKALA joy ham AYNI shu sanoqdan
+  // oziqlanadi: manba bitta bo'lsa, qarama-qarshilik ham bo'lmaydi.
+  //
+  // SKIPPED ham kerak: boji to'lanmagan ishlar hech qayerda ko'rinmasa, operator
+  // «nega 195 emas, 117 ta ketdi?» degan savolga javob topa olmaydi.
   const grouped = await prisma.courtQueueItem.groupBy({
     by: ['firmId', 'state'],
-    where: { state: { in: ['PENDING', 'RUNNING'] } },
     _count: { _all: true },
   });
   if (!grouped.length) return NextResponse.json({ firms: [] });
@@ -27,18 +36,25 @@ export async function GET() {
   });
   const byId = new Map(firms.map((f) => [f.id, f]));
 
-  const acc = new Map<number, { firmId: number; firmName: string; stir: string | null; pending: number; running: number }>();
+  type Row = {
+    firmId: number; firmName: string; stir: string | null;
+    pending: number; running: number; done: number; failed: number; skipped: number;
+  };
+  const acc = new Map<number, Row>();
   for (const g of grouped) {
     const f = byId.get(g.firmId);
-    const row = acc.get(g.firmId) ?? {
+    const row: Row = acc.get(g.firmId) ?? {
       firmId: g.firmId,
       firmName: f?.shortName ?? `Firma ${g.firmId}`,
       stir: f?.stir ?? null,
-      pending: 0,
-      running: 0,
+      pending: 0, running: 0, done: 0, failed: 0, skipped: 0,
     };
-    if (g.state === 'RUNNING') row.running += g._count._all;
-    else row.pending += g._count._all;
+    const n = g._count._all;
+    if (g.state === 'RUNNING') row.running += n;
+    else if (g.state === 'PENDING') row.pending += n;
+    else if (g.state === 'DONE') row.done += n;
+    else if (g.state === 'FAILED') row.failed += n;
+    else if (g.state === 'SKIPPED') row.skipped += n;
     acc.set(g.firmId, row);
   }
 
@@ -63,7 +79,12 @@ export async function GET() {
     });
   }
 
-  const rows = [...acc.values()].map((r) => ({ ...r, job: jobByFirm.get(r.firmId) ?? null }));
+  const rows = [...acc.values()]
+    .map((r) => ({ ...r, job: jobByFirm.get(r.firmId) ?? null }))
+    // Faqat OPERATOR ARALASHUVI kutilayotgan firmalar: davom ettirish kerak bo'lgan
+    // navbat, xato bergan yoki boji to'lanmagan ishlar. Butunlay tugagan firma bu
+    // paneldan chiqib ketadi — u yerda ko'rsatiladigan amal qolmaydi.
+    .filter((r) => r.pending + r.running + r.failed + r.skipped > 0);
   // Faol partiyasi bor firmalar tepada — operator avval nima ketayotganini ko'rsin.
   rows.sort((a, b) => {
     const w = (x: typeof a) => (x.job?.status === 'RUNNING' ? 0 : x.job ? 1 : 2);

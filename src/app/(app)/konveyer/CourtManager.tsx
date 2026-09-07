@@ -273,6 +273,68 @@ function ExportControl({ job, sendable, onStart }: { job?: JobState; sendable: n
   );
 }
 
+// ZIP eksporti — O'Z holati bilan, sudga yuborishdan MUSTAQIL.
+//
+// Nega alohida: ilgari ikkalasi bitta `firm:<id>` job kalitida edi. Operator ZIP bosganida
+// sud tugmasi «Yuborilmoqda» bo'lib qolardi va navbat paneli jonlanardi — sudga bitta ham
+// so'rov ketmagan bo'lsa ham (2026-09-07). ZIP portalga umuman tegmaydi: u faqat serverda
+// PDF render qiladi, shuning uchun sud tugmasini ham bloklamasligi kerak.
+function ZipControl({ job, sendable, onStart }: { job?: JobState; sendable: number; onStart: () => void }) {
+  const running = !!job && (job.status === 'PENDING' || job.status === 'RUNNING');
+  const pct = job && job.total ? Math.round((job.progress / job.total) * 100) : 0;
+
+  if (job?.status === 'DONE' && job.jobId) {
+    return (
+      <div className="flex shrink-0 flex-col items-end gap-1">
+        <a
+          href={`/api/export/${job.jobId}/download`}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 outline-none transition-colors hover:bg-emerald-500/15 focus-visible:ring-2 focus-visible:ring-emerald-500/40 dark:text-emerald-300"
+        >
+          <IcoDown /> {n(job.total)} ta ZIP — yuklab olish
+        </a>
+        {sendable > 0 && (
+          <button type="button" onClick={onStart} className="text-[11px] font-medium text-muted underline-offset-2 outline-none transition-colors hover:text-fg hover:underline focus-visible:ring-2 focus-visible:ring-brand-500/30">
+            Yangi ZIP
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  if (running) {
+    return (
+      <div className="flex w-36 shrink-0 flex-col items-end gap-1">
+        <span className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-2.5 py-1.5 text-xs font-medium text-fg" aria-live="polite">
+          <span className="h-3 w-3 animate-spin rounded-full border-2 border-brand-500/30 border-t-brand-500" aria-hidden />
+          ZIP {job!.total ? <span className="tabular-nums">{n(job!.progress)}/{n(job!.total)}</span> : 'tayyorlanmoqda'}
+        </span>
+        <div className="h-1 w-full overflow-hidden rounded-full bg-surface-2" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="ZIP tayyorlanmoqda">
+          <div className="h-full rounded-full bg-brand-500 transition-[width] duration-500" style={{ width: `${Math.max(3, pct)}%` }} />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex shrink-0 flex-col items-end gap-1">
+      <button
+        type="button"
+        onClick={onStart}
+        disabled={sendable === 0}
+        title={sendable > 0 ? `${n(sendable)} ta tayyor mijoz hujjatlarini bitta ZIP qilib yuklab olish (sudga yuborilmaydi)` : 'Tayyor mijoz yo‘q'}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-muted outline-none transition-colors hover:border-brand-500/40 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <IcoDown /> ZIP
+      </button>
+      {(job?.status === 'FAILED' || job?.error) && (
+        <span className="max-w-[12rem] text-right text-[11px] font-medium text-rose-500" role="alert">
+          {job?.message || job?.error || 'ZIP tayyorlanmadi'}
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ── per-client drill-down (the MUST feature) ─────────────────────────────────
 // Tab tartibi (foydalanuvchi tanlovi): Tayyor emas · Tayyor · Qoralama · Yuborilgan · Hammasi.
 // «Tayyor» = sendable (hujjati to'liq, hali qoralama/yuborilmagan) — bevosita shu tab'dan yuboriladi.
@@ -690,6 +752,9 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged }: {
 function PauseSwitch() {
   const [paused, setPaused] = useState<boolean | null>(null);
   const [counts, setCounts] = useState<Record<string, number> | null>(null);
+  // Haqiqatan partiya ketyaptimi — JOB holatidan (navbat yozuvidan emas: uzilgan
+  // worker RUNNING yozuvni qoldirib ketadi va sarlavha yolg'on gapiradi).
+  const [running, setRunning] = useState(false);
   const [busy, setBusy] = useState(false);
 
   // Holat + BARCHA firmalar bo'yicha umumiy raqamlar. Ish ketayotgan bo'lsa tez-tez
@@ -698,7 +763,7 @@ function PauseSwitch() {
     let alive = true;
     const load = () => fetch('/konveyer/court-queue/pause')
       .then((r) => r.json())
-      .then((d) => { if (alive) { setPaused(d?.paused === true); setCounts(d?.counts ?? null); } })
+      .then((d) => { if (alive) { setPaused(d?.paused === true); setCounts(d?.counts ?? null); setRunning(d?.running === true); } })
       .catch(() => { if (alive) setPaused((p) => p ?? false); });
     void load();
     const t = setInterval(load, 5000);
@@ -720,7 +785,7 @@ function PauseSwitch() {
   const waiting = (counts?.PENDING ?? 0) + (counts?.RUNNING ?? 0);
   const done = counts?.DONE ?? 0;
   const failed = counts?.FAILED ?? 0;
-  const running = (counts?.RUNNING ?? 0) > 0;
+  const skipped = counts?.SKIPPED ?? 0;
 
   if (paused === null) return null;
   return (
@@ -740,18 +805,18 @@ function PauseSwitch() {
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className={`text-[12px] font-semibold ${paused ? 'text-amber-700 dark:text-amber-300' : 'text-fg'}`}>
-            {paused ? 'Sudga yuborish to‘xtatilgan' : running ? 'Yuborilmoqda' : 'Sudga yuborish faol'}
+            {paused ? 'Sudga yuborish to‘xtatilgan' : running ? 'Yuborilmoqda' : waiting > 0 ? 'Navbat kutmoqda' : 'Sudga yuborish faol'}
           </span>
           {/* Umumiy raqamlar — barcha firmalar bo'yicha, bir qarashda.
               `role="status"` + `aria-atomic` bitta MA'NOLI jumla bilan: har 5 soniyada
               yangilanadigan uchta alohida raqam ekran o'quvchida bir-biriga xalaqit berardi
               (yoki umuman e'lon qilinmasdi). Bitta atomik xabar — bitta tushunarli holat. */}
-          {counts && (waiting + done + failed) > 0 && (
+          {counts && (waiting + done + failed + skipped) > 0 && (
             <span
               className="flex flex-wrap items-center gap-1 text-[11px] tabular-nums"
               role="status"
               aria-atomic="true"
-              aria-label={`Sudga yuborish: ${n(done)} ketdi, ${n(waiting)} navbatda, ${n(failed)} yuborilmadi`}
+              aria-label={`Sudga yuborish: ${n(done)} ketdi, ${n(waiting)} navbatda, ${n(skipped)} boji to'lanmagan, ${n(failed)} yuborilmadi`}
             >
               {waiting > 0 && (
                 <span className="rounded bg-slate-500/12 px-1.5 py-0.5 font-medium text-slate-600 dark:text-slate-300" title="Navbatda va ishlanmoqda">
@@ -761,6 +826,11 @@ function PauseSwitch() {
               {done > 0 && (
                 <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-medium text-emerald-700 dark:text-emerald-300" title="ADOLAT qabul qilgan">
                   {n(done)} ketdi
+                </span>
+              )}
+              {skipped > 0 && (
+                <span className="rounded bg-amber-500/15 px-1.5 py-0.5 font-medium text-amber-700 dark:text-amber-300" title="Davlat boji to‘lanmagan — portalga umuman chiqarilmadi. Buxgalteriya to‘lovni o‘tkazgach ish o‘zi navbatga qaytadi.">
+                  {n(skipped)} boji to‘lanmagan
                 </span>
               )}
               {failed > 0 && (
@@ -778,7 +848,9 @@ function PauseSwitch() {
               : 'Yangi partiya boshlanmaydi. Davom ettirmaguningizcha portalga hech nima yuborilmaydi.'
             : running
               ? 'Har ish orasida sud sozlamasidagi interval kutiladi (Sudlar bo‘limi, standart 60s).'
-              : 'Barcha firmalar bo‘yicha jarayonni bir tugma bilan to‘xtatib turish mumkin.'}
+              : waiting > 0
+                ? 'Partiya ketmayapti. Quyidagi «Tugallanmagan ishlar» panelidan «Davom ettirish» bosing — o‘sha joydan davom etadi.'
+                : 'Barcha firmalar bo‘yicha jarayonni bir tugma bilan to‘xtatib turish mumkin.'}
         </div>
       </div>
 
@@ -880,6 +952,9 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
   const counts = data?.counts;
   const failed = counts?.FAILED ?? 0;
   const done = counts?.DONE ?? 0;
+  // Boji to'lanmagan — portalga umuman chiqarilmagan. XATO EMAS: kod tuzatilmaydi,
+  // to'lov o'tkaziladi. Shuning uchun alohida rang va alohida sanoq.
+  const skipped = counts?.SKIPPED ?? 0;
   const waiting = (counts?.PENDING ?? 0) + (counts?.RUNNING ?? 0);
   if (err) {
     return (
@@ -888,75 +963,107 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
       </div>
     );
   }
-  if (!counts || (failed + done + waiting) === 0) return null;
+  if (!counts || (failed + done + waiting + skipped) === 0) return null;
 
-  const total = done + waiting + failed;
+  const total = done + waiting + failed + skipped;
   const donePct = total ? Math.round((done / total) * 100) : 0;
   const failPct = total ? Math.round((failed / total) * 100) : 0;
+  const skipPct = total ? Math.round((skipped / total) * 100) : 0;
 
   return (
     <div className={`border-t border-line px-3 py-2.5 ${firmPaused ? 'bg-amber-500/[0.05]' : ''}`}>
-      {/* Firma darajasidagi pauza — faqat navbatda ish bo'lsa ma'noli. */}
-      {firmPaused !== null && waiting > 0 && (
-        <div className="mb-1.5 flex items-center gap-2">
-          {firmPaused && (
-            <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
-              ⏸ Bu firma to‘xtatilgan
+      {/* Firma darajasidagi pauza — faqat navbatda ish bo'lsa ma'noli.
+          Ilgari bu butun kenglikni egallagan ALOHIDA qator edi: tugma o'ngda yolg'iz
+          osilib turar, ostidagi progress chizig'idan uzilib ko'rinardi. Endi u progress
+          qatorining o'ng chekkasida — bitta ixcham blok. */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="group flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30"
+          aria-expanded={open}
+        >
+          {/* Chiziq FAQAT ish qolganda: yashil = ketgan, kulrang = navbatda, sariq = boji
+              to'lanmagan, qizil = xato.
+              Partiya tugagach chiziq OLIB TASHLANADI — to'la yashil «progress» tugagan
+              firmada shunchaki shovqin edi (URBAN 99/99 da ekranning yarmini egallab
+              turardi va hali nimadir ketayotgandek ko'rinardi). */}
+          {waiting > 0 && (
+            <span className="flex h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-2" aria-hidden>
+              <span className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${donePct}%` }} />
+              <span className="h-full bg-amber-500 transition-all duration-500" style={{ width: `${skipPct}%` }} />
+              <span className="h-full bg-rose-500 transition-all duration-500" style={{ width: `${failPct}%` }} />
             </span>
           )}
-          <button
-            onClick={toggleFirmPause}
-            disabled={pauseBusy}
-            title={firmPaused
-              ? 'Shu firmani davom ettirish'
-              : 'Faqat SHU firmani to‘xtatish — boshqa firmalar ishlayveradi'}
-            className={`ml-auto rounded-lg border px-2 py-0.5 text-[10px] font-semibold outline-none transition-colors focus-visible:ring-2 disabled:opacity-50 ${
-              firmPaused
-                ? 'border-emerald-500/45 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/[0.18] focus-visible:ring-emerald-500/30 dark:text-emerald-300'
-                : 'border-line text-muted hover:border-amber-500/45 hover:bg-amber-500/10 hover:text-amber-700 focus-visible:ring-amber-500/30 dark:hover:text-amber-300'
-            }`}
-          >
-            {pauseBusy ? '…' : firmPaused ? 'Davom ettirish' : 'Shu firmani to‘xtatish'}
-          </button>
-        </div>
-      )}
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="group flex w-full items-center gap-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30"
-        aria-expanded={open}
-      >
-        {/* Bitta chiziqda butun manzara: yashil = ketgan, kulrang = navbatda, qizil = xato. */}
-        <span className="flex h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-2" aria-hidden>
-          <span className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${donePct}%` }} />
-          <span className="h-full bg-rose-500 transition-all duration-500" style={{ width: `${failPct}%` }} />
-        </span>
-        <span className="flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums">
-          {done > 0 && <span className="font-semibold text-emerald-600 dark:text-emerald-400">{n(done)} ketdi</span>}
-          {waiting > 0 && <span className="text-muted">{n(waiting)} navbatda</span>}
-          {/* Taxminiy vaqt — har ish ~60s. Busiz ro'yxat «qotib qolgan»dek ko'rinadi:
-              operator har daqiqada bittadan ketayotganini bilmasa, xato deb o'ylaydi. */}
-          {live && waiting > 0 && (
-            <span className="text-muted" title="Har ish orasida sud sozlamasidagi interval (standart 60s)">
-              ≈{waiting >= 60 ? `${Math.round(waiting / 60)} soat` : `${waiting} daq`}
-            </span>
-          )}
-          {failed > 0 && <span className="font-semibold text-rose-600 dark:text-rose-400">{n(failed)} yuborilmadi</span>}
-          <svg
-            className={`h-3.5 w-3.5 text-muted transition-transform ${open ? 'rotate-180' : ''}`}
-            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden
-          ><path d="m6 9 6 6 6-6" /></svg>
-        </span>
-      </button>
+          <span className={`flex items-center gap-1.5 text-[11px] tabular-nums ${waiting > 0 ? 'shrink-0' : 'min-w-0 flex-1 flex-wrap'}`}>
+            {done > 0 && (
+              <span
+                className="font-semibold text-emerald-600 dark:text-emerald-400"
+                title="Shu NAVBAT orqali ketganlar. Yuqoridagi «Sudda» — firmaning sudga topshirilgan BARCHA ishlari (navbatdan oldin qo‘lda yuborilganlar ham), shuning uchun u kattaroq bo‘lishi mumkin."
+              >{n(done)} ketdi</span>
+            )}
+            {waiting > 0 && <span className="text-muted">{n(waiting)} navbatda</span>}
+            {/* Taxminiy vaqt — har ish ~60s. Busiz ro'yxat «qotib qolgan»dek ko'rinadi:
+                operator har daqiqada bittadan ketayotganini bilmasa, xato deb o'ylaydi. */}
+            {live && waiting > 0 && (
+              <span className="text-muted" title="Har ish orasida sud sozlamasidagi interval (standart 60s)">
+                ≈{waiting >= 60 ? `${Math.round(waiting / 60)} soat` : `${waiting} daq`}
+              </span>
+            )}
+            {skipped > 0 && (
+              <span className="font-semibold text-amber-600 dark:text-amber-400" title="Davlat boji to‘lanmagan — portalga umuman chiqarilmadi. To‘langach o‘zi navbatga qaytadi.">
+                {n(skipped)} boji to‘lanmagan
+              </span>
+            )}
+            {failed > 0 && <span className="font-semibold text-rose-600 dark:text-rose-400">{n(failed)} yuborilmadi</span>}
+            <svg
+              className={`h-3.5 w-3.5 text-muted transition-transform ${open ? 'rotate-180' : ''}`}
+              viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden
+            ><path d="m6 9 6 6 6-6" /></svg>
+          </span>
+        </button>
+
+        {/* Faqat SHU firmani to'xtatish — navbatda ish bo'lgandagina ma'noli. */}
+        {firmPaused !== null && waiting > 0 && (
+          <>
+            {firmPaused && (
+              <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                To‘xtatilgan
+              </span>
+            )}
+            <button
+              onClick={toggleFirmPause}
+              disabled={pauseBusy}
+              title={firmPaused
+                ? 'Shu firmani davom ettirish'
+                : 'Faqat SHU firmani to‘xtatish — boshqa firmalar ishlayveradi'}
+              className={`shrink-0 rounded-lg border px-2 py-0.5 text-[10px] font-semibold outline-none transition-colors focus-visible:ring-2 disabled:opacity-50 ${
+                firmPaused
+                  ? 'border-emerald-500/45 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/[0.18] focus-visible:ring-emerald-500/30 dark:text-emerald-300'
+                  : 'border-line text-muted hover:border-amber-500/45 hover:bg-amber-500/10 hover:text-amber-700 focus-visible:ring-amber-500/30 dark:hover:text-amber-300'
+              }`}
+            >
+              {pauseBusy ? '…' : firmPaused ? 'Davom ettirish' : 'To‘xtatish'}
+            </button>
+          </>
+        )}
+      </div>
 
       {open && data && (
         <ul className="mt-2 max-h-72 space-y-1 overflow-y-auto pr-0.5">
           {data.rows.map((row, i) => {
             const st = Q_STATE[row.state] ?? Q_STATE.PENDING;
             const failedRow = row.state === 'FAILED';
+            // O'tkazib yuborilgan (boji to'lanmagan) ish ham SABABINI ko'rsatishi kerak —
+            // busiz operator «Oʻtkazildi» degan so'zdan nima qilishni bilmaydi.
+            const skipRow = row.state === 'SKIPPED';
             return (
               <li
                 key={row.caseId}
-                className={`rounded-lg border px-2 py-1.5 text-[11px] ${failedRow ? 'border-rose-500/30 bg-rose-500/[0.05]' : 'border-transparent bg-surface-2'}`}
+                className={`rounded-lg border px-2 py-1.5 text-[11px] ${
+                  failedRow ? 'border-rose-500/30 bg-rose-500/[0.05]'
+                    : skipRow ? 'border-amber-500/30 bg-amber-500/[0.05]'
+                      : 'border-transparent bg-surface-2'
+                }`}
               >
                 <div className="flex items-center gap-2">
                   {/* Tartib raqami — 99 ta ish orasida qaysi biri qayerdaligini ko'rish uchun. */}
@@ -986,6 +1093,9 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
                 {failedRow && row.error && (
                   <p className="mt-1 break-words leading-snug text-rose-600 dark:text-rose-300" role="alert">{row.error}</p>
                 )}
+                {skipRow && row.error && (
+                  <p className="mt-1 break-words leading-snug text-amber-700 dark:text-amber-300">{row.error}</p>
+                )}
                 {/* Xato bo'lsa ham qoralama yaratilgan bo'lishi mumkin — ADOLAT'da yetim qolmasin. */}
                 {failedRow && row.draftId && (
                   <p className="mt-0.5 font-mono text-[10px] text-muted">ADOLAT qoralama: {row.draftId}</p>
@@ -999,8 +1109,8 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
   );
 }
 
-function FirmSendRow({ fr, snapshotId, job, startExport, onZip, onChanged, drillOpen, onToggleDrill, idx, autoActive, onStopAuto }: {
-  fr: FirmReadiness; snapshotId?: number; job?: JobState;
+function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onChanged, drillOpen, onToggleDrill, idx, autoActive, onStopAuto }: {
+  fr: FirmReadiness; snapshotId?: number; job?: JobState; zipJob?: JobState;
   startExport: (firmId: number, extra: Record<string, unknown>) => void;
   onZip?: () => void;
   onChanged: () => void; drillOpen: boolean; onToggleDrill: () => void; idx: number;
@@ -1077,15 +1187,7 @@ function FirmSendRow({ fr, snapshotId, job, startExport, onZip, onChanged, drill
           <div className="flex items-center gap-2">
             {/* ZIP — hujjatlarni faylga chiqarish. Sudga YUBORMAYDI: portalga tegmaydi,
                 shuning uchun pauza va sud limiti unga taalluqli emas. */}
-            <button
-              type="button"
-              onClick={() => onZip?.()}
-              disabled={fr.sendable === 0}
-              title={fr.sendable > 0 ? `${fr.sendable} ta tayyor mijoz hujjatlarini bitta ZIP qilib yuklab olish` : 'Tayyor mijoz yo‘q'}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-muted outline-none transition-colors hover:border-brand-500/40 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <IcoDown /> ZIP
-            </button>
+            <ZipControl job={zipJob} sendable={fr.sendable} onStart={() => onZip?.()} />
             <ExportControl job={job} sendable={fr.sendable} onStart={() => startExport(fr.firmId, {})} />
           </div>
         ) : (
@@ -1169,7 +1271,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   // NAVBAT SAHIFA YANGILANGANDA YO'QOLMASIN. Partiya ro'yxati faqat React state'da edi —
   // reload'da yo'qolardi va operator navbat bekor bo'ldi deb o'ylardi. Aslida har ishning
   // holati bazada (CourtQueueItem), shuning uchun navbat SHUNDAN tiklanadi.
-  const [pendingQ, setPendingQ] = useState<{ firmId: number; firmName: string; stir: string | null; pending: number; running: number; job?: { jobId: number; status: string; progress: number; total: number; queuePos: number } | null }[]>([]);
+  const [pendingQ, setPendingQ] = useState<{ firmId: number; firmName: string; stir: string | null; pending: number; running: number; done: number; failed: number; skipped: number; job?: { jobId: number; status: string; progress: number; total: number; queuePos: number } | null }[]>([]);
   const loadPending = useCallback(() => {
     fetch('/konveyer/court-queue/pending')
       .then((r) => r.json())
@@ -1303,6 +1405,12 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
         else setAuto(null); // tayyor tugadi — auto to'xtaydi
       }
     });
+  // ZIP — ALOHIDA job kaliti (`zip:<id>`). Sud partiyasi (`firm:<id>`) bilan bir kalitda edi:
+  // ZIP bosilganda sud tugmasi «Yuborilmoqda»ga aylanib, navbat paneli jonlanib ketardi.
+  // Endi ikkalasi bir vaqtda, bir-biriga xalaqit bermay ishlaydi.
+  const runZip = (fid: number, limit: number) =>
+    startJob(`zip:${fid}`, { firmId: fid, snapshotId, limit, exportOnly: true }, () => { void loadRef.current(); });
+
   // «Sudga yuborish» → E-IMZO gate: aniq so'roq (summary) → firma kaliti → parol → yuboriladi.
   // (Bekor qilish kalit talab qilmaydi — u ClientDrilldown ichida oddiy tasdiq modali bilan.)
   const [gate, setGate] = useState<{ firmId: number; firmName: string; stir: string | null; extra: Record<string, unknown>; summary: string } | null>(null);
@@ -1561,19 +1669,45 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                 <div className="mb-2 rounded-xl border border-amber-500/40 bg-amber-500/[0.06] p-3">
                   <div className="mb-2 flex items-center gap-2">
                     <svg className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
-                    <span className="text-[12px] font-semibold text-amber-700 dark:text-amber-300">Navbatda qolgan ishlar</span>
-                    <span className="text-[11px] text-muted">Yakunlanmagan partiya — o‘sha joydan davom etadi</span>
+                    <span className="text-[12px] font-semibold text-amber-700 dark:text-amber-300">Tugallanmagan ishlar</span>
+                    <span className="text-[11px] text-muted">Navbatda qolgan, xato bergan yoki boji to‘lanmagan — o‘sha joydan davom etadi</span>
                   </div>
                   <div className="space-y-1.5">
-                    {pendingQ.map((q) => (
-                      <div key={q.firmId} className="flex flex-wrap items-center gap-2 rounded-lg bg-surface px-2.5 py-1.5 text-xs">
+                    {pendingQ.map((q) => {
+                      const waiting = q.pending + q.running;
+                      return (
+                      <div key={q.firmId} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-surface px-2.5 py-1.5 text-xs">
                         <span className="min-w-0 flex-1 truncate font-medium">{q.firmName}</span>
-                        <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted">
-                          {n(q.pending + q.running)} ta navbatda
-                        </span>
+                        {/* RAQAMLAR — firma qatoridagi bilan AYNI manbadan (CourtQueueItem).
+                            Ilgari bu yerda job progressi («ketmoqda 0/195») turardi, pastda esa
+                            navbat sanog'i («5 ketdi · 195 navbatda») — ikkalasi bir ekranda
+                            bir-birini yolg'onga chiqarardi. Endi bitta haqiqat. */}
+                        {q.done > 0 && (
+                          <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-emerald-700 dark:text-emerald-300" title="ADOLAT qabul qilgan">
+                            {n(q.done)} ketdi
+                          </span>
+                        )}
+                        {waiting > 0 && (
+                          <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted">
+                            {n(waiting)} navbatda
+                          </span>
+                        )}
+                        {/* Boji to'lanmagan — XATO EMAS, lekin operator ARALASHUVI kerak:
+                            buxgalteriya to'lovni o'tkazgach ish o'zi navbatga qaytadi. */}
+                        {q.skipped > 0 && (
+                          <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-amber-700 dark:text-amber-300" title="Davlat boji to‘lanmagan — portalga umuman chiqarilmadi. To‘langach o‘zi navbatga qaytadi.">
+                            {n(q.skipped)} boji to‘lanmagan
+                          </span>
+                        )}
+                        {q.failed > 0 && (
+                          <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-rose-700 dark:text-rose-300" title="Xato bergan — firma qatoridagi navbat panelidan sababini ko‘ring">
+                            {n(q.failed)} yuborilmadi
+                          </span>
+                        )}
                         {q.job?.status === 'RUNNING' ? (
-                          <span className="shrink-0 rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-sky-700 dark:text-sky-300">
-                            ketmoqda {n(q.job.progress)}/{n(q.job.total)}
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300" title={`Partiya #${q.job.jobId} ketmoqda`}>
+                            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-500" aria-hidden />
+                            ketmoqda
                           </span>
                         ) : q.job?.status === 'PENDING' ? (
                           /* Worker bir vaqtda bitta partiya bajaradi — bu firma o'z navbatini
@@ -1581,9 +1715,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                           <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300" title={`Partiya #${q.job.jobId} navbatda — oldingisi tugagach o'zi boshlanadi`}>
                             navbatda · {q.job.queuePos}-o‘rin
                           </span>
-                        ) : q.running > 0 ? (
-                          <span className="shrink-0 rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300">ketmoqda</span>
-                        ) : (
+                        ) : waiting > 0 ? (
                           <button
                             type="button"
                             onClick={() => setGate({ firmId: q.firmId, firmName: q.firmName, stir: q.stir, extra: { resume: true }, summary: `${q.firmName} — navbatda qolgan ${n(q.pending)} ta ishni davom ettirish` })}
@@ -1591,9 +1723,14 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                           >
                             <IcoBolt /> Davom ettirish
                           </button>
+                        ) : (
+                          /* Navbatda ish yo'q — faqat xato/o'tkazilganlar qolgan. «Davom
+                             ettirish» bu yerda YOLG'ON tugma bo'lardi: bosilsa 400 qaytarardi. */
+                          <span className="shrink-0 text-[11px] text-muted">Navbat tugagan — quyidagi firma qatoridan sababini ko‘ring</span>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1608,6 +1745,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                       idx={i}
                       snapshotId={snapshotId}
                       job={jobs[`firm:${fr.firmId}`]}
+                      zipJob={jobs[`zip:${fr.firmId}`]}
                       startExport={startExport}
                       onZip={() => setZipAsk({ firmId: fr.firmId, firmName: fr.firmName, max: fr.sendable, value: Math.min(MAX_ZIP_BATCH, fr.sendable) })}
                       onChanged={load}
@@ -1709,7 +1847,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
           open
           onClose={() => setZipAsk(null)}
           title={`ZIP yuklab olish — ${zipAsk.firmName}`}
-          description={`Tayyor mijozlarning hujjatlari bitta arxivga yig'iladi. Sudga yuborilmaydi.`}
+          description={`${n(zipAsk.max)} ta tayyor mijoz — standart: HAMMASI. Hujjatlar bitta arxivga yig'iladi, sudga yuborilmaydi.`}
           footer={<>
             <button className="btn-ghost" type="button" onClick={() => setZipAsk(null)}>Bekor</button>
             <button
@@ -1719,39 +1857,54 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                 const v = Math.max(1, Math.min(zipAsk.max, Math.floor(zipAsk.value) || 0));
                 const fid = zipAsk.firmId;
                 setZipAsk(null);
-                // exportOnly: sudga yuborish emas, faqat ZIP (PACKET job).
-                // runExport — to'g'ridan-to'g'ri, E-IMZO gate'siz: ZIP portalga bitta ham
-                // so'rov yubormaydi, shuning uchun kalit bilan tasdiqlash mantiqsiz edi.
-                runExport(fid, { limit: v, exportOnly: true });
+                // E-IMZO gate'siz: ZIP portalga bitta ham so'rov yubormaydi, shuning uchun
+                // kalit bilan tasdiqlash mantiqsiz edi.
+                runZip(fid, v);
               }}
             >
-              ZIP tayyorlash ({Math.max(1, Math.min(zipAsk.max, Math.floor(zipAsk.value) || 0))})
+              {(() => {
+                const v = Math.max(1, Math.min(zipAsk.max, Math.floor(zipAsk.value) || 0));
+                const all = Math.min(MAX_ZIP_BATCH, zipAsk.max);
+                return v >= all ? `ZIP tayyorlash — hammasi (${n(v)})` : `ZIP tayyorlash (${n(v)})`;
+              })()}
             </button>
           </>}
         >
           <div className="space-y-3">
-            <label className="field-label">Nechta mijoz
-              <input
-                type="number" min={1} max={Math.min(100, zipAsk.max)} autoFocus
-                className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm tabular-nums outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15"
-                value={zipAsk.value}
-                onChange={(e) => setZipAsk((c) => c && ({ ...c, value: Math.max(1, Math.min(c.max, Number(e.target.value) || 0)) }))}
-              />
-            </label>
-            <div className="flex flex-wrap gap-1.5">
-              {[25, 100, 250, 500].filter((x) => x <= Math.min(MAX_ZIP_BATCH, zipAsk.max)).map((x) => (
-                <button key={x} type="button" onClick={() => setZipAsk((c) => c && ({ ...c, value: x }))}
-                  className={`rounded-lg px-2 py-1 text-[11px] font-medium transition-colors ${zipAsk.value === x ? 'bg-brand-500/15 text-brand-700 dark:text-brand-300' : 'text-muted hover:bg-surface-2'}`}>
-                  {x}
+            {/* Standart — HAMMASI. «Hammasi» chip'i birinchi va tanlangan holda turadi:
+                operator hech nimaga tegmasdan «ZIP tayyorlash» bossa, hammasi ketadi.
+                Kichik raqamlar (50/100/250…) faqat ataylab kamaytirish uchun. */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(() => {
+                const all = Math.min(MAX_ZIP_BATCH, zipAsk.max);
+                const isAll = zipAsk.value >= all;
+                return (
+                  <button type="button" onClick={() => setZipAsk((c) => c && ({ ...c, value: all }))} aria-pressed={isAll}
+                    className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${isAll ? 'bg-brand-500 text-white shadow-sm' : 'border border-line text-fg hover:bg-surface-2'}`}>
+                    Hammasi ({n(all)})
+                  </button>
+                );
+              })()}
+              {[50, 100, 250, 500].filter((x) => x < Math.min(MAX_ZIP_BATCH, zipAsk.max)).map((x) => (
+                <button key={x} type="button" onClick={() => setZipAsk((c) => c && ({ ...c, value: x }))} aria-pressed={zipAsk.value === x}
+                  className={`rounded-lg px-2 py-1.5 text-[11px] font-medium tabular-nums transition-colors ${zipAsk.value === x ? 'bg-brand-500/15 text-brand-700 dark:text-brand-300' : 'text-muted hover:bg-surface-2'}`}>
+                  {n(x)}
                 </button>
               ))}
-              {zipAsk.max > 0 && (
-                <button type="button" onClick={() => setZipAsk((c) => c && ({ ...c, value: Math.min(MAX_ZIP_BATCH, c.max) }))}
-                  className="rounded-lg px-2 py-1 text-[11px] font-medium text-brand-600 transition-colors hover:bg-surface-2 dark:text-brand-400">
-                  hammasi ({n(Math.min(MAX_ZIP_BATCH, zipAsk.max))})
-                </button>
-              )}
             </div>
+            <label className="field-label">Yoki aniq soni
+              <input
+                type="number" min={1} max={Math.min(MAX_ZIP_BATCH, zipAsk.max)}
+                className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm tabular-nums outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15"
+                value={zipAsk.value}
+                onChange={(e) => setZipAsk((c) => c && ({ ...c, value: Math.max(1, Math.min(Math.min(MAX_ZIP_BATCH, c.max), Number(e.target.value) || 0)) }))}
+              />
+            </label>
+            {zipAsk.max > MAX_ZIP_BATCH && (
+              <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                Bir martada eng ko‘pi {n(MAX_ZIP_BATCH)} ta — qolgan {n(zipAsk.max - MAX_ZIP_BATCH)} tasini keyingi ZIP bilan olasiz.
+              </p>
+            )}
             <div className="rounded-lg border border-line p-2.5 text-[11px] leading-snug text-muted">
               <span className="font-medium text-fg">Filtr: «Tayyor»</span> — 5 shart to'liq bajarilgan mijozlar
               (talabnoma + imzolangan skan + oferta + kvitansiya + boji). Arxivda har mijoz uchun
