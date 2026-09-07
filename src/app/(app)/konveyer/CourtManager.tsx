@@ -902,9 +902,12 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
                   {row.state === 'RUNNING' && row.step && (
                     <span className="shrink-0 rounded bg-sky-500/12 px-1.5 py-0.5 text-[10px] text-sky-700 dark:text-sky-300">{row.step}</span>
                   )}
-                  {row.attempts > 1 && (
-                    <span className="shrink-0 rounded bg-surface px-1 text-[10px] text-muted" title={`${row.attempts} marta urinilgan`}>
-                      {row.attempts}×
+                  {/* Urinishlar soni FAQAT muammoli qatorlarda ko'rsatiladi. Muvaffaqiyatli
+                      ishda «necha urinishda ketdi» ahamiyatsiz, lekin «Yuborildi» yonida
+                      turgan «2×» operatorni chalkashtiradi (nima 2 marta bo'ldi — yuborildimi?). */}
+                  {row.attempts > 1 && row.state !== 'DONE' && (
+                    <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-[10px] text-muted" title="Shuncha marta urinilgan">
+                      {row.attempts}-urinish
                     </span>
                   )}
                   {row.caseNumber && (
