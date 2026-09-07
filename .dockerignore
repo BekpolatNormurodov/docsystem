@@ -28,7 +28,6 @@ storage
 Dockerfile*
 docker-compose*.yml
 docker/
-scripts/
 Makefile
 README.md
 DEPLOYMENT.md

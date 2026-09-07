@@ -24,6 +24,11 @@ RUN npx prisma generate
 COPY tsconfig.json ./
 COPY src ./src
 COPY data ./data
+# Xizmat skriptlari (sud partiyasini davom ettirish, sinxronizatsiya va h.k.) — ular aynan
+# SHU konteynerda ishlatiladi (chromium va cabinet sessiyalari shu yerda). Avval scripts/
+# .dockerignore'da edi va konteynerda umuman yo'q edi: `npx tsx scripts/...` MODULE_NOT_FOUND
+# berardi.
+COPY scripts ./scripts
 # Sudga yuborish dvigateli (src/lib/court-submit-job.ts) shu papkadan import qiladi. U yo'q
 # bo'lsa worker STARTDA yiqiladi (MODULE_NOT_FOUND) — ya'ni PDF paket, oferta, talabnoma va
 # billing avto-sinxronizatsiyasi ham to'xtaydi, chunki hammasi shu bitta jarayonda.
