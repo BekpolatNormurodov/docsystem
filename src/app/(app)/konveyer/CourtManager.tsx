@@ -1417,6 +1417,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                     { href: `/konveyer/court-stats-excel${selectedId ? `?s=${selectedId}` : ''}`, title: 'Firma statistikasi', hint: 'Har firma: jami · tayyor · sudda · yetishmayotgan hujjatlar' },
                     { href: `/konveyer/cases-excel${selectedId ? `?s=${selectedId}` : ''}${firmId ? `${selectedId ? '&' : '?'}firmId=${firmId}` : ''}`, title: 'Mijozlar ro‘yxati', hint: 'F.I.O · PINFL · firma · qarzdorlik · boji · muddat' },
                     { href: `/konveyer/court-returns-excel${selectedId ? `?s=${selectedId}` : ''}${firmId ? `${selectedId ? '&' : '?'}firmId=${firmId}` : ''}`, title: 'Suddan qaytganlar', hint: 'Qayta yuborish uchun ishlash ro‘yxati' },
+                    { href: `/konveyer/unpaid-receipts-excel${firmId ? `?firmId=${firmId}` : ''}`, title: 'To‘lanmagan kvitansiyalar', hint: 'Buxgalteriya uchun: to‘lov kutayotgan ishlar · raqam · summa' },
                   ].map((x) => (
                     <a
                       key={x.href}
