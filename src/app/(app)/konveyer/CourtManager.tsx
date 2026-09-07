@@ -489,17 +489,29 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged }: {
   // yopiq bo'lishi mumkin (BRIGHT: Yuqorichirchiq yopiq, Uchtepa ochiq). Sud bo'yicha filtr
   // operatorga ochiq sudnikini ajratib yuborish imkonini beradi — aks holda firma butunlay
   // to'xtab qolardi.
+  // Chip raqamlari FAOL TAB bo'yicha sanaladi (sud filtri hisobga olinmaydi — aks holda
+  // tanlangan chip o'zini o'zi sanardi). Avval umumiy son ko'rsatilardi va «Uchtepa 21»
+  // deb turib ro'yxat bo'sh chiqardi — chunki o'sha 21 tasining hech biri «Tayyor» emas edi.
   const courtOptions = React.useMemo(() => {
     const m = new Map<string, { id: number | null; name: string; enabled: boolean; count: number }>();
     for (const r of data?.rows ?? []) {
+      const okFilter = filter === 'sendable' ? r.sendable : filter === 'draft' ? r.draft : filter === 'ready' ? r.ready : filter === 'exported' ? r.exported : filter === 'notready' ? !r.ready : true;
+      if (!okFilter) continue;
       const k = String(r.courtId ?? 'none');
       const it = m.get(k) ?? { id: r.courtId ?? null, name: r.courtName ?? 'Sud tayinlanmagan', enabled: r.courtEnabled !== false, count: 0 };
       it.count++;
       m.set(k, it);
     }
     return [...m.values()].sort((a, b) => b.count - a.count);
-  }, [data]);
+  }, [data, filter]);
+
   const [courtFilter, setCourtFilter] = useState<number | null | 'all'>('all');
+
+  // Tab almashganda tanlangan sud o'sha tabda bo'lmasligi mumkin — «Hammasi»ga qaytamiz,
+  // aks holda ro'yxat sababsiz bo'sh ko'rinadi.
+  useEffect(() => {
+    if (courtFilter !== 'all' && !courtOptions.some((c) => c.id === courtFilter)) setCourtFilter('all');
+  }, [courtOptions, courtFilter]);
 
   const filtered = React.useMemo(() => {
     const src = data?.rows ?? [];
