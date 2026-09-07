@@ -31,9 +31,13 @@ COPY data ./data
 # ATAYIN faqat kutubxona modullari: papkadagi qo'lda ishga tushiriladigan skriptlar
 # (test-dry-run.ts, send-one-live.ts, ...) worker'ga kerak emas va ulardan birida qattiq
 # yozilgan sessiya tokeni bor — uni image qatlamiga bakib qo'ymaymiz.
+# send-one-live.ts ham shu yerda: oferta PDF generatsiyasi CHROMIUM talab qiladi, chromium
+# esa faqat SHU (worker) image'da bor — web image ataylab yengil qilingan. Skript web
+# konteynerda ishga tushirilsa oferta yaratilmaydi va to'liqlik tekshiruvi ishni to'xtatadi.
 COPY cabinet-api-skeleton/submitter.ts cabinet-api-skeleton/client.ts \
      cabinet-api-skeleton/builder.ts cabinet-api-skeleton/constants.ts \
      cabinet-api-skeleton/types.ts cabinet-api-skeleton/uploader.ts \
+     cabinet-api-skeleton/send-one-live.ts \
      ./cabinet-api-skeleton/
 
 CMD ["npm", "run", "worker"]
