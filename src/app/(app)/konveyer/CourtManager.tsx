@@ -1537,7 +1537,9 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                 const fid = zipAsk.firmId;
                 setZipAsk(null);
                 // exportOnly: sudga yuborish emas, faqat ZIP (PACKET job).
-                startExport(fid, { limit: v, exportOnly: true });
+                // runExport — to'g'ridan-to'g'ri, E-IMZO gate'siz: ZIP portalga bitta ham
+                // so'rov yubormaydi, shuning uchun kalit bilan tasdiqlash mantiqsiz edi.
+                runExport(fid, { limit: v, exportOnly: true });
               }}
             >
               ZIP tayyorlash ({Math.max(1, Math.min(zipAsk.max, Math.floor(zipAsk.value) || 0))})
@@ -1548,7 +1550,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
             <label className="field-label">Nechta mijoz
               <input
                 type="number" min={1} max={Math.min(100, zipAsk.max)} autoFocus
-                className="input mt-1 w-full tabular-nums"
+                className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm tabular-nums outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15"
                 value={zipAsk.value}
                 onChange={(e) => setZipAsk((c) => c && ({ ...c, value: Math.max(1, Math.min(c.max, Number(e.target.value) || 0)) }))}
               />

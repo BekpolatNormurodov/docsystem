@@ -16,7 +16,12 @@ import { autoResumeTick } from '../lib/court-auto-resume';
 //
 // Only PACKET/COURT_SUBMIT/OFERTA/TALABNOMA are claimed. IMPORT stays on the web process (it needs the just-
 // uploaded temp file in ./uploads); the worker never touches it.
-const DOC_TYPES = ['PACKET', 'COURT_SUBMIT', 'OFERTA', 'TALABNOMA', 'TALABNOMA_FORM'] as const;
+// COURT_SUBMIT bu ro'yxatda EMAS — u o'z siklida ishlaydi (pastda courtSubmitLoop).
+// Sabab: sud partiyasi soatlab davom etadi (100 ta ish × ~45s), doc-navbat esa bir vaqtda
+// BITTA job bajaradi. 2026-09-07 da operator ZIP so'radi va u sud partiyasi orqasida
+// «0/100» bo'lib bir soat kutdi. ZIP/oferta/talabnoma portalga tegmaydi — ular sud
+// partiyasini kutishi mantiqsiz.
+const DOC_TYPES = ['PACKET', 'OFERTA', 'TALABNOMA', 'TALABNOMA_FORM'] as const;
 const POLL_MS = 2000;
 // A RUNNING doc-job whose progress hasn't advanced in this long is treated as orphaned (its worker
 // died). Job.updatedAt is only bumped once per CONCURRENCY-sized render batch, so this MUST stay well
@@ -248,7 +253,36 @@ async function courtAutoResumeLoop(): Promise<void> {
   }
 }
 
+// Sud partiyasi — ALOHIDA sikl. Doc-navbatdan mustaqil: uzoq sud partiyasi ZIP, oferta va
+// talabnoma tayyorlashni to'sib qo'ymaydi (ular bir-biriga xalaqit bermaydigan ishlar:
+// sud partiyasi tarmoqda kutadi, doc-joblar chromium bilan render qiladi).
+async function courtSubmitLoop(): Promise<void> {
+  console.log('[worker] sud partiyasi sikli: alohida navbat');
+  while (!stopping) {
+    try {
+      const job = await prisma.job.findFirst({
+        where: { status: 'PENDING', type: 'COURT_SUBMIT' },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      });
+      if (job) {
+        const claimed = await prisma.job.updateMany({ where: { id: job.id, status: 'PENDING' }, data: { status: 'RUNNING' } });
+        if (claimed.count > 0) {
+          console.log(`[worker] sud partiyasi ${job.id} boshlandi`);
+          await runJobById(job.id).catch((e) => console.error(`[worker] sud partiyasi ${job.id} xatosi`, e));
+          console.log(`[worker] sud partiyasi ${job.id} tugadi`);
+          continue;
+        }
+      }
+    } catch (e) {
+      console.error('[worker] sud sikli xatosi', e instanceof Error ? e.message : e);
+    }
+    await new Promise((r) => setTimeout(r, POLL_MS));
+  }
+}
+
 void billingAutoSyncLoop().catch((e) => console.error('[worker] billing auto-sync fatal', e));
+void courtSubmitLoop().catch((e) => console.error('[worker] sud sikli fatal', e));
 void courtAutoResumeLoop().catch((e) => console.error('[worker] avto-davom fatal', e));
 void courtStatusSyncLoop().catch((e) => console.error('[worker] sud status sync fatal', e));
 
