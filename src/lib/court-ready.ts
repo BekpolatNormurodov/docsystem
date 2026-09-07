@@ -60,7 +60,14 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
   // ariza ichiga yoziladi — raqamsiz ariza chala, shuning uchun `boji` MAJBURIY gate.
   const boji = !!c.receiptNumber;
   const ready = talabnoma && scan && oferta && receipt && boji;
-  const exported = isExported(c.meta);
+  // «Yuborilgan» — meta.exportedAt (ZIP paket chiqarilgani) YOKI bosqichi allaqachon sudda.
+  //
+  // Nega ikkalasi: 2026-09-07 da API orqali HAQIQATAN sudga topshirilgan ish (stage
+  // COURT_SUBMITTED) hech qaysi ro'yxatda ko'rinmay qoldi — «Tayyor»dan SENT_STAGES sababli
+  // chiqib ketdi, «Yuborilgan»ga esa meta.exportedAt yo'qligi uchun tushmadi. API oqimi
+  // exportedAt yozmaydi (u ZIP eksportining belgisi), shuning uchun bosqichning o'zi ham
+  // hisobga olinadi.
+  const exported = isExported(c.meta) || SENT_STAGES.has(c.stage);
   const draft = !exported && isDraftMeta(c.meta); // qoralama-sinov qilingan, hali haqiqiy yuborilmagan
   // «Tayyor» = ready, hali qoralamaga ham, yuborishga ham chiqmagan, bosqichi sudda emas.
   const sendable = ready && !exported && !draft && !SENT_STAGES.has(c.stage);
