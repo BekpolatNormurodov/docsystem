@@ -58,7 +58,12 @@ async function pruneOldExports(): Promise<void> {
 // scales throughput with cores. Default now uses the box's CPUs (min 4, capped 12) instead of a flat 5,
 // so a multi-core server generates much faster; override with WORKER_CONCURRENCY. NOTE: more parallelism
 // = more peak chromium RAM, so give the worker container matching memory + /dev/shm when raising it.
-const PDF_CONCURRENCY = Math.max(1, Number(process.env.WORKER_CONCURRENCY) || Math.min(10, Math.max(5, os.cpus().length || 5)));
+// Chromium render parallelligi. Chegara 10 dan 16 ga ko'tarildi: serverda 24 yadro va
+// ~12GB bo'sh xotira bor, chromium sahifasi esa ~150-200MB — 16 ta ≈ 3GB, bemalol sig'adi.
+// ZIP tayyorlash portalga tegmaydi (faqat CPU), shuning uchun uni tezlashtirish xavfsiz —
+// sud yuborishdan farqli, bu yerda tashqi tizimni urib qo'yish xavfi yo'q.
+// WORKER_CONCURRENCY bilan bekor qilinadi.
+const PDF_CONCURRENCY = Math.max(1, Number(process.env.WORKER_CONCURRENCY) || Math.min(16, Math.max(5, os.cpus().length || 5)));
 
 // Per-item render ceiling. A single hung chromium render (bad page, resource stall) used to freeze the
 // whole Promise.all batch → progress AND «Bekor» both stuck forever. withTimeout caps each item: on
