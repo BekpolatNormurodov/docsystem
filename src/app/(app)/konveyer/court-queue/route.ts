@@ -16,7 +16,7 @@ const num = (v: string | null): number | undefined => {
 // ko'rinmaydi. Operatorga aynan shu kerak: xato bergan ishni ochib, sababini o'qib, tuzatib
 // qayta yuborishi uchun. Xato bergan ishlar birinchi chiqadi.
 export async function GET(req: NextRequest) {
-  await requireStep('sud');
+  await requireStep('sud:send');
   const firmId = num(req.nextUrl.searchParams.get('firmId'));
   if (!firmId) return NextResponse.json({ error: 'firmId kerak' }, { status: 400 });
 

@@ -14,11 +14,11 @@ const digits = (s?: string | null) => (s ?? '').replace(/\D+/g, '');
 // posts { challengeId, pkcs7 } back to /konveyer/connect (or /konveyer/court-sign).
 // HIPPO needs no challenge (it signs a fixed constant), so this only handles CABINET.
 //
-// Guarded by requireStep('sud'): admins (who connect) AND sud-yurists (who court-sign)
+// Guarded by requireStep('sud:send'): admins (who connect) AND sud-yurists (who court-sign)
 // both pass it, and both flows need a challenge. Minting is not itself sensitive —
 // consuming the challenge still requires a valid PKCS7 from the firm's key.
 export async function POST(req: NextRequest) {
-  await requireStep('sud');
+  await requireStep('sud:send');
   const body = await req.json().catch(() => ({}));
   const firmId = Number(body?.firmId);
   const provider = String(body?.provider || 'CABINET').toUpperCase();

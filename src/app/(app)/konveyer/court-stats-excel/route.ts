@@ -13,7 +13,7 @@ const num = (v: string | null): number | undefined => { if (!v) return undefined
 // GET ?s= — per-firm court-readiness statistics («xulosa») as an .xlsx: jami / toʻliq tayyor /
 // yuborilgan / navbatda + qaysi hujjat yetishmayotgani (talabnoma/skan/oferta/boji), + a JAMI row.
 export async function GET(req: NextRequest) {
-  await requireStep('sud');
+  await requireStep('sud:send');
   // Resolve snapshot: passed ?s= (validated), else konv_s cookie, else the latest with cases.
   let snapshotId = num(req.nextUrl.searchParams.get('s') ?? cookies().get('konv_s')?.value ?? null);
   if (snapshotId != null) {

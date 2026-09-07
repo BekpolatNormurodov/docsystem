@@ -21,7 +21,7 @@ const num = (v: unknown): number | undefined => {
 export async function POST(req: NextRequest) {
   // Match the read routes + the /sud page guard — the side-effectful export must
   // not be reachable by a user who has no 'sud' step grant.
-  await requireStep('sud');
+  await requireStep('sud:send');
   const body = await req.json().catch(() => ({}));
 
   const firmId = num(body?.firmId);

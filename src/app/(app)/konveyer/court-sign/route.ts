@@ -18,7 +18,7 @@ const digits = (s?: string | null) => (s ?? '').replace(/\D+/g, '');
 // the firm's key is present AND refreshes the stored adolat session. Only after this
 // does CourtManager start the packet export. Guarded by the 'sud' step (admins pass).
 export async function POST(req: NextRequest) {
-  await requireStep('sud');
+  await requireStep('sud:send');
   const body = await req.json().catch(() => ({}));
   const firmId = Number(body?.firmId);
   if (!firmId) return NextResponse.json({ error: 'firmId kerak' }, { status: 400 });

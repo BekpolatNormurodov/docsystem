@@ -16,7 +16,7 @@ const num = (v: string | null): number | undefined => {
 // shot. The drill-down filters/searches/paginates client-side, so this fires ONCE per drill-down open
 // (or firm/snapshot change), not on every filter/search/page — that per-interaction refetch was slow.
 export async function GET(req: NextRequest) {
-  await requireStep('sud');
+  await requireStep('sud:send');
   const raw = req.nextUrl.searchParams.get('s') ?? cookies().get('konv_s')?.value ?? null;
   const parsed = num(raw);
   // Cheap snapshot resolution — this route fires on every filter/search/page change, so

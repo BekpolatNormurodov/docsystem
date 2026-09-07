@@ -8,7 +8,7 @@ export const runtime = 'nodejs';
 // POST { caseIds } — «Bekor qilish»: yuborilgan/qoralama belgisini (meta.exportedAt/draftAt) olib
 // tashlab, mijozni «Tayyor»ga qaytaradi. Guarded by the 'sud' step (admins pass).
 export async function POST(req: NextRequest) {
-  await requireStep('sud');
+  await requireStep('sud:send');
   const body = await req.json().catch(() => ({}));
   const caseIds = Array.isArray(body?.caseIds)
     ? [...new Set((body.caseIds as unknown[]).map(Number).filter((x): x is number => Number.isInteger(x) && x > 0))]

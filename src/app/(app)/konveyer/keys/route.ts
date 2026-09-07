@@ -48,7 +48,7 @@ async function scanKeysDiag(): Promise<{ keys: KeyOut[]; diag: { disks: unknown;
 
 // GET /konveyer/keys — signing-capable staff only (admins connect, sud-yurists court-sign).
 export async function GET(req: NextRequest) {
-  await requireStep('sud');
+  await requireStep('sud:send');
 
   // CLIENT MODE: the server has no local E-IMZO — the browser enumerates keys itself
   // (window.EimzoBrowser.listKeys). Return the flag instantly so the picker switches paths.

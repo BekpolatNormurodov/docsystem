@@ -15,7 +15,7 @@ const num = (v: string | null): number | undefined => {
 // GET ?s=&firmId= — Sud sahifasi paneli uchun: sudga-tayyorlik (firma-firma),
 // to'liq status hisoboti, va qaytganlar ro'yxati. Snapshot: ?s= → cookie → latest.
 export async function GET(req: NextRequest) {
-  await requireStep('sud');
+  await requireStep('sud:send');
   const snaps = await konveyerSnapshots();
   const raw = req.nextUrl.searchParams.get('s') ?? cookies().get('konv_s')?.value ?? null;
   const parsed = num(raw);

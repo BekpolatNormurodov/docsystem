@@ -15,7 +15,7 @@ const num = (v: string | null): number | undefined => {
 // GET ?firmId=&s= — «Sudga yuborish» modali uchun: shu firmaning YUBORISHGA TAYYOR
 // case'lari qaysi sudlarga nechtadan ketishi (ko'rsatkich). Snapshot: ?s= → cookie → latest.
 export async function GET(req: NextRequest) {
-  await requireStep('sud');
+  await requireStep('sud:send');
   const firmId = num(req.nextUrl.searchParams.get('firmId'));
   if (!firmId) return NextResponse.json({ error: 'firmId kerak' }, { status: 400 });
   const snaps = await konveyerSnapshots();

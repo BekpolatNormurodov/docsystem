@@ -12,7 +12,7 @@ export const runtime = 'nodejs';
 // bir qarashda «hozir nima bo'lyapti» ni ko'rishi kerak — nechta ish navbatda turibdi,
 // nechtasi ketdi, nechtasi xato bergan.
 export async function GET() {
-  await requireStep('sud');
+  await requireStep('sud:send');
   const [paused, grouped] = await Promise.all([
     isQueuePaused(),
     prisma.courtQueueItem.groupBy({ by: ['state'], _count: { _all: true } }),
@@ -28,7 +28,7 @@ export async function GET() {
 // firmalarga taalluqli va bazada saqlanadi — deploy/restart'dan keyin ham kuchda qoladi.
 // Pauzada ishlar PENDING bo'lib qoladi, davom ettirilganda aynan shu joydan ketadi.
 export async function POST(req: NextRequest) {
-  await requireStep('sud');
+  await requireStep('sud:send');
   const body = await req.json().catch(() => ({}));
   const paused = body?.paused === true;
   await setQueuePaused(paused);
