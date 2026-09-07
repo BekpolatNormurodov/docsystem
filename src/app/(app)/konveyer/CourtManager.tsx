@@ -1152,6 +1152,19 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   const loadRef = useRef(load);
   useEffect(() => { loadRef.current = load; });
 
+  // Partiya ketayotganda YUQORIDAGI raqamlarni ham yangilab turamiz.
+  //
+  // Nega: firma qatoridagi «Sudda / Tayyor / Chiqarilgan» sahifa ochilganda bir marta
+  // yuklanadi, navbat paneli esa har 5 soniyada yangilanadi. Partiya soatlab ketgani uchun
+  // ular bir-biridan uzoqlashib, ekranda «Sudda 30» va «60 ketdi» degan qarama-qarshi
+  // raqamlar ko'rinardi (2026-09-07). Ma'lumot to'g'ri edi — faqat biri eskirgan edi.
+  const anyJobRunning = Object.values(jobs).some((j) => j.status === 'PENDING' || j.status === 'RUNNING');
+  useEffect(() => {
+    if (!anyJobRunning) return;
+    const t = setInterval(() => { void loadRef.current(); }, 20_000);
+    return () => clearInterval(t);
+  }, [anyJobRunning]);
+
   const startJob = useCallback((key: string, body: Record<string, unknown>, onDone: () => void) => {
     if (timers.current[key]) return; // already running
     setJobs((j) => ({ ...j, [key]: { jobId: 0, status: 'PENDING', progress: 0, total: 0 } }));
