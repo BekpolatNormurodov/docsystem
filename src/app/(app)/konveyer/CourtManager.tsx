@@ -211,7 +211,7 @@ const IcoDown = () => <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="non
 function ExportControl({ job, sendable, onStart }: { job?: JobState; sendable: number; onStart: () => void }) {
   const running = !!job && (job.status === 'PENDING' || job.status === 'RUNNING');
   const done = job?.status === 'DONE';
-  const pct = job && job.total ? Math.min(100, Math.round((job.progress / job.total) * 100)) : 0;
+  // (progress foizi ExportControl da endi kerak emas — raqamlar qator ostidagi yagona chiziqda)
   // Sudga yuborish (COURT_SUBMIT) job'i fayl YARATMAYDI — unga ZIP havolasi ko'rsatilsa 404
   // beradi. Uning o'rniga runner yozgan halol hisobot ko'rsatiladi
   // («N ta yuborildi, M ta XATO, K ta navbatda qoldi»).
@@ -257,15 +257,9 @@ function ExportControl({ job, sendable, onStart }: { job?: JobState; sendable: n
         title={sendable === 0 ? 'Sudga yuborishga tayyor mijoz yoʻq' : `${Math.min(MAX_COURT_BATCH, sendable)} ta to'liq tayyor paketni sudga yuborish`}
       >
         {running
-          ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> {job?.progress ?? 0}/{job?.total ?? ''}</>
+          ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> Yuborilmoqda</>
           : <><IcoBolt /> Sudga yuborish {sendable > 0 ? `(${Math.min(MAX_COURT_BATCH, sendable)})` : ''}</>}
       </button>
-      {running && job && job.total > 0 && (
-        <span className="block h-1 w-28 overflow-hidden rounded-full bg-surface-2"><span className="block h-full rounded-full bg-brand-500 transition-all duration-500 ease-out" style={{ width: `${pct}%` }} /></span>
-      )}
-      {/* Ish davomida oraliq hisobot: «N ta yuborildi, M ta XATO». Daqiqada 1 ta tezlikda
-          progress uzoq qimirlamaydi — bu matn ishlab turganini ko'rsatadi. */}
-      {running && job?.message && <span className="text-[11px] text-muted tabular-nums">{job.message}</span>}
       {/* Xato: worker yozgan sabab `message`da keladi (route xatosi esa `error`da). */}
       {/* Xato: FAILED holatida server sababi (`message`), yoki holat o'qilmay qolganda
           (masalan sessiya tugadi) poller yozgan `error` — u RUNNING paytida ham chiqishi
