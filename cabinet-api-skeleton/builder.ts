@@ -23,6 +23,9 @@ export interface SourceCaseData {
   // details.createApplication.claimant qiymatini o'qib) topib, Firm modelida (yoki shu faylda
   // firmStir -> claimantId lug'atida) saqlash kerak. Hozircha bu funksiyaga tashqaridan uzatiladi.
   claimantId: string;
+  /** To'langan pochta xarajati kvitansiyasi raqami (ArizaCase.receiptNumber, 262…).
+   *  Portalda find-by-receipt-number orqali topilib da'voga biriktiriladi. */
+  receiptNumber?: string | null;
   firm: { stir: string };
   debtor: {
     pinfl: string;               // faqat ma'lumot uchun — DefendantInfo'ga ketmaydi (isPinflUnknown:true)
@@ -196,12 +199,19 @@ export class CabinetPayloadBuilder {
    * mikroqarz undirish da'vosiga tegishli ekanini yurist tasdiqlashi va Firm/Setting'ga
    * yozilishi kerak. Berilmasa — boj to'lanishi kerak deb hisoblanadi.
    */
-  static buildCourtCosts(opts: { stateFee?: number; dutyReasonId?: string | null } = {}): CourtCostsSection {
+  static buildCourtCosts(
+    opts: { stateFee?: number; dutyReasonId?: string | null; receipts?: unknown[] } = {},
+  ): CourtCostsSection {
     return {
       stateFee: opts.stateFee ?? 0,
       customStateFee: null,
+      // 2026-09-07 jonli tekshiruv: calc-duties bizning da'vo turi uchun STATE=0 qaytardi
+      // (summadan qat'i nazar). Ya'ni davlat boji YO'Q va «bojdan ozod qilish asosi» ham
+      // kerak emas — ozod bo'ladigan boj mavjud emas. To'lanadigani POST=22 000 (pochta
+      // xarajati) va VCC=110 000.
       duty_reason_id: opts.dutyReasonId ?? null,
-      receipts: [],
+      // To'langan pochta kvitansiyasi shu yerga tushadi (find-by-receipt-number natijasi).
+      receipts: opts.receipts ?? [],
     };
   }
 

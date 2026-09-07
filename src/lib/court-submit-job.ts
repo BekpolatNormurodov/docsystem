@@ -432,6 +432,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
         courtId: courtGuid,
         regionId: CABINET_REGION_IDS.TOSHKENT_VILOYATI,
         claimantId,
+        receiptNumber: ac.receiptNumber ?? null,
         firm: { stir: firmStir },
         debtor: {
           pinfl: ac.pinfl || '',

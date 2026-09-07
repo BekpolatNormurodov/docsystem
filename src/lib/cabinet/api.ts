@@ -112,8 +112,12 @@ export const deleteDrafts = (s: CabinetSession, ids: string[]) => jpost(s, ENDPO
 export const calcDuties = (s: CabinetSession, params: Record<string, any>) =>
   jpost(s, ENDPOINTS.calcDuties, { ...params, withVCC: true });
 export const generateInvoices = (s: CabinetSession, body: unknown) => jpost(s, ENDPOINTS.generateInvoices, body);
+// POST (GET emas!). Avval bu GET + ?receiptNumber= bilan chaqirilardi va portal HAR DOIM
+// «Cannot GET …» (404) qaytarardi — bu «kvitansiya topilmadi» deb noto'g'ri talqin qilingan
+// va «bizning kvitansiyalar boshqa reyestrda» degan xato xulosaga olib kelgan edi.
+// Portal frontendi: findReceiptByNumber(m) → http.postMethod('/api/cabinet/guide/find-by-receipt-number', m)
 export const findByReceiptNumber = (s: CabinetSession, receiptNumber: string) =>
-  jget(s, `${ENDPOINTS.findByReceiptNumber}?receiptNumber=${encodeURIComponent(receiptNumber)}`);
+  jpost(s, ENDPOINTS.findByReceiptNumber, { receipt_number: receiptNumber, receiptNumber });
 
 // ---- file upload: FormData(file) + file_type GUID (per document slot) ----
 export async function uploadFile(session: CabinetSession, file: Blob | Buffer, fileType: string, fileName?: string) {

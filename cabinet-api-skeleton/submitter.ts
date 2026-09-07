@@ -134,7 +134,30 @@ export class CabinetSubmitEngine {
         mime_type: 'application/pdf',
       }));
       const fileUpload = CabinetPayloadBuilder.buildFileUpload(fileRefs);
-      const courtCosts = CabinetPayloadBuilder.buildCourtCosts({ dutyReasonId: options.dutyReasonId ?? null });
+      // To'langan pochta kvitansiyasini portaldan topib da'voga biriktiramiz. Portal bu
+      // chaqiruvda to'lov holatini ham tekshiradi: to'lanmagan kvitansiya uchun
+      // «invoiceStatus is not valid» (400) qaytadi — ya'ni bu ayni paytda boji tekshiruvi ham.
+      let receipts: unknown[] = [];
+      if (caseData.receiptNumber) {
+        try {
+          const rr = await this.client.post<any>(CABINET_ENDPOINTS.findByReceiptNumber, {
+            receipt_number: caseData.receiptNumber,
+            receiptNumber: caseData.receiptNumber,
+          });
+          const rec = (rr.data as any)?.receipt ?? rr.data;
+          if (rec) {
+            receipts = [rec];
+            console.log(`✔ Kvitansiya topildi: ${caseData.receiptNumber} — ${rec.invoiceStatus ?? '?'} ${rec.paidAmount ?? ''}`);
+          }
+        } catch (e: any) {
+          // Kvitansiya topilmasa/to'lanmagan bo'lsa da'vo asossiz qoladi — to'xtatamiz.
+          throw new Error(
+            `Pochta kvitansiyasi (${caseData.receiptNumber}) portalda tasdiqlanmadi: ${e.message?.slice(0, 200)}. ` +
+            `To'lov amalga oshirilganini tekshiring.`,
+          );
+        }
+      }
+      const courtCosts = CabinetPayloadBuilder.buildCourtCosts({ dutyReasonId: options.dutyReasonId ?? null, receipts });
       details.fileUpload = fileUpload;
       details.courtCosts = courtCosts;
       await this.client.put(CABINET_ENDPOINTS.draftUpdate + draftId, { details });
