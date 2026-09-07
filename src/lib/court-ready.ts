@@ -26,7 +26,14 @@ export interface DocFlags {
   receipt: boolean;   // talabnoma «check» (UZPOST kvitansiya) SHU case'ga biriktirilgan — MAJBURIY
   boji: boolean;
   ready: boolean;
-  exported: boolean;  // meta.exportedAt — «Yuborilgan» (haqiqiy chiqarilgan)
+  exported: boolean;  // ZIP paketi chiqarilgan YOKI sudga yuborilgan — «ishlov ko'rgan»
+  // SUDGA HAQIQATAN yuborilgan (stage COURT_SUBMITTED/... yoki courtCaseId bor).
+  //
+  // NEGA `exported`dan ajratildi: 2026-09-07 da BRIGHT qatorida «Yuborilgan 100» ko'rindi,
+  // lekin ularning BITTASI ham sudga ketmagan edi — 100 tasida faqat ZIP paketi
+  // chiqarilgan (meta.exportedAt). Operator ularni sudda deb o'ylashi mumkin edi.
+  // Endi ikkisi alohida: «Chiqarilgan» (ZIP) va «Sudda» (haqiqiy da'vo).
+  submitted: boolean;
   draft: boolean;     // meta.draftAt & !exported — «Qoralama» (sinab ko'rilgan, hali haqiqiy emas)
   sendable: boolean;  // «Tayyor» — ready && hali qoralama/yuborilmagan & bosqich sudga chiqmagan
 }
@@ -67,11 +74,12 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
   // chiqib ketdi, «Yuborilgan»ga esa meta.exportedAt yo'qligi uchun tushmadi. API oqimi
   // exportedAt yozmaydi (u ZIP eksportining belgisi), shuning uchun bosqichning o'zi ham
   // hisobga olinadi.
-  const exported = isExported(c.meta) || SENT_STAGES.has(c.stage);
+  const submitted = SENT_STAGES.has(c.stage);
+  const exported = isExported(c.meta) || submitted;
   const draft = !exported && isDraftMeta(c.meta); // qoralama-sinov qilingan, hali haqiqiy yuborilmagan
   // «Tayyor» = ready, hali qoralamaga ham, yuborishga ham chiqmagan, bosqichi sudda emas.
   const sendable = ready && !exported && !draft && !SENT_STAGES.has(c.stage);
-  return { talabnoma, scan, oferta, receipt, boji, ready, exported, draft, sendable };
+  return { talabnoma, scan, oferta, receipt, boji, ready, exported, submitted, draft, sendable };
 }
 
 // Case'ga biriktirilgan CaseDocument'lar to'plami (kind bo'yicha) — SKAN (SIGNED_ARIZA) va
@@ -124,7 +132,8 @@ export interface FirmReadiness {
   firmName: string;
   total: number;
   ready: number;
-  exported: number;
+  exported: number;   // ZIP chiqarilgan yoki sudga ketgan (umumiy «ishlov ko'rgan»)
+  submitted: number;  // SUDGA haqiqatan yuborilgan — «Chiqarilgan» bilan aralashmasin
   draft: number;
   sendable: number;
   missing: DocQuad;
@@ -133,7 +142,7 @@ export interface FirmReadiness {
 }
 export interface CourtReadiness {
   firms: FirmReadiness[];
-  overall: { total: number; ready: number; exported: number; draft: number; sendable: number; missing: DocQuad; almost: DocQuad };
+  overall: { total: number; ready: number; exported: number; submitted: number; draft: number; sendable: number; missing: DocQuad; almost: DocQuad };
 }
 
 /** Per-firm «sudga tayyorlik»: jami / to'liq tayyor / chiqarilgan / yuborishga
@@ -171,7 +180,7 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
 
     const fr: FirmReadiness = {
       firmId: f.id, firmName: f.shortName, total: cases.length,
-      ready: 0, exported: 0, draft: 0, sendable: 0,
+      ready: 0, exported: 0, submitted: 0, draft: 0, sendable: 0,
       missing: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 },
       almost: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 },
       docs: firmDocsStatus(f.id),
@@ -180,6 +189,7 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
       const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls);
       if (fl.ready) fr.ready++;
       if (fl.exported) fr.exported++;
+      if (fl.submitted) fr.submitted++;
       if (fl.draft) fr.draft++;
       if (fl.sendable) fr.sendable++;
       if (!fl.talabnoma) fr.missing.talabnoma++;
@@ -205,14 +215,14 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
 
   const overall = firmsOut.reduce(
     (o, f) => {
-      o.total += f.total; o.ready += f.ready; o.exported += f.exported; o.draft += f.draft; o.sendable += f.sendable;
+      o.total += f.total; o.ready += f.ready; o.exported += f.exported; o.submitted += f.submitted; o.draft += f.draft; o.sendable += f.sendable;
       o.missing.talabnoma += f.missing.talabnoma; o.missing.scan += f.missing.scan;
       o.missing.oferta += f.missing.oferta; o.missing.receipt += f.missing.receipt; o.missing.boji += f.missing.boji;
       o.almost.talabnoma += f.almost.talabnoma; o.almost.scan += f.almost.scan;
       o.almost.oferta += f.almost.oferta; o.almost.receipt += f.almost.receipt; o.almost.boji += f.almost.boji;
       return o;
     },
-    { total: 0, ready: 0, exported: 0, draft: 0, sendable: 0, missing: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 }, almost: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 } },
+    { total: 0, ready: 0, exported: 0, submitted: 0, draft: 0, sendable: 0, missing: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 }, almost: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 } },
   );
 
   return { firms: firmsOut, overall };
@@ -234,6 +244,8 @@ export interface ClientReadyRow {
   boji: boolean;
   ready: boolean;
   exported: boolean;
+  /** SUDGA haqiqatan topshirilgan — «Chiqarilgan» (ZIP) bilan aralashmasin. */
+  submitted: boolean;
   draft: boolean;
   /** Ish qaysi sudga yo'naltirilgan (filtr uchun; tayinlanmagan bo'lsa null). */
   courtId: number | null;
@@ -304,7 +316,7 @@ export async function firmReadyClients(opts: {
       caseId: c.id, clientName: c.clientName, pinfl: c.pinfl, stage: c.stage, stageLabel: STAGE_LABEL[c.stage],
       talabnoma: fl.talabnoma, talabnomaDelivered: !!(c.pinfl && deliveredPinfls.has(c.pinfl)),
       receipt: fl.receipt, scan: fl.scan, oferta: fl.oferta, boji: fl.boji,
-      ready: fl.ready, exported: fl.exported, draft: fl.draft, sendable: fl.sendable,
+      ready: fl.ready, exported: fl.exported, submitted: fl.submitted, draft: fl.draft, sendable: fl.sendable,
       totalDebt: String(c.totalDebt),
       daysLeft: c.dueAt ? ((v: number) => (v < 0 ? Math.floor(v) : Math.ceil(v)))((c.dueAt.getTime() - now) / day) : null,
       receiptNumber: c.receiptNumber,

@@ -295,7 +295,14 @@ const filterMeta = (key: ReadyFilter) => CLIENT_FILTERS.find((f) => f.key === ke
 const statIcon = (key: ReadyFilter) => { const m = filterMeta(key); return <span className={m.iconCls}>{m.icon}</span>; };
 
 function statusChip(r: ClientRow) {
-  if (r.exported) return <span className="rounded-md bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:text-sky-300">Yuborilgan</span>;
+  // «Sudda» va «Chiqarilgan» — ATAYIN ikki xil holat.
+  // 2026-09-07: BRIGHT qatorida «Yuborilgan 100» ko'rinardi, lekin ularning bittasi ham
+  // sudga ketmagan edi — 100 tasida faqat ZIP paketi chiqarilgan. Operator ularni sudda
+  // deb o'ylashi mumkin edi, shuning uchun endi belgi aniq: sudda bo'lgani — «Sudda».
+  if ((r as { submitted?: boolean }).submitted) {
+    return <span className="rounded-md bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:text-indigo-300" title="Da'vo ADOLAT orqali sudga topshirilgan">Sudda</span>;
+  }
+  if (r.exported) return <span className="rounded-md bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:text-sky-300" title="ZIP paketi chiqarilgan — sudga hali yuborilmagan">Chiqarilgan</span>;
   if (r.draft) return <span className="rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:text-violet-300">Qoralama</span>;
   if (r.sendable) return <span className="rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">Tayyor</span>;
   return <span className="rounded-md bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium text-rose-600 dark:text-rose-300">Tayyor emas</span>;
