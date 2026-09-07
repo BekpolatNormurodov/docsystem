@@ -77,8 +77,15 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
   const submitted = SENT_STAGES.has(c.stage);
   const exported = isExported(c.meta) || submitted;
   const draft = !exported && isDraftMeta(c.meta); // qoralama-sinov qilingan, hali haqiqiy yuborilmagan
-  // «Tayyor» = ready, hali qoralamaga ham, yuborishga ham chiqmagan, bosqichi sudda emas.
-  const sendable = ready && !exported && !draft && !SENT_STAGES.has(c.stage);
+  // «Tayyor» = ready va SUDGA hali ketmagan.
+  //
+  // MUHIM: ilgari bu yerda `!exported` turardi, ya'ni ZIP paketi olingan ish «Tayyor»dan
+  // chiqib ketardi va sudga yuborishga umuman taklif qilinmasdi. Eski dunyoda bu to'g'ri
+  // edi — ZIP olish «ish operatorga topshirildi» degani edi. Endi esa sudga yuborish
+  // ALOHIDA, haqiqiy amal: ZIP olish shunchaki fayl yuklab olish, sudga hech narsa
+  // ketmaydi. 2026-09-07: BRIGHT'ning 100 ta ishi ZIP olingani uchun «Tayyor»dan
+  // yo'qolgan edi, holbuki ularning bittasi ham sudga bermagan.
+  const sendable = ready && !submitted && !draft && !SENT_STAGES.has(c.stage);
   return { talabnoma, scan, oferta, receipt, boji, ready, exported, submitted, draft, sendable };
 }
 
@@ -397,7 +404,7 @@ export async function sendableCourtBreakdown(opts: { snapshotId?: number; firmId
  *  firma bo'yicha, eng eskisidan boshlab, `limit` tagacha. `includeExported` —
  *  qaytganlar/tuzatilganlarni qayta chiqarish uchun. */
 export async function selectReadyCaseIds(opts: {
-  snapshotId?: number; firmId: number; limit: number; includeExported?: boolean;
+  snapshotId?: number; firmId: number; limit: number; includeExported?: boolean; forExport?: boolean;
 }): Promise<number[]> {
   const firm = await prisma.firm.findUnique({ where: { id: opts.firmId }, select: { id: true, code: true } });
   if (!firm) return [];
@@ -416,7 +423,10 @@ export async function selectReadyCaseIds(opts: {
     const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls);
     if (!fl.ready) continue;
     if (SENT_STAGES.has(c.stage)) continue;
-    if (!opts.includeExported && fl.exported) continue;
+    // `forExport` — ZIP oqimi: bir xil paketni ikki marta chiqarmaslik uchun allaqachon
+    // ZIP olinganini o'tkazib yuboradi. Sudga yuborishda esa ZIP olingani TO'SIQ EMAS —
+    // u sudga hech narsa yubormagan.
+    if (opts.forExport && !opts.includeExported && fl.exported) continue;
     picked.push(c.id);
     if (picked.length >= opts.limit) break;
   }
@@ -428,7 +438,7 @@ export async function selectReadyCaseIds(opts: {
  *  bo'lmasa chiqarilmagan) bo'lganlari qaytadi. Eskirgan tanlov ZIP'ga nomos case
  *  «olib kira» olmaydi (client filtri hech qachon avtorizatsiya sifatida ishonilmaydi). */
 export async function validateSelectedCaseIds(opts: {
-  snapshotId?: number; firmId: number; caseIds: number[]; includeExported?: boolean; limit?: number;
+  snapshotId?: number; firmId: number; caseIds: number[]; includeExported?: boolean; forExport?: boolean; limit?: number;
 }): Promise<number[]> {
   const firm = await prisma.firm.findUnique({ where: { id: opts.firmId }, select: { id: true, code: true } });
   if (!firm || !opts.caseIds.length) return [];
@@ -445,7 +455,7 @@ export async function validateSelectedCaseIds(opts: {
   return (cases as CaseRow[])
     .filter((c) => {
       const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls);
-      return fl.ready && !SENT_STAGES.has(c.stage) && (opts.includeExported || !fl.exported);
+      return fl.ready && !SENT_STAGES.has(c.stage) && (!opts.forExport || opts.includeExported || !fl.exported);
     })
     .map((c) => c.id)
     .slice(0, Math.min(100, opts.limit ?? 100));

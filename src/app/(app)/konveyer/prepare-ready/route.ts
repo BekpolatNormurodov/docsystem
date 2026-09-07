@@ -38,6 +38,10 @@ export async function POST(req: NextRequest) {
   const rawSnap = num(body?.snapshotId);
   const snapshotId = rawSnap && snaps.some((s) => s.id === rawSnap) ? rawSnap : snaps[0]?.id;
   const limit = Math.min(100, Math.max(1, num(body?.limit) ?? 100));
+  // ZIP eksporti sudga hech narsa yubormaydi: sud kunlik limitini band qilmaydi va
+  // «allaqachon chiqarilgan» filtri faqat SHU oqimga tegishli. Shuning uchun bayroq
+  // case tanlashdan ham, allokatsiyadan ham OLDIN aniqlanadi.
+  const isExportOnly = body?.exportOnly === true;
   const includeExported = body?.includeExported === true;
   const talabnomaPdf = body?.talabnomaPdf !== false;
 
@@ -50,8 +54,10 @@ export async function POST(req: NextRequest) {
     ? [...new Set((body.caseIds as unknown[]).map(Number).filter((x): x is number => Number.isInteger(x) && x > 0))].slice(0, 100)
     : null;
   const caseIds = uniqIds?.length
-    ? await validateSelectedCaseIds({ snapshotId, firmId, caseIds: uniqIds, includeExported })
-    : await selectReadyCaseIds({ snapshotId, firmId, limit, includeExported });
+    // `forExport` — faqat ZIP oqimi allaqachon chiqarilganini o'tkazib yuboradi. Sudga
+    // yuborishda ZIP olingani to'siq emas (u sudga hech narsa yubormagan).
+    ? await validateSelectedCaseIds({ snapshotId, firmId, caseIds: uniqIds, includeExported, forExport: isExportOnly })
+    : await selectReadyCaseIds({ snapshotId, firmId, limit, includeExported, forExport: isExportOnly });
   if (caseIds.length === 0) {
     return NextResponse.json(
       { error: includeExported ? 'Chiqarish uchun tayyor mijoz yoʻq' : 'Yuborishga tayyor (chiqarilmagan) mijoz yoʻq' },
@@ -70,10 +76,6 @@ export async function POST(req: NextRequest) {
   const courtIds = Array.isArray(body?.courtIds)
     ? [...new Set((body.courtIds as unknown[]).map(Number).filter((x) => Number.isInteger(x) && x > 0))]
     : undefined;
-
-  // ZIP eksporti sudga hech narsa yubormaydi — shuning uchun sudning kunlik qabul
-  // quvvatini BAND QILMASLIGI kerak. Shu sabab bu bayroq allokatsiyadan OLDIN aniqlanadi.
-  const isExportOnly = body?.exportOnly === true;
 
   let sendIds = caseIds;
   let deferred = 0;
