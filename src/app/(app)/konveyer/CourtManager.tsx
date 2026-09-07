@@ -1120,6 +1120,21 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   const [lastLoaded, setLastLoaded] = useState<Date | null>(null);
   const [openFirm, setOpenFirm] = useState<number | null>(null);
   const [xlsOpen, setXlsOpen] = useState(false); // Excel eksportlari menyusi
+  // NAVBAT SAHIFA YANGILANGANDA YO'QOLMASIN. Partiya ro'yxati faqat React state'da edi —
+  // reload'da yo'qolardi va operator navbat bekor bo'ldi deb o'ylardi. Aslida har ishning
+  // holati bazada (CourtQueueItem), shuning uchun navbat SHUNDAN tiklanadi.
+  const [pendingQ, setPendingQ] = useState<{ firmId: number; firmName: string; stir: string | null; pending: number; running: number }[]>([]);
+  const loadPending = useCallback(() => {
+    fetch('/konveyer/court-queue/pending')
+      .then((r) => r.json())
+      .then((d) => setPendingQ(Array.isArray(d?.firms) ? d.firms : []))
+      .catch(() => { /* tarmoq xatosi — keyingi tsiklda qayta o'qiladi */ });
+  }, []);
+  useEffect(() => {
+    loadPending();
+    const t = setInterval(loadPending, 10_000);
+    return () => clearInterval(t);
+  }, [loadPending]);
   const [statSource, setStatSource] = useState<'CABINET' | 'HIPPO' | 'all'>('CABINET'); // Sud vs Talabnoma segment
   const reqRef = useRef(0);
   const loadedOnce = useRef(!!initialData);
@@ -1173,10 +1188,13 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     return () => clearInterval(t);
   }, [anyJobRunning]);
 
-  const startJob = useCallback((key: string, body: Record<string, unknown>, onDone: () => void) => {
+  // `endpoint` — odatda partiya tanlash (prepare-ready), lekin navbatni DAVOM ETTIRISHDA
+  // boshqa yo'l ishlatiladi (court-queue/resume): u yangi tanlov qilmaydi, bazadagi PENDING
+  // ishlarni oladi. Shuning uchun manzil parametr bo'ldi.
+  const startJob = useCallback((key: string, body: Record<string, unknown>, onDone: () => void, endpoint = '/konveyer/prepare-ready') => {
     if (timers.current[key]) return; // already running
     setJobs((j) => ({ ...j, [key]: { jobId: 0, status: 'PENDING', progress: 0, total: 0 } }));
-    fetch('/konveyer/prepare-ready', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
       .then(({ ok, d }) => {
         if (!ok) { setJobs((j) => ({ ...j, [key]: { jobId: 0, status: 'FAILED', progress: 0, total: 0, error: d?.error || 'Xatolik' } })); return; }
@@ -1222,6 +1240,11 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   useEffect(() => () => { if (autoTimer.current) clearTimeout(autoTimer.current); }, []);
 
   // The real job runner — only reached AFTER the firm's adolat E-IMZO key is signed (yoki auto davomida).
+  // Navbatni davom ettirish — kalit bilan tasdiqlanadi (yuborish bilan bir xil talab),
+  // so'ng bazadagi PENDING ishlardan yangi partiya boshlanadi.
+  const runResume = (fid: number) =>
+    startJob(`firm:${fid}`, { firmId: fid, limit: 100 }, () => { void loadRef.current(); loadPending(); }, '/konveyer/court-queue/resume');
+
   const runExport = (fid: number, extra: Record<string, unknown> = {}) =>
     startJob(`firm:${fid}`, { firmId: fid, snapshotId, limit: 100, ...extra }, async () => {
       const fresh = await loadRef.current();
@@ -1483,6 +1506,41 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                 </div>
               )}
               <PauseSwitch />
+              {/* NAVBATDA QOLGANLAR — bazadan tiklangan.
+                  Sahifa yangilansa ham ko'rinadi: manba React state emas, CourtQueueItem.
+                  Operator «Davom ettirish» bilan aynan qolgan ishlardan davom etadi —
+                  yangi tanlov qilinmaydi, tartib buzilmaydi, hech narsa takrorlanmaydi. */}
+              {pendingQ.length > 0 && (
+                <div className="mb-2 rounded-xl border border-amber-500/40 bg-amber-500/[0.06] p-3">
+                  <div className="mb-2 flex items-center gap-2">
+                    <svg className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+                    <span className="text-[12px] font-semibold text-amber-700 dark:text-amber-300">Navbatda qolgan ishlar</span>
+                    <span className="text-[11px] text-muted">Yakunlanmagan partiya — o‘sha joydan davom etadi</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {pendingQ.map((q) => (
+                      <div key={q.firmId} className="flex flex-wrap items-center gap-2 rounded-lg bg-surface px-2.5 py-1.5 text-xs">
+                        <span className="min-w-0 flex-1 truncate font-medium">{q.firmName}</span>
+                        <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted">
+                          {n(q.pending + q.running)} ta navbatda
+                        </span>
+                        {q.running > 0 ? (
+                          <span className="shrink-0 rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300">ketmoqda</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setGate({ firmId: q.firmId, firmName: q.firmName, stir: q.stir, extra: { resume: true }, summary: `${q.firmName} — navbatda qolgan ${n(q.pending)} ta ishni davom ettirish` })}
+                            className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-brand-500 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-brand-600"
+                          >
+                            <IcoBolt /> Davom ettirish
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-2">
                 {data.readiness.firms.length === 0
                   ? <EmptyBlock title="Bu snapshotda mijoz yoʻq" hint="Sidebar sanasini tekshiring yoki Hisobotda konveyerni yangilang." />
@@ -1770,7 +1828,8 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
           confirmLabel="Imzolab yuborish"
           summary={gate.summary}
           onSuccess={() => {
-            const ex = gate.extra as { auto?: boolean; limit?: number };
+            const ex = gate.extra as { auto?: boolean; limit?: number; resume?: boolean };
+            if (ex.resume) { runResume(gate.firmId); setGate(null); return; }
             if (ex.auto) setAuto({ firmId: gate.firmId, firmName: gate.firmName, limit: typeof ex.limit === 'number' ? ex.limit : 100 });
             runExport(gate.firmId, gate.extra);
             setGate(null);
