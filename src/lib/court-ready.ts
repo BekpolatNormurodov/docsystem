@@ -423,10 +423,9 @@ export async function selectReadyCaseIds(opts: {
     const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls);
     if (!fl.ready) continue;
     if (SENT_STAGES.has(c.stage)) continue;
-    // `forExport` — ZIP oqimi: bir xil paketni ikki marta chiqarmaslik uchun allaqachon
-    // ZIP olinganini o'tkazib yuboradi. Sudga yuborishda esa ZIP olingani TO'SIQ EMAS —
-    // u sudga hech narsa yubormagan.
-    if (opts.forExport && !opts.includeExported && fl.exported) continue;
+    // ZIP olingani HECH QAYERDA to'siq emas: u sudga hech narsa yubormaydi va shunchaki
+    // fayl yuklab olish. Operator xohlagancha qayta chiqarishi mumkin — shuning uchun
+    // «allaqachon chiqarilgan» filtri butunlay olib tashlandi (2026-09-07, operator qarori).
     picked.push(c.id);
     if (picked.length >= opts.limit) break;
   }
@@ -455,7 +454,7 @@ export async function validateSelectedCaseIds(opts: {
   return (cases as CaseRow[])
     .filter((c) => {
       const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls);
-      return fl.ready && !SENT_STAGES.has(c.stage) && (!opts.forExport || opts.includeExported || !fl.exported);
+      return fl.ready && !SENT_STAGES.has(c.stage);
     })
     .map((c) => c.id)
     .slice(0, Math.min(100, opts.limit ?? 100));

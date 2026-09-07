@@ -80,6 +80,9 @@ const VALUE_TONE: Record<string, string> = {
   slate: '', emerald: 'text-emerald-600 dark:text-emerald-400',
   sky: 'text-sky-600 dark:text-sky-400', amber: 'text-amber-600 dark:text-amber-400',
   violet: 'text-violet-600 dark:text-violet-400',
+  // «Sudda» — sudga rasman topshirilgan da'volar. Tailwind JIT interpolatsiya qilingan
+  // sinf nomlarini ko'rmaydi, shuning uchun bu yerda to'liq yozilishi shart.
+  indigo: 'text-indigo-600 dark:text-indigo-400',
 };
 
 // ── shared little bits ───────────────────────────────────────────────────────
@@ -283,10 +286,6 @@ const CLIENT_FILTERS: { key: ReadyFilter; label: string; icon: React.JSX.Element
   { key: 'notready', label: 'Tayyor emas', icon: svg(<><circle cx="12" cy="12" r="9" /><path d="M12 8v4M12 16h.01" /></>), activeCls: 'bg-rose-500/15 text-rose-600 dark:text-rose-300', iconCls: 'text-rose-500' },
   { key: 'sendable', label: 'Tayyor', icon: svg(<><circle cx="12" cy="12" r="9" /><path d="m8.5 12 2.5 2.5 4.5-5" /></>), activeCls: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300', iconCls: 'text-emerald-500' },
   { key: 'draft', label: 'Qoralama', icon: svg(<><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></>), activeCls: 'bg-violet-500/15 text-violet-600 dark:text-violet-300', iconCls: 'text-violet-500' },
-  // «Chiqarilgan» = ZIP paketi olingan, sudga HALI ketmagan. «Sudda» = da'vo rasman berilgan.
-  // Ilgari ikkalasi bitta «Yuborilgan» tab'ida edi va BRIGHT'da «Yuborilgan 100» ko'rinardi,
-  // holbuki o'sha 100 tadan bittasi ham sudga ketmagan edi (2026-09-07).
-  { key: 'exported', label: 'Chiqarilgan', icon: svg(<><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 3v12" /><path d="m8 11 4 4 4-4" /></>), activeCls: 'bg-sky-500/15 text-sky-600 dark:text-sky-300', iconCls: 'text-sky-500' },
   { key: 'submitted', label: 'Sudda', icon: svg(<><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4Z" /></>), activeCls: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-300', iconCls: 'text-indigo-500' },
   { key: 'all', label: 'Hammasi', icon: svg(<><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></>), activeCls: 'bg-slate-500/15 text-slate-700 dark:text-slate-300', iconCls: 'text-slate-500' },
 ];
@@ -294,8 +293,7 @@ const CLIENT_FILTERS: { key: ReadyFilter; label: string; icon: React.JSX.Element
 // «batafsil» yopiq paytda ko'rinadi. `all` chiqmaydi (u umumiy jami).
 const firmStatValue = (fr: FirmReadiness, key: ReadyFilter): number =>
   key === 'notready' ? fr.total - fr.ready : key === 'sendable' ? fr.sendable : key === 'draft' ? fr.draft
-    // «Chiqarilgan» dan sudga ketganlarini ayiramiz — aks holda bitta ish ikkala sanoqda turadi.
-    : key === 'exported' ? Math.max(0, fr.exported - fr.submitted) : key === 'submitted' ? fr.submitted : fr.total;
+    : key === 'submitted' ? fr.submitted : fr.total;
 const filterMeta = (key: ReadyFilter) => CLIENT_FILTERS.find((f) => f.key === key)!;
 // Rangli ikon (summary kartalari uchun) — tab'lar bilan bir xil.
 const statIcon = (key: ReadyFilter) => { const m = filterMeta(key); return <span className={m.iconCls}>{m.icon}</span>; };
@@ -308,7 +306,6 @@ function statusChip(r: ClientRow) {
   if ((r as { submitted?: boolean }).submitted) {
     return <span className="rounded-md bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:text-indigo-300" title="Da'vo ADOLAT orqali sudga topshirilgan">Sudda</span>;
   }
-  if (r.exported) return <span className="rounded-md bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:text-sky-300" title="ZIP paketi chiqarilgan — sudga hali yuborilmagan">Chiqarilgan</span>;
   if (r.draft) return <span className="rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:text-violet-300">Qoralama</span>;
   if (r.sendable) return <span className="rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">Tayyor</span>;
   return <span className="rounded-md bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium text-rose-600 dark:text-rose-300">Tayyor emas</span>;
@@ -510,7 +507,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged }: {
   const courtOptions = React.useMemo(() => {
     const m = new Map<string, { id: number | null; name: string; enabled: boolean; count: number }>();
     for (const r of data?.rows ?? []) {
-      const okFilter = filter === 'sendable' ? r.sendable : filter === 'draft' ? r.draft : filter === 'ready' ? r.ready : filter === 'submitted' ? !!r.submitted : filter === 'exported' ? (r.exported && !r.submitted) : filter === 'notready' ? !r.ready : true;
+      const okFilter = filter === 'sendable' ? r.sendable : filter === 'draft' ? r.draft : filter === 'ready' ? r.ready : filter === 'submitted' ? !!r.submitted : filter === 'notready' ? !r.ready : true;
       if (!okFilter) continue;
       const k = String(r.courtId ?? 'none');
       const it = m.get(k) ?? { id: r.courtId ?? null, name: r.courtName ?? 'Sud tayinlanmagan', enabled: r.courtEnabled !== false, count: 0 };
@@ -532,7 +529,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged }: {
     const src = data?.rows ?? [];
     const needle = debouncedQ.trim().toLowerCase();
     return src.filter((r) => {
-      const okFilter = filter === 'sendable' ? r.sendable : filter === 'draft' ? r.draft : filter === 'ready' ? r.ready : filter === 'submitted' ? !!r.submitted : filter === 'exported' ? (r.exported && !r.submitted) : filter === 'notready' ? !r.ready : true;
+      const okFilter = filter === 'sendable' ? r.sendable : filter === 'draft' ? r.draft : filter === 'ready' ? r.ready : filter === 'submitted' ? !!r.submitted : filter === 'notready' ? !r.ready : true;
       if (!okFilter) return false;
       if (courtFilter !== 'all' && (r.courtId ?? null) !== courtFilter) return false;
       if (needle && !`${r.clientName ?? ''} ${r.pinfl ?? ''}`.toLowerCase().includes(needle)) return false;
@@ -749,9 +746,17 @@ function PauseSwitch() {
           <span className={`text-[12px] font-semibold ${paused ? 'text-amber-700 dark:text-amber-300' : 'text-fg'}`}>
             {paused ? 'Sudga yuborish to‘xtatilgan' : running ? 'Yuborilmoqda' : 'Sudga yuborish faol'}
           </span>
-          {/* Umumiy raqamlar — barcha firmalar bo'yicha, bir qarashda. */}
+          {/* Umumiy raqamlar — barcha firmalar bo'yicha, bir qarashda.
+              `role="status"` + `aria-atomic` bitta MA'NOLI jumla bilan: har 5 soniyada
+              yangilanadigan uchta alohida raqam ekran o'quvchida bir-biriga xalaqit berardi
+              (yoki umuman e'lon qilinmasdi). Bitta atomik xabar — bitta tushunarli holat. */}
           {counts && (waiting + done + failed) > 0 && (
-            <span className="flex flex-wrap items-center gap-1 text-[11px] tabular-nums">
+            <span
+              className="flex flex-wrap items-center gap-1 text-[11px] tabular-nums"
+              role="status"
+              aria-atomic="true"
+              aria-label={`Sudga yuborish: ${n(done)} ketdi, ${n(waiting)} navbatda, ${n(failed)} yuborilmadi`}
+            >
               {waiting > 0 && (
                 <span className="rounded bg-slate-500/12 px-1.5 py-0.5 font-medium text-slate-600 dark:text-slate-300" title="Navbatda va ishlanmoqda">
                   {n(waiting)} navbatda
@@ -995,9 +1000,11 @@ function FirmSendRow({ fr, snapshotId, job, startExport, onZip, onChanged, drill
               <span className="text-muted">— Firmalar boʻlimidan yuklang</span>
             </div>
           )}
-          {/* Tab uslubidagi rangli xulosa (ikon + son): Tayyor emas · Tayyor · Qoralama · Yuborilgan.
-              «Batafsil» YOPIQ paytda ko'rinadi (ochiq bo'lsa xuddi shu tab'lar pastda chiqadi). MiniStat va
-              «1 qadam qolgan» satri olib tashlandi — kerak emas (har mijoz kartasida ko'rinadi). */}
+          {/* Firma qatorida FAQAT ish oqimiga aloqador holatlar: Tayyor emas · Tayyor · Qoralama · Sudda.
+              «Chiqarilgan» (ZIP olingan) ATAYIN yo'q — u sudga yuborishga ta'sir qilmaydi (ZIP olingan ish
+              baribir «Tayyor»da qoladi) va qatorda faqat chalg'itardi. Batafsil ko'rish kerak bo'lsa,
+              «Batafsil» ochilganda tab sifatida chiqadi.
+              «Batafsil» YOPIQ paytda ko'rinadi (ochiq bo'lsa xuddi shu tab'lar pastda chiqadi). */}
           {!drillOpen && (
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               {CLIENT_FILTERS.filter((f) => f.key !== 'all').map((f) => (
@@ -1112,6 +1119,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   const [error, setError] = useState<string | null>(null);
   const [lastLoaded, setLastLoaded] = useState<Date | null>(null);
   const [openFirm, setOpenFirm] = useState<number | null>(null);
+  const [xlsOpen, setXlsOpen] = useState(false); // Excel eksportlari menyusi
   const [statSource, setStatSource] = useState<'CABINET' | 'HIPPO' | 'all'>('CABINET'); // Sud vs Talabnoma segment
   const reqRef = useRef(0);
   const loadedOnce = useRef(!!initialData);
@@ -1317,15 +1325,44 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
       <div className="mb-3 flex flex-wrap items-center justify-end gap-3">
         <div className="flex items-center gap-2">
           {lastLoaded && <span className="hidden text-[11px] text-muted sm:inline">Yangilangan: <span className="tabular-nums">{lastLoaded.toLocaleTimeString('ru-RU')}</span></span>}
-          {/* Firma-statistika (xulosa) → Excel: jami / tayyor / yuborilgan / navbatda + yetishmayotgan hujjatlar. */}
-          <a
-            href={`/konveyer/court-stats-excel${selectedId ? `?s=${selectedId}` : ''}`}
-            title="Firma statistikasi (xulosa) — Excel"
-            className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-line px-3 text-xs font-semibold text-fg outline-none transition-colors hover:border-brand-500/40 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-brand-500/30"
-          >
-            <svg className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M8 3v18M3 8h5M3 13h5M3 18h5" /></svg>
-            Statistika
-          </a>
+          {/* EXCEL EKSPORTLARI.
+              Ilgari bu yerda yolg'iz «Statistika» havolasi turardi va boshqa ikkita eksport
+              (sudga qaytganlar, mijozlar ro'yxati) UI'dan umuman ko'rinmasdi — operator ular
+              borligini bilmasdi. Endi uchalasi bitta menyuda, har biri nima berishi yozilgan. */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setXlsOpen((v) => !v)}
+              aria-expanded={xlsOpen}
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-line px-3 text-xs font-semibold text-fg outline-none transition-colors hover:border-brand-500/40 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-brand-500/30"
+            >
+              <svg className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M8 3v18M3 8h5M3 13h5M3 18h5" /></svg>
+              Excel
+              <svg className={`h-3.5 w-3.5 text-muted transition-transform ${xlsOpen ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+            </button>
+            {xlsOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setXlsOpen(false)} aria-hidden />
+                <div className="absolute right-0 z-20 mt-1 w-72 overflow-hidden rounded-xl border border-line bg-surface shadow-lg">
+                  {[
+                    { href: `/konveyer/court-stats-excel${selectedId ? `?s=${selectedId}` : ''}`, title: 'Firma statistikasi', hint: 'Har firma: jami · tayyor · sudda · yetishmayotgan hujjatlar' },
+                    { href: `/konveyer/cases-excel${selectedId ? `?s=${selectedId}` : ''}${firmId ? `${selectedId ? '&' : '?'}firmId=${firmId}` : ''}`, title: 'Mijozlar ro‘yxati', hint: 'F.I.O · PINFL · firma · qarzdorlik · boji · muddat' },
+                    { href: `/konveyer/court-returns-excel${selectedId ? `?s=${selectedId}` : ''}${firmId ? `${selectedId ? '&' : '?'}firmId=${firmId}` : ''}`, title: 'Suddan qaytganlar', hint: 'Qayta yuborish uchun ishlash ro‘yxati' },
+                  ].map((x) => (
+                    <a
+                      key={x.href}
+                      href={x.href}
+                      onClick={() => setXlsOpen(false)}
+                      className="block border-b border-line px-3 py-2 text-left outline-none transition-colors last:border-b-0 hover:bg-surface-2 focus-visible:bg-surface-2"
+                    >
+                      <span className="block text-[12px] font-medium">{x.title}</span>
+                      <span className="block text-[11px] leading-snug text-muted">{x.hint}</span>
+                    </a>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
           <Tip label="Yangilash" side="bottom">
             <button onClick={() => load()} disabled={refreshing} aria-label="Yangilash" className="grid h-9 w-9 place-items-center rounded-xl border border-line text-muted outline-none transition-colors hover:border-brand-500/40 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50">
               <IcoRefresh spin={refreshing} />
@@ -1366,7 +1403,10 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                   <Stat label="Jami" value={ov!.total} icon={statIcon('all')} hint="Tanlangan firma/snapshot bo'yicha" />
                   <Stat label="Tayyor" value={ov!.sendable} tone="emerald" icon={statIcon('sendable')} hint="Talabnoma + skan + oferta + check + boji (invoice raqami) bor, hali yuborilmagan — shu tab'dan yuboriladi" />
                   <Stat label="Qoralama" value={ov!.draft} tone="violet" icon={statIcon('draft')} hint="Sinab ko'rilgan (hali haqiqiy yuborilmagan)" />
-                  <Stat label="Yuborilgan" value={ov!.exported} tone="sky" icon={statIcon('exported')} hint="Haqiqiy sudga chiqarilgan" />
+                  {/* «Sudda» — ATAYIN `submitted`, `exported` EMAS. Ilgari bu karta ZIP
+                      olingan ishlarni ham qo'shib «Yuborilgan 131» deb ko'rsatardi, holbuki
+                      ularning ko'pi sudga ketmagan edi (2026-09-07: BRIGHT'da 100 tasi ZIP). */}
+                  <Stat label="Sudda" value={ov!.submitted} tone="indigo" icon={statIcon('submitted')} hint="ADOLAT orqali sudga rasman topshirilgan da'volar" />
                 </div>
               </div>
               {(ov!.almost.scan + ov!.almost.oferta + ov!.almost.talabnoma + ov!.almost.receipt + ov!.almost.boji) > 0 && (
