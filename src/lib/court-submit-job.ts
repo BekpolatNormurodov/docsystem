@@ -5,6 +5,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { prisma } from './db';
 import { getStoredCabinetSession } from './cabinet/session';
 import { CabinetSubmitEngine } from '../../cabinet-api-skeleton/submitter';
@@ -67,6 +68,50 @@ export interface CourtSubmitJobOpts {
   /** @deprecated Tezlik endi pacer.ts da global belgilanadi; bu maydon e'tiborga olinmaydi. */
   delayMs?: number;
   dryRun?: boolean;
+}
+
+/**
+ * Firma hujjatlari HAQIQATAN shu firmaniki ekanini tekshiradi.
+ *
+ * 2026-09-07 da aniqlangan: URBAN va COMMUNITY'ning ISHONCHNOMA yozuvlari BRIGHT'ning
+ * fayliga ishora qilardi — uchala fayl bayt-baytiga bir xil (md5 600b3f16...). Ishonchnoma
+ * vakilga AYNAN qaysi kompaniya nomidan ish yuritish huquqini beradi; boshqa firmaniki
+ * biriktirilsa vakolat tasdiqlanmaydi va sud da'voni qaytaradi — lekin da'vo rasman
+ * berilgan bo'lib qoladi.
+ *
+ * Shuning uchun: bir firmaning hujjati boshqa firmaning AYNI turdagi hujjati bilan
+ * bayt-baytiga bir xil bo'lsa — yuborish to'xtaydi. Job boshida BIR MARTA chaqiriladi
+ * (har case uchun emas: 9 firma × 3 hujjat, arzon).
+ */
+async function assertFirmDocsBelongToFirm(firmId: number, firmName: string): Promise<void> {
+  const KINDS = ['ISHONCHNOMA', 'GUVOHNOMA', 'SHARTNOMA'];
+  const all = await prisma.firmDocument.findMany({
+    where: { kind: { in: KINDS as any } },
+    select: { firmId: true, kind: true, filePath: true, firm: { select: { shortName: true } } },
+  });
+
+  const hashOf = async (p: string): Promise<string | null> => {
+    try {
+      let f = p;
+      if (f.startsWith('/app/')) f = path.join(process.cwd(), f.replace(/^\/app\//, ''));
+      return createHash('sha256').update(await fs.readFile(f)).digest('hex');
+    } catch { return null; }
+  };
+
+  const mine = all.filter((d) => d.firmId === firmId);
+  for (const doc of mine) {
+    const h = await hashOf(doc.filePath);
+    if (!h) continue;
+    for (const other of all) {
+      if (other.firmId === firmId || other.kind !== doc.kind) continue;
+      if ((await hashOf(other.filePath)) !== h) continue;
+      throw new Error(
+        `${firmName} uchun «${doc.kind}» hujjati ${other.firm?.shortName ?? 'boshqa firma'}'niki bilan ` +
+        `AYNAN bir xil fayl. Bu hujjat ${firmName} nomidan vakolat bermaydi — sud da'voni qaytaradi. ` +
+        `Firmalar → ${firmName} → «Hujjatlar»dan to'g'ri faylni yuklang.`,
+      );
+    }
+  }
 }
 
 /**
@@ -193,6 +238,11 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
     // Da'vogar: bazadan; bo'lmasa portaldagi qoralamalardan avtomatik aniqlanib saqlanadi;
     // u ham bo'lmasa ClaimantUnknownError — taxmin qilib yubormaymiz.
     const claimantId = await resolveClaimantId(firm, sess);
+
+    // Firma hujjatlari haqiqatan SHU firmaniki ekanini job boshida bir marta tekshiramiz.
+    // Boshqa firmaning ishonchnomasi bilan ketgan da'vo qaytariladi — lekin rasman berilgan
+    // bo'lib qoladi, shuning uchun partiya umuman boshlanmasin.
+    await assertFirmDocsBelongToFirm(firm.id, firm.shortName);
 
     const engine = new CabinetSubmitEngine({
       token: sessionToken,
