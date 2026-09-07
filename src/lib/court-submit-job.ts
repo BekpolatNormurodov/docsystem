@@ -14,7 +14,7 @@ import { paceCase, backoff, caseGapFor, isQueuePaused, REQUEST_GAP_MS, CASE_GAP_
 import { audit, AuditAction } from './audit';
 import { resolveClaimantId } from './cabinet/claimant';
 import { releaseCourtSend } from './court-routing';
-import { paidReceiptSet } from './court-ready';
+import { paidReceiptSet, unpaidQueueReason } from './court-ready';
 import { noteQueueBlocked, resetQueueBackoff } from './court-auto-resume';
 import { resolveCabinetCourtGuid, regionForCourt } from '../../cabinet-api-skeleton/constants';
 import type { SourceCaseData } from '../../cabinet-api-skeleton/builder';
@@ -431,9 +431,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
       });
     }
     if (unpaid.length) {
-      const why = (c: { receiptNumber: string | null }) => c.receiptNumber
-        ? `Davlat boji to'lanmagan (kvitansiya ${c.receiptNumber}). Buxgalteriyaga to'lovga bering — to'langach ish o'zi navbatga qaytadi.`
-        : 'Davlat boji kvitansiyasi (invoice raqami) yo\'q. Avval invoice yarating.';
+      const why = (c: { receiptNumber: string | null }) => unpaidQueueReason(c.receiptNumber);
       for (const ac of unpaid) {
         await prisma.courtQueueItem.upsert({
           where: { caseId: ac.id },

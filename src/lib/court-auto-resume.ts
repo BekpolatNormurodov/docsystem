@@ -20,7 +20,7 @@ import { enqueueJob } from './job-dispatch';
 import { allocateFirmCases, consumeCourtSend } from './court-routing';
 import { isQueuePaused } from './cabinet/pacer';
 import { MAX_COURT_BATCH } from './court-batch';
-import { paidReceiptSet } from './court-ready';
+import { paidReceiptSet, unpaidQueueReason } from './court-ready';
 
 /** Blokdan keyingi kutish jadvali (daqiqa). Oxirgisi keyin ham takrorlanaveradi. */
 export const BACKOFF_MINUTES = [5, 5, 5, 30, 60, 120];
@@ -74,6 +74,38 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH): 
   // avtomatikaga umuman tushmaydi — ularni operator qo'lda tekshiradi.
   const cap = Math.min(MAX_COURT_BATCH, Math.max(1, limit));
 
+  // ── ESKI «XATO»LARNI TO'G'RI NOMLASH ────────────────────────────────────────────────────
+  //
+  // Boji to'lanmagan ish endi SKIPPED bo'ladi, lekin bu qoida joriy qilinishidan OLDIN
+  // yiqilganlari FAILED bo'lib qolgan (2026-09-07: BRIGHT'da 5 ta, matni «Pochta
+  // kvitansiyasi portalda tasdiqlanmadi»). Ular ikki jihatdan noto'g'ri turibdi:
+  //   • operator ularni «kod xatosi» deb o'qiydi, aslida qilinadigan ish — to'lov;
+  //   • urinishlar chegarasi (MAX_AUTO_ATTEMPTS) tufayli avtomatikadan butunlay chiqib
+  //     ketgan, ya'ni boji TO'LANGANDA ham hech qachon qaytmasdi.
+  // Shuning uchun har partiyadan oldin holatni ma'lumotga qarab qayta baholaymiz:
+  // kvitansiyasi to'lanmagan FAILED ish — SKIPPED. To'langach yuqoridagi «revived»
+  // shoxobchasi uni o'zi navbatga qaytaradi.
+  const staleFailed = await prisma.courtQueueItem.findMany({
+    where: { firmId, state: 'FAILED', case: { courtCaseId: null } },
+    select: { caseId: true, case: { select: { receiptNumber: true } } },
+  });
+  if (staleFailed.length) {
+    const paidNow = await paidReceiptSet(staleFailed.map((x) => x.case?.receiptNumber ?? ''));
+    const unpaidIds = staleFailed
+      .filter((x) => !x.case?.receiptNumber || !paidNow.has(x.case.receiptNumber))
+      .map((x) => x.caseId);
+    if (unpaidIds.length) {
+      await prisma.courtQueueItem.updateMany({
+        where: { caseId: { in: unpaidIds } },
+        data: {
+          state: 'SKIPPED',
+          step: null,
+          lastError: 'Davlat boji to\'lanmagan. Buxgalteriyaga to\'lovga bering — to\'langach ish o\'zi navbatga qaytadi.',
+        },
+      });
+    }
+  }
+
   // HALI URINILMAGANLAR BIRINCHI.
   //
   // Ilgari PENDING va FAILED bitta so'rovda, `id asc` bo'yicha olinardi — ya'ni navbat
@@ -120,22 +152,47 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH): 
   //
   // Cheksiz qayta urinish ma'nosiz va zararli: har urinish ADOLAT'da qoralama yaratadi
   // va portalga ~15 ta so'rov yuboradi. Uchinchi urinishdan keyin sabab deyarli har doim
-  // doimiy (hujjat yo'q, sud noto'g'ri, boji to'lanmagan) — uni kod emas, odam tuzatadi.
-  // Bunday ishlar navbatda FAILED bo'lib ko'rinib turadi va operator qo'lda qayta
-  // yuborishi mumkin; avtomatika esa ularni tinch qo'yadi.
+  // doimiy (hujjat yo'q, sud noto'g'ri) — uni kod emas, odam tuzatadi. Bunday ishlar
+  // navbatda FAILED bo'lib ko'rinib turadi va operator qo'lda qayta yuborishi mumkin;
+  // avtomatika esa ularni tinch qo'yadi.
   const MAX_AUTO_ATTEMPTS = 3;
-  const room = cap - fresh.length - revived.length;
-  const retry = room <= 0 ? [] : await prisma.courtQueueItem.findMany({
-    where: {
-      firmId,
-      state: 'FAILED',
-      attempts: { lt: MAX_AUTO_ATTEMPTS },
-      case: { courtCaseId: null },
-    },
+  const failed = await prisma.courtQueueItem.findMany({
+    where: { firmId, state: 'FAILED', case: { courtCaseId: null } },
     orderBy: { id: 'asc' },
-    take: room,
-    select: { caseId: true },
+    take: MAX_COURT_BATCH,
+    select: { caseId: true, attempts: true, case: { select: { receiptNumber: true } } },
   });
+
+  // BOJI TO'LANMAGAN ISH «XATO» EMAS — QAYTA NOMLANADI.
+  //
+  // Bunday ishlar avvalgi kodda qizil «Yuborilmadi» bo'lib qolgan edi (#3505, #3536,
+  // #3567 — 4-5 urinish), garchi kod ham, portal ham to'g'ri ishlagan bo'lsa-da: yagona
+  // yetishmayotgan narsa TO'LOV. Qizil xato operatorni kod qidirishga yuboradi, holbuki
+  // qilinadigan ish buxgalteriyada. Shuning uchun ular shu yerda SKIPPED'ga o'tkaziladi:
+  // sabab ko'rinadi, avtomatika ularni qayta urinmaydi, to'langach esa yuqoridagi
+  // `revived` ularni o'zi qaytaradi.
+  const failedPaid = await paidReceiptSet(failed.map((x) => x.case?.receiptNumber ?? ''));
+  const failedUnpaid = failed.filter((x) => !x.case?.receiptNumber || !failedPaid.has(x.case.receiptNumber));
+  for (const x of failedUnpaid) {
+    await prisma.courtQueueItem.update({
+      where: { caseId: x.caseId },
+      data: { state: 'SKIPPED', step: null, finishedAt: new Date(), lastError: unpaidQueueReason(x.case?.receiptNumber ?? null) },
+    });
+  }
+  if (failedUnpaid.length) {
+    // Kunlik sud limitini ham bo'shatamiz — yuborilmagan ish joyni band qilib turmasin.
+    await prisma.arizaCase.updateMany({
+      where: { id: { in: failedUnpaid.map((x) => x.caseId) }, stage: { not: 'COURT_SUBMITTED' } },
+      data: { courtSentAt: null },
+    });
+    console.log(`[auto-resume] firma ${firmId}: ${failedUnpaid.length} ta «xato» aslida boji to'lanmagani — o'tkazilganlar qatoriga ko'chirildi`);
+  }
+
+  const room = cap - fresh.length - revived.length;
+  const retry = room <= 0 ? [] : failed
+    .filter((x) => x.attempts < MAX_AUTO_ATTEMPTS && x.case?.receiptNumber && failedPaid.has(x.case.receiptNumber))
+    .slice(0, room)
+    .map((x) => ({ caseId: x.caseId }));
 
   const pending = [...fresh, ...revived, ...retry];
   if (pending.length === 0) return null;

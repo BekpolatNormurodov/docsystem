@@ -118,6 +118,18 @@ const signedCaseIdSet = (caseIds: number[]) => caseIdSetByKind(caseIds, 'SIGNED_
 // EKSPORT: shu manbadan sudga yuborish dvigateli (court-submit-job) va avtomat davom
 // ettiruvchi (court-auto-resume) ham foydalanadi. Ilgari har biri o'z so'rovini yozgandi —
 // «to'langan» ta'rifi uch joyda ayri-ayri turardi va biri o'zgarsa qolgani eskirib qolardi.
+/**
+ * Boji to'lanmagani uchun navbatdan o'tkazib yuborilgan ishga yoziladigan SABAB.
+ *
+ * Bitta joyda turadi, chunki uni ikki modul yozadi (partiya dvigateli va avtomat davom
+ * ettiruvchi) va operator ikkalasida ham AYNAN bir xil matnni ko'rishi kerak — aks holda
+ * bitta holat ikki xil nom bilan ko'rinadi.
+ */
+export const unpaidQueueReason = (receiptNumber: string | null): string =>
+  receiptNumber
+    ? `Davlat boji to'lanmagan (kvitansiya ${receiptNumber}). Buxgalteriyaga to'lovga bering — to'langach ish o'zi navbatga qaytadi.`
+    : "Davlat boji kvitansiyasi (invoice raqami) yo'q. Avval invoice yarating.";
+
 export async function paidReceiptSet(numbers: string[]): Promise<Set<string>> {
   const uniq = [...new Set(numbers.filter(Boolean))];
   if (!uniq.length) return new Set();
