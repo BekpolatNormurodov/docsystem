@@ -109,6 +109,17 @@ export async function allocateFirmCases(
   now: Date = new Date(),
   /** Operator «Sudga yuborish» modalida tanlagan sudlar. Bo'sh/berilmagan — barchasi. */
   onlyCourtIds?: number[],
+  /**
+   * `true` — sud BIRIKTIRILADI, lekin kunlik limit TANLOVNI KESMAYDI.
+   *
+   * Faqat ZIP eksporti uchun. ZIP sudga bitta ham hujjat yubormaydi (`consumeCourtSend`
+   * markSent=false bilan chaqiriladi), lekin tanlov baribir shu yerda `remaining` bo'yicha
+   * kesilardi — ya'ni operator 616 ta tayyor mijozni so'raganda kunlik limit qancha qolgan
+   * bo'lsa shuncha ZIP'ga tushardi (2026-09-07). Bundan ham yomoni: sud oynasi yopiq
+   * bo'lsa (dam olish kuni yoki cutoff o'tgan) `remaining` = 0 bo'ladi va ZIP UMUMAN
+   * bo'sh chiqardi — hech qanday sababsiz, chunki fayl tayyorlashning ish kuniga aloqasi yo'q.
+   */
+  ignoreQuota = false,
 ): Promise<Allocation | null> {
   const all = await firmCourtBudgets(firmId, now);
   if (all.length === 0) return null; // konfiguratsiya yo'q — cheklovsiz (eski xatti-harakat)
@@ -135,7 +146,7 @@ export async function allocateFirmCases(
   const assignments: { caseId: number; courtId: number }[] = [];
   const deferred: number[] = [...deferredByFilter];
   for (const [cid, ids] of wantByCourt) {
-    const rem = budgetByCourt.get(cid)?.remaining ?? 0;
+    const rem = ignoreQuota ? ids.length : (budgetByCourt.get(cid)?.remaining ?? 0);
     assignments.push(...ids.slice(0, rem).map((caseId) => ({ caseId, courtId: cid })));
     deferred.push(...ids.slice(rem));
   }

@@ -83,7 +83,9 @@ export async function POST(req: NextRequest) {
 
   let sendIds = caseIds;
   let deferred = 0;
-  const alloc = await allocateFirmCases(firmId, caseIds, new Date(), courtIds);
+  // ZIP (isExportOnly) — sud biriktiriladi, lekin kunlik limit tanlovni KESMAYDI: fayl
+  // tayyorlashning sud kunlik quvvatiga ham, ish kuniga ham aloqasi yo'q.
+  const alloc = await allocateFirmCases(firmId, caseIds, new Date(), courtIds, isExportOnly);
   if (alloc) {
     sendIds = alloc.assignments.map((a) => a.caseId);
     deferred = alloc.deferred.length;
