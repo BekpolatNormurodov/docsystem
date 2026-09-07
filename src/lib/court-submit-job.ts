@@ -434,7 +434,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
 
       // UMUMIY PAUZA: barcha firmalarga taalluqli. Ishlar PENDING bo'lib qoladi — davom
       // ettirilganda aynan shu joydan ketadi, hech narsa takrorlanmaydi.
-      if (await isQueuePaused()) {
+      if (await isQueuePaused(opts.firmId)) {
         console.log(`[Job ${jobId}] Jarayon pauzada — to'xtatildi.`);
         stopReason = 'Pauza — operator jarayonni to\'xtatib qo\'ygan';
         break;

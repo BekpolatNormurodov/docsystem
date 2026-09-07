@@ -826,6 +826,31 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
 
   const [err, setErr] = useState<string | null>(null);
 
+  // FIRMA darajasidagi pauza — umumiy pauzadan mustaqil. Bitta firmani to'xtatib
+  // qo'yib, boshqasining partiyasini o'tkazib yuborish uchun (2026-09-07: BRIGHT'ning
+  // 200 taligi ketayotganda URBAN'ning 3 tasi ~3 soat kutib qolgan edi).
+  const [firmPaused, setFirmPaused] = useState<boolean | null>(null);
+  const [pauseBusy, setPauseBusy] = useState(false);
+
+  const loadPause = useCallback(async () => {
+    try {
+      const d = await getJson<{ pausedFirms?: number[] }>('/konveyer/court-queue/pause');
+      setFirmPaused((d?.pausedFirms ?? []).includes(firmId));
+    } catch { /* holat belgisi — o'qilmasa tugma ko'rsatilmaydi */ }
+  }, [firmId]);
+
+  const toggleFirmPause = async () => {
+    if (firmPaused === null || pauseBusy) return;
+    setPauseBusy(true);
+    try {
+      const r = await fetch('/konveyer/court-queue/pause', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paused: !firmPaused, firmId }),
+      });
+      if (r.ok) setFirmPaused(!firmPaused);
+    } catch { /* tarmoq xatosi — holat o'zgarmaydi */ } finally { setPauseBusy(false); }
+  };
+
   const load = useCallback(async () => {
     try {
       setData(await getJson(`/konveyer/court-queue?firmId=${firmId}`));
@@ -846,10 +871,11 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
   const activeNow = (data?.counts?.RUNNING ?? 0) + (data?.counts?.PENDING ?? 0) > 0;
   useEffect(() => {
     void load();
+    void loadPause();
     if (!live && !activeNow) return;
     const t = setInterval(load, 4000);
     return () => clearInterval(t);
-  }, [load, live, activeNow]);
+  }, [load, loadPause, live, activeNow]);
 
   const counts = data?.counts;
   const failed = counts?.FAILED ?? 0;
@@ -869,7 +895,31 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
   const failPct = total ? Math.round((failed / total) * 100) : 0;
 
   return (
-    <div className="border-t border-line px-3 py-2.5">
+    <div className={`border-t border-line px-3 py-2.5 ${firmPaused ? 'bg-amber-500/[0.05]' : ''}`}>
+      {/* Firma darajasidagi pauza — faqat navbatda ish bo'lsa ma'noli. */}
+      {firmPaused !== null && waiting > 0 && (
+        <div className="mb-1.5 flex items-center gap-2">
+          {firmPaused && (
+            <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+              ⏸ Bu firma to‘xtatilgan
+            </span>
+          )}
+          <button
+            onClick={toggleFirmPause}
+            disabled={pauseBusy}
+            title={firmPaused
+              ? 'Shu firmani davom ettirish'
+              : 'Faqat SHU firmani to‘xtatish — boshqa firmalar ishlayveradi'}
+            className={`ml-auto rounded-lg border px-2 py-0.5 text-[10px] font-semibold outline-none transition-colors focus-visible:ring-2 disabled:opacity-50 ${
+              firmPaused
+                ? 'border-emerald-500/45 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/[0.18] focus-visible:ring-emerald-500/30 dark:text-emerald-300'
+                : 'border-line text-muted hover:border-amber-500/45 hover:bg-amber-500/10 hover:text-amber-700 focus-visible:ring-amber-500/30 dark:hover:text-amber-300'
+            }`}
+          >
+            {pauseBusy ? '…' : firmPaused ? 'Davom ettirish' : 'Shu firmani to‘xtatish'}
+          </button>
+        </div>
+      )}
       <button
         onClick={() => setOpen((v) => !v)}
         className="group flex w-full items-center gap-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30"

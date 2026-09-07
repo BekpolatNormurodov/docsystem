@@ -129,7 +129,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  if (!isExportOnly && (await isQueuePaused())) {
+  if (!isExportOnly && (await isQueuePaused(firmId))) {
     return NextResponse.json(
       { error: 'Sudga yuborish jarayoni pauzada. Davom ettirish uchun «Davom ettirish» tugmasini bosing.' },
       { status: 409 },

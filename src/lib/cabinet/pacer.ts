@@ -167,18 +167,42 @@ export function backoff(ms: number): void {
 //   • pause  — BARCHA firmalarga taalluqli, bazada saqlanadi (restart/deploy'dan keyin ham
 //     kuchda qoladi) va yangi partiya boshlanishini ham to'sadi.
 // Pauzada ishlar PENDING bo'lib qoladi — davom ettirilganda aynan shu joydan ketadi.
+// Pauza IKKI darajali:
+//   • UMUMIY  (`court_queue_paused`)       — barcha firmalarga;
+//   • FIRMA   (`court_queue_paused:<id>`)  — faqat o'sha firmaga.
+// Firma darajasi kerak bo'ldi (2026-09-07): BRIGHT'ning 200 talik partiyasi ketayotganda
+// URBAN'ning 3 tasi ortida ~3 soat kutib qoldi. Endi bitta firmani to'xtatib, boshqasini
+// o'tkazib yuborish mumkin.
 const PAUSE_KEY = 'court_queue_paused';
+const firmPauseKey = (firmId: number) => `${PAUSE_KEY}:${firmId}`;
 
-export async function isQueuePaused(): Promise<boolean> {
+/** Umumiy pauza YOKI shu firmaning pauzasi yoqilganmi. */
+export async function isQueuePaused(firmId?: number | null): Promise<boolean> {
   try {
-    const row = await prisma.setting.findUnique({ where: { key: PAUSE_KEY } });
-    return row?.value === '1';
+    const keys = firmId ? [PAUSE_KEY, firmPauseKey(firmId)] : [PAUSE_KEY];
+    const rows = await prisma.setting.findMany({ where: { key: { in: keys } }, select: { value: true } });
+    return rows.some((r) => r.value === '1');
   } catch {
     return false; // sozlama o'qilmasa ish to'xtamasin
   }
 }
 
-export async function setQueuePaused(paused: boolean): Promise<void> {
+/** Faqat FIRMA darajasidagi pauza (umumiysini hisobga olmaydi) — UI holatini ko'rsatish uchun. */
+export async function pausedFirmIds(): Promise<number[]> {
+  try {
+    const rows = await prisma.setting.findMany({
+      where: { key: { startsWith: `${PAUSE_KEY}:` }, value: '1' },
+      select: { key: true },
+    });
+    return rows.map((r) => Number(r.key.split(':')[1])).filter((n) => Number.isInteger(n) && n > 0);
+  } catch {
+    return [];
+  }
+}
+
+/** `firmId` berilsa — faqat o'sha firma to'xtaydi/davom etadi; berilmasa — umumiy pauza. */
+export async function setQueuePaused(paused: boolean, firmId?: number | null): Promise<void> {
+  const key = firmId ? firmPauseKey(firmId) : PAUSE_KEY;
   const value = paused ? '1' : '0';
-  await prisma.setting.upsert({ where: { key: PAUSE_KEY }, create: { key: PAUSE_KEY, value }, update: { value } });
+  await prisma.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
 }
