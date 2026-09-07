@@ -263,7 +263,11 @@ export class CabinetSubmitEngine {
         options.pkcs7Signature ? { signature: options.pkcs7Signature } : {},
       );
 
-      const caseNumber = (submitRes.data as any)?.case_number || (submitRes.data as any)?.caseNumber || 'YUBORILDI';
+      // Sud ish RAQAMI yuborish paytida berilmaydi — uni sud kantselyariyasi ro'yxatga
+      // olgach beradi (masalan «2-1004-2612/44765»). Shu paytgacha ish portalda REGISTER
+      // holatida turadi. Avval bu yerda 'YUBORILDI' degan zaxira matn qo'yilardi va u
+      // bazaga HAQIQIY ish raqami sifatida yozilib ketardi — endi null qoladi.
+      const caseNumber = (submitRes.data as any)?.case_number || (submitRes.data as any)?.caseNumber || null;
       const registryNumber = (submitRes.data as any)?.registry_number || (submitRes.data as any)?.registryNumber;
       console.log(`🎉 SUDGA YUBORILDI! Ish raqami: ${caseNumber}${registryNumber ? ` (Reestr: ${registryNumber})` : ''}`);
 

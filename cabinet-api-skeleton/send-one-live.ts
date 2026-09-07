@@ -183,7 +183,7 @@ async function main() {
       console.log('Sinov qoralamasi o\'chirildi — bazada hech narsa o\'zgarmadi.');
     } else {
       console.log(`🎉 SUDGA TOPSHIRILDI! draftId=${result.draftId}`);
-      console.log(`Sud ish raqami: ${result.caseNumber || 'YUBORILDI'}`);
+      console.log(`Sud ishi: ${result.caseId ?? '?'} ${result.caseNumber ? '(raqam: ' + result.caseNumber + ')' : '— raqamni sud kantselyariyasi keyinroq beradi'}`);
       if (result.registryNumber) console.log(`Reestr raqami : ${result.registryNumber}`);
 
       // Bazada ish holatini COURT_SUBMITTED ga o'tkazish
@@ -193,7 +193,7 @@ async function main() {
           stage: 'COURT_SUBMITTED',
           stageEnteredAt: new Date(),
           courtSentAt: new Date(),
-          courtCaseId: result.caseNumber || result.registryNumber || result.draftId,
+          courtCaseId: result.caseId || result.caseNumber || result.registryNumber || null,
           meta: {
             ...((ac.meta as any) || {}),
             cabinetDraftId: result.draftId,

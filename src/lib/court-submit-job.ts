@@ -473,7 +473,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
               stage: 'COURT_SUBMITTED',
               stageEnteredAt: new Date(),
               courtSentAt: new Date(),
-              courtCaseId: result.caseNumber || result.registryNumber || result.draftId,
+              courtCaseId: result.caseId || result.caseNumber || result.registryNumber || null,
               meta: {
                 ...((ac.meta as any) || {}),
                 exportedAt: new Date().toISOString(),
