@@ -260,7 +260,14 @@ function ExportControl({ job, sendable, onStart }: { job?: JobState; sendable: n
           progress uzoq qimirlamaydi — bu matn ishlab turganini ko'rsatadi. */}
       {running && job?.message && <span className="text-[11px] text-muted tabular-nums">{job.message}</span>}
       {/* Xato: worker yozgan sabab `message`da keladi (route xatosi esa `error`da). */}
-      {job?.status === 'FAILED' && <span className="text-[11px] font-medium text-rose-500" role="alert">{job.message || job.error || 'Xatolik'}</span>}
+      {/* Xato: FAILED holatida server sababi (`message`), yoki holat o'qilmay qolganda
+          (masalan sessiya tugadi) poller yozgan `error` — u RUNNING paytida ham chiqishi
+          kerak, aks holda progress jimgina qotib qolgandek ko'rinadi. */}
+      {(job?.status === 'FAILED' || job?.error) && (
+        <span className="text-[11px] font-medium text-rose-500" role="alert">
+          {job?.status === 'FAILED' ? (job.message || job.error || 'Xatolik') : job?.error}
+        </span>
+      )}
     </div>
   );
 }
@@ -730,11 +737,17 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
   const [data, setData] = useState<{ counts: Record<string, number>; rows: QueueRow[] } | null>(null);
   const [open, setOpen] = useState(false);
 
+  const [err, setErr] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     try {
-      const r = await fetch(`/konveyer/court-queue?firmId=${firmId}`);
-      if (r.ok) setData(await r.json());
-    } catch { /* transient — keyingi tsiklda qayta urinadi */ }
+      setData(await getJson(`/konveyer/court-queue?firmId=${firmId}`));
+      setErr(null);
+    } catch (e) {
+      // Avval bu jimgina yutilardi — sessiya tugaganda panel eski raqamlarni ko'rsatib
+      // turaverardi va operator ular hozirgi holat deb o'ylardi.
+      setErr(e instanceof Error ? e.message : 'Navbat holatini o‘qib bo‘lmadi');
+    }
   }, [firmId]);
 
   // Ish ketayotganda avtomatik yangilanadi; tugagach bir marta o'qiydi.
@@ -749,6 +762,13 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
   const failed = counts?.FAILED ?? 0;
   const done = counts?.DONE ?? 0;
   const waiting = (counts?.PENDING ?? 0) + (counts?.RUNNING ?? 0);
+  if (err) {
+    return (
+      <div className="border-t border-line px-3 py-2 text-[11px] text-rose-500" role="alert">
+        {err}
+      </div>
+    );
+  }
   if (!counts || (failed + done + waiting) === 0) return null;
 
   const total = done + waiting + failed;
@@ -1017,15 +1037,26 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
       .then(({ ok, d }) => {
         if (!ok) { setJobs((j) => ({ ...j, [key]: { jobId: 0, status: 'FAILED', progress: 0, total: 0, error: d?.error || 'Xatolik' } })); return; }
         setJobs((j) => ({ ...j, [key]: { jobId: d.jobId, status: 'PENDING', progress: 0, total: d.total, type: d.type } }));
+        let pollFails = 0;
         timers.current[key] = setInterval(async () => {
           try {
-            const s = await (await fetch(`/api/jobs/${d.jobId}`)).json();
+            const s = await getJson(`/api/jobs/${d.jobId}`);
+            pollFails = 0;
             setJobs((j) => (j[key] ? { ...j, [key]: { ...j[key], status: s.status, progress: s.progress, total: s.total, message: s.message ?? undefined } } : j));
             if (s.status === 'DONE' || s.status === 'FAILED') {
               clearInterval(timers.current[key]); delete timers.current[key];
               if (s.status === 'DONE') onDone();
             }
-          } catch { /* transient poll error — keep polling */ }
+          } catch (e) {
+            // Bitta-ikkita uzilish — tarmoq g'ijimi, davom etamiz. Lekin ketma-ket 5 marta
+            // (~10s) yiqilsa sabab jiddiy (odatda sessiya tugagan): avval bu jimgina yutilardi
+            // va progress abadiy qotib qolardi — operator ish ketyapti deb o'ylab turaverardi.
+            if (++pollFails >= 5) {
+              clearInterval(timers.current[key]); delete timers.current[key];
+              const msg = e instanceof Error ? e.message : 'Holatni o‘qib bo‘lmadi';
+              setJobs((j) => (j[key] ? { ...j, [key]: { ...j[key], error: msg } } : j));
+            }
+          }
         }, 2000);
       })
       .catch(() => setJobs((j) => ({ ...j, [key]: { jobId: 0, status: 'FAILED', progress: 0, total: 0, error: 'Tarmoq xatosi' } })));
