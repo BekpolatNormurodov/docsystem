@@ -31,8 +31,9 @@ async function main() {
   const limit = Number(arg('--limit') ?? 0) || undefined;
   const delayMs = (Number(arg('--delay') ?? 2) || 2) * 1000;
 
+  // `invoiceNo` majburiy (String @unique) — `not: null` sharti Prisma'da xato beradi.
   const rows = await prisma.invoiceRecord.findMany({
-    where: { pdfPath: null, invoiceNo: { not: null } },
+    where: { pdfPath: null },
     select: { id: true, invoiceNo: true },
     orderBy: { id: 'asc' },
     ...(limit ? { take: limit } : {}),
