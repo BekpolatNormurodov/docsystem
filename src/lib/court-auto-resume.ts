@@ -1,0 +1,120 @@
+// Sudga yuborish navbatini AVTOMAT davom ettirish (portal bloklaganda o'sib boruvchi kutish).
+//
+// Muammo: portal vaqti-vaqti bilan rad eta boshlaydi (500, TLS uzilishi). 2026-09-07 da shunday
+// bo'ldi — 12 ta ish ketgach 9 tasi ketma-ket yiqildi. Navbat to'xtardi va operator qo'lda
+// `court-resume.ts` ni ishga tushirishi kerak edi. Ya'ni kechasi yoki tushlikda blok bo'lsa,
+// jarayon soatlab qimirlamay turardi.
+//
+// Yechim: worker o'zi kuzatib turadi va bloklangandan keyin O'SIB BORUVCHI oraliqda qayta
+// urinadi. Portal odatda o'ziga keladi — birinchi urinishlar qisqa (5 daqiqa), agar u ham
+// bo'lmasa uzoqroq kutiladi (30 daqiqa, 1 soat, 2 soat). Bu portalni qayta urib blokni
+// uzaytirmaydi va ayni paytda operatorni kutib o'tirishga majbur qilmaydi.
+//
+// CHEKLOVLAR (ataylab):
+//   • Operator PAUZA qo'ysa — avtomat davom etmaydi. Pauza inson qarori, uni kod bekor qilmaydi.
+//   • Sud kunlik limiti va ish vaqti (cutoff/weekday) baribir amal qiladi — allocateFirmCases
+//     tekshiradi. Limit tugagan bo'lsa job yaratilmaydi, ertaga davom etadi.
+//   • Ish ketayotgan bo'lsa (RUNNING job) yangi partiya boshlanmaydi.
+import { prisma } from './db';
+import { enqueueJob } from './job-dispatch';
+import { allocateFirmCases, consumeCourtSend } from './court-routing';
+import { isQueuePaused } from './cabinet/pacer';
+
+/** Blokdan keyingi kutish jadvali (daqiqa). Oxirgisi keyin ham takrorlanaveradi. */
+export const BACKOFF_MINUTES = [5, 5, 5, 30, 60, 120];
+
+const LEVEL_KEY = 'court_queue_backoff_level';
+const NEXT_KEY = 'court_queue_next_attempt';
+
+async function getSetting(key: string): Promise<string | null> {
+  const row = await prisma.setting.findUnique({ where: { key } });
+  return row?.value ?? null;
+}
+async function setSetting(key: string, value: string): Promise<void> {
+  await prisma.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
+}
+
+/** Portal bloklaganda chaqiriladi — keyingi urinish vaqtini surib qo'yadi. */
+export async function noteQueueBlocked(): Promise<{ level: number; waitMin: number; nextAt: Date }> {
+  const level = Math.min(BACKOFF_MINUTES.length - 1, Number(await getSetting(LEVEL_KEY) ?? '0'));
+  const waitMin = BACKOFF_MINUTES[level];
+  const nextAt = new Date(Date.now() + waitMin * 60_000);
+  await setSetting(LEVEL_KEY, String(Math.min(BACKOFF_MINUTES.length - 1, level + 1)));
+  await setSetting(NEXT_KEY, nextAt.toISOString());
+  return { level, waitMin, nextAt };
+}
+
+/** Ish muvaffaqiyatli ketganda — jadval boshiga qaytariladi. */
+export async function resetQueueBackoff(): Promise<void> {
+  await setSetting(LEVEL_KEY, '0');
+  await setSetting(NEXT_KEY, '');
+}
+
+/** Hozir yangi urinish qilish mumkinmi (kutish muddati o'tganmi)? */
+async function backoffElapsed(): Promise<boolean> {
+  const raw = await getSetting(NEXT_KEY);
+  if (!raw) return true;
+  const t = Date.parse(raw);
+  return !Number.isFinite(t) || Date.now() >= t;
+}
+
+/**
+ * Navbatda tugamagan ishlar uchun yangi COURT_SUBMIT job yaratadi (saytdagi tugma bilan bir xil).
+ * Qaytaradi: yaratilgan job id yoki null (yaratilmagan sabab bilan).
+ */
+export async function createResumeJob(firmId: number, limit = 100): Promise<{ jobId: number; count: number } | null> {
+  const pending = await prisma.courtQueueItem.findMany({
+    where: { firmId, state: { in: ['PENDING', 'FAILED'] } },
+    orderBy: { id: 'asc' },
+    take: Math.min(100, Math.max(1, limit)),
+    select: { caseId: true },
+  });
+  if (pending.length === 0) return null;
+
+  const caseIds = pending.map((p) => p.caseId);
+  const alloc = await allocateFirmCases(firmId, caseIds);
+  let sendIds = caseIds;
+  if (alloc) {
+    sendIds = alloc.assignments.map((a) => a.caseId);
+    if (sendIds.length === 0) return null; // kunlik limit tugagan yoki sud oynasi yopiq
+    await consumeCourtSend(alloc.assignments);
+  }
+
+  const job = await prisma.job.create({
+    data: {
+      type: 'COURT_SUBMIT',
+      status: 'PENDING',
+      total: sendIds.length,
+      params: { firmId, caseIds: sendIds, ready: true, markExported: true },
+    },
+  });
+  enqueueJob(job.id);
+  return { jobId: job.id, count: sendIds.length };
+}
+
+/**
+ * Worker sikli uchun bitta qadam: shart bo'lsa navbatni o'zi davom ettiradi.
+ * Hech narsa qilmasa `null`, aks holda nima qilinganini qaytaradi.
+ */
+export async function autoResumeTick(): Promise<string | null> {
+  if (await isQueuePaused()) return null;                   // operator to'xtatgan — hurmat qilamiz
+  if (!(await backoffElapsed())) return null;               // hali kutish muddati tugamagan
+
+  const running = await prisma.job.count({ where: { type: 'COURT_SUBMIT', status: { in: ['PENDING', 'RUNNING'] } } });
+  if (running > 0) return null;                             // ish allaqachon ketyapti
+
+  // Qaysi firmalarda tugamagan ish bor — eng ko'pidan boshlaymiz.
+  const groups = await prisma.courtQueueItem.groupBy({
+    by: ['firmId'],
+    where: { state: { in: ['PENDING', 'FAILED'] } },
+    _count: { _all: true },
+    orderBy: { _count: { firmId: 'desc' } },
+  });
+  if (groups.length === 0) { await resetQueueBackoff(); return null; }
+
+  for (const g of groups) {
+    const made = await createResumeJob(g.firmId);
+    if (made) return `firma ${g.firmId}: job #${made.jobId} (${made.count} ta ish) avtomat boshlandi`;
+  }
+  return null; // hammasida limit tugagan / sud oynasi yopiq — keyingi tsiklda qayta ko'ramiz
+}

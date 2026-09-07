@@ -14,6 +14,7 @@ import { paceCase, backoff, caseGapFor, isQueuePaused, REQUEST_GAP_MS, CASE_GAP_
 import { audit, AuditAction } from './audit';
 import { resolveClaimantId } from './cabinet/claimant';
 import { releaseCourtSend } from './court-routing';
+import { noteQueueBlocked, resetQueueBackoff } from './court-auto-resume';
 import { resolveCabinetCourtGuid, CABINET_REGION_IDS } from '../../cabinet-api-skeleton/constants';
 import type { SourceCaseData } from '../../cabinet-api-skeleton/builder';
 import type { CaseFileToUpload } from '../../cabinet-api-skeleton/uploader';
@@ -565,6 +566,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
         if (result.ok) {
           okCount++;
           consecutiveBlocked = 0; // muvaffaqiyat — portal sog'lom, hisoblagich nolga
+          void resetQueueBackoff().catch(() => {}); // kutish jadvali ham boshiga
           await syncCourtCabinetState(ac.courtId, true);
           await prisma.courtQueueItem.update({
             where: { caseId: ac.id },
@@ -642,7 +644,10 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
           console.warn(`⚠ [Job ${jobId}] Portal nosozligi (${err.kind}) — ketma-ket ${consecutiveBlocked}/${MAX_CONSECUTIVE_BLOCKED}`);
           if (consecutiveBlocked >= MAX_CONSECUTIVE_BLOCKED) {
             backoff(15 * 60_000);
-            stopReason = `Portal ketma-ket ${consecutiveBlocked} marta javob bermadi — navbat to'xtatildi, keyinroq davom eting`;
+            // Keyingi urinish vaqtini belgilaymiz — worker o'zi qayta boshlaydi
+            // (5→5→5→30→60→120 daqiqa). Operator hech narsa bosmaydi.
+            const b = await noteQueueBlocked();
+            stopReason = `Portal ketma-ket ${consecutiveBlocked} marta javob bermadi — ${b.waitMin} daqiqadan keyin avtomat qayta urinadi`;
             console.error(`⛔ [Job ${jobId}] ${stopReason}`);
             break;
           }

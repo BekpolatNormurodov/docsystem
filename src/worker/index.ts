@@ -6,6 +6,7 @@ import { FIRMS } from '../lib/firms';
 import { getStoredCabinetSession } from '../lib/cabinet/session';
 import { ingestCabinetStatuses } from '../lib/cabinet/status-ingest';
 import { SessionExpiredError } from '../lib/session-store';
+import { autoResumeTick } from '../lib/court-auto-resume';
 
 // Standalone background worker. Runs in its own process (a Docker container in production) and is the
 // ONLY executor of the heavy document jobs when the web app runs with JOB_MODE=worker. It polls the
@@ -231,7 +232,24 @@ async function courtStatusSyncLoop(): Promise<void> {
   }
 }
 
+// Navbat portal bloki tufayli to'xtagan bo'lsa — o'zi qayta boshlaydi (5→5→5→30→60→120 daq).
+// Operator qo'yган PAUZA va sud kunlik limiti baribir amal qiladi.
+async function courtAutoResumeLoop(): Promise<void> {
+  console.log('[worker] sud navbati avto-davom: har daqiqada tekshiriladi');
+  await new Promise((r) => setTimeout(r, 60_000));
+  while (!stopping) {
+    try {
+      const did = await autoResumeTick();
+      if (did) console.log(`[worker] ${did}`);
+    } catch (e) {
+      console.error('[worker] avto-davom xatosi', e instanceof Error ? e.message : e);
+    }
+    await new Promise((r) => setTimeout(r, 60_000));
+  }
+}
+
 void billingAutoSyncLoop().catch((e) => console.error('[worker] billing auto-sync fatal', e));
+void courtAutoResumeLoop().catch((e) => console.error('[worker] avto-davom fatal', e));
 void courtStatusSyncLoop().catch((e) => console.error('[worker] sud status sync fatal', e));
 
 loop().catch((e) => {
