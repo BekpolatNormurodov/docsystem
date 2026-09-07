@@ -32,6 +32,19 @@ import { prisma } from '../db';
 export const REQUEST_GAP_MS = Math.max(1_000, Number(process.env.CABINET_REQUEST_GAP_MS) || 2_000);
 
 /**
+ * FAYL YUKLASH uchun alohida, qisqaroq interval.
+ *
+ * Nega ajratildi: bitta ishda 15-17 ta hujjat bo'ladi va ular butun vaqtning katta qismini
+ * yeydi (17 × 2s = 34 soniya faqat kutish). Fayl yuklash — fayl-omborga oddiy POST, biznes
+ * mantiq chaqiruvi emas: draft yaratish yoki save-suit kabi og'ir emas. Shuning uchun ularga
+ * qisqaroq interval beriladi, mantiq chaqiruvlari esa REQUEST_GAP_MS da qoladi.
+ *
+ * Sekinlikning sababi tarmoq emas — fayllar kichik (40KB-2MB) va bir zumda uzatiladi.
+ * Butun kutish BIZNING chegaramiz, shuning uchun uni aniq joyda kamaytirish mantiqiy.
+ */
+export const UPLOAD_GAP_MS = Math.max(300, Number(process.env.CABINET_UPLOAD_GAP_MS) || 700);
+
+/**
  * Ikki case boshlanishi orasidagi ODATIY eng kam vaqt (daqiqada 1 ta). Haqiqiy qiymat
  * Court.sendIntervalSec dan olinadi (Sudlar bo'limidan sozlanadi) — bu faqat sud yozuvida
  * qiymat bo'lmaganda ishlatiladigan zaxira.
@@ -57,9 +70,9 @@ let lastCaseAt = 0;
  * Har bir cabinet HTTP so'rovidan OLDIN chaqiriladi. Oldingi so'rovdan REQUEST_GAP_MS
  * o'tmagan bo'lsa — kutadi. Chaqiruvlar navbat bo'ylab ketma-ket o'tadi.
  */
-export function paceRequest(): Promise<void> {
+export function paceRequest(gapMs: number = REQUEST_GAP_MS): Promise<void> {
   const next = chain.then(async () => {
-    const wait = lastRequestAt + REQUEST_GAP_MS - Date.now();
+    const wait = lastRequestAt + gapMs - Date.now();
     if (wait > 0) await sleep(wait);
     lastRequestAt = Date.now();
   });

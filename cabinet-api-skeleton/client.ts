@@ -4,7 +4,7 @@
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 import { CABINET_BASE_URL } from './constants';
-import { paceRequest } from '../src/lib/cabinet/pacer';
+import { paceRequest, UPLOAD_GAP_MS } from '../src/lib/cabinet/pacer';
 import type { CabinetAuthSession } from './types';
 
 export interface RequestOptions extends RequestInit {
@@ -173,7 +173,8 @@ export class CabinetApiClient {
     const timer = setTimeout(() => controller.abort(), 60_000);
 
     try {
-      await paceRequest(); // fayl yuklash ham global chegaradan o'tadi
+      // Fayl yuklash — qisqaroq interval (bitta ishda 15-17 ta bo'ladi).
+      await paceRequest(UPLOAD_GAP_MS);
       const res = await fetch(`${this.baseUrl}/api/cabinet/case/file/upload`, {
         method: 'POST',
         headers: {
