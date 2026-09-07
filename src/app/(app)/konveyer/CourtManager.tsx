@@ -209,7 +209,15 @@ const IcoBolt = () => <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="non
 const IcoDown = () => <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 3v12" /><path d="m8 11 4 4 4-4" /></svg>;
 
 // The «Chiqarish» control, driven by the PARENT-owned job (survives firm-filter/tab switches).
-function ExportControl({ job, sendable, onStart }: { job?: JobState; sendable: number; onStart: () => void }) {
+// `batchActive` — SHU firmada serverda allaqachon ketayotgan (yoki navbatda turgan)
+// COURT_SUBMIT partiyasi. Busiz tugma har doim yoqilgan turardi: `job` faqat SHU brauzer
+// boshlagan partiyani biladi, avtomat davom ettirilgani yoki boshqa oynadan boshlanganini
+// EMAS. Operator bosardi, server esa 409 qaytarardi va navbatda quruq qizil «xato» chiqardi
+// (2026-09-07: BRIGHT ketayotganda «Sudga yuborish (200)» yana bosilgan).
+function ExportControl({ job, sendable, onStart, batchActive }: {
+  job?: JobState; sendable: number; onStart: () => void;
+  batchActive?: { jobId: number; status: string; queuePos: number } | null;
+}) {
   const running = !!job && (job.status === 'PENDING' || job.status === 'RUNNING');
   const done = job?.status === 'DONE';
   // (progress foizi ExportControl da endi kerak emas — raqamlar qator ostidagi yagona chiziqda)
@@ -248,18 +256,31 @@ function ExportControl({ job, sendable, onStart }: { job?: JobState; sendable: n
       </div>
     );
   }
+  // Serverda partiya bor — bosish MUMKIN EMAS: prepare-ready 409 qaytaradi. Tugmani
+  // yoqilgan holda qoldirish operatorni yolg'on umidga soladi va navbatni xatolar bilan
+  // to'ldiradi.
+  const busyServer = !!batchActive;
+  const serverRunning = batchActive?.status === 'RUNNING';
+  const blocked = running || busyServer || sendable === 0;
   return (
     <div className="flex flex-col items-end gap-1">
       <button
         onClick={onStart}
-        disabled={running || sendable === 0}
-        aria-busy={running}
+        disabled={blocked}
+        aria-busy={running || serverRunning}
         className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm outline-none transition-all hover:bg-brand-600 focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:cursor-not-allowed disabled:opacity-40"
-        title={sendable === 0 ? 'Sudga yuborishga tayyor mijoz yoʻq' : `${Math.min(MAX_COURT_BATCH, sendable)} ta to'liq tayyor paketni sudga yuborish`}
+        title={
+          busyServer
+            ? `Bu firmaning partiyasi allaqachon ${serverRunning ? 'ketmoqda' : 'navbatda'} (#${batchActive!.jobId}). Tugashini kuting — ikkinchi partiya ochilsa bir odamga ikkita da'vo ketishi mumkin.`
+            : sendable === 0 ? 'Sudga yuborishga tayyor mijoz yoʻq'
+              : `${Math.min(MAX_COURT_BATCH, sendable)} ta to'liq tayyor paketni sudga yuborish`
+        }
       >
-        {running
+        {running || serverRunning
           ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> Yuborilmoqda</>
-          : <><IcoBolt /> Sudga yuborish {sendable > 0 ? `(${Math.min(MAX_COURT_BATCH, sendable)})` : ''}</>}
+          : busyServer
+            ? <><IcoBolt /> Navbatda{batchActive!.queuePos ? ` · ${batchActive!.queuePos}-o‘rin` : ''}</>
+            : <><IcoBolt /> Sudga yuborish {sendable > 0 ? `(${Math.min(MAX_COURT_BATCH, sendable)})` : ''}</>}
       </button>
       {/* Xato: worker yozgan sabab `message`da keladi (route xatosi esa `error`da). */}
       {/* Xato: FAILED holatida server sababi (`message`), yoki holat o'qilmay qolganda
@@ -308,9 +329,16 @@ function ZipControl({ job, sendable, onStart, onCancel }: { job?: JobState; send
   if (running) {
     return (
       <div className="flex w-36 shrink-0 flex-col items-end gap-1">
+        {/* NAVBATDA va TAYYORLANMOQDA — BOSHQA-BOSHQA holat.
+            Ilgari ikkalasi bir xil ko'rinardi: aylanuvchi doira va «ZIP 0/616». Worker
+            hali bu job'ni olmagan bo'lsa (PENDING) raqam tabiiy ravishda 0 da turadi va
+            bu «osilib qolgan»dan farq qilmasdi — operator aynan shundan «0/100 aylanyabdi»
+            deb yozgan edi. Endi navbatdagi ish ochiq aytiladi. */}
         <span className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-2.5 py-1.5 text-xs font-medium text-fg" aria-live="polite">
           <span className="h-3 w-3 animate-spin rounded-full border-2 border-brand-500/30 border-t-brand-500" aria-hidden />
-          ZIP {job!.total ? <span className="tabular-nums">{n(job!.progress)}/{n(job!.total)}</span> : 'tayyorlanmoqda'}
+          {job!.status === 'PENDING'
+            ? <>Navbatda{job!.total ? <span className="tabular-nums"> · {n(job!.total)} ta</span> : null}</>
+            : <>ZIP {job!.total ? <span className="tabular-nums">{n(job!.progress)}/{n(job!.total)}</span> : 'tayyorlanmoqda'}</>}
         </span>
         <div className="h-1 w-full overflow-hidden rounded-full bg-surface-2" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="ZIP tayyorlanmoqda">
           <div className="h-full rounded-full bg-brand-500 transition-[width] duration-500" style={{ width: `${Math.max(3, pct)}%` }} />
@@ -478,9 +506,12 @@ const ClientRowCard = React.memo(function ClientRowCard({ r, firmId, selectable,
   );
 });
 
-function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged }: {
+function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batchActive }: {
   firmId: number; snapshotId?: number; job?: JobState;
   startExport: (caseIds: number[]) => void; onChanged: () => void;
+  // Serverda ketayotgan partiya — tanlab yuborish tugmasi ham u tugaguncha bloklanadi
+  // (prepare-ready baribir 409 qaytaradi; tugmani yoqilgan qoldirish faqat chalg'itadi).
+  batchActive?: { jobId: number; status: string; queuePos: number } | null;
 }) {
   const confirm = useConfirm();
   const [filter, setFilter] = useState<ReadyFilter>('sendable');
@@ -733,8 +764,14 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged }: {
                     {selected.size > 0 && (
                       <>
                         <button onClick={() => setSelected(new Set())} className="btn-ghost text-xs">Bekor</button>
-                        <button onClick={doExport} disabled={running} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-brand-600 disabled:opacity-40">
-                          <IcoBolt /> Sudga yuborish ({n(selected.size)})
+                        <button
+                          onClick={doExport}
+                          disabled={running || !!batchActive}
+                          title={batchActive
+                            ? `Bu firmaning partiyasi allaqachon ${batchActive.status === 'RUNNING' ? 'ketmoqda' : 'navbatda'} (#${batchActive.jobId}). Tugashini kuting.`
+                            : `${n(selected.size)} ta belgilangan ishni sudga yuborish`}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-40">
+                          <IcoBolt /> {batchActive ? 'Partiya ketmoqda' : `Sudga yuborish (${n(selected.size)})`}
                         </button>
                       </>
                     )}
@@ -1134,8 +1171,9 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
   );
 }
 
-function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCancel, onChanged, drillOpen, onToggleDrill, idx, autoActive, onStopAuto }: {
+function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCancel, onChanged, drillOpen, onToggleDrill, idx, autoActive, onStopAuto, batchActive }: {
   fr: FirmReadiness; snapshotId?: number; job?: JobState; zipJob?: JobState;
+  batchActive?: { jobId: number; status: string; queuePos: number } | null;
   startExport: (firmId: number, extra: Record<string, unknown>) => void;
   onZip?: () => void;
   onZipCancel?: (jobId: number) => void;
@@ -1214,7 +1252,7 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
             {/* ZIP — hujjatlarni faylga chiqarish. Sudga YUBORMAYDI: portalga tegmaydi,
                 shuning uchun pauza va sud limiti unga taalluqli emas. */}
             <ZipControl job={zipJob} sendable={fr.sendable} onStart={() => onZip?.()} onCancel={onZipCancel} />
-            <ExportControl job={job} sendable={fr.sendable} onStart={() => startExport(fr.firmId, {})} />
+            <ExportControl job={job} sendable={fr.sendable} onStart={() => startExport(fr.firmId, {})} batchActive={batchActive} />
           </div>
         ) : (
           <button type="button" disabled title={docsTip}
@@ -1235,7 +1273,7 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
           ketmasligi uchun: operator sababni keyin ham o'qiy oladi). */}
       <QueuePanel firmId={fr.firmId} live={!!job && (job.status === 'PENDING' || job.status === 'RUNNING')} />
       {drillOpen && (
-        <ClientDrilldown firmId={fr.firmId} snapshotId={snapshotId} job={job} startExport={(caseIds) => startExport(fr.firmId, { caseIds })} onChanged={onChanged} />
+        <ClientDrilldown firmId={fr.firmId} snapshotId={snapshotId} job={job} startExport={(caseIds) => startExport(fr.firmId, { caseIds })} onChanged={onChanged} batchActive={batchActive} />
       )}
     </div>
   );
@@ -1529,7 +1567,9 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   // Har item: firma + soni. Joriy (birinchi tugamagan) item bo'yicha holat-mashina:
   // yangi firma → E-IMZO gate (bir marta), imzolangan firma → to'g'ridan yuboriladi;
   // job DONE/FAILED bo'lgach keyingisiga o'tadi (FAILED'da ham to'xtab qolmaydi).
-  type QItem = { id: string; firmId: number; firmName: string; stir: string | null; count: number; courtIds?: number[]; status: 'wait' | 'signing' | 'sending' | 'done' | 'error' };
+  // `error` — NEGA yiqilgani. Ilgari chipda faqat qizil «xato» so'zi turardi va operator
+  // sababni topolmasdi (eng ko'p uchraydigani: «bu firmada partiya allaqachon ketmoqda»).
+  type QItem = { id: string; firmId: number; firmName: string; stir: string | null; count: number; courtIds?: number[]; status: 'wait' | 'signing' | 'sending' | 'done' | 'error'; error?: string };
   const [queue, setQueue] = useState<QItem[]>([]);
   const [queueActive, setQueueActive] = useState(false);
   const signedFirms = useRef<Set<number>>(new Set());
@@ -1545,7 +1585,9 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     if (cur.status === 'sending') {
       const job = jobs[`queue:${cur.id}`];
       if (job && (job.status === 'DONE' || job.status === 'FAILED')) {
-        setQueue((q) => q.map((x) => (x.id === cur.id ? { ...x, status: job.status === 'DONE' ? 'done' : 'error' } : x)));
+        setQueue((q) => q.map((x) => (x.id === cur.id
+          ? { ...x, status: job.status === 'DONE' ? 'done' : 'error', error: job.status === 'DONE' ? undefined : (job.message || job.error || undefined) }
+          : x)));
         loadRef.current();
       }
       return;
@@ -1560,6 +1602,15 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
       setQueueGate({ itemId: cur.id, firmId: cur.firmId, firmName: cur.firmName, stir: cur.stir, count: cur.count });
     }
   }, [jobs, queue, queueActive, snapshotId, startJob]);
+
+  // Har firma uchun serverda FAOL partiya (RUNNING yoki navbatda PENDING). Manba —
+  // `pendingQ` (5 soniyada yangilanadi), ya'ni boshqa oynadan yoki avtomat davom
+  // ettirishdan boshlangan partiya ham hisobga olinadi.
+  const activeBatchByFirm = React.useMemo(() => {
+    const m = new Map<number, { jobId: number; status: string; queuePos: number }>();
+    for (const q of pendingQ) if (q.job) m.set(q.firmId, q.job);
+    return m;
+  }, [pendingQ]);
 
   const firmOpts = [{ value: 'all', label: 'Hamma firma' }, ...firms.map((f) => ({ value: String(f.firmId), label: f.firmName, hint: n(f.total) }))];
   const ov = data?.readiness.overall;
@@ -1714,14 +1765,24 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                         : it.status === 'sending' ? ['bg-brand-500/15 text-brand-700 dark:text-brand-300', 'yuborilyapti']
                         : it.status === 'signing' ? ['bg-amber-500/15 text-amber-700 dark:text-amber-300', 'imzo']
                         : ['bg-surface-2 text-muted', 'navbatda'];
+                      // Xato sababi — chipning O'ZIDA. Ilgari faqat qizil «xato» so'zi turardi
+                      // va operator sahifada sababni topa olmasdi.
+                      const why = it.status === 'error' ? (it.error || job?.message || job?.error) : null;
                       return (
-                        <div key={it.id} className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs">
+                        <div key={it.id} className={`flex flex-wrap items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs ${it.status === 'error' ? 'border-rose-500/35 bg-rose-500/[0.05]' : 'border-line bg-surface'}`}>
                           <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${badge[0]}`}>{badge[1]}</span>
                           <span className="min-w-0 flex-1 truncate font-medium">{it.firmName} · {n(it.count)} ta</span>
                           {it.status === 'sending' && <span className="shrink-0 tabular-nums text-muted">{n(job?.progress ?? 0)}/{n(job?.total || it.count)} ({pct}%)</span>}
+                          {it.status === 'error' && (
+                            <button type="button" onClick={() => setQueue((q) => q.filter((x) => x.id !== it.id))} title="Ro‘yxatdan olib tashlash"
+                              className="shrink-0 rounded px-1 text-muted transition-colors hover:text-rose-500">✕</button>
+                          )}
                           {it.status === 'wait' && (
                             <button type="button" onClick={() => setQueue((q) => q.filter((x) => x.id !== it.id))} title="Navbatdan o‘chirish"
                               className="shrink-0 rounded px-1 text-muted transition-colors hover:text-rose-500">✕</button>
+                          )}
+                          {why && (
+                            <p className="w-full break-words text-[11px] leading-snug text-rose-600 dark:text-rose-300" role="alert">{why}</p>
                           )}
                         </div>
                       );
@@ -1815,6 +1876,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                       idx={i}
                       snapshotId={snapshotId}
                       job={jobs[`firm:${fr.firmId}`]}
+                      batchActive={activeBatchByFirm.get(fr.firmId) ?? null}
                       zipJob={jobs[`zip:${fr.firmId}`]}
                       startExport={startExport}
                       onZip={() => setZipAsk({ firmId: fr.firmId, firmName: fr.firmName, max: fr.sendable, value: Math.min(MAX_ZIP_BATCH, fr.sendable) })}

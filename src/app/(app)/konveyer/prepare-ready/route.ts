@@ -122,6 +122,24 @@ export async function POST(req: NextRequest) {
   // ikki joyda ochiq bo'lsa, bir xil ishlar ustidan ikkita job yaralardi. Ishning o'zi
   // ikki marta yuborilmaydi (DONE tekshiruvi bor), lekin navbat chalkashadi va operator
   // qaysi biri haqiqiy ekanini bilmaydi. ZIP eksportiga bu cheklov tegishli emas.
+  // BIR FIRMAGA IKKITA ZIP ham bo'lmasin. ZIP portalga tegmaydi, lekin ikkita bir xil
+  // partiya ayni vaqtda 616 tadan mijozni ikki marta render qiladi (chromium'ni ikki
+  // barobar band qiladi) va operator qaysi havola qaysi biri ekanini bilmaydi. Sud
+  // partiyasidan farqli — bu yerda javob 409 emas, chunki zarar yo'q: shunchaki
+  // ketayotganini aytamiz.
+  if (isExportOnly) {
+    const activeZip = await prisma.job.findFirst({
+      where: { type: 'PACKET', status: { in: ['PENDING', 'RUNNING'] } },
+      select: { id: true, status: true, params: true, progress: true, total: true },
+    });
+    if (activeZip && Number((activeZip.params as { firmId?: number } | null)?.firmId) === firmId) {
+      return NextResponse.json(
+        { error: `Bu firma uchun ZIP allaqachon ${activeZip.status === 'RUNNING' ? `tayyorlanmoqda (${activeZip.progress}/${activeZip.total})` : 'navbatda'}. Tugashini kuting yoki «Bekor» qiling.` },
+        { status: 409 },
+      );
+    }
+  }
+
   if (!isExportOnly) {
     // Faol partiyalarning HAMMASI ko'rib chiqiladi. Ilgari `findFirst` bilan faqat bitta
     // tasodifiy job olinardi: boshqa firmada partiya ketayotgan bo'lsa, bu firmaning

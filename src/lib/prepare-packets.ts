@@ -271,11 +271,27 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
     // skipped (no «0 soʻm» petition) and produces no file, so counting processed cases inflated the
     // «N ariza» label (history showed «5 ariza» for a ZIP that held 2). Use the real written count.
     const writtenCount = arizaOnly ? usedArizaPaths.size : usedFolders.size;
+    // TOTAL SO'RALGANICHA QOLADI — YO'QOTISHNI YASHIRMAYMIZ.
+    //
+    // Ilgari bu yerda `total` ham `writtenCount` ga tenglashtirilardi, ya'ni har qanday
+    // partiya oxirida «N/N» — 100% bo'lib ko'rinardi. Render timeout'iga uchragan yoki
+    // hujjati chiqmagan mijoz esa MAXRAJDAN ham yo'qolardi: 616 ta so'ralgan ZIP 613 ta
+    // papka bilan tugasa, operator «613/613 tayyor» deb ko'rar va 3 ta mijoz jimgina
+    // tushib qolgani hech qayerda bilinmасdi (ular «chiqarilgan» ham bo'lmaydi, lekin
+    // buni faqat keyingi hisobotdan sezish mumkin edi).
+    const expected = caseIds.length;
+    const lost = Math.max(0, expected - writtenCount);
     await prisma.job.updateMany({
       where: { id: jobId },
       data: canceled
         ? { status: 'CANCELED', progress: 0, total: 0, resultPath: null, message: 'Bekor qilindi — hammasi oʻchirildi', cancelRequested: false }
-        : { status: 'DONE', progress: writtenCount, total: writtenCount, resultPath: `exports/${jobId}.zip` },
+        : {
+            status: 'DONE',
+            progress: writtenCount,
+            total: expected,
+            resultPath: `exports/${jobId}.zip`,
+            message: lost > 0 ? `${writtenCount} ta tayyor, ${lost} tasi chiqmadi (qayta urinib ko'ring)` : null,
+          },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
