@@ -893,7 +893,7 @@ const Q_STATE: Record<string, { label: string; tone: string }> = {
 };
 
 function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
-  const [data, setData] = useState<{ counts: Record<string, number>; rows: QueueRow[] } | null>(null);
+  const [data, setData] = useState<{ counts: Record<string, number>; rows: QueueRow[]; truncated?: boolean; totalAll?: number } | null>(null);
   const [open, setOpen] = useState(false);
 
   const [err, setErr] = useState<string | null>(null);
@@ -1103,6 +1103,14 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
               </li>
             );
           })}
+          {/* Ro'yxat kesilgan bo'lsa — buni AYTAMIZ. Jim kesish operatorga «hammasi shu»
+              deb ko'rinadi: 195 ta ishdan 300 tasi emas, 300 tasi ko'rsatiladi va qolgani
+              yo'qday tuyuladi. Sanoqlar esa yuqorida to'liq turadi. */}
+          {data.truncated && (
+            <li className="px-2 py-1.5 text-center text-[11px] text-muted">
+              Ro‘yxatda {data.rows.length} ta ko‘rsatildi (jami {data.totalAll}). Qolganini yuqoridagi sanoqlardan ko‘ring.
+            </li>
+          )}
         </ul>
       )}
     </div>

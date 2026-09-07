@@ -88,6 +88,34 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH): 
     select: { caseId: true },
   });
 
+  // BOJI TO'LANGANLAR NAVBATGA QAYTADI — XATO BERGANLARDAN OLDIN.
+  //
+  // Boji to'lanmagan ish SKIPPED bo'ladi (xato emas — hali tayyor emas). Lekin buxgalteriya
+  // to'lovni o'tkazgach u O'ZI qaytishi kerak, aks holda operator har bir ishni qo'lda
+  // qidirib topib qayta bosishga majbur bo'ladi va «to'langach ish o'zi ketadi» degan va'da
+  // yolg'on bo'lib qoladi. Shu sababli SKIPPED'lar orasidan kvitansiyasi ENDI PAID
+  // bo'lganlari qaytariladi; to'lanmaganlari esa tegilmaydi (portalga behuda chiqmaydi).
+  //
+  // Nega qayta urinishlardan OLDIN: to'langan ish yuborishga tayyor va sabab yo'q, xato
+  // bergan ish esa allaqachon bir marta yiqilgan. Aks holda bir necha o'nlab FAILED butun
+  // partiya joyini egallab, endigina to'langan ish yana kutib qolardi.
+  const revived: { caseId: number }[] = [];
+  if (fresh.length < cap) {
+    const skipped = await prisma.courtQueueItem.findMany({
+      where: { firmId, state: 'SKIPPED', case: { courtCaseId: null } },
+      orderBy: { id: 'asc' },
+      select: { caseId: true, case: { select: { receiptNumber: true } } },
+    });
+    if (skipped.length) {
+      const paid = await paidReceiptSet(skipped.map((x) => x.case?.receiptNumber ?? ''));
+      const room = cap - fresh.length;
+      for (const x of skipped) {
+        if (revived.length >= room) break;
+        if (x.case?.receiptNumber && paid.has(x.case.receiptNumber)) revived.push({ caseId: x.caseId });
+      }
+    }
+  }
+
   // XATO BERGANLARNI QAYTA URINISH — CHEKLANGAN.
   //
   // Cheksiz qayta urinish ma'nosiz va zararli: har urinish ADOLAT'da qoralama yaratadi
@@ -96,7 +124,8 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH): 
   // Bunday ishlar navbatda FAILED bo'lib ko'rinib turadi va operator qo'lda qayta
   // yuborishi mumkin; avtomatika esa ularni tinch qo'yadi.
   const MAX_AUTO_ATTEMPTS = 3;
-  const retry = fresh.length >= cap ? [] : await prisma.courtQueueItem.findMany({
+  const room = cap - fresh.length - revived.length;
+  const retry = room <= 0 ? [] : await prisma.courtQueueItem.findMany({
     where: {
       firmId,
       state: 'FAILED',
@@ -104,33 +133,9 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH): 
       case: { courtCaseId: null },
     },
     orderBy: { id: 'asc' },
-    take: cap - fresh.length,
+    take: room,
     select: { caseId: true },
   });
-
-  // BOJI TO'LANGANLAR NAVBATGA QAYTADI.
-  //
-  // Boji to'lanmagan ish SKIPPED bo'ladi (xato emas — hali tayyor emas). Lekin buxgalteriya
-  // to'lovni o'tkazgach u O'ZI qaytishi kerak, aks holda operator har bir ishni qo'lda
-  // qidirib topib qayta bosishga majbur bo'ladi va «to'langach ish o'zi ketadi» degan va'da
-  // yolg'on bo'lib qoladi. Shu sababli SKIPPED'lar orasidan kvitansiyasi ENDI PAID
-  // bo'lganlari qaytariladi; to'lanmaganlari esa tegilmaydi (portalga behuda chiqmaydi).
-  const revived: { caseId: number }[] = [];
-  const room = cap - fresh.length - retry.length;
-  if (room > 0) {
-    const skipped = await prisma.courtQueueItem.findMany({
-      where: { firmId, state: 'SKIPPED', case: { courtCaseId: null } },
-      orderBy: { id: 'asc' },
-      select: { caseId: true, case: { select: { receiptNumber: true } } },
-    });
-    if (skipped.length) {
-      const paid = await paidReceiptSet(skipped.map((x) => x.case?.receiptNumber ?? ''));
-      for (const x of skipped) {
-        if (revived.length >= room) break;
-        if (x.case?.receiptNumber && paid.has(x.case.receiptNumber)) revived.push({ caseId: x.caseId });
-      }
-    }
-  }
 
   const pending = [...fresh, ...revived, ...retry];
   if (pending.length === 0) return null;
