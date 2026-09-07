@@ -12,7 +12,7 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 import { prisma } from '../src/lib/db';
 import { getStoredCabinetSession } from '../src/lib/cabinet/session';
 import { CabinetSubmitEngine } from './submitter';
-import { collectCaseFiles } from '../src/lib/court-submit-job';
+import { collectCaseFiles, assertFirmDocsBelongToFirm } from '../src/lib/court-submit-job';
 import { resolveClaimantId } from '../src/lib/cabinet/claimant';
 import { resolveCabinetCourtGuid, CABINET_COURT_IDS, CABINET_REGION_IDS } from './constants';
 import type { SourceCaseData } from './builder';
@@ -153,6 +153,11 @@ async function main() {
   // uzoqlashdi: firma hujjatlari (guvohnoma/ishonchnoma/shartnoma) tuzatilganda skript eski
   // nusxada qolib ketardi, ya'ni skript orqali qilingan sinovlar saytdagi haqiqiy paketni
   // aks ettirmasdi. Endi yagona manba — src/lib/court-submit-job.ts.
+  // Firma hujjatlari haqiqatan shu firmaniki ekanini tekshiramiz — sayt oqimida bu tekshiruv
+  // bor edi, skript esa uni chetlab o'tardi va boshqa firmaning ishonchnomasi bilan da'vo
+  // tayyorlanardi (2026-09-07: URBAN ishi BRIGHT ishonchnomasi bilan ketgan).
+  await assertFirmDocsBelongToFirm(ac.firm.id, ac.firm.shortName);
+
   const filesToUpload: CaseFileToUpload[] = await collectCaseFiles(ac);
 
   console.log(`Yuklanadigan hujjatlar soni: ${filesToUpload.length} ta`);

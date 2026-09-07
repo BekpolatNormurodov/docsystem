@@ -83,7 +83,7 @@ export interface CourtSubmitJobOpts {
  * bayt-baytiga bir xil bo'lsa — yuborish to'xtaydi. Job boshida BIR MARTA chaqiriladi
  * (har case uchun emas: 9 firma × 3 hujjat, arzon).
  */
-async function assertFirmDocsBelongToFirm(firmId: number, firmName: string): Promise<void> {
+export async function assertFirmDocsBelongToFirm(firmId: number, firmName: string): Promise<void> {
   const KINDS = ['ISHONCHNOMA', 'GUVOHNOMA', 'SHARTNOMA'];
   const all = await prisma.firmDocument.findMany({
     where: { kind: { in: KINDS as any } },
