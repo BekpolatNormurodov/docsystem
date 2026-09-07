@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import { konveyerSnapshots } from '@/lib/konveyer';
 import { enqueueJob } from '@/lib/job-dispatch';
 import { selectReadyCaseIds, validateSelectedCaseIds, FIRM_REQUIRED_DOCS, FIRM_DOC_LABEL, MAX_COURT_BATCH } from '@/lib/court-ready';
+import { MAX_ZIP_BATCH } from '@/lib/court-batch';
 import { allocateFirmCases, consumeCourtSend, firmCourtBudgets } from '@/lib/court-routing';
 import { isQueuePaused } from '@/lib/cabinet/pacer';
 
@@ -37,11 +38,14 @@ export async function POST(req: NextRequest) {
   const snaps = await konveyerSnapshots();
   const rawSnap = num(body?.snapshotId);
   const snapshotId = rawSnap && snaps.some((s) => s.id === rawSnap) ? rawSnap : snaps[0]?.id;
-  const limit = Math.min(MAX_COURT_BATCH, Math.max(1, num(body?.limit) ?? MAX_COURT_BATCH));
   // ZIP eksporti sudga hech narsa yubormaydi: sud kunlik limitini band qilmaydi va
   // «allaqachon chiqarilgan» filtri faqat SHU oqimga tegishli. Shuning uchun bayroq
-  // case tanlashdan ham, allokatsiyadan ham OLDIN aniqlanadi.
+  // case tanlashdan ham, allokatsiyadan ham, CHEGARADAN ham OLDIN aniqlanadi.
   const isExportOnly = body?.exportOnly === true;
+  // ZIP uchun chegara ancha katta: partiya hajmi portalni himoya qilish uchun, ZIP esa
+  // portalga tegmaydi. 767 ta tayyorni 200 tadan 4 marta olish ma'nosiz edi.
+  const cap = isExportOnly ? MAX_ZIP_BATCH : MAX_COURT_BATCH;
+  const limit = Math.min(cap, Math.max(1, num(body?.limit) ?? cap));
   const includeExported = body?.includeExported === true;
   const talabnomaPdf = body?.talabnomaPdf !== false;
 
@@ -51,7 +55,7 @@ export async function POST(req: NextRequest) {
   // Distinct, capped selection (Prisma `in` collapses duplicates, so dedupe first
   // to keep the `skipped` count honest).
   const uniqIds = Array.isArray(body?.caseIds)
-    ? [...new Set((body.caseIds as unknown[]).map(Number).filter((x): x is number => Number.isInteger(x) && x > 0))].slice(0, MAX_COURT_BATCH)
+    ? [...new Set((body.caseIds as unknown[]).map(Number).filter((x): x is number => Number.isInteger(x) && x > 0))].slice(0, cap)
     : null;
   const caseIds = uniqIds?.length
     // `forExport` — faqat ZIP oqimi allaqachon chiqarilganini o'tkazib yuboradi. Sudga

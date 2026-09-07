@@ -6,7 +6,7 @@ import { Dropdown } from './Dropdown';
 import { CaseDocs } from './CaseDocs';
 import { KeyPicker } from './KeyPicker';
 // Partiya hajmi — yagona manba (server ham shu qiymat bilan cheklaydi).
-import { MAX_COURT_BATCH } from '@/lib/court-batch';
+import { MAX_COURT_BATCH, MAX_ZIP_BATCH } from '@/lib/court-batch';
 
 // ── types (mirror src/lib/court-ready.ts) ────────────────────────────────────
 interface Missing { talabnoma: number; scan: number; oferta: number; receipt: number; boji: number }
@@ -1609,7 +1609,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                       snapshotId={snapshotId}
                       job={jobs[`firm:${fr.firmId}`]}
                       startExport={startExport}
-                      onZip={() => setZipAsk({ firmId: fr.firmId, firmName: fr.firmName, max: fr.sendable, value: Math.min(100, fr.sendable) })}
+                      onZip={() => setZipAsk({ firmId: fr.firmId, firmName: fr.firmName, max: fr.sendable, value: Math.min(MAX_ZIP_BATCH, fr.sendable) })}
                       onChanged={load}
                       drillOpen={openFirm === fr.firmId}
                       onToggleDrill={() => setOpenFirm((o) => (o === fr.firmId ? null : fr.firmId))}
@@ -1739,23 +1739,23 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
               />
             </label>
             <div className="flex flex-wrap gap-1.5">
-              {[10, 25, 50, 100].filter((x) => x <= Math.min(100, zipAsk.max)).map((x) => (
+              {[25, 100, 250, 500].filter((x) => x <= Math.min(MAX_ZIP_BATCH, zipAsk.max)).map((x) => (
                 <button key={x} type="button" onClick={() => setZipAsk((c) => c && ({ ...c, value: x }))}
                   className={`rounded-lg px-2 py-1 text-[11px] font-medium transition-colors ${zipAsk.value === x ? 'bg-brand-500/15 text-brand-700 dark:text-brand-300' : 'text-muted hover:bg-surface-2'}`}>
                   {x}
                 </button>
               ))}
               {zipAsk.max > 0 && (
-                <button type="button" onClick={() => setZipAsk((c) => c && ({ ...c, value: Math.min(100, c.max) }))}
-                  className="rounded-lg px-2 py-1 text-[11px] font-medium text-muted transition-colors hover:bg-surface-2">
-                  hammasi ({Math.min(100, zipAsk.max)})
+                <button type="button" onClick={() => setZipAsk((c) => c && ({ ...c, value: Math.min(MAX_ZIP_BATCH, c.max) }))}
+                  className="rounded-lg px-2 py-1 text-[11px] font-medium text-brand-600 transition-colors hover:bg-surface-2 dark:text-brand-400">
+                  hammasi ({n(Math.min(MAX_ZIP_BATCH, zipAsk.max))})
                 </button>
               )}
             </div>
             <div className="rounded-lg border border-line p-2.5 text-[11px] leading-snug text-muted">
               <span className="font-medium text-fg">Filtr: «Tayyor»</span> — 5 shart to'liq bajarilgan mijozlar
               (talabnoma + imzolangan skan + oferta + kvitansiya + boji). Arxivda har mijoz uchun
-              alohida papka bo'ladi. Bir martada eng ko'pi 100 ta.
+              alohida papka bo'ladi. Sudga yuborilganlar ro'yxatga KIRMAYDI — faqat hali yuborilmagan tayyorlari.
             </div>
           </div>
         </Modal>
