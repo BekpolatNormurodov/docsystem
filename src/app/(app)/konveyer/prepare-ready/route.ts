@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
       // Allaqachon navbatda yoki yuborilgan ishga TEGMAYMIZ (update: {}) — faqat yangi yozuv.
       const r = await prisma.courtQueueItem.upsert({
         where: { caseId },
-        create: { caseId, firmId, account, state: 'PENDING', lastError: why },
+        create: { caseId, firmId, account, state: 'PENDING', draftMode: isDraftMode, lastError: why },
         update: {},
       });
       if (r.state === 'PENDING') parked++;
@@ -220,8 +220,14 @@ export async function POST(req: NextRequest) {
     });
     const active = actives.find((j) => Number((j.params as { firmId?: number } | null)?.firmId) === firmId);
     if (active) {
+      // MUTUAL EXCLUSION — real yuborish va qoralama tayyorlash bir firmada BIR VAQTDA
+      // ishlamaydi. Xabar aynan qaysi rejim ketayotganini aytadi: operator «real ketyapti,
+      // qoralama kuting» yoki aksincha ekanini darrov tushunsin (2026-09-08 operator qarori).
+      const activeDraft = (active.params as { draftMode?: boolean } | null)?.draftMode === true;
+      const activeWord = activeDraft ? 'qoralama tayyorlanmoqda' : 'sudga yuborilmoqda';
+      const wantWord = isDraftMode ? 'qoralama tayyorlash' : 'sudga yuborish';
       return NextResponse.json(
-        { error: `Bu firma uchun partiya allaqachon ${active.status === 'RUNNING' ? 'ketmoqda' : 'navbatda'} (#${active.id}). Tugashini kuting yoki «Bekor» qiling.` },
+        { error: `Bu firmada hozir ${activeWord} (#${active.id}, ${active.status === 'RUNNING' ? 'ketyapti' : 'navbatda'}). Tugashini kuting — «${wantWord}» birga ishlamaydi (ikkalasi bir vaqtda portalga chiqmasligi kerak).` },
         { status: 409 },
       );
     }

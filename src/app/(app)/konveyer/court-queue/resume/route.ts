@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
     where: retryFailed
       ? { firmId, state: 'FAILED', case: { courtCaseId: null } }
       : { firmId, state: 'PENDING' },
-    select: { caseId: true },
+    select: { caseId: true, draftMode: true },
     orderBy: { id: 'asc' },
     take: limit,
   });
@@ -96,6 +96,10 @@ export async function POST(req: NextRequest) {
   }
 
   const caseIds = items.map((i) => i.caseId);
+  // Uzilgan partiyaning REJIMINI saqlaymiz — aks holda qoralama deb boshlangan ishlar
+  // resume'da REAL sudga topshirilib ketardi (qaytarib bo'lmaydi). Barcha olingan ishlar
+  // qoralama bo'lsagina qoralama; aralash bo'lsa xavfsiz tomon — REAL emas, QORALAMA.
+  const draftMode = items.length > 0 && items.every((i) => i.draftMode === true);
   if (retryFailed) {
     // Urinishlar sanog'i NOLLANADI: bu operatorning ATAYIN qarori (kamchilik tuzatildi),
     // shuning uchun avtomatikaning «3 urinishdan keyin tinch qo'y» qoidasi qaytadan
@@ -113,7 +117,7 @@ export async function POST(req: NextRequest) {
       status: 'PENDING',
       snapshotId: snap?.id ?? null,
       total: caseIds.length,
-      params: { firmId, snapshotId: snap?.id, caseIds, ready: true, talabnomaPdf: true, includeGrafik: false, markExported: true },
+      params: { firmId, snapshotId: snap?.id, caseIds, ready: true, talabnomaPdf: true, includeGrafik: false, markExported: !draftMode, draftMode },
     },
   });
   enqueueJob(job.id);

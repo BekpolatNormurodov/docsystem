@@ -454,6 +454,10 @@ model CourtQueueItem {
   firmId     Int
   account    String // firma STIR'i, faqat raqamlar (ExternalSession.account bilan bir xil)
   state      CourtQueueState @default(PENDING)
+  // Bu ish QORALAMA rejimida (true) yoki REAL yuborish rejimidami (false). MUHIM: uzilib
+  // qolgan partiyani `resume`/avto-davom AYNAN shu rejimda davom ettiradi — aks holda
+  // qoralama deb boshlangan ish resume'da REAL sudga topshirilib ketardi (qaytarib bo'lmaydi).
+  draftMode  Boolean @default(false)
   jobId      Int? // qaysi batch (Job) ichida — progress/bekor qilish uchun
   draftId    String? // ADOLAT qoralama UUID'i (xato bo'lsa ham qoladi — yetim draftni topish uchun)
   // Ish ayni paytda QAYSI bosqichda ekani (operatorga ko'rsatiladi). Bitta ish ~7 qadamdan

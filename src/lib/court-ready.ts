@@ -52,6 +52,9 @@ export interface DocFlags {
   // Endi ikkisi alohida: «Chiqarilgan» (ZIP) va «Sudda» (haqiqiy da'vo).
   submitted: boolean;
   draft: boolean;     // meta.draftAt & !exported — «Qoralama» (sinab ko'rilgan, hali haqiqiy emas)
+  /** ADOLAT'da to'liq qoralama TAYYORLANGAN (meta.draftReadyAt) — yurist portalda yuboradi.
+   *  «Tayyor» EMAS: qoralama allaqachon tayyor, qayta tayyorlash shart emas. */
+  draftReady: boolean;
   /**
    * NAVBATDA — bu ish allaqachon partiyaga olingan (CourtQueueItem PENDING/RUNNING),
    * lekin hali sudga yetib bormagan.
@@ -124,6 +127,10 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
   const submitted = SENT_STAGES.has(c.stage) || !!c.courtCaseId || submittedPortal;
   const exported = isExported(c.meta) || submitted;
   const draft = !exported && isDraftMeta(c.meta); // qoralama-sinov qilingan, hali haqiqiy yuborilmagan
+  // QORALAMA TAYYOR — ADOLAT'da to'liq tayyorlangan (prepareDraftOnly), yurist yuboradi.
+  // Bu case «Tayyor» ro'yxatidan CHIQADI: qoralama bor, uni qayta tayyorlash ADOLAT'da
+  // ikkinchi yetim qoralama yaratardi va operatorga «Tayyor» soni kamaymaganday ko'rinardi.
+  const draftReady = !submitted && metaHas(c.meta, 'draftReadyAt');
   // «Tayyor» = ready va SUDGA hali ketmagan.
   //
   // MUHIM: ilgari bu yerda `!exported` turardi, ya'ni ZIP paketi olingan ish «Tayyor»dan
@@ -136,8 +143,8 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
   // operator 291 tadan 200 tasini navbatga bergach ham «Tayyor 291» ko'rardi va shu
   // 200 tani qayta-qayta yuborishga urinardi.
   const queued = queuedCaseIds?.has(c.id) ?? false;
-  const sendable = ready && !submitted && !draft && !queued && !SENT_STAGES.has(c.stage);
-  return { talabnoma, scan, oferta, receipt, boji, ready, exported, submitted, submittedExternal, draft, queued, sendable };
+  const sendable = ready && !submitted && !draft && !draftReady && !queued && !SENT_STAGES.has(c.stage);
+  return { talabnoma, scan, oferta, receipt, boji, ready, exported, submitted, submittedExternal, draft, draftReady, queued, sendable };
 }
 
 /**
@@ -315,6 +322,8 @@ export interface FirmReadiness {
   /** `submitted` ichidan — ADOLAT'da yurist QO'LDA kiritgani (biz yubormaganmiz). */
   submittedExternal: number;
   draft: number;
+  /** ADOLAT'da to'liq qoralama TAYYORLANGAN — yurist portalda o'zi yuboradi. */
+  draftReady: number;
   /** Partiyaga olingan, hali sudga yetib bormagan (CourtQueueItem PENDING/RUNNING). */
   queued: number;
   sendable: number;
@@ -324,7 +333,7 @@ export interface FirmReadiness {
 }
 export interface CourtReadiness {
   firms: FirmReadiness[];
-  overall: { total: number; ready: number; exported: number; submitted: number; submittedExternal: number; draft: number; queued: number; sendable: number; missing: DocQuad; almost: DocQuad };
+  overall: { total: number; ready: number; exported: number; submitted: number; submittedExternal: number; draft: number; draftReady: number; queued: number; sendable: number; missing: DocQuad; almost: DocQuad };
 }
 
 /** Per-firm «sudga tayyorlik»: jami / to'liq tayyor / chiqarilgan / yuborishga
@@ -372,7 +381,7 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
 
     const fr: FirmReadiness = {
       firmId: f.id, firmName: f.shortName, total: cases.length,
-      ready: 0, exported: 0, submitted: 0, submittedExternal: 0, draft: 0, queued: 0, sendable: 0,
+      ready: 0, exported: 0, submitted: 0, submittedExternal: 0, draft: 0, draftReady: 0, queued: 0, sendable: 0,
       missing: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 },
       almost: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 },
       docs: firmDocsStatus(f.id),
@@ -384,6 +393,7 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
       if (fl.submitted) fr.submitted++;
       if (fl.submittedExternal) fr.submittedExternal++;
       if (fl.draft) fr.draft++;
+      if (fl.draftReady) fr.draftReady++;
       if (fl.sendable) fr.sendable++;
       if (!fl.talabnoma) fr.missing.talabnoma++;
       if (!fl.scan) fr.missing.scan++;
@@ -410,14 +420,14 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
 
   const overall = firmsOut.reduce(
     (o, f) => {
-      o.total += f.total; o.ready += f.ready; o.exported += f.exported; o.submitted += f.submitted; o.submittedExternal += f.submittedExternal; o.draft += f.draft; o.queued += f.queued; o.sendable += f.sendable;
+      o.total += f.total; o.ready += f.ready; o.exported += f.exported; o.submitted += f.submitted; o.submittedExternal += f.submittedExternal; o.draft += f.draft; o.draftReady += f.draftReady; o.queued += f.queued; o.sendable += f.sendable;
       o.missing.talabnoma += f.missing.talabnoma; o.missing.scan += f.missing.scan;
       o.missing.oferta += f.missing.oferta; o.missing.receipt += f.missing.receipt; o.missing.boji += f.missing.boji;
       o.almost.talabnoma += f.almost.talabnoma; o.almost.scan += f.almost.scan;
       o.almost.oferta += f.almost.oferta; o.almost.receipt += f.almost.receipt; o.almost.boji += f.almost.boji;
       return o;
     },
-    { total: 0, ready: 0, exported: 0, submitted: 0, submittedExternal: 0, draft: 0, queued: 0, sendable: 0, missing: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 }, almost: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 } },
+    { total: 0, ready: 0, exported: 0, submitted: 0, submittedExternal: 0, draft: 0, draftReady: 0, queued: 0, sendable: 0, missing: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 }, almost: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 } },
   );
 
   return { firms: firmsOut, overall };
@@ -448,6 +458,7 @@ export interface ClientReadyRow {
    */
   submittedExternal: boolean;
   draft: boolean;
+  draftReady: boolean;
   /** Partiyaga olingan, hali sudga yetib bormagan — «Tayyor»dan chiqarilgan. */
   queued: boolean;
   /** Ish qaysi sudga yo'naltirilgan (filtr uchun; tayinlanmagan bo'lsa null). */
@@ -518,7 +529,7 @@ export async function firmReadyClients(opts: {
       caseId: c.id, clientName: c.clientName, pinfl: c.pinfl, stage: c.stage, stageLabel: STAGE_LABEL[c.stage],
       talabnoma: fl.talabnoma, talabnomaDelivered: !!(c.pinfl && deliveredPinfls.has(c.pinfl)),
       receipt: fl.receipt, scan: fl.scan, oferta: fl.oferta, boji: fl.boji,
-      ready: fl.ready, exported: fl.exported, submitted: fl.submitted, submittedExternal: fl.submittedExternal, draft: fl.draft, queued: fl.queued, sendable: fl.sendable,
+      ready: fl.ready, exported: fl.exported, submitted: fl.submitted, submittedExternal: fl.submittedExternal, draft: fl.draft, draftReady: fl.draftReady, queued: fl.queued, sendable: fl.sendable,
       totalDebt: String(c.totalDebt),
       daysLeft: c.dueAt ? ((v: number) => (v < 0 ? Math.floor(v) : Math.ceil(v)))((c.dueAt.getTime() - now) / day) : null,
       receiptNumber: c.receiptNumber,

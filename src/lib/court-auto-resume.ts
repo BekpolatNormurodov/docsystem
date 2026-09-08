@@ -198,12 +198,22 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH): 
   if (pending.length === 0) return null;
 
   const caseIds = pending.map((p) => p.caseId);
-  const alloc = await allocateFirmCases(firmId, caseIds);
+
+  // PARTIYA REJIMINI SAQLAYMIZ. Uzilgan qoralama partiyasi qoralama, real esa real bo'lib
+  // davom etsin — aks holda avto-davom qoralamani REAL sudga topshirib qo'yardi (qaytarib
+  // bo'lmaydi). Aralash bo'lsa xavfsiz tomon: QORALAMA (real emas). Qoralama sud kvotasini
+  // band qilmaydi (ignoreQuota) va limit iste'mol qilmaydi.
+  const modeRows = await prisma.courtQueueItem.findMany({
+    where: { caseId: { in: caseIds } }, select: { draftMode: true },
+  });
+  const draftMode = modeRows.length > 0 && modeRows.every((r) => r.draftMode === true);
+
+  const alloc = await allocateFirmCases(firmId, caseIds, new Date(), undefined, draftMode);
   let sendIds = caseIds;
   if (alloc) {
     sendIds = alloc.assignments.map((a) => a.caseId);
     if (sendIds.length === 0) return null; // kunlik limit tugagan yoki sud oynasi yopiq
-    await consumeCourtSend(alloc.assignments);
+    if (!draftMode) await consumeCourtSend(alloc.assignments);
   }
 
   const job = await prisma.job.create({
@@ -211,7 +221,7 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH): 
       type: 'COURT_SUBMIT',
       status: 'PENDING',
       total: sendIds.length,
-      params: { firmId, caseIds: sendIds, ready: true, markExported: true },
+      params: { firmId, caseIds: sendIds, ready: true, markExported: !draftMode, draftMode },
     },
   });
   enqueueJob(job.id);

@@ -15,10 +15,10 @@ import { tallyClientCounts } from '@/lib/court-counts';
 interface Missing { talabnoma: number; scan: number; oferta: number; receipt: number; boji: number }
 interface FirmDocsStatus { complete: boolean; missing: string[]; present: string[] }
 // `submittedExternal` — `submitted` ICHIDAN: yurist ADOLAT'da qo'lda kiritgan da'volar.
-interface FirmReadiness { firmId: number; firmName: string; total: number; ready: number; exported: number; submitted: number; submittedExternal: number; draft: number; queued: number; sendable: number; missing: Missing; almost: Missing; docs: FirmDocsStatus }
+interface FirmReadiness { firmId: number; firmName: string; total: number; ready: number; exported: number; submitted: number; submittedExternal: number; draft: number; draftReady: number; queued: number; sendable: number; missing: Missing; almost: Missing; docs: FirmDocsStatus }
 // Sud paketiga qo'shiladigan firma hujjatlari — 3 tasi ham kerak.
 const FIRM_DOCS_ALL = ['guvohnoma', 'ishonchnoma', 'shartnoma'];
-interface Overall { total: number; ready: number; exported: number; submitted: number; submittedExternal: number; draft: number; queued: number; sendable: number; missing: Missing; almost: Missing }
+interface Overall { total: number; ready: number; exported: number; submitted: number; submittedExternal: number; draft: number; draftReady: number; queued: number; sendable: number; missing: Missing; almost: Missing }
 interface StatusBucket { code: string; label: string; tone: string; count: number; source: string }
 interface StatusBoard { total: number; matched: number; buckets: StatusBucket[]; sources: Record<string, number> }
 interface ReturnCase {
@@ -28,16 +28,16 @@ interface ReturnCase {
 }
 interface Data { snapshotId?: number; readiness: { firms: FirmReadiness[]; overall: Overall }; statusBoard: StatusBoard; returns: ReturnCase[] }
 
-type ReadyFilter = 'all' | 'sendable' | 'queued' | 'draft' | 'ready' | 'exported' | 'submitted' | 'notready';
+type ReadyFilter = 'all' | 'sendable' | 'queued' | 'draftReady' | 'draft' | 'ready' | 'exported' | 'submitted' | 'notready';
 interface ClientRow {
   caseId: number; clientName: string | null; pinfl: string | null; stage: string; stageLabel: string;
   talabnoma: boolean; talabnomaDelivered: boolean; receipt: boolean; scan: boolean; oferta: boolean; boji: boolean;
-  ready: boolean; exported: boolean; submitted: boolean; submittedExternal?: boolean; draft: boolean; queued: boolean; sendable: boolean; totalDebt: string; daysLeft: number | null;
+  ready: boolean; exported: boolean; submitted: boolean; submittedExternal?: boolean; draft: boolean; draftReady?: boolean; queued: boolean; sendable: boolean; totalDebt: string; daysLeft: number | null;
   receiptNumber: string | null;
   // Sud — «Batafsil» ichidagi filtr uchun (firma ishlari bir necha sudga bo'lingan bo'lishi mumkin).
   courtId: number | null; courtName: string | null; courtEnabled: boolean;
 }
-interface ClientCounts { all: number; sendable: number; queued: number; draft: number; ready: number; exported: number; submitted: number; notready: number }
+interface ClientCounts { all: number; sendable: number; queued: number; draftReady: number; draft: number; ready: number; exported: number; submitted: number; notready: number }
 interface ClientPage { rows: ClientRow[]; total: number; page: number; pageSize: number; pages: number; counts: ClientCounts; error?: string }
 
 // `asked` — operator nechta so'ragani (server topgani `total` dan kam bo'lishi mumkin).
@@ -89,6 +89,7 @@ const VALUE_TONE: Record<string, string> = {
   slate: '', emerald: 'text-emerald-600 dark:text-emerald-400',
   sky: 'text-sky-600 dark:text-sky-400', amber: 'text-amber-600 dark:text-amber-400',
   violet: 'text-violet-600 dark:text-violet-400',
+  teal: 'text-teal-600 dark:text-teal-400',
   // «Sudda» — sudga rasman topshirilgan da'volar. Tailwind JIT interpolatsiya qilingan
   // sinf nomlarini ko'rmaydi, shuning uchun bu yerda to'liq yozilishi shart.
   indigo: 'text-indigo-600 dark:text-indigo-400',
@@ -498,7 +499,11 @@ const CLIENT_FILTERS: { key: ReadyFilter; label: string; icon: React.JSX.Element
   // operator 200 tani navbatga bergach, ular «Tayyor»dan chiqib SHU YERGA o'tadi. Ilgari
   // bunday holat umuman yo'q edi va 200 ta ish ikkala joyda ham sanalardi.
   { key: 'queued', label: 'Navbatda', icon: svg(<><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>), activeCls: 'bg-amber-500/15 text-amber-700 dark:text-amber-300', iconCls: 'text-amber-500' },
-  { key: 'draft', label: 'Qoralama', icon: svg(<><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></>), activeCls: 'bg-violet-500/15 text-violet-600 dark:text-violet-300', iconCls: 'text-violet-500' },
+  // «Qoralama tayyor» — ADOLAT'da to'liq tayyorlangan, yurist portalda o'zi yuboradi.
+  // ATAYIN «Tayyor»dan keyin va «Sudda»dan oldin: ish tayyor bo'ldi, ammo hali sudda emas.
+  // Eski «Qoralama» (sinov, meta.draftAt) dan FARQLI — bu haqiqiy tayyor qoralama.
+  { key: 'draftReady', label: 'Qoralama tayyor', icon: svg(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="m9 15 2 2 4-4" /></>), activeCls: 'bg-teal-500/15 text-teal-700 dark:text-teal-300', iconCls: 'text-teal-500' },
+  { key: 'draft', label: 'Qoralama (sinov)', icon: svg(<><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></>), activeCls: 'bg-violet-500/15 text-violet-600 dark:text-violet-300', iconCls: 'text-violet-500' },
   { key: 'submitted', label: 'Sudda', icon: svg(<><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4Z" /></>), activeCls: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-300', iconCls: 'text-indigo-500' },
   { key: 'all', label: 'Hammasi', icon: svg(<><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></>), activeCls: 'bg-slate-500/15 text-slate-700 dark:text-slate-300', iconCls: 'text-slate-500' },
 ];
@@ -511,7 +516,7 @@ const FIRM_STAT_CHIPS = CLIENT_FILTERS.filter((f) => f.key !== 'all');
 // Firma qatoridagi qisqa xulosa — tab'lar bilan bir xil ikon/rang (Tayyor emas · Tayyor · Qoralama · Yuborilgan),
 // «batafsil» yopiq paytda ko'rinadi. `all` chiqmaydi (u umumiy jami).
 const firmStatValue = (fr: FirmReadiness, key: ReadyFilter): number =>
-  key === 'notready' ? fr.total - fr.ready : key === 'sendable' ? fr.sendable : key === 'queued' ? fr.queued : key === 'draft' ? fr.draft
+  key === 'notready' ? fr.total - fr.ready : key === 'sendable' ? fr.sendable : key === 'queued' ? fr.queued : key === 'draftReady' ? fr.draftReady : key === 'draft' ? fr.draft
     : key === 'submitted' ? fr.submitted : fr.total;
 const filterMeta = (key: ReadyFilter) => CLIENT_FILTERS.find((f) => f.key === key)!;
 // Rangli ikon (summary kartalari uchun) — tab'lar bilan bir xil.
@@ -535,7 +540,8 @@ function statusChip(r: ClientRow) {
   if ((r as { queued?: boolean }).queued) {
     return <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300" title="Partiyaga olingan — navbati kelishini kutmoqda">Navbatda</span>;
   }
-  if (r.draft) return <span className="rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:text-violet-300">Qoralama</span>;
+  if ((r as { draftReady?: boolean }).draftReady) return <span className="rounded-md bg-teal-500/15 px-1.5 py-0.5 text-[10px] font-medium text-teal-700 dark:text-teal-300" title="ADOLAT'da to'liq qoralama tayyor — yurist portalda o'zi yuboradi">Qoralama tayyor</span>;
+  if (r.draft) return <span className="rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:text-violet-300">Qoralama (sinov)</span>;
   if (r.sendable) return <span className="rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">Tayyor</span>;
   return <span className="rounded-md bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium text-rose-600 dark:text-rose-300">Tayyor emas</span>;
 }
@@ -735,7 +741,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
   const courtOptions = React.useMemo(() => {
     const m = new Map<string, { id: number | null; name: string; enabled: boolean; count: number }>();
     for (const r of data?.rows ?? []) {
-      const okFilter = filter === 'sendable' ? r.sendable : filter === 'queued' ? !!r.queued : filter === 'draft' ? r.draft : filter === 'ready' ? r.ready : filter === 'submitted' ? !!r.submitted : filter === 'notready' ? !r.ready : true;
+      const okFilter = filter === 'sendable' ? r.sendable : filter === 'queued' ? !!r.queued : filter === 'draftReady' ? !!r.draftReady : filter === 'draft' ? r.draft : filter === 'ready' ? r.ready : filter === 'submitted' ? !!r.submitted : filter === 'notready' ? !r.ready : true;
       if (!okFilter) continue;
       const k = String(r.courtId ?? 'none');
       const it = m.get(k) ?? { id: r.courtId ?? null, name: r.courtName ?? 'Sud tayinlanmagan', enabled: r.courtEnabled !== false, count: 0 };
@@ -763,7 +769,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
     const src = data?.rows ?? [];
     const needle = debouncedQ.trim().toLowerCase();
     return src.filter((r) => {
-      const okFilter = filter === 'sendable' ? r.sendable : filter === 'queued' ? !!r.queued : filter === 'draft' ? r.draft : filter === 'ready' ? r.ready : filter === 'submitted' ? !!r.submitted : filter === 'notready' ? !r.ready : true;
+      const okFilter = filter === 'sendable' ? r.sendable : filter === 'queued' ? !!r.queued : filter === 'draftReady' ? !!r.draftReady : filter === 'draft' ? r.draft : filter === 'ready' ? r.ready : filter === 'submitted' ? !!r.submitted : filter === 'notready' ? !r.ready : true;
       if (!okFilter) return false;
       if (courtFilter !== 'all' && (r.courtId ?? null) !== courtFilter) return false;
       if (needle && !`${r.clientName ?? ''} ${r.pinfl ?? ''}`.toLowerCase().includes(needle)) return false;
@@ -2086,7 +2092,10 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                   {ov!.queued > 0 && (
                     <Stat label="Navbatda" value={ov!.queued} tone="amber" icon={statIcon('queued')} hint="Partiyaga olingan, sudga hali yetib bormagan — «Tayyor» sanog'idan chiqarilgan" />
                   )}
-                  <Stat label="Qoralama" value={ov!.draft} tone="violet" icon={statIcon('draft')} hint="Sinab ko'rilgan (hali haqiqiy yuborilmagan)" />
+                  <Stat label="Qoralama tayyor" value={ov!.draftReady} tone="teal" icon={statIcon('draftReady')} hint="ADOLAT'da hamma maydon to'ldirilib, hujjatlar biriktirilib TO'LIQ tayyorlangan qoralama — yurist portalda ochib o'zi yuboradi. Sudga hali yuborilmagan." />
+                  {ov!.draft > 0 && (
+                    <Stat label="Qoralama (sinov)" value={ov!.draft} tone="violet" icon={statIcon('draft')} hint="Dry-run sinab ko'rilgan (hali haqiqiy yuborilmagan)" />
+                  )}
                   {/* «Sudda» — ATAYIN `submitted`, `exported` EMAS. Ilgari bu karta ZIP
                       olingan ishlarni ham qo'shib «Yuborilgan 131» deb ko'rsatardi, holbuki
                       ularning ko'pi sudga ketmagan edi (2026-09-07: BRIGHT'da 100 tasi ZIP). */}

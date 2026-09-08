@@ -544,7 +544,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
       for (const ac of hit) {
         await prisma.courtQueueItem.upsert({
           where: { caseId: ac.id },
-          create: { caseId: ac.id, firmId: firm.id, account: firmStir, state: 'SKIPPED', jobId, finishedAt: new Date(), lastError: why(ac) },
+          create: { caseId: ac.id, firmId: firm.id, account: firmStir, state: 'SKIPPED', jobId, draftMode: isDraftMode, finishedAt: new Date(), lastError: why(ac) },
           update: { state: 'SKIPPED', jobId, step: null, finishedAt: new Date(), lastError: why(ac) },
         });
       }
@@ -578,8 +578,8 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
     for (const ac of sendCases) {
       await prisma.courtQueueItem.upsert({
         where: { caseId: ac.id },
-        create: { caseId: ac.id, firmId: firm.id, account: firmStir, state: 'PENDING', jobId },
-        update: { state: 'PENDING', jobId, lastError: null, finishedAt: null },
+        create: { caseId: ac.id, firmId: firm.id, account: firmStir, state: 'PENDING', jobId, draftMode: isDraftMode },
+        update: { state: 'PENDING', jobId, draftMode: isDraftMode, lastError: null, finishedAt: null },
       });
     }
     if (unpaid.length) {
@@ -587,7 +587,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
       for (const ac of unpaid) {
         await prisma.courtQueueItem.upsert({
           where: { caseId: ac.id },
-          create: { caseId: ac.id, firmId: firm.id, account: firmStir, state: 'SKIPPED', jobId, lastError: why(ac), finishedAt: new Date() },
+          create: { caseId: ac.id, firmId: firm.id, account: firmStir, state: 'SKIPPED', jobId, draftMode: isDraftMode, lastError: why(ac), finishedAt: new Date() },
           update: { state: 'SKIPPED', jobId, lastError: why(ac), finishedAt: new Date(), step: null },
         });
       }
