@@ -191,7 +191,9 @@ export async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
   const firmDocs = await prisma.firmDocument.findMany({
     where: { firmId: ac.firmId },
     select: { kind: true, filePath: true },
-    orderBy: { sortOrder: 'asc' },
+    // `sortOrder` amalda hamma qatorda 0 (hech kim qo'lda qo'ymagan), ya'ni yolg'iz o'zi
+    // hech narsani tartiblamaydi — `id` ikkinchi mezon bo'lmasa tartib tasodifiy qoladi.
+    orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
   });
   for (const fd of firmDocs) {
     const kind = FIRM_DOC_KIND[String(fd.kind)];
@@ -304,7 +306,59 @@ export async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
     }
   }
 
-  return filesToUpload;
+  return sortCourtFiles(filesToUpload);
+}
+
+/**
+ * HUJJATLARNI ARIZADA E'LON QILINGAN TARTIBGA SOLADI.
+ *
+ * NEGA: Yuqorichirchiq sudi ishlarni shu sabab bilan qaytardi —
+ * «Ҳужжатлар тартибсиз ёки тескари сақланганлиги сабабли уларни ўқиш имконияти йўқ».
+ *
+ * Sabab kodda edi. Arizaning O'ZI (2-bet, «Ilova qilingan hujjatlar ro'yxati») sudga
+ * ANIQ tartib va'da qiladi — `CHAMBER.attachments`:
+ *   1. SSP a'zolik shartnomasi va guvohnomasi   2. Ishonchnoma
+ *   3. Kredit shartnomasi (oferta)              4. Ogohlantirish xatlari (talabnoma)
+ *   5. Kredit to'lash grafigi                   6. Pochta xarajati to'lov topshiriqnomasi
+ * Fayllar esa YIG'ILISH tartibida ketardi: avval `CaseDocument` qatorlari (ularning
+ * o'zi `orderBy`siz — MySQL qaytargan tartibda, ya'ni bizning tizimga qachon
+ * biriktirilganiga qarab), keyin firma hujjatlari, keyin oferta, talabnoma, kvitansiya.
+ * Natijada bir ishda ariza birinchi, boshqasida pochta kvitansiyasi birinchi bo'lardi
+ * (2026-09-07 tekshiruvi: 6355 — ariza avval, 6340/6339/6331 — kvitansiya avval), va
+ * talabnoma ro'yxatda 4-o'rinda va'da qilingan bo'lsa ham hamma ofertalardan KEYIN
+ * tushardi. Sudya arizadagi ro'yxat bo'yicha o'qishga urinsa, hujjatlar boshqa
+ * tartibda — «tartibsiz».
+ *
+ * Shuning uchun tartib endi TASODIFIY EMAS, arizadagi ro'yxatdan kelib chiqadi.
+ * Bir xil turdagi fayllar (bir nechta oferta) o'z ichida tartibini saqlaydi.
+ */
+const COURT_FILE_ORDER: Record<CaseFileToUpload['kind'], number> = {
+  // Da'voning o'zi — har doim birinchi (portal uni `claimApplication` sifatida ajratadi).
+  ARIZA: 0,
+  // 1-ilova: «SSPga a'zolik shartnomasi va guvohnomasi» — shu tartibda.
+  SHARTNOMA: 1,
+  GUVOHNOMA: 2,
+  // 2-ilova
+  ISHONCHNOMA: 3,
+  // 3-ilova: kredit shartnomasi = oferta (bir nechta bo'lishi mumkin)
+  OFERTA: 4,
+  // 4-ilova: ogohlantirish xati = talabnoma, va DARHOL ketidan uning yetkazilganlik
+  // kvitansiyasi — ular juft o'qiladi (xatning mazmuni + yetkazilgani dalili).
+  TALABNOMA: 5,
+  TALABNOMA_CHECK: 6,
+  // 6-ilova (5-ilova «grafik» hozircha biriktirilmaydi — pastdagi izohga qarang)
+  BOJI_RECEIPT: 7,
+  // Ro'yxatda yo'q, turi aniqlanmagan hujjat — oxirida.
+  BOSHQA: 8,
+};
+
+function sortCourtFiles(files: CaseFileToUpload[]): CaseFileToUpload[] {
+  // `map`+`sort` bilan BARQAROR: bir xil turdagi fayllar (masalan 3 ta oferta) yig'ilish
+  // tartibida qoladi, ya'ni kredit yozuvlari tartibi buzilmaydi.
+  return files
+    .map((f, i) => ({ f, i }))
+    .sort((a, b) => (COURT_FILE_ORDER[a.f.kind] ?? 9) - (COURT_FILE_ORDER[b.f.kind] ?? 9) || a.i - b.i)
+    .map((x) => x.f);
 }
 
 /**
@@ -400,7 +454,10 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
 
     let targetCases = await prisma.arizaCase.findMany({
       where: { id: { in: pendingIds } },
-      include: { firm: true, court: true, documents: true },
+      // `documents` ATAYIN tartiblangan: `orderBy`siz MySQL qaytargan tartib keladi va
+      // u ishdan-ishga o'zgaradi (bir ishda ariza avval, boshqasida kvitansiya).
+      // Yakuniy tartibni `sortCourtFiles` beradi, bu esa uning kirishini barqaror qiladi.
+      include: { firm: true, court: true, documents: { orderBy: { id: 'asc' } } },
       orderBy: { id: 'asc' },
     });
 
