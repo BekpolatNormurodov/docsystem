@@ -1013,7 +1013,11 @@ const Q_STATE: Record<string, { label: string; tone: string }> = {
   SKIPPED: { label: 'Oʻtkazildi', tone: 'bg-amber-500/15 text-amber-700 dark:text-amber-300' },
 };
 
-function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
+// `onChanged` — navbatga TEGILGANDA (bekor qilish) yuqoridagi raqamlarni ham qayta
+// o'qitadi: bekor qilish kunlik limitni bo'shatadi va ishlarni «Tayyor»ga qaytaradi,
+// ya'ni firma qatoridagi sonlar ham o'zgaradi. Busiz panel yangilanar, tepasi esa
+// eski raqamlarni ko'rsatib turardi.
+function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean; onChanged?: () => void }) {
   const [data, setData] = useState<{ counts: Record<string, number>; rows: QueueRow[]; truncated?: boolean; totalAll?: number } | null>(null);
   const [open, setOpen] = useState(false);
 
@@ -1031,6 +1035,40 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
       setFirmPaused((d?.pausedFirms ?? []).includes(firmId));
     } catch { /* holat belgisi — o'qilmasa tugma ko'rsatilmaydi */ }
   }, [firmId]);
+
+  // NAVBATNI BUTUNLAY BEKOR QILISH (pauzadan farqli — qolgan ishlar ro'yxatdan chiqadi).
+  const confirmQ = useConfirm();
+  const [cancelBusy, setCancelBusy] = useState(false);
+
+  const cancelQueue = async (waitingNow: number, doneNow: number) => {
+    if (cancelBusy) return;
+    const ok = await confirmQ({
+      title: 'Navbat bekor qilinsinmi?',
+      description:
+        `Navbatda turgan ${n(waitingNow)} ta ish ro'yxatdan chiqariladi va ularga hech narsa yuborilmaydi. ` +
+        `Allaqachon yuborilgan ${n(doneNow)} ta ishga TEGILMAYDI — ular sudda qolaveradi. ` +
+        `Ayni damda portalga ketayotgan bitta ish oxirigacha boradi (yarim yo'lda uzilsa ADOLAT'da yetim qoralama qoladi). ` +
+        `Firma to'xtatilgan holatga o'tadi — keyin xohlasangiz «Sudga yuborish» bilan qaytadan navbat tuzasiz.`,
+      confirmLabel: 'Ha, bekor qilinsin',
+      danger: true,
+    });
+    if (!ok) return;
+    setCancelBusy(true);
+    setErr(null);
+    try {
+      const r = await fetch('/konveyer/court-queue/cancel', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ firmId }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { setErr(d?.error || 'Bekor qilinmadi'); return; }
+      setFirmPaused(true);
+      await load();
+      onChanged?.();   // firma qatoridagi «Tayyor / Sudda» sonlari ham darhol yangilansin
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Bekor qilinmadi');
+    } finally { setCancelBusy(false); }
+  };
 
   const toggleFirmPause = async () => {
     if (firmPaused === null || pauseBusy) return;
@@ -1161,6 +1199,17 @@ function QueuePanel({ firmId, live }: { firmId: number; live: boolean }) {
               }`}
             >
               {pauseBusy ? '…' : firmPaused ? 'Davom ettirish' : 'To‘xtatish'}
+            </button>
+            {/* BEKOR — «To'xtatish»dan boshqa amal, shuning uchun alohida tugma.
+                To'xtatish = vaqtincha (ishlar navbatda qoladi); Bekor = navbat chopiladi.
+                Operator ilgari ikkinchisini UI'dan umuman qila olmasdi. */}
+            <button
+              onClick={() => { void cancelQueue(waiting, done); }}
+              disabled={cancelBusy}
+              title="Navbatdagi qolgan ishlarni butunlay bekor qilish (yuborilganlarga tegmaydi)"
+              className="h-7 shrink-0 rounded-lg border border-line px-2.5 text-[11px] font-semibold text-muted outline-none transition-colors hover:border-rose-500/45 hover:bg-rose-500/10 hover:text-rose-600 focus-visible:ring-2 focus-visible:ring-rose-500/30 disabled:opacity-50 dark:hover:text-rose-300"
+            >
+              {cancelBusy ? '…' : 'Bekor'}
             </button>
           </>
         )}
@@ -1364,7 +1413,11 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
 
       {/* Navbat holati — ish ketayotganda ham, tugagach ham ko'rinadi (xatolar yo'qolib
           ketmasligi uchun: operator sababni keyin ham o'qiy oladi). */}
-      <QueuePanel firmId={fr.firmId} live={!!job && (job.status === 'PENDING' || job.status === 'RUNNING')} />
+      <QueuePanel
+        firmId={fr.firmId}
+        live={!!job && (job.status === 'PENDING' || job.status === 'RUNNING')}
+        onChanged={onChanged}
+      />
       {drillOpen && (
         <ClientDrilldown firmId={fr.firmId} snapshotId={snapshotId} job={job} startExport={(caseIds) => startExport(fr.firmId, { caseIds })} onChanged={onChanged} batchActive={batchActive} />
       )}
@@ -1487,11 +1540,20 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   // ular bir-biridan uzoqlashib, ekranda «Sudda 30» va «60 ketdi» degan qarama-qarshi
   // raqamlar ko'rinardi (2026-09-07). Ma'lumot to'g'ri edi — faqat biri eskirgan edi.
   const anyJobRunning = Object.values(jobs).some((j) => j.status === 'PENDING' || j.status === 'RUNNING');
+  // SHU BRAUZERDA boshlanmagan partiyalar ham hisobga olinadi.
+  //
+  // `jobs` — faqat shu oynadan boshlangan ishlar. Partiya esa worker'da o'zi boshlanadi
+  // (avtomat davom ettirish) yoki boshqa oynadan boshlanadi. Bunday paytda yuqoridagi
+  // «Sudda / Tayyor / Chiqarilgan» raqamlari butun partiya davomida QOTIB turardi, pastdagi
+  // navbat paneli esa har 4 soniyada o'sib borardi — ekranda ikki xil haqiqat.
+  // `pendingQ` (har 10 s) serverdagi faol partiyani biladi, shundan foydalanamiz.
+  const serverBatchRunning = pendingQ.some((q) => q.job && (q.job.status === 'RUNNING' || q.job.status === 'PENDING'));
+  const numbersLive = anyJobRunning || serverBatchRunning;
   useEffect(() => {
-    if (!anyJobRunning) return;
+    if (!numbersLive) return;
     const t = setInterval(() => { void loadRef.current(); }, 20_000);
     return () => clearInterval(t);
-  }, [anyJobRunning]);
+  }, [numbersLive]);
 
   // `endpoint` — odatda partiya tanlash (prepare-ready), lekin navbatni DAVOM ETTIRISHDA
   // boshqa yo'l ishlatiladi (court-queue/resume): u yangi tanlov qilmaydi, bazadagi PENDING
