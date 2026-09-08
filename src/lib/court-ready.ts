@@ -131,7 +131,9 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
   // QORALAMA TAYYOR — ADOLAT'da to'liq tayyorlangan (prepareDraftOnly), yurist yuboradi.
   // Bu case «Tayyor» ro'yxatidan CHIQADI: qoralama bor, uni qayta tayyorlash ADOLAT'da
   // ikkinchi yetim qoralama yaratardi va operatorga «Tayyor» soni kamaymaganday ko'rinardi.
-  const draftReady = !submitted && metaHas(c.meta, 'draftReadyAt');
+  // draftReady = tayyorlangan (stop-A qoralama YOKI stop-B «Murojaatlarim» ishi) — «Tayyor»dan
+  // chiqadi, qayta tayyorlanmaydi (aks holda ikkinchi qoralama/real ish ochilardi).
+  const draftReady = !submitted && (metaHas(c.meta, 'draftReadyAt') || metaHas(c.meta, 'suitReadyAt'));
   // «Tayyor» = ready va SUDGA hali ketmagan.
   //
   // MUHIM: ilgari bu yerda `!exported` turardi, ya'ni ZIP paketi olingan ish «Tayyor»dan

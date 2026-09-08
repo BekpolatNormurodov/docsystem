@@ -79,6 +79,13 @@ export interface CourtSubmitJobOpts {
    * band qilinmaydi (24/7 tayyorlash mumkin). Bu — eng xavfsiz yo'l.
    */
   draftMode?: boolean;
+  /**
+   * SUIT-READY (stop-B): save-suit QILINADI — ADOLAT'da HAQIQIY ish yaratiladi va u
+   * «Mening murojaatlarim»da turadi (xuddi yuborishga tayyorday), LEKIN send-to-court
+   * QILINMAYDI (dvigatelда majburiy to'xtaydi, CABINET_ALLOW_SEND_TO_COURT'дан qat'i nazar).
+   * draftMode (stop-A: «Qoralamalar»da wizard) bilan bir vaqtda berilmaydi.
+   */
+  suitMode?: boolean;
 }
 
 /**
@@ -386,7 +393,10 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
   await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING' } });
 
   const isDryRun = opts.dryRun === true;
-  const isDraftMode = opts.draftMode === true;
+  const isSuitMode = opts.suitMode === true;
+  // Suit-mode va draft-mode BIR VAQTDA bo'lmaydi. Suit-mode ustun: save-suit qilinadi
+  // (draft-only'да save-suit yo'q), lekin send-to-court dvigatelда majburiy to'xtaydi.
+  const isDraftMode = opts.draftMode === true && !isSuitMode;
 
   try {
     const firm = await prisma.firm.findUnique({
@@ -645,7 +655,10 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
       // uni to'xtatmasligi kerak (draftAutoTick bilan bir xil semantika: 7eb135f). Aks holda
       // umumiy pauza yoqiq turganda «Go» bosilsa ham har partiya shu yerda 0 tada uzilardi.
       // Ishlar PENDING bo'lib qoladi — davom ettirilganda aynan shu joydan ketadi.
-      const pausedNow = isDraftMode && opts.firmId ? await isFirmPaused(opts.firmId) : await isQueuePaused(opts.firmId);
+      // Qoralama VA suit-ready — ikkovi ham send-to-court QILMAYDI (xavfsiz), shuning uchun
+      // umumiy "Sudga yuborish" pauzasi ularni to'xtatmaydi — faqat ALOHIDA firma pauzasi.
+      // Real yuborish esa umumiy + firma pauzasiga bo'ysunadi.
+      const pausedNow = (isDraftMode || isSuitMode) && opts.firmId ? await isFirmPaused(opts.firmId) : await isQueuePaused(opts.firmId);
       if (pausedNow) {
         console.log(`[Job ${jobId}] Jarayon pauzada — to'xtatildi.`);
         stopReason = 'Pauza — operator jarayonni to\'xtatib qo\'ygan';
@@ -761,6 +774,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
             result = await engine.submitCase(caseData, filesToUpload, {
               dryRun: isDryRun,
               prepareDraftOnly: isDraftMode,
+              prepareSuitOnly: isSuitMode, // stop-B: save-suit → «Murojaatlarim», send-to-court YO'Q
               dutyReasonId, // 8-modda imtiyozi — davlat boji 0 bo'ladi (draft va real)
               // Bosqichni bazaga yozamiz — UI navbat panelida «Ketyapti · Hujjatlar (15 ta)»
               // deb ko'rsatadi. Yozuv muhim emas: yiqilsa ish to'xtamasin.
@@ -779,7 +793,26 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
           }
         }
 
-        if (result.ok && isDraftMode) {
+        if (result.ok && isSuitMode) {
+          // MUROJAAT TAYYOR (SUIT-READY) — save-suit qilindi, ish ADOLAT'da ROSMAN yaratildi
+          // va «Murojaatlarim»da turibdi, LEKIN sudga YUBORILMAGAN. Shuning uchun bosqichni
+          // COURT_SUBMITTED qilMAYMIZ va courtCaseId'ni ham yozmaymiz (aks holda tizim uni
+          // «sudda» deb hisoblaydi — holbuki yurist hali yubormagan). meta.suitReadyAt ish
+          // «Tayyor»dan CHIQARADI (qayta save-suit qilinmasin — aks holda ikkinchi real ish
+          // ochilardi). cabinetCaseId — ADOLAT'dagi haqiqiy ish id'si (yurist topib yuboradi).
+          await prisma.arizaCase.update({
+            where: { id: ac.id },
+            data: {
+              meta: {
+                ...((ac.meta as any) || {}),
+                suitReadyAt: new Date().toISOString(),
+                cabinetDraftId: result.draftId,
+                cabinetCaseId: result.caseId,
+              },
+            },
+          });
+          console.log(`✔ [Job ${jobId}] Case #${ac.id} MUROJAAT TAYYOR (ish=${result.caseId}) — «Murojaatlarim»da, yurist O'ZI yuboradi.`);
+        } else if (result.ok && isDraftMode) {
           // QORALAMA TAYYOR — sudga YUBORILMAGAN. Bosqichni COURT_SUBMITTED qilMAYMIZ
           // (ish hali sudda emas), faqat meta'ga belgilaymiz: yurist portalda ko'rib
           // yuborishi uchun. courtCaseId ham yozilmaydi — sud ishi hali yaratilmagan.

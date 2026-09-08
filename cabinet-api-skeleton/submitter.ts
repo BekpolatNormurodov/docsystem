@@ -29,6 +29,16 @@ export interface SubmissionOptions {
    * shuning uchun 24/7 tayyorlash mumkin.
    */
   prepareDraftOnly?: boolean;
+  /**
+   * SUIT-READY (stop-B): save-suit QILINADI — ADOLAT'da HAQIQIY ish yaratiladi va u
+   * «Mening murojaatlarim»da (real bo'limda) turadi, xuddi yuborishga tayyorday. LEKIN
+   * send-to-court QILINMAYDI — yurist portalda ochib, oxirgi «Sudga yuborish»ni O'ZI bosadi.
+   * Bu prepareDraftOnly (stop-A: «Qoralamalar»da wizard holati)dan FARQLI: bu yerda ish
+   * ROSMAN yaratilgan. ⛔ MUHIM: bu bayroq TRUE bo'lsa send-to-court hech QACHON ishlamaydi —
+   * CABINET_ALLOW_SEND_TO_COURT/confirmedLiveVerified'дан QAT'I NAZAR (allowSend gate'idan
+   * OLDIN qaytadi). prepareDraftOnly bilan bir vaqtda berilmaydi (ikkovi ikki xil to'xtash).
+   */
+  prepareSuitOnly?: boolean;
   pkcs7Signature?: string; // Operator E-IMZO imzosi (ixtiyoriy)
   /** Bojdan ozod qilish asosi (GET /guide/duty-reasons). Yuridik tanlov — builder izohiga qarang. */
   dutyReasonId?: string | null;
@@ -41,7 +51,7 @@ export interface SubmissionOptions {
 
 export interface SubmissionResult {
   ok: boolean;
-  step: 'COMPLETED' | 'DRAFT_CREATED' | 'DRAFT_READY' | 'FAILED';
+  step: 'COMPLETED' | 'DRAFT_CREATED' | 'DRAFT_READY' | 'SUIT_READY' | 'FAILED';
   draftId?: string;
   caseId?: string;
   caseNumber?: string;
@@ -147,6 +157,10 @@ export class CabinetSubmitEngine {
       // Kvitansiyaning O'ZI payloadga qo'shilmaydi (portal xom obyektni qabul qilmaydi),
       // ya'ni bu chaqiruv faqat TEKSHIRUV. Shuning uchun uni eng arzon joyga —
       // hech qanday nojo'ya ta'sirdan oldinga — ko'chirdik.
+      // To'langan kvitansiya obyekti (find-by-receipt-number natijasi). courtCosts.receipts'ga
+      // biriktirish uchun ushlab qolamiz (portal «+» kvitansiya raqami). Formatini bilish uchun
+      // suit-only test rejimida log qilinadi.
+      let paidReceipt: unknown = null;
       if (caseData.receiptNumber) {
         // Portal to'lov holatini ham tekshiradi: to'lanmagan uchun 400 «invoiceStatus is
         // not valid» qaytadi — bu HAQIQIY sabab, ish to'xtaydi (lekin hech narsa buzilmaydi:
@@ -165,7 +179,11 @@ export class CabinetSubmitEngine {
               receiptNumber: caseData.receiptNumber,
             });
             const rec = (rr.data as any)?.receipt ?? rr.data;
-            if (rec) console.log(`✔ Kvitansiya tasdiqlandi: ${caseData.receiptNumber} — ${rec.invoiceStatus ?? '?'} ${rec.paidAmount ?? ''}`);
+            if (rec) {
+              paidReceipt = rec;
+              console.log(`✔ Kvitansiya tasdiqlandi: ${caseData.receiptNumber} — ${rec.invoiceStatus ?? '?'} ${rec.paidAmount ?? ''}`);
+              if (options.prepareSuitOnly) console.log(`   [suit-test] receipt obyekti: ${JSON.stringify(rec).slice(0, 600)}`);
+            }
             break;
           } catch (e: any) {
             const kind = e?.kind as string | undefined;
@@ -295,6 +313,18 @@ export class CabinetSubmitEngine {
         );
       }
       console.log(`✔ Sud ishi yaratildi: ${caseId} (${suitPayload.case_documents.length} ta hujjat biriktirildi)`);
+
+      // ── SUIT-READY (stop-B) ──────────────────────────────────────────────────────────────
+      //
+      // save-suit tugadi — ish ADOLAT'da ROSMAN yaratildi va «Mening murojaatlarim»da turadi
+      // (xuddi yuborishga tayyorday). LEKIN send-to-court QILINMAYDI: shu yerda MAJBURIY
+      // to'xtaymiz, allowSend gate'ига UMUMAN yetib bormaymiz. Ya'ni CABINET_ALLOW_SEND_TO_COURT=1
+      // bo'lsa ham suit-only ish real sudga KETMAYDI — yurist portalda ochib O'ZI yuboradi.
+      // ok:true — ish haqiqatan tayyorlandi (draft-only'дан farqli: bu real ish id'si bor).
+      if (options.prepareSuitOnly) {
+        console.log(`✔ MUROJAAT TAYYOR (SUIT-READY): ish ${caseId} «Murojaatlarim»da turibdi — SUDGA YUBORILMADI, yurist O'ZI yuboradi.`);
+        return { ok: true, step: 'SUIT_READY', draftId, caseId, uploadedFiles };
+      }
 
       // ⛔ BIRINCHI JONLI TEKSHIRUVGACHA TO'SIQ.
       //

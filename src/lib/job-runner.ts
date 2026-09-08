@@ -24,6 +24,7 @@ export async function runJobById(jobId: number): Promise<void> {
       delayMs: p.delayMs != null ? Number(p.delayMs) : undefined,
       dryRun: p.dryRun === true,
       draftMode: p.draftMode === true,
+      suitMode: p.suitMode === true,
     };
     await runCourtSubmitJob(jobId, opts);
     return;
