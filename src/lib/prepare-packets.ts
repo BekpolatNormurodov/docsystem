@@ -171,7 +171,9 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
 
     const usedFolders = new Set<string>();
     const usedArizaPaths = new Set<string>(); // ariza-only: dedupe the flat «firma/file» paths
-    const toMark: { id: number; talabnomaMade: boolean; arizaMade: boolean }[] = [];
+    // `incomplete` — MAJBURIY hujjatlardan birortasi yasalmagan (buildCasePacket aniqlaydi).
+    // Busiz chala paket «exported» bo'lib, «hali chiqarilmagan» ro'yxatidan tushib qolardi.
+    const toMark: { id: number; talabnomaMade: boolean; arizaMade: boolean; incomplete: boolean }[] = [];
     // Firm library docs are identical for every client of a firm, so collect the
     // firms seen and add each firm's docs ONCE (to `_FIRMA/<firm>/`) after the loop —
     // instead of duplicating multi-MB scans into all thousands of client folders.
@@ -227,7 +229,7 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
           // Backpressure → memory stays flat at any scale. Outside the per-case catch so a
           // sink error rejecting here propagates to the outer catch (clean FAILED), not swallowed.
           if (out.writableNeedDrain) await once(out, 'drain');
-          toMark.push({ id, talabnomaMade: p.talabnomaMade, arizaMade: p.arizaMade });
+          toMark.push({ id, talabnomaMade: p.talabnomaMade, arizaMade: p.arizaMade, incomplete: p.incomplete });
         }
         done += 1;
       }
@@ -239,7 +241,15 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
     // Ariza-only: firm docs belong to the court packet, not this step — skip them.
     if (!arizaOnly) for (const [fid, fname] of firmsSeen) {
       if (streamErr) throw streamErr;
-      const libFiles = await firmLibraryFiles(fid).catch(() => []);
+      // Ikkinchi JIM yutish olib tashlandi: `firmLibraryFiles` ichida har bir fayl
+      // alohida `try` bilan o'qiladi va nosozligi logga yoziladi, ya'ni bu yerdagi
+      // `.catch(() => [])` faqat kutilmagan xatoni yashirar edi — natijada firmaning
+      // guvohnoma/ishonchnoma/shartnomasi butun paketdan tushib qolsa ham hech qayerda
+      // bilinmasdi (2026-09-08 auditi).
+      const libFiles = await firmLibraryFiles(fid).catch((e) => {
+        console.error(`prepare-packets: firma ${fid} (${fname}) hujjatlari olinmadi —`, e instanceof Error ? e.message : e);
+        return [] as Awaited<ReturnType<typeof firmLibraryFiles>>;
+      });
       const dir = `_FIRMA/${fname.replace(/[^\p{L}\p{N}._ ()-]+/gu, '_').trim().slice(0, 60) || `firma-${fid}`}`;
       for (const f of libFiles) archive.append(f.buf, { name: `${dir}/${f.name}` });
       if (out.writableNeedDrain) await once(out, 'drain');
@@ -258,9 +268,20 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
       // yiqilgan (arizaMade=false) chala paket «yuborilgan» deb belgilanmaydi, keyingi safar qayta
       // chiqadi. (Ariza — sud paketining o'zagi; usiz «yuborilgan» deyish xato.)
       if (opts.markExported) {
-        const complete = toMark.filter((m) => m.arizaMade).map((m) => m.id);
+        // CHALA PAKET «EXPORTED» BO'LMAYDI — arizasiz ham, boshqa majburiy hujjati
+        // yasalmagani ham. Ilgari faqat `arizaMade` tekshirilardi: chromium bitta
+        // mijozning talabnomasi yoki ofertasida qoqilsa, papka o'sha hujjatlarsiz
+        // ketar, case esa «chiqarilgan» deb belgilanib «hali chiqarilmagan» ro'yxatidan
+        // tushib qolardi — operator yo'qotishni hech qachon ko'rmasdi (2026-09-08 auditi).
+        const complete = toMark.filter((m) => m.arizaMade && !m.incomplete).map((m) => m.id);
         const held = toMark.length - complete.length;
-        if (held > 0) console.warn(`prepare-packets: ${held} case arizasiz — «exported» qilinmadi (qayta chiqadi)`);
+        if (held > 0) {
+          const noAriza = toMark.filter((m) => !m.arizaMade).length;
+          console.warn(
+            `prepare-packets: ${held} case «exported» qilinmadi (qayta chiqadi) — ` +
+            `${noAriza} tasi arizasiz, ${held - noAriza} tasida boshqa majburiy hujjat yasalmadi`,
+          );
+        }
         await markCasesExported(complete).catch(() => {});
       }
     } else {

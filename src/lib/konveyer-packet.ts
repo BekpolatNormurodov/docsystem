@@ -27,7 +27,21 @@ export interface CasePacket {
   arizaMade: boolean;       // ariza .docx built
   firmId: number | null;    // which firm — so a bulk job can place firm docs once per firm
   firmName: string | null;
+  // CHALA PAKET SIGNALI (2026-09-08). Ilgari talabnoma/oferta render'i yiqilsa, `catch {}`
+  // uni JIM yutib yuborardi: mijoz papkasi ofertasiz/talabnomasiz ketar, paket esa
+  // muvaffaqiyat sifatida qaytar va runPacketJob uni «exported» deb belgilardi (u faqat
+  // arizaMade'ni tekshiradi) — mijoz «chiqarilganlar»ga tushib, boshqa hech qachon
+  // qayta chiqmasdi. Operator chala paketni faqat suddan qaytganda bilardi.
+  // `missing` — SUDGA MAJBURIY hujjatlardan yasalmay qolganlari (talabnoma / ariza / oferta);
+  // grafik ATAYIN bu ro'yxatda yo'q — u ixtiyoriy (ready-export uni umuman qo'shmaydi).
+  missing: string[];
+  incomplete: boolean;      // missing.length > 0 — bunday case «exported» qilinmasligi kerak
 }
+
+// Yutilgan xatoni ko'rinadigan qilamiz: qaysi case, qaysi hujjat, qanday xato.
+// Loglarsiz «nega bu mijozda oferta yo'q?» degan savolga javob topib bo'lmasdi.
+const packetFail = (caseId: number, kind: string, e: unknown) =>
+  console.error(`konveyer-packet: case ${caseId} — «${kind}» yasalmadi:`, e instanceof Error ? e.message : e);
 
 // Keep apostrophes (straight + Uzbek ʻ and curly) so person folders read like «… OʼGʼLI»,
 // not «… O_G_LI». All are valid Windows filename characters.
@@ -70,6 +84,7 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
 
   const folder = safe(ac.clientName || `case-${caseId}`);
   const files: PacketFile[] = [];
+  const missing: string[] = []; // yasalmay qolgan MAJBURIY hujjatlar — yuqoridagi CasePacket izohiga qarang
   const reportDate = snapshot?.reportDate ?? new Date();
 
   // DEBT GATE — a fully-paid (or otherwise zero-debt) client×firm has NOTHING to
@@ -102,7 +117,12 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
       try {
         files.push({ name: `Talabnoma_${folder}.pdf`, buf: await renderTalabnomaPdf(rows[0], opts.browser, firm) });
         talabnomaMade = true;
-      } catch { /* PDF render failed — skip the talabnoma for this case */ }
+      } catch (e) {
+        // Chromium bir mijozda qoqilsa, paket talabnomasiz ketadi — endi bu jim emas:
+        // xato logga chiqadi va paket CHALA deb belgilanadi.
+        packetFail(caseId, 'talabnoma', e);
+        missing.push('talabnoma');
+      }
     }
   }
 
@@ -134,7 +154,12 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
         files.push({ name: arizaName, buf: Buffer.from(await buildArizaDocx(props)) });
         arizaMade = true;
       }
-    } catch { /* ariza build failed — continue with the rest of the packet */ }
+    } catch (e) {
+      // Ariza — sud paketining o'zagi; usiz paket ma'nosiz (runPacketJob buni arizaMade
+      // orqali ham ushlaydi, lekin SABABI faqat shu logda ko'rinadi).
+      packetFail(caseId, 'ariza', e);
+      missing.push('ariza');
+    }
   }
 
   // 2c) Kredit toʻlash grafigi (.docx) — computed annuity schedule per contract
@@ -148,7 +173,11 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
   if (!arizaOnly && hasDebt && opts.includeGrafik !== false && grafikLoans.length) {
     try {
       files.push({ name: `Grafik_${folder}.docx`, buf: await buildGrafikDocx(grafikLoans as any, ac.clientName, firm?.shortName || ac.kod || '') });
-    } catch { /* grafik build failed — continue */ }
+    } catch (e) {
+      // Grafik IXTIYORIY (ready-export uni umuman qo'shmaydi) — shuning uchun `missing`ga
+      // tushmaydi, lekin jim yo'qolmasligi uchun logga yoziladi.
+      packetFail(caseId, 'grafik', e);
+    }
   }
 
   // 2d) Oferta (mikroqarz shartnomasi) PDF — ONE per loan. The oferta is an UNSIGNED
@@ -164,7 +193,12 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
       try {
         const buf = await renderOfertaPdf(l as any, firm ?? {}, opts.browser, ac.clientName, ac.pinfl, 0);
         files.push({ name: `Oferta_${(l as any).ldId ?? n}_${folder}.pdf`, buf });
-      } catch { /* skip a failed oferta, keep the rest */ }
+      } catch (e) {
+        // Har bir shartnomaning ofertasi sudga majburiy — bittasi chiqmasa ham paket chala.
+        const ld = (l as { ldId?: string | null }).ldId ?? n;
+        packetFail(caseId, `oferta ${ld}`, e);
+        missing.push(`oferta:${ld}`);
+      }
     }
   }
 
@@ -189,7 +223,11 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
         const ext = path.extname(fd.filePath);
         const label = fd.label || `${fd.kind}${ext}`; // label already carries the extension
         files.push({ name: `${fd.kind}__${safe(label, 50)}`, buf });
-      } catch { /* missing file — skip */ }
+      } catch (e) {
+        // Firma kutubxonasidagi skan diskda yo'q — bu firma bo'yicha DOIMIY nosozlik
+        // (bitta case aybdor emas), shuning uchun `missing`ga emas, faqat logga.
+        packetFail(caseId, `firma hujjati ${fd.kind}`, e);
+      }
     }
   }
 
@@ -201,7 +239,11 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
     try {
       const buf = await fs.readFile(d.filePath);
       files.push({ name: `${d.kind}__${safe(d.fileName, 50)}`, buf });
-    } catch { /* missing file — skip */ }
+    } catch (e) {
+      // Yuklangan skan (imzolangan ariza / UZPOST kvitansiyasi) diskda topilmadi.
+      // Generatsiya emas — saqlash muammosi, shuning uchun logga chiqadi.
+      packetFail(caseId, `yuklangan hujjat ${d.kind}`, e);
+    }
   }
 
   // Dedupe file names — two docs that sanitize to the same name would silently
@@ -220,7 +262,15 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
     seen.add(f.name);
   }
 
-  return { caseId, folder, files, talabnomaMade, arizaMade, firmId: ac.firmId ?? null, firmName: firm?.shortName ?? ac.kod ?? null };
+  // Chala paketni bir qatorda umumlashtirib logga chiqaramiz — chaqiruvchi signalni
+  // e'tiborsiz qoldirsa ham, operator/loglarda qaysi mijoz chala ketgani qoladi.
+  if (missing.length) console.warn(`konveyer-packet: case ${caseId} (${folder}) CHALA — yasalmadi: ${missing.join(', ')}`);
+
+  return {
+    caseId, folder, files, talabnomaMade, arizaMade,
+    firmId: ac.firmId ?? null, firmName: firm?.shortName ?? ac.kod ?? null,
+    missing, incomplete: missing.length > 0,
+  };
 }
 
 /** Build ONLY the ofertas for one case: one oferta PDF per loan (contract) of the
@@ -279,7 +329,15 @@ export async function firmLibraryFiles(firmId: number): Promise<PacketFile[]> {
       for (let i = 2; seen.has(name); i++) name = `${fd.kind}_${i}__${safe(fd.label || `${fd.kind}${ext}`, 50)}`;
       seen.add(name);
       out.push({ name, buf });
-    } catch { /* missing file — skip */ }
+    } catch (e) {
+      // FIRMA HUJJATI O'QILMADI — JIM O'TKAZIB YUBORILMAYDI.
+      //
+      // Bu yo'l aynan sudga ketadigan paketda ishlaydi (bulk oqim `includeFirmDocs: false`
+      // beradi va firma hujjatlarini SHU funksiyadan bir marta oladi). Fayl yo'q bo'lsa
+      // guvohnoma/ishonchnoma/shartnoma `_FIRMA/` papkasidan tushib qoladi — va bu bitta
+      // mijozga emas, o'sha firmaning HAMMA mijoziga tegishli. Ilgari bu butunlay jim edi.
+      console.warn(`konveyer-packet: firma ${firmId} «${fd.kind}» hujjati o'qilmadi (${fd.filePath}) — ${e instanceof Error ? e.message : e}`);
+    }
   }
   return out;
 }

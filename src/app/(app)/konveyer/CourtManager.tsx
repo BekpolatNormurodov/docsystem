@@ -358,7 +358,15 @@ function ZipControl({ job, sendable, onStart, onCancel }: { job?: JobState; send
 
   // TAYYOR — yashil, bosilsa yuklab oladi. Soni ikonka ustidagi kichik nishonchada.
   if (job?.status === 'DONE' && job.jobId) {
-    const label = `${n(job.total)} ta mijoz ZIP arxivi — yuklab olish`;
+    // ARXIVDA KIM BORLIGI SHU YERDA AYTILADI. Ilgari tugagan kartada faqat son turardi:
+    // operator 100 talik ikkita arxivni olib, ular ustma-ust tushadimi va ichida kim
+    // borligini ZIP'ni ochib papka nomlarini o'qimaguncha bilolmasdi (2026-09-08).
+    // Tanlov qoidasi serverdagi bilan bir xil: dueAt bo'yicha, eng eski muddatlilardan.
+    // So'ralgan va yig'ilgan son farq qilsa — «ketyapti» holatidagi kabi shu yerda ham
+    // KO'RINADI (ilgari farq faqat progress paytida ko'rinib, tugagach yo'qolardi).
+    const label = short > 0
+      ? `${n(job.total)} ta mijoz ZIP arxivi (eng eski muddatlilardan) — ${n(job.asked!)} ta so‘ralgan edi, ${n(short)} tasi tayyor emas edi. Yuklab olish`
+      : `${n(job.total)} ta mijoz ZIP arxivi (eng eski muddatlilardan) — yuklab olish`;
     return (
       <div className="flex shrink-0 items-center gap-1">
         <a
@@ -371,6 +379,13 @@ function ZipControl({ job, sendable, onStart, onCancel }: { job?: JobState; send
             {n(job.total)}
           </span>
         </a>
+        {/* So'ralgani bilan yig'ilgani farqi TUGAGACH HAM ko'rinib tursin: «500 so'radim,
+            arxivda 480 ta» savoli aynan shu yerda tug'iladi (nishonchada faqat 480 turadi). */}
+        {short > 0 && (
+          <span className="text-[10px] leading-tight text-amber-600 dark:text-amber-400" title={`${n(job.asked!)} ta so‘raldi, ${n(job.total)} tasi arxivga tushdi`}>
+            −{n(short)}
+          </span>
+        )}
         {sendable > 0 && (
           <button type="button" onClick={onStart} title={`Yangi ZIP — ${n(sendable)} ta tayyor`} aria-label={`Yangi ZIP — ${n(sendable)} ta tayyor`}
             className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-muted outline-none transition-colors hover:bg-surface-2 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30">
@@ -1677,8 +1692,25 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   const startJob = useCallback((key: string, body: Record<string, unknown>, onDone: () => void, endpoint = '/konveyer/prepare-ready') => {
     if (timers.current[key]) return; // already running
     setJobs((j) => ({ ...j, [key]: { jobId: 0, status: 'PENDING', progress: 0, total: 0 } }));
+    // TUGAGAN SESSIYA «Tarmoq xatosi» BO'LIB KO'RINMASIN.
+    //
+    // Sessiya tugaganda server login sahifasiga yo'naltiradi, brauzer esa uni kuzatib
+    // 200 + HTML oladi: `r.json()` «Unexpected token '<'» bilan yiqiladi va quyidagi
+    // .catch hamma narsani «Tarmoq xatosi» deb yozardi. Operator ZIP tugmasini qayta-qayta
+    // bosardi, holbuki qilishi kerak bo'lgan yagona ish — qaytadan kirish (2026-09-08).
+    // Sabab getJson() dagi bilan BIR XIL usulda aniqlanadi (content-type + redirect).
+    let failMsg = 'Tarmoq xatosi';
     fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
+      .then((r) => {
+        const ct = r.headers.get('content-type') ?? '';
+        if (!ct.includes('application/json')) {
+          failMsg = r.redirected || r.url.includes('/login')
+            ? 'Sessiya tugagan — sahifani yangilab, qaytadan kiring.'
+            : `Server JSON qaytarmadi (${r.status}). Sahifani yangilab ko‘ring.`;
+          throw new Error(failMsg);
+        }
+        return r.json().then((d) => ({ ok: r.ok, d }));
+      })
       .then(({ ok, d }) => {
         if (!ok) { setJobs((j) => ({ ...j, [key]: { jobId: 0, status: 'FAILED', progress: 0, total: 0, error: d?.error || 'Xatolik' } })); return; }
         // `asked` — operator NECHTA so'ragani. Server topgani (`d.total`) undan kam bo'lishi
@@ -1707,7 +1739,9 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
         void loadRef.current();
         pollJob(key, d.jobId, onDone);
       })
-      .catch(() => setJobs((j) => ({ ...j, [key]: { jobId: 0, status: 'FAILED', progress: 0, total: 0, error: 'Tarmoq xatosi' } })));
+      // Sabab ANIQ bo'lsa (sessiya/HTML javob) — o'shani yozamiz; qolgan hamma holat
+      // (haqiqiy uzilish, brauzerning inglizcha `Failed to fetch` xabari) «Tarmoq xatosi».
+      .catch(() => setJobs((j) => ({ ...j, [key]: { jobId: 0, status: 'FAILED', progress: 0, total: 0, error: failMsg } })));
   }, [pollJob]);
 
   // KETAYOTGAN ZIP SAHIFA YANGILANGANDA YO'QOLMASIN.
@@ -2301,7 +2335,12 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
           open
           onClose={() => setZipAsk(null)}
           title={`ZIP yuklab olish — ${zipAsk.firmName}`}
-          description={`${n(zipAsk.max)} ta tayyor mijoz — standart: HAMMASI. Hujjatlar bitta arxivga yig'iladi, sudga yuborilmaydi.`}
+          // TANLOV QOIDASI AYTILADI. Ilgari modalda faqat son turardi va operator 100 talik
+          // ikkita arxivni olib, ichida kim borligini ham, ular ustma-ust tushadimi-yo'qmi
+          // ham bilolmasdi — ZIP'ni ochib papka nomlarini o'qishga majbur edi (2026-09-08).
+          // Server tanlovi `selectReadyCaseIds`: dueAt bo'yicha o'sish tartibida, ya'ni
+          // ENG ESKI MUDDATLILARDAN boshlab N ta.
+          description={`${n(zipAsk.max)} ta tayyor mijoz — standart: HAMMASI. Eng eski muddatlilardan boshlab tanlanadi. Hujjatlar bitta arxivga yig'iladi, sudga yuborilmaydi.`}
           footer={<>
             <button className="btn-ghost" type="button" onClick={() => setZipAsk(null)}>Bekor</button>
             <button
@@ -2354,9 +2393,22 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                 onChange={(e) => setZipAsk((c) => c && ({ ...c, value: Math.max(1, Math.min(Math.min(MAX_ZIP_BATCH, c.max), Number(e.target.value) || 0)) }))}
               />
             </label>
+            {/* «Qolganini keyingi ZIP bilan olasiz» deb yozib bo'lmaydi: ZIP olingani
+                tanlovga TA'SIR QILMAYDI (2026-09-07 da «allaqachon chiqarilgan» filtri
+                ataylab olib tashlangan — selectReadyCaseIds). Ya'ni ketma-ket ikkita ZIP
+                bir xil, eng eski muddatli mijozlarni beradi. Buni aytmaslik operatorni
+                ikkita arxiv butunlay boshqa mijozlar deb o'ylashga majbur qilardi.
+
+                DIQQAT: bu yerda operatorni «Batafsil»ga yuborish MUMKIN EMAS. Drill-down'da
+                qo'lda belgilangan mijozlar uchun yagona ommaviy amal — «Sudga yuborish»
+                (startExport → `caseIds`, `exportOnly` YO'Q), ya'ni u ZIP emas, REAL DA'VO
+                yuboradi. Yuklab olish yo'li deb ko'rsatilgan matn operatorni tirik odamlarga
+                da'vo ochadigan tugmaga olib borardi (2026-09-08 kod tekshiruvi). */}
             {zipAsk.max > MAX_ZIP_BATCH && (
               <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                Bir martada eng ko‘pi {n(MAX_ZIP_BATCH)} ta — qolgan {n(zipAsk.max - MAX_ZIP_BATCH)} tasini keyingi ZIP bilan olasiz.
+                Bir martada eng ko‘pi {n(MAX_ZIP_BATCH)} ta — eng eski muddatlilari olinadi.
+                Qolgan {n(zipAsk.max - MAX_ZIP_BATCH)} tasi keyingi ZIP'ga O‘ZI o‘tmaydi:
+                ikkinchi ZIP ham xuddi shu {n(MAX_ZIP_BATCH)} tasini beradi.
               </p>
             )}
             <div className="rounded-lg border border-line p-2.5 text-[11px] leading-snug text-muted">

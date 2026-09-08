@@ -37,6 +37,27 @@ const STALE_MS = 15 * 60_000;
 
 let stopping = false;
 
+/**
+ * STARTDA TARTIB: tiklash sweep'i TUGAMAGUNCHA hech bir sikl yangi ish OLMAYDI.
+ *
+ * MUAMMO (2026-09-08, kod ko'rigi): sikllar modul yuklanganda `void courtSubmitLoop()` bilan
+ * boshlanadi, tiklash esa `loop()` ichida — ya'ni sud sikli birinchi so'rovini sweep'dan
+ * OLDIN yuboradi. Natijada poyga: sud sikli #250 ni PENDING→RUNNING qilib yuborishni
+ * boshlaydi, bir zumdan keyin `resetInterruptedCourtJobs` uni RUNNING ko'rib
+ * «Uzilib qoldi (4/185) — worker qayta ishga tushdi» deb FAILED qiladi va HALI YUBORILAYOTGAN
+ * ishlarning kunlik limitini bo'shatadi. Partiya esa aslida ketaveradi: operator tirik
+ * partiyani «yiqilgan» deb ko'radi, sud limiti hisobi esa yolg'on bo'lib qoladi.
+ *
+ * Xuddi shu poyga hujjat yo'lagida ham bor: `resumeInterruptedDocJobs` endigina olingan
+ * PACKET job'ining chala ZIP'ini o'chirib, uni PENDING/progress 0 ga qaytaradi — shunda
+ * bitta job IKKI marta parallel render bo'lishi mumkin. Shuning uchun ikkala sikl ham
+ * shu va'daning ochilishini kutadi.
+ */
+let markRecoveryDone!: () => void;
+const recoveryDone = new Promise<void>((resolve) => {
+  markRecoveryDone = resolve;
+});
+
 // Atomically claim the oldest PENDING doc-job: flip PENDING→RUNNING and only proceed if THIS update
 // won the row (count === 1). Guards against two workers grabbing the same job.
 /**
@@ -276,6 +297,10 @@ async function loop(): Promise<void> {
   await failLongDeadJobs().catch((e) => console.error('[worker] eski job sweep xatosi', e));
   await failStaleOrphans().catch((e) => console.error('[worker] orphan sweep failed', e));
   await resetInterruptedCourtJobs().catch((e) => console.error('[worker] sud partiyasini tiklash xatosi', e));
+  // Sweep tugadi — endi boshqa sikllar ish olishi xavfsiz (yuqoridagi `recoveryDone` izohiga q.).
+  // Yuqoridagi to'rtta chaqiruv o'z xatosini `.catch` bilan yutadi, ya'ni bu qator HAR DOIM
+  // bajariladi — sikllar bironta sweep yiqilgani uchun abadiy kutib qolmaydi.
+  markRecoveryDone();
   let lastSweep = Date.now();
   while (!stopping) {
     try {
@@ -460,6 +485,9 @@ async function courtAutoResumeLoop(): Promise<void> {
 // sud partiyasi tarmoqda kutadi, doc-joblar chromium bilan render qiladi).
 async function courtSubmitLoop(): Promise<void> {
   console.log('[worker] sud partiyasi sikli: alohida navbat');
+  // Startdagi tiklashni KUTAMIZ: aks holda endigina olingan partiyani `resetInterruptedCourtJobs`
+  // ostidan «uzilib qoldi» deb FAILED qilib yuboradi (yuqoridagi `recoveryDone` izohiga q.).
+  await recoveryDone;
   while (!stopping) {
     try {
       const job = await prisma.job.findFirst({
@@ -492,6 +520,9 @@ async function courtSubmitLoop(): Promise<void> {
  */
 async function quickLoop(): Promise<void> {
   console.log(`[worker] tez yo'lak: <= ${QUICK_MAX_TOTAL} hujjatli ishlar alohida bajariladi`);
+  // Startdagi tiklashni KUTAMIZ: `resumeInterruptedDocJobs` endigina olingan job'ni PENDING'ga
+  // qaytarib, uni ikkinchi marta ishga tushirib yuborishi mumkin (`recoveryDone` izohiga q.).
+  await recoveryDone;
   while (!stopping) {
     try {
       const id = await claimNext({ maxTotal: QUICK_MAX_TOTAL });

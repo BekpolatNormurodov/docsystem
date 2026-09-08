@@ -126,6 +126,24 @@ export async function POST(req: NextRequest) {
     sendIds = alloc.assignments.map((a) => a.caseId);
     deferred = alloc.deferred.length;
     if (sendIds.length === 0) {
+      // ZIP bu yerga SUD OYNASI/LIMITI sabab TUSHMAYDI: allocateFirmCases ignoreQuota=true
+      // bilan chaqiriladi, ya'ni dam olish kuni ham, cutoffdan keyin ham tanlov kesilmaydi.
+      // Qolgan yagona sabab — sud MOSLIGI (tanlangan sud firmaga ruxsat etilmagan yoki ishlar
+      // boshqa sudga biriktirilgan) yoki ro'yxat eskirgani. Shunga qaramay bu shoxda umumiy
+      // «Bugun sudga yuborib bo‘lmaydi (keyingi ish kuniga suriladi)» matni chiqardi — yuklab
+      // olish uchun ma'nosiz xabar edi va operator ZIP tugmasi buzilgan deb o'ylardi
+      // (2026-09-08 audit). ZIP sudga bitta ham hujjat yubormaydi, shuning uchun matnda ham
+      // sudga yuborish/keyingi ish kuni haqida gap bo'lmasligi kerak.
+      if (isExportOnly) {
+        return NextResponse.json(
+          {
+            error: courtIds?.length
+              ? `ZIP tayyorlanmadi: tanlangan sud(lar) bo‘yicha mos mijoz yo‘q — ${alloc.deferred.length} ta ish boshqa sudga biriktirilgan yoki bu sud firmaga ruxsat etilmagan. Sud tanlovini o‘zgartiring.`
+              : 'ZIP tayyorlanmadi: tanlangan mijozlar topilmadi (ro‘yxat eskirgan bo‘lishi mumkin). Sahifani yangilab qayta urinib ko‘ring.',
+          },
+          { status: 400 },
+        );
+      }
       // Bugun hech nima ketmaydi — sababini tushuntiramiz (yopiq oyna yoki limit tugagan).
       const budgets = await firmCourtBudgets(firmId);
       const parts = budgets.map((b) => {

@@ -132,6 +132,17 @@ export async function allocateFirmCases(
   // Ariza bosqichida biriktirilgan sudni HURMAT qilamiz: case'ning courtId'si bo'lsa — o'shani ishlatamiz,
   // yo'q bo'lsa firma asosiy sudi. So'ng har sudning bugungi limiti/oynasi bo'yicha kesamiz (oshgani deferred).
   const rows = await prisma.arizaCase.findMany({ where: { id: { in: caseIds } }, select: { id: true, courtId: true } });
+  // Chaqiruvchining TARTIBI tiklanadi (chaqiruvchilar ro'yxatni «eng eski muddat oldin» —
+  // dueAt asc — qilib beradi). `findMany({ id: { in: ... } })` da `orderBy` yo'q, ya'ni MySQL
+  // qaysi tartibda qaytarsa shu bo'ladi; pastda esa kunlik limit AYNAN shu tartib bo'yicha
+  // kesadi (`ids.slice(0, rem)`). 2026-09-08: 200 ta tayyor ish va 100 lik kunlik limitda
+  // bugun ketadigan 100 ta eng eski qarz emas, tasodifiy yarmi bo'lib qolardi — eng
+  // muddati o'tganlar esa har kuni keyingi kunga surilaverardi.
+  const orderOf = new Map(caseIds.map((id, i) => [id, i]));
+  // Ro'yxatda yo'q id (amalda bo'lmaydi — hammasi `in` dan keladi) OXIRGA suriladi, oldinga
+  // emas: aks holda noma'lum yozuv kunlik limit kesigidan birinchi bo'lib o'tib ketardi.
+  const posOf = (id: number) => orderOf.get(id) ?? Number.MAX_SAFE_INTEGER;
+  rows.sort((a, b) => posOf(a.id) - posOf(b.id));
   const wantByCourt = new Map<number, number[]>();
   const deferredByFilter: number[] = [];
   for (const r of rows) {

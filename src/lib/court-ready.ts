@@ -484,9 +484,20 @@ export async function sendableCourtBreakdown(opts: { snapshotId?: number; firmId
   return { courts, total };
 }
 
-/** Yuborishga tayyor (ready && !exported && bosqich sudga chiqmagan) case id'lari,
- *  firma bo'yicha, eng eskisidan boshlab, `limit` tagacha. `includeExported` —
- *  qaytganlar/tuzatilganlarni qayta chiqarish uchun. */
+/** Yuborishga TAYYOR case id'lari (kartadagi «Tayyor» bilan AYNAN bir xil shart —
+ *  flagsFor().sendable), firma bo'yicha, eng eski muddatdan (dueAt) boshlab, `limit` tagacha.
+ *
+ *  DIQQAT — KURSOR/OFFSET YO'Q: `limit` berilganda ro'yxat HAR SAFAR boshidan olinadi, ya'ni
+ *  bu «eng eski N ta» amali, «keyingi N ta» EMAS. ZIP oqimida buni sezish oson: ZIP hech
+ *  narsani band qilmaydi va `sendable`ni o'zgartirmaydi, shuning uchun 616 tadan 100 tasini
+ *  ZIP qilib tugmani yana bossangiz — AYNI o'sha 100 ta chiqadi. Qolganini olish yo'li:
+ *  «Hammasi (N)» ni so'rash yoki «Batafsil»da qo'lda belgilash (validateSelectedCaseIds).
+ *  Sudga yuborish oqimida esa olingan ishlar NAVBATga tushadi va shu bilan `sendable`dan
+ *  chiqadi — u yerda keyingi bosish haqiqatan keyingi N ta ishni beradi.
+ *
+ *  `includeExported` / `forExport` chaqiruvchilar bilan moslik uchun qabul qilinadi, LEKIN
+ *  tanlovga ta'sir qilmaydi: «allaqachon chiqarilgan» filtri 2026-09-07 da butunlay olib
+ *  tashlangan (operator qarori). */
 export async function selectReadyCaseIds(opts: {
   snapshotId?: number; firmId: number; limit: number; includeExported?: boolean; forExport?: boolean;
 }): Promise<number[]> {
@@ -507,11 +518,17 @@ export async function selectReadyCaseIds(opts: {
   const picked: number[] = [];
   for (const c of cases as CaseRow[]) {
     const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds);
-    if (!fl.ready) continue;
-    if (SENT_STAGES.has(c.stage)) continue;
-    // ZIP olingani HECH QAYERDA to'siq emas: u sudga hech narsa yubormaydi va shunchaki
-    // fayl yuklab olish. Operator xohlagancha qayta chiqarishi mumkin — shuning uchun
-    // «allaqachon chiqarilgan» filtri butunlay olib tashlandi (2026-09-07, operator qarori).
+    // Shart AYNAN kartadagi «Tayyor» bilan bir xil (fl.sendable) — bitta manba, flagsFor.
+    //
+    // 2026-09-08: bu yerda `ready && !SENT_STAGES` turardi, karta va modal esa `sendable`
+    // (ready VA sudda/qoralama/NAVBATDA emas) bo'yicha sanardi. Ikki to'plam bir xil emas
+    // edi: operator «Tayyor 616» ni ko'rib 616 tani so'raganda tanlovga ALLAQACHON navbatda
+    // turgan ishlar ham tushardi — bitta ish ikkinchi marta partiyaga olinardi va karta /
+    // modal / partiya uch xil raqam ko'rsatardi.
+    // ZIP olingani (meta.exportedAt) baribir to'siq EMAS: `sendable` uni tekshirmaydi. ZIP
+    // sudga hech narsa yubormaydi, shunchaki fayl yuklab olish — shuning uchun «allaqachon
+    // chiqarilgan» filtri 2026-09-07 da butunlay olib tashlangan (operator qarori).
+    if (!fl.sendable) continue;
     picked.push(c.id);
     if (picked.length >= opts.limit) break;
   }
