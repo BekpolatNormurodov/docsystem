@@ -316,10 +316,20 @@ export async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
  * «Ҳужжатлар тартибсиз ёки тескари сақланганлиги сабабли уларни ўқиш имконияти йўқ».
  *
  * Sabab kodda edi. Arizaning O'ZI (2-bet, «Ilova qilingan hujjatlar ro'yxati») sudga
- * ANIQ tartib va'da qiladi — `CHAMBER.attachments`:
- *   1. SSP a'zolik shartnomasi va guvohnomasi   2. Ishonchnoma
- *   3. Kredit shartnomasi (oferta)              4. Ogohlantirish xatlari (talabnoma)
- *   5. Kredit to'lash grafigi                   6. Pochta xarajati to'lov topshiriqnomasi
+ * ANIQ tartib va'da qiladi — `CHAMBER.attachments` (src/core/chamber.ts). Quyidagi jadval
+ * shu ro'yxatning HAR BANDINI uni bajaradigan faylga bog'laydi — ikkisi bir joyda tursin,
+ * aks holda ular yana bir-biridan uzoqlashadi:
+ *
+ *   ariza bandi                              → yuboriladigan fayl (kind)   → ADOLAT slot
+ *   ─────────────────────────────────────────────────────────────────────────────────────
+ *   (da'voning o'zi, ro'yxatda yo'q)         → ARIZA                       claimApplication
+ *   1. SSP a'zolik shartnomasi va guvohnomasi→ SHARTNOMA, GUVOHNOMA        BOSHQA / GUVOHNOMA
+ *   2. Ishonchnoma                           → ISHONCHNOMA                 ISHONCHNOMA
+ *   3. Kredit shartnomasi                    → OFERTA (har kredit uchun)   BOSHQA_HUJJATLAR
+ *   4. Ogohlantirish xatlari                 → TALABNOMA                   TALABNOMA
+ *      (yetkazilgani dalili, ro'yxatda yo'q) → TALABNOMA_CHECK             TALABNOMA_CHECK
+ *   5. Pochta xarajati to'lov topshiriqnomasi→ BOJI_RECEIPT                POCHTA_XARAJATI…
+ *
  * Fayllar esa YIG'ILISH tartibida ketardi: avval `CaseDocument` qatorlari (ularning
  * o'zi `orderBy`siz — MySQL qaytargan tartibda, ya'ni bizning tizimga qachon
  * biriktirilganiga qarab), keyin firma hujjatlari, keyin oferta, talabnoma, kvitansiya.
@@ -346,7 +356,7 @@ const COURT_FILE_ORDER: Record<CaseFileToUpload['kind'], number> = {
   // kvitansiyasi — ular juft o'qiladi (xatning mazmuni + yetkazilgani dalili).
   TALABNOMA: 5,
   TALABNOMA_CHECK: 6,
-  // 6-ilova (5-ilova «grafik» hozircha biriktirilmaydi — pastdagi izohga qarang)
+  // 5-ilova: pochta xarajati to'lov topshiriqnomasi (billing.sud.uz kvitansiyasi PDF)
   BOJI_RECEIPT: 7,
   // Ro'yxatda yo'q, turi aniqlanmagan hujjat — oxirida.
   BOSHQA: 8,

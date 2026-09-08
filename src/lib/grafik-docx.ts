@@ -1,4 +1,9 @@
-// Kredit toʻlash grafigi (payment schedule) DOCX — the 5th court attachment.
+// Kredit toʻlash grafigi (payment schedule) DOCX.
+//
+// NOTE: this is NOT a court attachment any more. It used to be item 5 of the ariza's
+// «Ilova qilingan hujjatlar roʻyxati», but the ariza promised it while nothing ever
+// attached it, so the item was removed from CHAMBER.attachments (2026-09-08). The
+// schedule is still built for the ordinary konveyer packet / «gen-grafik» download.
 // The portfolio Excel carries no month-by-month schedule (only principal, rate,
 // disbursement→maturity dates), so this COMPUTES a standard ANNUITY (equal
 // monthly payment) schedule per contract. If a firm's contracts use the

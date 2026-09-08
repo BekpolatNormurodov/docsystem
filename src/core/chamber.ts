@@ -23,13 +23,32 @@ export const CHAMBER = {
   applicantStir: '201 800 518',
   /** The right-aligned label above the firm (the member on whose behalf the chamber collects). */
   collectorLabel: ['Palata aʼzosi', 'manfaatida undiruvchi:'],
-  /** «Ilova qilingan hujjatlar roʻyxati:» — the six fixed attachments. */
+  /**
+   * «Ilova qilingan hujjatlar roʻyxati:» — arizada bosiladigan ilovalar ro'yxati.
+   *
+   * BU RO'YXAT — SUD BILAN TUZILGAN SHARTNOMA. Sudya arizani o'qib, ilovalarni AYNAN shu
+   * tartibda va AYNAN shu tarkibda kutadi. Shuning uchun har bandning qarshisida uni
+   * QAYSI hujjat bajarishi yozib qo'yilgan; sudga yuborishda fayllar shu tartibga solinadi
+   * (`COURT_FILE_ORDER`, src/lib/court-submit-job.ts).
+   *
+   * Ro'yxatga band QO'SHISH — biriktiriladigan hujjat ham qo'shilishini talab qiladi.
+   * Aks holda sud «ro'yxatda bor, o'zi yo'q» deb qaytaradi.
+   *
+   * 2026-09-08: «Kredit toʻlash grafigi nusxasi» OLIB TASHLANDI (operator qarori). U hech
+   * qachon biriktirilmagan — ariza uni va'da qilar, paketda esa yo'q edi (sudga yuborishda
+   * grafik umuman yaratilmaydi, ZIP'da ham `includeGrafik: false`). Ro'yxatda qolgani
+   * sudning «hujjatlar tartibsiz» degan e'tiroziga qo'shimcha asos berardi.
+   */
   attachments: [
+    // 1 → FirmDocument.SHARTNOMA + FirmDocument.GUVOHNOMA (firma kutubxonasidan)
     'Oʻz SSPga aʼzolik shartnomasi va guvoxnomasi nusxasi;',
+    // 2 → FirmDocument.ISHONCHNOMA
     'Arizani imzolash vakolatini beruvchi ishonchnoma nusxasi;',
+    // 3 → OFERTA (har kredit uchun bittadan, portfeldan generatsiya qilinadi)
     'Kredit shartnomasi nusxasi;',
+    // 4 → TALABNOMA (+ ketidan uning UZPOST yetkazish kvitansiyasi)
     'Ogohlantirish xatlari nusxasi;',
-    'Kredit toʻlash grafigi nusxasi;',
+    // 5 → billing.sud.uz kvitansiyasi PDF (InvoiceRecord.pdfPath)
     'Pochta xarajat toʻlanganligi haqida toʻlov topshiriqnoma.',
   ],
 } as const;
