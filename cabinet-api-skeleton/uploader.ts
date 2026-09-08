@@ -1,9 +1,18 @@
 // cabinet-api-skeleton/uploader.ts
 // Sud paketidagi barcha fayllarni tegishli slot GUID'lari bilan portalga yuklash moduli.
 
+import { createHash } from 'node:crypto';
 import type { CabinetApiClient } from './client';
 import { CABINET_DOC_TYPES } from './constants';
 import type { UploadedCabinetFile } from './types';
+
+// FIRMA HUJJATLARI — bir firmaning HAMMA ishida BAYT-BAYTIGA bir xil (guvohnoma,
+// ishonchnoma, shartnoma). Ularni har ish uchun qayta yuklash — sof isrof: har biri
+// UPLOAD_GAP_MS (4s) va bitta so'rov. Bir partiyada 200 ish × 3 hujjat = 600 ta behuda
+// yuklash ≈ 40 daqiqa. Portalning fayl ombori draftga emas, AKKAUNTGA bog'liq
+// (`/case/file/upload` da draftId yo'q), shuning uchun bir marta yuklangan fayl id'sini
+// bir necha da'voga biriktirish mumkin — Angular frontendi ham shunday ishlaydi.
+const CACHEABLE_KINDS = new Set(['GUVOHNOMA', 'ISHONCHNOMA', 'SHARTNOMA']);
 
 export interface CaseFileToUpload {
   // `BOSHQA` — turi aniqlanmagan hujjat. ATAYIN alohida: ilgari notanish tur «OFERTA»
@@ -15,6 +24,8 @@ export interface CaseFileToUpload {
 
 export class CabinetFileUploader {
   private client: CabinetApiClient;
+  // Partiya davomida (bitta engine) firma hujjatlari id'lari — qayta yuklamaslik uchun.
+  private firmDocCache = new Map<string, UploadedCabinetFile>();
 
   constructor(client: CabinetApiClient) {
     this.client = client;
@@ -91,6 +102,22 @@ export class CabinetFileUploader {
     const uploaded: UploadedCabinetFile[] = [];
 
     for (const file of files) {
+      // FIRMA HUJJATINI QAYTA YUKLAMAYMIZ — birinchi ishda yuklangan id qayta ishlatiladi
+      // (yuqoridagi `CACHEABLE_KINDS` izohiga qarang). Kalit: tur + fayl mazmuni (sha256),
+      // ya'ni firma hujjatini almashtirsangiz yangi id o'z-o'zidan yuklanadi.
+      if (CACHEABLE_KINDS.has(file.kind)) {
+        const key = `${file.kind}:${createHash('sha256').update(file.buffer).digest('hex')}`;
+        const hit = this.firmDocCache.get(key);
+        if (hit) {
+          // Yangi ishga MOS nom bilan biriktiramiz (id o'sha, nomi shu ishникi bo'lsin).
+          uploaded.push({ ...hit, fileName: file.fileName });
+          continue;
+        }
+        const up = await this.uploadSingle(file);
+        this.firmDocCache.set(key, up);
+        uploaded.push(up);
+        continue;
+      }
       const up = await this.uploadSingle(file);
       uploaded.push(up);
     }
