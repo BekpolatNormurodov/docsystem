@@ -1436,6 +1436,8 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
   }, [menuOpen]);
   // ZIP faol/tayyor bo'lsa qatorda ko'rinadi (progress/yuklab olish); aks holda «boshlash» menyuda.
   const zipShown = !!zipJob;
+  // Sudga yuborish/qoralama partiyasi FAOL bo'lsa — progressi qatorda; aks holda boshlash menyuда.
+  const jobActive = !!job && (job.status === 'PENDING' || job.status === 'RUNNING');
 
   return (
     <div className={`animate-fade-in rounded-xl border bg-surface transition-colors ${docsOk ? 'border-line hover:border-brand-500/40' : 'border-amber-500/40 bg-amber-500/[0.03]'}`} style={{ animationDelay: `${Math.min(idx, 8) * 40}ms` }}>
@@ -1539,28 +1541,42 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
                 To‘xtatish
               </button>
             </div>
-          ) : docsOk ? (
-            <>
-              {/* ZIP faqat faol/tayyor bo'lsa qatorda ko'rinadi (progress/yuklab olish); aks holda ⋮ da. */}
-              {zipShown && <ZipControl job={zipJob} sendable={fr.sendable} onStart={() => onZip?.()} onCancel={onZipCancel} />}
-              <ExportControl job={job} sendable={fr.sendable} onStart={() => startExport(fr.firmId, {})} batchActive={batchActive} />
-            </>
           ) : (
-            <button type="button" disabled title={docsTip}
-              className={`${ROW_BTN} border border-amber-500/40 bg-amber-500/10 text-amber-700 opacity-90 dark:text-amber-300`}>
-              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
-              Hujjat kerak
-            </button>
+            <>
+              {/* Faqat FAOL partiya progressi qatorda ko'rinadi (Sudga yuborish / ZIP). Boshlash
+                  amallari ⋮ menyuда — qator toza turadi. */}
+              {docsOk && jobActive && <ExportControl job={job} sendable={fr.sendable} onStart={() => startExport(fr.firmId, {})} batchActive={batchActive} />}
+              {docsOk && zipShown && <ZipControl job={zipJob} sendable={fr.sendable} onStart={() => onZip?.()} onCancel={onZipCancel} />}
+              {!docsOk && (
+                <button type="button" disabled title={docsTip}
+                  className={`${ROW_BTN} border border-amber-500/40 bg-amber-500/10 text-amber-700 opacity-90 dark:text-amber-300`}>
+                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                  Hujjat kerak
+                </button>
+              )}
+            </>
           )}
 
-          {/* ⋮ MENYU — batafsil / hisobot / ZIP */}
+          {/* ⋮ MENYU — asosiy amal (Sudga yuborish/Qoralama) + batafsil / hisobot / ZIP */}
           <div ref={menuRef} className="relative shrink-0">
-            <button type="button" onClick={() => setMenuOpen((v) => !v)} aria-expanded={menuOpen} aria-haspopup="menu" title="Boshqa amallar"
+            <button type="button" onClick={() => setMenuOpen((v) => !v)} aria-expanded={menuOpen} aria-haspopup="menu" title="Amallar"
               className={`inline-flex ${ROW_H} w-9 items-center justify-center rounded-lg border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-500/30 ${menuOpen || drillOpen ? 'border-brand-500/40 bg-surface-2 text-fg' : 'border-line text-muted hover:border-brand-500/40 hover:bg-surface-2 hover:text-fg'}`}>
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden><circle cx="12" cy="5" r="1.7" /><circle cx="12" cy="12" r="1.7" /><circle cx="12" cy="19" r="1.7" /></svg>
             </button>
             {menuOpen && (
-              <div role="menu" className="absolute right-0 top-full z-30 mt-1.5 w-56 overflow-hidden rounded-xl border border-line bg-surface p-1 shadow-xl">
+              <div role="menu" className="absolute right-0 top-full z-30 mt-1.5 w-60 overflow-hidden rounded-xl border border-line bg-surface p-1 shadow-xl">
+                {/* ASOSIY AMAL — Sudga yuborish / Qoralama (soni so'raladi → navbatga qo'shish yoki yuborish). */}
+                {docsOk && !jobActive && !autoActive && (
+                  <>
+                    <button type="button" role="menuitem" onClick={() => { startExport(fr.firmId, {}); setMenuOpen(false); }}
+                      className={`${MENU_ITEM} font-semibold text-emerald-700 dark:text-emerald-300`} disabled={fr.sendable <= 0}
+                      title={fr.sendable > 0 ? 'Soni so‘raladi — navbatga qo‘shish yoki yuborish/qoralama' : 'Yuboriladigan tayyor ish yo‘q'}>
+                      <svg className="h-4 w-4 shrink-0 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4Z" /></svg>
+                      <span className="flex-1">Sudga yuborish / Qoralama{fr.sendable > 0 ? ` (${n(fr.sendable)})` : ''}</span>
+                    </button>
+                    <div className="my-1 border-t border-line/60" />
+                  </>
+                )}
                 <button type="button" role="menuitem" onClick={() => { onToggleDrill(); setMenuOpen(false); }} className={MENU_ITEM}>
                   <svg className="h-4 w-4 shrink-0 text-brand-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
                   <span className="flex-1">Mijozlar {drillOpen ? '(yopish)' : '(batafsil)'}</span>
