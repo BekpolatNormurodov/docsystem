@@ -1414,6 +1414,7 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
   // ko'rinadi, qolgani menyuda.
   const [menuOpen, setMenuOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false); // «Yuborilayotganlar» (navbat/holat) modali
   const menuRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!menuOpen) return;
@@ -1553,31 +1554,36 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden><circle cx="12" cy="5" r="1.7" /><circle cx="12" cy="12" r="1.7" /><circle cx="12" cy="19" r="1.7" /></svg>
             </button>
             {menuOpen && (
-              <div role="menu" className="absolute right-0 top-full z-30 mt-1.5 w-60 overflow-hidden rounded-xl border border-line bg-surface p-1 shadow-xl">
-                {/* ASOSIY AMAL — Sudga yuborish / Qoralama (soni so'raladi → navbatga qo'shish yoki yuborish). */}
-                {docsOk && !jobActive && !autoActive && (
+              <div role="menu" className="absolute right-0 top-full z-30 mt-1.5 w-72 overflow-hidden rounded-xl border border-line bg-surface p-1.5 shadow-xl">
+                {/* ASOSIY: Sudga yuborish / Qoralama — DOIM ko'rinadi (yuborilayotganda «ketyapti N/M»). Ikonsiz. */}
+                {docsOk && !autoActive && (
                   <>
                     <button type="button" role="menuitem" onClick={() => { startExport(fr.firmId, {}); setMenuOpen(false); }}
-                      className={`${MENU_ITEM} font-semibold text-emerald-700 dark:text-emerald-300`} disabled={fr.sendable <= 0}
-                      title={fr.sendable > 0 ? 'Soni so‘raladi — navbatga qo‘shish yoki yuborish/qoralama' : 'Yuboriladigan tayyor ish yo‘q'}>
-                      <svg className="h-4 w-4 shrink-0 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4Z" /></svg>
-                      <span className="flex-1">Sudga yuborish / Qoralama{fr.sendable > 0 ? ` (${n(fr.sendable)})` : ''}</span>
+                      className={`${MENU_ITEM} justify-between font-semibold text-emerald-700 dark:text-emerald-300`} disabled={fr.sendable <= 0 && !jobActive}
+                      title={fr.sendable > 0 ? 'Soni so‘raladi — navbatga qo‘shish yoki yuborish/qoralama' : jobActive ? 'Ayni damda yuborilmoqda' : 'Yuboriladigan tayyor ish yo‘q'}>
+                      <span>Sudga yuborish / Qoralama{fr.sendable > 0 ? ` (${n(fr.sendable)})` : ''}</span>
+                      {jobActive && job && (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:text-sky-300">
+                          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-500" /> ketyapti {n(job.progress ?? 0)}/{n(job.total ?? 0)}
+                        </span>
+                      )}
                     </button>
                     <div className="my-1 border-t border-line/60" />
                   </>
                 )}
-                <button type="button" role="menuitem" onClick={() => { onToggleDrill(); setMenuOpen(false); }} className={MENU_ITEM}>
-                  <svg className="h-4 w-4 shrink-0 text-brand-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
-                  <span className="flex-1">Mijozlar {drillOpen ? '(yopish)' : '(batafsil)'}</span>
+                <button type="button" role="menuitem" onClick={() => { if (!drillOpen) onToggleDrill(); setMenuOpen(false); }} className={MENU_ITEM}>
+                  Mijozlar (batafsil)
+                </button>
+                <button type="button" role="menuitem" onClick={() => { setQueueOpen(true); setMenuOpen(false); }} className={`${MENU_ITEM} justify-between`}>
+                  <span>Yuborilayotganlar / navbat</span>
+                  {jobActive && <span className="inline-flex shrink-0 items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:text-sky-300"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-500" /> ketyapti</span>}
                 </button>
                 <button type="button" role="menuitem" onClick={() => { setReportOpen(true); setMenuOpen(false); }} className={MENU_ITEM}>
-                  <svg className="h-4 w-4 shrink-0 text-indigo-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18" /><rect x="7" y="10" width="3" height="7" /><rect x="12" y="6" width="3" height="11" /><rect x="17" y="13" width="3" height="4" /></svg>
-                  <span className="flex-1">Hisobot</span>
+                  Hisobot
                 </button>
                 {docsOk && !zipShown && (
                   <button type="button" role="menuitem" onClick={() => { onZip?.(); setMenuOpen(false); }} className={MENU_ITEM} title="Hujjatlarni bitta arxivga — sudga YUBORMAYDI">
-                    <svg className="h-4 w-4 shrink-0 text-teal-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M21 8v13H3V8" /><path d="M1 3h22v5H1z" /><path d="M10 12h4" /></svg>
-                    <span className="flex-1">ZIP — hujjatlarni yuklab olish</span>
+                    ZIP — hujjatlarni yuklab olish
                   </button>
                 )}
               </div>
@@ -1586,15 +1592,18 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
         </div>
       </div>
 
-      {/* Navbat holati — ish ketayotganda ham, tugagach ham ko'rinadi (xatolar yo'qolib
-          ketmasligi uchun: operator sababni keyin ham o'qiy oladi). */}
-      <QueuePanel
-        firmId={fr.firmId}
-        live={!!job && (job.status === 'PENDING' || job.status === 'RUNNING')}
-        onChanged={onChanged}
-      />
+      {/* YUBORILAYOTGANLAR / navbat holati — endi alohida MODALда (qator ostида emas).
+          Xato sabablari, progress, davom ettirish — hammasi shu modalда. */}
+      {queueOpen && (
+        <Modal open onClose={() => setQueueOpen(false)} title={`Yuborilayotganlar / navbat — ${fr.firmName}`} size="lg">
+          <QueuePanel firmId={fr.firmId} live onChanged={onChanged} />
+        </Modal>
+      )}
+      {/* MIJOZLAR (batafsil) — endi MODALда (qator ostида emas). */}
       {drillOpen && (
-        <ClientDrilldown firmId={fr.firmId} snapshotId={snapshotId} job={job} startExport={(caseIds) => startExport(fr.firmId, { caseIds, draftMode: true })} onChanged={onChanged} batchActive={batchActive} />
+        <Modal open onClose={onToggleDrill} title={`Mijozlar — ${fr.firmName}`} description={`${n(fr.total)} ta ish · ${n(fr.sendable)} tayyor`} size="xl">
+          <ClientDrilldown firmId={fr.firmId} snapshotId={snapshotId} job={job} startExport={(caseIds) => startExport(fr.firmId, { caseIds, draftMode: true })} onChanged={onChanged} batchActive={batchActive} />
+        </Modal>
       )}
 
       {/* HISOBOT modali — firma tayyorligi tafsiloti (⋮ menyudan ochiladi). */}
