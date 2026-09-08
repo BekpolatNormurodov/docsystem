@@ -13,6 +13,9 @@ const toDate = (v: any) => { const d = v ? new Date(v) : null; return d && !isNa
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Firma bo'yicha aylanma oyna boshlanish nuqtasi (pastdagi izohga qarang). */
+const detailCursor = new Map<string, number>();
+
 // cabinetapi.sud.uz rate-limits/blocks aggressively on bursty traffic (2026-09-06:
 // a concurrency-6 detail-fetch pool over a firm's full case list is believed to have
 // tripped a multi-hour connection block affecting the whole *.sud.uz domain). Fetch
@@ -72,6 +75,66 @@ export async function ingestCabinetDetails(
     const done = new Set(resolved.map((r) => r.caseNumber));
     pending = cases.filter((c) => !done.has(c.caseNumber));
   }
+  // XAVFLILARI BIRINCHI.
+  //
+  // Detal so'rovi qimmat (8 soniyada bittadan), portalda esa 3 000 dan ortiq ish bor —
+  // tartibsiz o'tilsa kerakli javob bir kunda kelardi. Holbuki ANIQ moslik faqat bitta
+  // narsa uchun shoshilinch: bizning navbatimizda YUBORISHGA TAYYOR turgan odamga
+  // portalda allaqachon da'vo bor-yo'qligini bilish. Aks holda avtomatika unga ikkinchi
+  // da'vo ochadi (2026-09-08: shunday 391 ta ish bor edi).
+  //
+  // Shuning uchun avval ism bo'yicha TAXMIN qilingan PINFL bizda hali yuborilmagan
+  // ish bilan mos tushganlari olinadi — ular ~400 ta, ya'ni bir necha soatda tugaydi.
+  let riskyCaseNumbers = new Set<string>();
+  if (pending.length > 1) {
+    const guesses = await prisma.clientCaseStatus.findMany({
+      where: { source: 'CABINET', branchCode, caseNumber: { in: pending.map((c) => c.caseNumber) }, pinfl: { not: null } },
+      select: { caseNumber: true, pinfl: true },
+    });
+    const pinflByCase = new Map<string, string>();
+    for (const g of guesses) if (g.caseNumber && g.pinfl) pinflByCase.set(g.caseNumber, g.pinfl);
+    const risky = new Set<string>();
+    const allPinfls = [...new Set([...pinflByCase.values()])];
+    if (allPinfls.length) {
+      const open = await prisma.arizaCase.findMany({
+        where: {
+          pinfl: { in: allPinfls }, kod: branchCode, courtCaseId: null,
+          stage: { notIn: ['COURT_SUBMITTED', 'COURT_ACCEPTED', 'MIB_SUBMITTED', 'CLOSED'] },
+        },
+        select: { pinfl: true },
+      });
+      const openPinfls = new Set(open.map((o) => o.pinfl).filter(Boolean) as string[]);
+      for (const [num, pf] of pinflByCase) if (pf && openPinfls.has(pf)) risky.add(num);
+    }
+    riskyCaseNumbers = risky;
+  }
+
+  // OYNA AYLANADI — doimiy xato beruvchi ishlar qolganini bloklamaydi.
+  //
+  // Ilgari har siklda AYNAN birinchi `limit` ta olinardi. Detali kelmagan ish (o'chirilgan
+  // ish, portal 5xx, javobgarda PINFL yo'q) hech narsa YOZMAYDI, ya'ni «hal qilinmagan»
+  // bo'lib qolaveradi — va keyingi siklda yana birinchi bo'lib tanlanadi. Natijada
+  // birinchi 40 ta doimiy xato butun ro'yxatni to'sib qo'yishi mumkin edi: sikl har
+  // 20 daqiqada ishlaganday ko'rinar, aniq PINFL to'plami esa bo'sh qolardi — u esa
+  // AYNAN ikkinchi da'vodan himoya qiladigan ro'yxat.
+  //
+  // TARTIB MUHIM: avval oynani suramiz, KEYIN xavflilarni oldinga chiqaramiz. Teskarisi
+  // qilinsa aylanish xavfli-birinchi tartibini buzardi.
+  if (opts.limit && pending.length > opts.limit) {
+    const start = (detailCursor.get(branchCode) ?? 0) % pending.length;
+    pending = [...pending.slice(start), ...pending.slice(0, start)];
+    detailCursor.set(branchCode, start + opts.limit);
+  }
+
+  // XAVFLILAR BIRINCHI: PINFL'i bizda hali yuborilmagan ishga to'g'ri keladigan portal
+  // yozuvlari. Ular aniqlanmasa avtomatika o'sha odamga ikkinchi da'vo ochishi mumkin,
+  // shuning uchun oynaning qayerida bo'lishidan qat'i nazar oldinga olinadi.
+  if (riskyCaseNumbers.size) {
+    pending = [
+      ...pending.filter((c) => riskyCaseNumbers.has(c.caseNumber)),
+      ...pending.filter((c) => !riskyCaseNumbers.has(c.caseNumber)),
+    ];
+  }
   if (opts.limit && pending.length > opts.limit) pending = pending.slice(0, opts.limit);
 
   const res: DetailResult = { total: pending.length, fetched: 0, withPinfl: 0, failed: 0 };
@@ -103,7 +166,11 @@ export async function ingestCabinetDetails(
         if (pinfl) res.withPinfl++;
 
         await prisma.clientCaseStatus.updateMany({
-          where: { source: 'CABINET', caseNumber: c.caseNumber },
+          // `branchCode` SHART: sud ish raqami akkauntlar bo'ylab yagona emas, ya'ni
+          // usiz bitta firmaning detali BOSHQA firmaning yozuvini ustiga yozib yuboradi
+          // (javobgar PINFL'i, manzili, sudyasi bilan birga). Yuqoridagi «hal qilinganlar»
+          // so'rovi allaqachon branchCode bilan cheklangan edi — yozuv esa emas.
+          where: { source: 'CABINET', branchCode, caseNumber: c.caseNumber },
           data: {
             pinfl: ourPinfl ?? pinfl ?? undefined,
             // Claim a confirmed PINFL match ONLY when the defendant is actually in OUR
