@@ -291,18 +291,12 @@ function ExportControl({ job, sendable, onStart, batchActive }: {
             ? <><IcoPlus /> Navbatga qo‘shish {sendable > 0 ? `(${Math.min(MAX_COURT_BATCH, sendable)})` : ''}</>
             : <><IcoBolt /> Sudga yuborish {sendable > 0 ? `(${Math.min(MAX_COURT_BATCH, sendable)})` : ''}</>}
       </button>
-      {/* Ketayotgan partiya — operator nimani kutayotganini bilsin. */}
-      {busyServer && (() => {
-        const txt = serverRunning
-          ? `#${batchActive!.jobId} ketmoqda · keyingisi navbatda`
-          : `#${batchActive!.jobId} navbatda${batchActive!.queuePos ? ` (${batchActive!.queuePos}-o‘rin)` : ''}`;
-        const full = serverRunning
-          ? `Partiya #${batchActive!.jobId} hozir ketmoqda. Yangi partiya navbatga qo'shiladi va u tugashi bilan o'zi boshlanadi.`
-          : txt;
-        // Kesib tashlamaymiz — bu ma'noning o'zi. Ustun eni qat'iy bo'lgani uchun matn
-        // ikki qatorga o'raladi va qatorni cho'zmaydi.
-        return <span className="max-w-full text-balance text-[10px] leading-tight text-muted" title={full}>{txt}</span>;
-      })()}
+      {/* Ketayotgan partiya haqidagi izoh ATAYIN yo'q.
+          U shu yerda ham turardi, lekin ayni ma'lumot sahifaning yuqorisida — «Yuborish
+          navbati» va navbat panelida — allaqachon bor edi, va ikkalasi boshqa-boshqa
+          manbadan sanaganligi uchun sonlari mos kelmasdi (operator: «tepada borku, soni
+          boshqasi»). Bitta haqiqat bitta joyda tursin; nima uchun tugma «Navbatga
+          qo'shish»ga aylangani tugmaning o'z title'ida yozilgan. */}
       {/* Xato: worker yozgan sabab `message`da keladi (route xatosi esa `error`da). */}
       {/* Xato: FAILED holatida server sababi (`message`), yoki holat o'qilmay qolganda
           (masalan sessiya tugadi) poller yozgan `error` — u RUNNING paytida ham chiqishi
