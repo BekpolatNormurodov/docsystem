@@ -119,12 +119,12 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
   // ish topildi, 25-avgustdan buyon). Bizning tizim ular haqida bilmasa, o'sha odamlarni
   // «Tayyor» deb ko'rsatib qayta yuboradi va AYNI ODAMGA IKKINCHI da'vo ochiladi —
   // qaytarib bo'lmaydigan xato. Shuning uchun bunday ish `submitted` hisoblanadi.
-  // TO'SIQ — portalda bu odamga shu firma nomidan ish BOR (bizniki bo'ladimi, yuristniki —
-  // farqi yo'q): ikkinchi da'vo ochilmasligi kerak.
-  const submittedPortal = !!c.pinfl && (portalCases?.portal.has(c.pinfl) ?? false);
-  // YORLIQ — shulardan BIZ yubormaganlari («Sudda 147+4» dagi +4).
-  const submittedExternal = !!c.pinfl && (portalCases?.manual.has(c.pinfl) ?? false);
-  const submitted = SENT_STAGES.has(c.stage) || !!c.courtCaseId || submittedPortal;
+  // «Sudda N+M»: N = BIZ yuborganimiz (courtCaseId/SENT_STAGES), M = YURIST QO'LDA KIRITGANI
+  // (portalda ochiq faol da'vo bor, biz yubormaganmiz). `manual` allaqachon biznikilarni va
+  // eski hal bo'lgan ishlarni chiqarib tashlaydi (portalCasePinfls).
+  const isOurs = SENT_STAGES.has(c.stage) || !!c.courtCaseId;
+  const submittedExternal = !isOurs && !!c.pinfl && (portalCases?.manual.has(c.pinfl) ?? false);
+  const submitted = isOurs || submittedExternal;
   const exported = isExported(c.meta) || submitted;
   const draft = !exported && isDraftMeta(c.meta); // qoralama-sinov qilingan, hali haqiqiy yuborilmagan
   // QORALAMA TAYYOR — ADOLAT'da to'liq tayyorlangan (prepareDraftOnly), yurist yuboradi.
@@ -167,23 +167,43 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
  * portfelimizdagi mijozga to'g'ri kelgani. Ism bo'yicha taxmin ATAYIN hisobga olinmaydi
  * (operator qarori): noto'g'ri taxmin haqiqiy qarzdorni konveyerdan jimgina chiqarardi.
  */
-const PORTAL_CLOSED_STATUSES = new Set(['DECLINED']);
+// Portalda AYNI PAYTDA ochiq/faol da'vo bosqichlari. DECIDED/FINISHED (hal bo'lgan) va
+// DECLINED (qaytgan) ATAYIN yo'q: mijozning o'tgan yilgi tugagan ishi uning JORIY qarzi
+// berilganini bildirmaydi (2026-09-08 «Sudda 19+286» bug'i shundan edi).
+const OPEN_PORTAL_STATUSES = ['ALLOCATE', 'CREATED', 'REGISTER', 'PENDING', 'IN_PROCESS'];
 
-async function portalCasePinfls(branchCode: string | null, firmStir?: string | null): Promise<{ portal: Set<string>; manual: Set<string> }> {
+/**
+ * «Sudda N+M» dagi M — YURIST QO'LDA KIRITGAN da'volar: portalda shu firma nomidan OCHIQ
+ * FAOL sud ishi bor mijozlar, LEKIN biz (hech qanday snapshotda) yubormaganmiz.
+ *
+ * Nega «biz yubormagan»ni PINFL bo'yicha, HAR QANDAY snapshotda tekshiramiz: yangi portfel
+ * yuklanганда o'sha odamga yangi ArizaCase yaraladi (courtCaseId'siz), lekin biz uni oldingi
+ * snapshotда yuborgan bo'lishimiz mumkin. Aks holda o'z eski yuborishlarimiz «tashqi» bo'lib
+ * sanalardi (2026-09-08: URBAN'da 201 ta shunday «yolg'on tashqi» chiqqan edi).
+ */
+async function portalCasePinfls(firmId: number, branchCode: string | null, firmStir?: string | null): Promise<{ portal: Set<string>; manual: Set<string> }> {
   const empty = { portal: new Set<string>(), manual: new Set<string>() };
-  // «SUDDA» SANOG'I FAQAT BIZNING YUBORGANIMIZNI KO'RSATADI — portal mosligi EMAS.
-  //
-  // 2026-09-08: bu funksiya «Sudda 19+286» degan chalkash sanoqni keltirib chiqardi.
-  // Sabab — portal mijozlarning ESKI, HAL BO'LGAN sud ishlarini ham saqlaydi (DECIDED 140,
-  // FINISHED 73 — o'tgan yillardagi). Mijozning o'tgan yilgi tugagan ishi bor deб, uning
-  // JORIY qarzi «allaqachon berilgan» (tashqi) deб noto'g'ri sanaldi va operator yuborgan
-  // 99 ta ish «19» ga tushib qoldi. Joriy qarz uchun eski ish dalil emas.
-  //
-  // Shuning uchun ko'rsatish (readiness) darajasida portal mosligi ISHLATILMAYDI: «Sudda» =
-  // faqat bizning yuborganimiz (courtCaseId yoki SENT_STAGES). Takroriy da'voga qarshi
-  // himoya esa DVIGATELDA qoladi (court-submit-job) va faqat OCHIQ faol da'vo bloklaydi.
-  return empty;
-
+  if (!branchCode) return empty;
+  const openRows = await prisma.clientCaseStatus.findMany({
+    where: { source: 'CABINET', branchCode, matchedBy: 'PINFL', status: { in: OPEN_PORTAL_STATUSES }, pinfl: { not: null } },
+    select: { pinfl: true },
+  });
+  if (!openRows.length) return empty;
+  // BIZ YUBORGAN mijozlar (har qanday snapshot) — courtCaseId yoki yuborilgan bosqich.
+  const ourSent = await prisma.arizaCase.findMany({
+    where: { firmId, OR: [{ courtCaseId: { not: null } }, { stage: { in: [...SENT_STAGES] } }], pinfl: { not: null } },
+    select: { pinfl: true },
+  });
+  const ourSentPinfls = new Set(ourSent.map((x) => x.pinfl).filter((p): p is string => !!p));
+  const stir = (firmStir || '').replace(/\D/g, '');
+  const manual = new Set<string>();
+  for (const r of openRows) {
+    if (!r.pinfl) continue;
+    if (stir && r.pinfl === stir) continue;        // firma o'zi (da'vogar) — javobgar emas
+    if (ourSentPinfls.has(r.pinfl)) continue;      // biz yuborganmiz — «tashqi» emas
+    manual.add(r.pinfl);
+  }
+  return { portal: manual, manual };
 }
 
 // Case'ga biriktirilgan CaseDocument'lar to'plami (kind bo'yicha) — SKAN (SIGNED_ARIZA) va
@@ -355,7 +375,7 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
       receiptCaseIdSet(ids),
       paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]),
       queuedCaseIdSet(ids),
-      portalCasePinfls(f.code, f.stir),
+      portalCasePinfls(f.id, f.code, f.stir),
     ]);
     const queuedTotal = await queuedCountForFirm(f.id);
 
@@ -493,7 +513,7 @@ export async function firmReadyClients(opts: {
     receiptCaseIdSet(ids),
     paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]),
     queuedCaseIdSet(ids),
-    portalCasePinfls(firm.code, firm.stir),
+    portalCasePinfls(firm.id, firm.code, firm.stir),
   ]);
   const deliveredPinfls = await talabnomaDeliveredPinflSet(firm.code);
   const now = Date.now();
@@ -549,7 +569,7 @@ export async function sendableCourtBreakdown(opts: { snapshotId?: number; firmId
     receiptCaseIdSet(ids),
     paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]),
     queuedCaseIdSet(ids),
-    portalCasePinfls(firm.code, firm.stir),
+    portalCasePinfls(firm.id, firm.code, firm.stir),
   ]);
 
   // BARCHA faol sudlar ro'yxatdan boshlanadi — tayyor ishi bo'lmagani ham, ADOLAT'da yopig'i
@@ -622,7 +642,7 @@ export async function selectReadyCaseIds(opts: {
     receiptCaseIdSet(ids),
     paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]),
     queuedCaseIdSet(ids),
-    portalCasePinfls(firm.code, firm.stir),
+    portalCasePinfls(firm.id, firm.code, firm.stir),
   ]);
   const picked: number[] = [];
   for (const c of cases as CaseRow[]) {
@@ -667,7 +687,7 @@ export async function validateSelectedCaseIds(opts: {
     receiptCaseIdSet(ids),
     paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]),
     queuedCaseIdSet(ids),
-    portalCasePinfls(firm.code, firm.stir),
+    portalCasePinfls(firm.id, firm.code, firm.stir),
   ]);
   return (cases as CaseRow[])
     .filter((c) => {
