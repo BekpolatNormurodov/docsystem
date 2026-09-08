@@ -745,7 +745,16 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
           // undan OLDIN `break` qilgani uchun hech qachon ishlamasdi. Endi: har hodisada
           // qisqa sovutish va keyingi ishga o'tamiz; navbat faqat KETMA-KET
           // MAX_CONSECUTIVE_BLOCKED marta bo'lganda to'xtaydi — bu haqiqiy blok belgisi.
-          if (result.kind === 'BLOCKED' || result.kind === 'RATE_LIMIT') {
+          // SERVER (5xx) HAM «portal ishlamayapti» degani.
+          //
+          // 2026-09-08: portal har so'rovga 502 qaytara boshladi («user/get — portal ichki
+          // xatosi (502)»). `kindForStatus` 5xx ni SERVER deydi, hisoblagich esa faqat
+          // BLOCKED/RATE_LIMIT ni sanardi — ya'ni to'xtatuvchi umuman ishlamadi va partiya
+          // 200 ta ishning HAMMASINI birma-bir yiqitib chiqishga tushdi: har biriga urinish
+          // sanog'i yozilib, hammasi FAILED bo'lardi va avtomat qayta urinish ham tugab
+          // qolardi. Portal ketma-ket 5xx bersa, bu bitta ishning ma'lumoti emas — portalning
+          // o'zi. Bitta-yarim 5xx esa baribir to'xtatmaydi: shart KETMA-KET uchta.
+          if (result.kind === 'BLOCKED' || result.kind === 'RATE_LIMIT' || result.kind === 'SERVER') {
             consecutiveBlocked++;
             if (consecutiveBlocked >= MAX_CONSECUTIVE_BLOCKED) {
               backoff(15 * 60_000);
