@@ -315,6 +315,29 @@ function ExportControl({ job, sendable, onStart, batchActive }: {
 // sud tugmasi «Yuborilmoqda» bo'lib qolardi va navbat paneli jonlanardi — sudga bitta ham
 // so'rov ketmagan bo'lsa ham (2026-09-07). ZIP portalga umuman tegmaydi: u faqat serverda
 // PDF render qiladi, shuning uchun sud tugmasini ham bloklamasligi kerak.
+// ZIP — BITTA IKONKA. Sudga yuborishdan mustaqil (o'z job kaliti: `zip:<id>`).
+//
+// Nega ikonka: bu ikkilamchi amal — qatordagi asosiy tugma «Sudga yuborish». ZIP matnli
+// tugma bo'lganda ikkalasi bir xil og'irlikda ko'rinardi va qator kengayib ketardi.
+// Ma'no yo'qolmasin uchun holat ikonkaning O'ZIDA ko'rsatiladi (halqa = progress,
+// yashil = tayyor, qizil = xato), izohi esa title/aria-label da to'liq yoziladi —
+// ya'ni ikonka «yalang'och» emas: sichqoncha bilan ham, skrinrider bilan ham o'qiladi.
+const ZIP_BTN = 'relative grid h-9 w-9 shrink-0 place-items-center rounded-lg border transition-colors outline-none focus-visible:ring-2';
+
+function ZipRing({ pct, indeterminate }: { pct: number; indeterminate?: boolean }) {
+  const C = 2 * Math.PI * 15.5;
+  return (
+    <svg className={`absolute inset-0 h-full w-full -rotate-90 ${indeterminate ? 'animate-spin' : ''}`} viewBox="0 0 36 36" aria-hidden>
+      <circle cx="18" cy="18" r="15.5" fill="none" strokeWidth="2" className="stroke-line" />
+      <circle
+        cx="18" cy="18" r="15.5" fill="none" strokeWidth="2" strokeLinecap="round" className="stroke-brand-500"
+        strokeDasharray={C} strokeDashoffset={indeterminate ? C * 0.75 : C * (1 - pct / 100)}
+        style={{ transition: indeterminate ? undefined : 'stroke-dashoffset .5s' }}
+      />
+    </svg>
+  );
+}
+
 function ZipControl({ job, sendable, onStart, onCancel }: { job?: JobState; sendable: number; onStart: () => void; onCancel?: (jobId: number) => void }) {
   const running = !!job && (job.status === 'PENDING' || job.status === 'RUNNING');
   const pct = job && job.total ? Math.round((job.progress / job.total) * 100) : 0;
@@ -322,73 +345,86 @@ function ZipControl({ job, sendable, onStart, onCancel }: { job?: JobState; send
   // «616 so'radim, 100 chiqdi» chalkashligini keltirib chiqargan edi.
   const short = job?.asked != null && job.total > 0 && job.asked > job.total ? job.asked - job.total : 0;
 
+  // TAYYOR — yashil, bosilsa yuklab oladi. Soni ikonka ustidagi kichik nishonchada.
   if (job?.status === 'DONE' && job.jobId) {
+    const label = `${n(job.total)} ta mijoz ZIP arxivi — yuklab olish`;
     return (
-      <div className="flex shrink-0 flex-col items-end gap-1">
+      <div className="flex shrink-0 items-center gap-1">
         <a
           href={`/api/export/${job.jobId}/download`}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 outline-none transition-colors hover:bg-emerald-500/15 focus-visible:ring-2 focus-visible:ring-emerald-500/40 dark:text-emerald-300"
+          title={label} aria-label={label}
+          className={`${ZIP_BTN} border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 focus-visible:ring-emerald-500/40 dark:text-emerald-300`}
         >
-          <IcoDown /> {n(job.total)} ta ZIP — yuklab olish
+          <IcoDown />
+          <span className="absolute -right-1 -top-1 rounded-full bg-emerald-600 px-1 text-[9px] font-bold leading-[14px] text-white tabular-nums" aria-hidden>
+            {n(job.total)}
+          </span>
         </a>
         {sendable > 0 && (
-          <button type="button" onClick={onStart} className="text-[11px] font-medium text-muted underline-offset-2 outline-none transition-colors hover:text-fg hover:underline focus-visible:ring-2 focus-visible:ring-brand-500/30">
-            Yangi ZIP
+          <button type="button" onClick={onStart} title={`Yangi ZIP — ${n(sendable)} ta tayyor`} aria-label={`Yangi ZIP — ${n(sendable)} ta tayyor`}
+            className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-muted outline-none transition-colors hover:bg-surface-2 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30">
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 5v14M5 12h14" /></svg>
           </button>
         )}
       </div>
     );
   }
 
+  // KETYAPTI — halqa progressni ko'rsatadi. NAVBATDA (worker hali olmagan) va
+  // TAYYORLANMOQDA farqlanadi: navbatdagi ish tabiiy ravishda 0% da turadi va ilgari u
+  // «osilib qolgan»dan farq qilmasdi («0/100 aylanyabdi»).
   if (running) {
+    const pending = job!.status === 'PENDING';
+    const label = pending
+      ? `ZIP navbatda${job!.total ? ` — ${n(job!.total)} ta mijoz` : ''}`
+      : `ZIP tayyorlanmoqda — ${n(job!.progress)}/${n(job!.total)} (${pct}%)`;
     return (
-      <div className="flex w-36 shrink-0 flex-col items-end gap-1">
-        {/* NAVBATDA va TAYYORLANMOQDA — BOSHQA-BOSHQA holat.
-            Ilgari ikkalasi bir xil ko'rinardi: aylanuvchi doira va «ZIP 0/616». Worker
-            hali bu job'ni olmagan bo'lsa (PENDING) raqam tabiiy ravishda 0 da turadi va
-            bu «osilib qolgan»dan farq qilmasdi — operator aynan shundan «0/100 aylanyabdi»
-            deb yozgan edi. Endi navbatdagi ish ochiq aytiladi. */}
-        <span className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-2.5 py-1.5 text-xs font-medium text-fg" aria-live="polite">
-          <span className="h-3 w-3 animate-spin rounded-full border-2 border-brand-500/30 border-t-brand-500" aria-hidden />
-          {job!.status === 'PENDING'
-            ? <>Navbatda{job!.total ? <span className="tabular-nums"> · {n(job!.total)} ta</span> : null}</>
-            : <>ZIP {job!.total ? <span className="tabular-nums">{n(job!.progress)}/{n(job!.total)}</span> : 'tayyorlanmoqda'}</>}
+      <div className="flex shrink-0 items-center gap-1">
+        <span className={`${ZIP_BTN} border-transparent text-fg`} title={label} aria-label={label} role="progressbar"
+          aria-valuenow={pending ? undefined : pct} aria-valuemin={0} aria-valuemax={100} aria-live="polite">
+          <ZipRing pct={pct} indeterminate={pending} />
+          <span className="text-[10px] font-semibold tabular-nums">{pending ? '…' : pct}</span>
         </span>
-        <div className="h-1 w-full overflow-hidden rounded-full bg-surface-2" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="ZIP tayyorlanmoqda">
-          <div className="h-full rounded-full bg-brand-500 transition-[width] duration-500" style={{ width: `${Math.max(3, pct)}%` }} />
-        </div>
-        {short > 0 && (
-          <span className="text-right text-[10px] text-amber-600 dark:text-amber-400">
-            {n(job!.asked!)} soralgan, {n(job!.total)} tasi tayyor edi
-          </span>
-        )}
         {/* Bekor — ilgari yo'q edi: noto'g'ri son bilan boshlangan ZIP tugashini kutishdan
             boshqa chora qolmasdi (va u soatlab ketishi mumkin). */}
         {onCancel && job!.jobId > 0 && (
           <button type="button" onClick={() => onCancel(job!.jobId)}
-            className="text-[11px] font-medium text-muted underline-offset-2 outline-none transition-colors hover:text-rose-600 hover:underline focus-visible:ring-2 focus-visible:ring-rose-500/30">
-            {job!.message === 'Bekor qilinmoqda…' ? 'Bekor qilinmoqda…' : 'Bekor'}
+            title={job!.message === 'Bekor qilinmoqda…' ? 'Bekor qilinmoqda…' : 'ZIP tayyorlashni bekor qilish'}
+            aria-label="ZIP tayyorlashni bekor qilish"
+            className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-muted outline-none transition-colors hover:bg-rose-500/10 hover:text-rose-600 focus-visible:ring-2 focus-visible:ring-rose-500/30">
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M18 6 6 18M6 6l12 12" /></svg>
           </button>
+        )}
+        {short > 0 && (
+          <span className="text-[10px] leading-tight text-amber-600 dark:text-amber-400" title={`${n(job!.asked!)} ta so'raldi, ${n(job!.total)} tasi tayyor edi`}>
+            −{n(short)}
+          </span>
         )}
       </div>
     );
   }
 
+  // XATO — qizil ikonka; sabab title'da to'liq, yonida qisqartirilgan holda ko'rinadi
+  // (xato butunlay yashirilmasin, lekin qatorni ham cho'zmasin).
+  const failed = job?.status === 'FAILED' || !!job?.error;
+  const err = job?.message || job?.error || 'ZIP tayyorlanmadi';
+  const idleLabel = sendable > 0
+    ? `ZIP — ${n(sendable)} ta tayyor mijoz hujjatlarini bitta arxivga yig'ish (sudga yuborilmaydi)`
+    : 'ZIP — tayyor mijoz yo‘q';
   return (
-    <div className="flex shrink-0 flex-col items-end gap-1">
+    <div className="flex shrink-0 items-center gap-1">
       <button
-        type="button"
-        onClick={onStart}
-        disabled={sendable === 0}
-        title={sendable > 0 ? `${n(sendable)} ta tayyor mijoz hujjatlarini bitta ZIP qilib yuklab olish (sudga yuborilmaydi)` : 'Tayyor mijoz yo‘q'}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-muted outline-none transition-colors hover:border-brand-500/40 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:cursor-not-allowed disabled:opacity-40"
+        type="button" onClick={onStart} disabled={sendable === 0}
+        title={failed ? `${err} — qayta urinish uchun bosing` : idleLabel}
+        aria-label={failed ? `ZIP xatosi: ${err}. Qayta urinish` : idleLabel}
+        className={`${ZIP_BTN} disabled:cursor-not-allowed disabled:opacity-40 ${failed
+          ? 'border-rose-500/40 bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 focus-visible:ring-rose-500/40 dark:text-rose-300'
+          : 'border-line text-muted hover:border-brand-500/40 hover:text-fg focus-visible:ring-brand-500/30'}`}
       >
-        <IcoDown /> ZIP
+        <IcoDown />
       </button>
-      {(job?.status === 'FAILED' || job?.error) && (
-        <span className="max-w-[12rem] text-right text-[11px] font-medium text-rose-500" role="alert">
-          {job?.message || job?.error || 'ZIP tayyorlanmadi'}
-        </span>
+      {failed && (
+        <span className="max-w-[9rem] truncate text-[10px] font-medium text-rose-500" role="alert" title={err}>{err}</span>
       )}
     </div>
   );
