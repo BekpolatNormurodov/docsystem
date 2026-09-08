@@ -9,7 +9,9 @@
     "test": "vitest run",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
-    "worker": "tsx src/worker/index.ts"
+    "worker": "tsx src/worker/index.ts",
+    "scan:secrets": "bash scripts/scan-secrets.sh --all",
+    "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

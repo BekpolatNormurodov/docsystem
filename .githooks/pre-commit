@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Commit oldidan staged o'zgarishlarni maxfiy ma'lumot uchun tekshiradi.
+# Yoqish (har bir dev bir marta):  git config core.hooksPath .githooks
+exec bash "$(git rev-parse --show-toplevel)/scripts/scan-secrets.sh" staged
