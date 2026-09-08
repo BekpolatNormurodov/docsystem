@@ -269,7 +269,10 @@ function ExportControl({ job, sendable, onStart, batchActive }: {
   const serverRunning = batchActive?.status === 'RUNNING';
   const blocked = running || sendable === 0;
   return (
-    <div className="flex flex-col items-end gap-1">
+    // max-w — QAT'IY: bu ustunning eni tugma bo'yicha belgilanadi, ichidagi izoh matni
+    // bo'yicha EMAS. Busiz uzun izoh («#248 ketmoqda — yangi partiya undan keyin
+    // boshlanadi») ustunni cho'zib, firma nomi va chiplarni siqib qo'yardi.
+    <div className="flex min-w-0 max-w-[12rem] shrink-0 flex-col items-end gap-1 text-right">
       <button
         onClick={onStart}
         disabled={blocked}
@@ -289,19 +292,24 @@ function ExportControl({ job, sendable, onStart, batchActive }: {
             : <><IcoBolt /> Sudga yuborish {sendable > 0 ? `(${Math.min(MAX_COURT_BATCH, sendable)})` : ''}</>}
       </button>
       {/* Ketayotgan partiya — operator nimani kutayotganini bilsin. */}
-      {busyServer && (
-        <span className="text-[10px] text-muted">
-          {serverRunning
-            ? `#${batchActive!.jobId} ketmoqda — yangi partiya undan keyin boshlanadi`
-            : `#${batchActive!.jobId} navbatda${batchActive!.queuePos ? ` (${batchActive!.queuePos}-o‘rin)` : ''}`}
-        </span>
-      )}
+      {busyServer && (() => {
+        const txt = serverRunning
+          ? `#${batchActive!.jobId} ketmoqda · keyingisi navbatda`
+          : `#${batchActive!.jobId} navbatda${batchActive!.queuePos ? ` (${batchActive!.queuePos}-o‘rin)` : ''}`;
+        const full = serverRunning
+          ? `Partiya #${batchActive!.jobId} hozir ketmoqda. Yangi partiya navbatga qo'shiladi va u tugashi bilan o'zi boshlanadi.`
+          : txt;
+        // Kesib tashlamaymiz — bu ma'noning o'zi. Ustun eni qat'iy bo'lgani uchun matn
+        // ikki qatorga o'raladi va qatorni cho'zmaydi.
+        return <span className="max-w-full text-balance text-[10px] leading-tight text-muted" title={full}>{txt}</span>;
+      })()}
       {/* Xato: worker yozgan sabab `message`da keladi (route xatosi esa `error`da). */}
       {/* Xato: FAILED holatida server sababi (`message`), yoki holat o'qilmay qolganda
           (masalan sessiya tugadi) poller yozgan `error` — u RUNNING paytida ham chiqishi
           kerak, aks holda progress jimgina qotib qolgandek ko'rinadi. */}
       {(job?.status === 'FAILED' || job?.error) && (
-        <span className="text-[11px] font-medium text-rose-500" role="alert">
+        <span className="max-w-full text-[11px] font-medium leading-tight text-rose-500 [overflow-wrap:anywhere]" role="alert"
+          title={job?.status === 'FAILED' ? (job.message || job.error || 'Xatolik') : job?.error}>
           {job?.status === 'FAILED' ? (job.message || job.error || 'Xatolik') : job?.error}
         </span>
       )}
@@ -1316,8 +1324,17 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
         {/* O'NG USTUN — barcha amallar shu yerda, qat'iy minimal kenglik bilan.
             Tugma ostidagi izohlar ham SHU ustun ichida qoladi, ya'ni ular qatorni
             kengaytirmaydi va qo'shni qatorlarni siljitmaydi. */}
-        <div className="flex shrink-0 flex-col items-end gap-1.5" style={{ minWidth: '16rem' }}>
-        <div className="flex items-start gap-2">
+        {/* Eni QAT'IY: `minWidth` faqat pastki chegara edi, ya'ni ustun matn uzayganda
+            baribir cho'zilib firma nomi/chiplarini siqardi («#248 ketmoqda — yangi partiya
+            undan keyin boshlanadi» chiqqanda layout buzilardi). `w-` + `max-w-full`:
+            keng ekranda hamma firmada tugmalar bir chiziqda, tor ekranda esa ustun
+            konteynerdan chiqib ketmaydi. */}
+        <div className="flex w-[24rem] max-w-full shrink-0 flex-col items-end gap-1.5">
+        {/* flex-wrap — himoya to'ri: ZIP «tayyor» holatida yonига «+» tugmasi qo'shiladi va
+            tarkib ustundan kengroq bo'lib qolishi mumkin. Wrap bo'lmasa u ustundan toshib
+            chiqardi; wrap bilan esa «Batafsil» pastki qatorga tushadi, ustun eni esa
+            o'zgarmaydi — qo'shni firmalarning tugmalari joyidan siljimaydi. */}
+        <div className="flex flex-wrap items-start justify-end gap-2">
         {autoActive ? (
           <div className="inline-flex shrink-0 items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
@@ -1328,7 +1345,7 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
             </button>
           </div>
         ) : docsOk ? (
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-start gap-2">
             {/* ZIP — hujjatlarni faylga chiqarish. Sudga YUBORMAYDI: portalga tegmaydi,
                 shuning uchun pauza va sud limiti unga taalluqli emas. */}
             <ZipControl job={zipJob} sendable={fr.sendable} onStart={() => onZip?.()} onCancel={onZipCancel} />
