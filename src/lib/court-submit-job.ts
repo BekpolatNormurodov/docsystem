@@ -670,7 +670,12 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
 
       // TEZLIK: interval SHU ISHNING SUDI yozuvidan olinadi (Sudlar bo'limida sozlanadi,
       // default 60s). Birinchi ish kutmaydi — pacer oxirgi ish vaqtidan hisoblaydi.
-      const gapMs = caseGapFor((ac.court as { sendIntervalSec?: number } | null)?.sendIntervalSec);
+      // CASE-ORALIG'I: real yuborishда sudning intervali (45-60s) — sudni bosmaslik uchun.
+      // QORALAMA/SUIT esa sudga YUBORMAYDI — katta oraliq keraksiz, faqat portalni bosmaslik
+      // uchun kichik oraliq (REQUEST_GAP_MS). Bu tayyorlashni sezilarli tezlashtiradi.
+      const gapMs = (isDraftMode || isSuitMode)
+        ? REQUEST_GAP_MS
+        : caseGapFor((ac.court as { sendIntervalSec?: number } | null)?.sendIntervalSec);
       await paceCase(gapMs, (msLeft) => {
         const sec = Math.ceil(msLeft / 1000);
         console.log(`[Job ${jobId}] ${caseIndexStr} navbat: ${sec}s kutilmoqda...`);
