@@ -199,3 +199,58 @@ export async function attachScannedArizas(arizas: AttachInput[], opts: AttachOpt
 export async function attachAllScanned(opts: AttachOpts = {}): Promise<AttachResult> {
   return attachScannedArizas(readScannedArizas(), opts);
 }
+
+export interface ResortFirmResult extends AttachResult {
+  firm: string;   // topilgan firma nomi
+  wiped: number;  // o'chirilgan eski imzolangan-skan hujjatlari (fayl + yozuv)
+}
+
+/**
+ * BITTA FIRMANI TO'LIQ TOZALAB QAYTA SARTIROVKA QILADI.
+ *
+ * Operator so'ragan amal (2026-09-08): «arizalar firmaga qarab to'liq tozalanib, har bir
+ * userga qo'yib sartirovka qilib qayta yuklansin». Ma'nosi: bir marta sortlash noto'g'ri
+ * ketgan bo'lsa (ariza boshqa mijozga tushib qolgan yoki eskirgan), o'sha firmaning
+ * imzolangan-skan hujjatlarini BUTUNLAY o'chirib, skandan qaytadan bo'lib, har arizani
+ * o'z mijoziga yangidan biriktiradi.
+ *
+ * XAVFSIZ: skan dataseti PINFL bo'yicha JAMLANADI (mergeArizas) — ya'ni firmaning
+ * bir marta skanerlangan HAMMA arizasi datasetда turadi. Shuning uchun tozalab qayta
+ * biriktirish har birini qaytadan yaratadi; faqat datasetда umuman bo'lmagan (boshqa
+ * yo'l bilan qo'yilgan) hujjat qaytmaydi.
+ *
+ * FAQAT SHU FIRMA: boshqa firmalarning hujjatlariga tegilmaydi (firmId bo'yicha).
+ */
+export async function resortFirmScanned(
+  firmLabel: string,
+  opts: AttachOpts = {},
+): Promise<ResortFirmResult> {
+  const firms = await prisma.firm.findMany({ select: { id: true, code: true, shortName: true } });
+  // Panel chipidagi nom — firmaning `shortName`i (palataScanSummary shunday quradi).
+  const wantU = (firmLabel || '').toUpperCase().trim();
+  const firm =
+    firms.find((f) => (f.shortName || '').toUpperCase() === wantU) ??
+    firms.find((f) => (f.shortName || '').toUpperCase().includes(wantU)) ??
+    null;
+  if (!firm) throw new Error(`Firma topilmadi: ${firmLabel}`);
+
+  // Shu firmaga tegishli skanlangan arizalar (firmKey → firmId).
+  const all = readScannedArizas();
+  const mine = all.filter((a) => resolveFirmId(a.firmKey, firms) === firm.id);
+
+  // 1) TOZALASH — shu firma case'laridagi imzolangan-skan hujjatlarini o'chiramiz
+  //    (fayl + DB yozuvi). Boshqa turdagi hujjatlarga (talabnoma, oferta) tegilmaydi.
+  const cases = await prisma.arizaCase.findMany({ where: { firmId: firm.id }, select: { id: true } });
+  const caseIds = cases.map((c) => c.id);
+  const docs = caseIds.length
+    ? await prisma.caseDocument.findMany({ where: { caseId: { in: caseIds }, kind: 'SIGNED_ARIZA' }, select: { id: true, filePath: true } })
+    : [];
+  for (const d of docs) await fsp.rm(d.filePath, { force: true }).catch(() => {});
+  await prisma.caseDocument.deleteMany({ where: { caseId: { in: caseIds }, kind: 'SIGNED_ARIZA' } });
+  const wiped = docs.length;
+
+  // 2) QAYTA SARTIROVKA — endi hech bir case'da hujjat yo'q, shuning uchun har ariza
+  //    yangidan bo'linib biriktiriladi (replaceAll shart emas: bo'sh case «yangi» sifatida).
+  const r = await attachScannedArizas(mine, opts);
+  return { ...r, firm: firm.shortName, wiped };
+}

@@ -26,6 +26,8 @@ export function PalataScanPanel() {
   const [cancelling, setCancelling] = useState(false); // stopping a live OCR job
   const [saving, setSaving] = useState(false);    // starting the manual attach job
   const [confirmSave, setConfirmSave] = useState(false); // «Saqlansinmi?» tasdiq oynasi
+  const [resortAsk, setResortAsk] = useState<string | null>(null); // «tozalab qayta» tasdiq (firma nomi)
+  const [resorting, setResorting] = useState(false);
   const [update, setUpdate] = useState(true);     // re-scan overwrites already-saved PDFs (default ON)
   const [job, setJob] = useState<OcrJob | null>(null); // live OCR / attach job
   const [queue, setQueue] = useState<QueueItem[]>([]); // OCR navbati (o'qilayotgan + kutayotgan)
@@ -117,8 +119,29 @@ export function PalataScanPanel() {
     } finally { setSaving(false); }
   };
 
+  // «Tozalab qayta sartirovka» — BITTA firma: eski imzolangan-skan hujjatlarini
+  // o'chirib, skandan qaytadan bo'lib har mijozga biriktiradi. Sartirovka bir marta
+  // chalkash ketgan bo'lsa shu bilan tuzatiladi. Boshqa firmalarga tegilmaydi.
+  const doResort = async (firm: string) => {
+    setResorting(true); setErr(null); setResortAsk(null);
+    try {
+      const res = await fetch('/konveyer/palata-resort', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ firm }),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d?.error || 'Boshlab boʻlmadi'); }
+      setJob({ id: 0, status: 'PENDING', progress: 0, total: 0, message: `${firm}: tozalab qayta sartirovka…` });
+      wasRunning.current = true;
+      poll();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Boshlab boʻlmadi');
+    } finally { setResorting(false); }
+  };
+
   const running = !!job && (job.status === 'RUNNING' || job.status === 'PENDING');
-  const attaching = running && /saqla/i.test(job?.message || '');
+  // «Bazaga saqlash» ham, «tozalab qayta sartirovka» ham bir xil PALATA_ATTACH job —
+  // ikkalasi ham «biriktirish» fazasi (progress «ariza» bo'yicha).
+  const attaching = running && /saqla|sartirov|tozala/i.test(job?.message || '');
 
   // «Bekor qilish» — ishlab turgan OCR jarayonini to'xtatadi (server bo'lak orasida uzadi).
   const cancelOcr = async () => {
@@ -351,23 +374,58 @@ export function PalataScanPanel() {
             {s.firms.map((f) => {
               const active = firmFilter === f.firm;
               const pending = f.withCase - f.saved;
+              const asking = resortAsk === f.firm;
               return (
-                <button
-                  key={f.firm}
-                  type="button"
-                  onClick={() => { setFirmFilter(active ? null : f.firm); setOpen(true); setOnlyNoCase(false); }}
-                  className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition ${active ? 'border-violet-500/50 bg-violet-500/[0.06]' : 'border-line bg-surface hover:bg-surface-2/60'}`}
-                >
-                  <span className="flex-1 truncate text-[13px] font-medium" title={f.firm}>{f.firm}</span>
-                  <span className="shrink-0 text-[13px] font-semibold tabular-nums">{n(f.total)} ta</span>
-                  <span className="shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium tabular-nums text-emerald-700 dark:text-emerald-300" title="alohida PDF qilib bazaga saqlangan (sudga tayyor)">{n(f.saved)} saqlandi</span>
-                  {pending > 0 && (
-                    <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium tabular-nums text-amber-700 dark:text-amber-300" title="ishda bor, lekin hali bazaga saqlanmagan">{n(pending)} kutmoqda</span>
+                <div key={f.firm} className={`rounded-lg border transition ${active || asking ? 'border-violet-500/50 bg-violet-500/[0.06]' : 'border-line bg-surface hover:bg-surface-2/60'}`}>
+                  <div className="flex items-center gap-3 px-3 py-2">
+                    <button
+                      type="button"
+                      onClick={() => { setFirmFilter(active ? null : f.firm); setOpen(true); setOnlyNoCase(false); }}
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left outline-none"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-medium" title={f.firm}>{f.firm}</span>
+                      <span className="shrink-0 text-[13px] font-semibold tabular-nums">{n(f.total)} ta</span>
+                      <span className="shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium tabular-nums text-emerald-700 dark:text-emerald-300" title="alohida PDF qilib bazaga saqlangan (sudga tayyor)">{n(f.saved)} saqlandi</span>
+                      {pending > 0 && (
+                        <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium tabular-nums text-amber-700 dark:text-amber-300" title="ishda bor, lekin hali bazaga saqlanmagan">{n(pending)} kutmoqda</span>
+                      )}
+                      {f.total - f.withCase > 0 && (
+                        <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted" title="case yoʻq (masalan sud roʻyxatida emas)">{n(f.total - f.withCase)} yoʻq</span>
+                      )}
+                    </button>
+                    {/* Tozalab qayta sartirovka — SHU firma: eski imzolangan-skanlarni o'chirib
+                        skandan qaytadan har mijozga biriktiradi. Buzuq sortlashni tuzatadi. */}
+                    <button
+                      type="button"
+                      onClick={() => setResortAsk(asking ? null : f.firm)}
+                      disabled={running || resorting}
+                      title="Bu firmani tozalab qayta sartirovka qilish — eski imzolangan-skanlarni o‘chirib, skandan qaytadan har mijozga biriktiradi"
+                      className="shrink-0 rounded-md border border-line px-2 py-1 text-[11px] font-medium text-muted outline-none transition-colors hover:border-violet-500/45 hover:bg-violet-500/10 hover:text-violet-700 focus-visible:ring-2 focus-visible:ring-violet-500/30 disabled:opacity-40 dark:hover:text-violet-300"
+                    >
+                      Tozalab qayta
+                    </button>
+                  </div>
+                  {asking && (
+                    <div className="border-t border-violet-500/30 px-3 py-2 text-[11px] leading-snug">
+                      <p className="text-muted">
+                        <b className="font-semibold text-fg">{f.firm}</b> ning imzolangan-skan hujjatlari
+                        (<b className="font-semibold text-fg">{n(f.saved)}</b> ta) BUTUNLAY oʻchiriladi va
+                        skandan qaytadan har mijozga biriktiriladi. Boshqa firmalarga tegilmaydi.
+                        Avval bu firmaning toʻliq skani yuklangan boʻlsin.
+                      </p>
+                      <div className="mt-2 flex items-center gap-2">
+                        <button type="button" onClick={() => doResort(f.firm)} disabled={resorting}
+                          className="rounded-lg border border-violet-600 bg-violet-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-violet-700 disabled:opacity-60">
+                          {resorting ? '…' : 'Ha, tozalab qayta'}
+                        </button>
+                        <button type="button" onClick={() => setResortAsk(null)} disabled={resorting}
+                          className="rounded-lg border border-line px-3 py-1 text-[11px] font-medium text-muted transition-colors hover:bg-surface-2">
+                          Bekor
+                        </button>
+                      </div>
+                    </div>
                   )}
-                  {f.total - f.withCase > 0 && (
-                    <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted" title="case yoʻq (masalan sud roʻyxatida emas)">{n(f.total - f.withCase)} yoʻq</span>
-                  )}
-                </button>
+                </div>
               );
             })}
           </div>
