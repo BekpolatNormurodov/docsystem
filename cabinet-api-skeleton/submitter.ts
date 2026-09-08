@@ -48,6 +48,8 @@ export interface SubmissionResult {
 }
 
 export class CabinetSubmitEngine {
+  // Sessiya partiyada bir marta tekshiriladi (pastdagi STEP 1 izohiga qarang).
+  private sessionChecked = false;
   private client: CabinetApiClient;
   private uploader: CabinetFileUploader;
 
@@ -107,11 +109,20 @@ export class CabinetSubmitEngine {
         );
       }
 
-      // STEP 1: sessiya tekshirish
-      options.onStep?.('Sessiya');
-      console.log('▶ [1/7] Sessiya tekshirilmoqda...');
-      const userRes = await this.client.get<{ username: string }>(CABINET_ENDPOINTS.userGet);
-      console.log(`✔ Sessiya faol: ${userRes.data?.username || 'OK'}`);
+      // STEP 1: sessiya tekshirish — PARTIYADA FAQAT BIR MARTA.
+      //
+      // Sessiya butun partiya davomida o'zgarmaydi (bitta token), shuning uchun uni har
+      // ishda tekshirish 4 soniyalik behuda so'rov edi: 200 ishlik partiyada ~13 daqiqa.
+      // Birinchi ishda tekshiramiz (token tirikligiga ishonch hosil qilish uchun), keyin
+      // o'tkazib yuboramiz. Token o'rtada uzilsa — keyingi so'rovlar 401 beradi va navbat
+      // baribir to'xtaydi (AUTH), ya'ni himoya yo'qolmaydi.
+      if (!this.sessionChecked) {
+        options.onStep?.('Sessiya');
+        console.log('▶ [1/7] Sessiya tekshirilmoqda...');
+        const userRes = await this.client.get<{ username: string }>(CABINET_ENDPOINTS.userGet);
+        console.log(`✔ Sessiya faol: ${userRes.data?.username || 'OK'}`);
+        this.sessionChecked = true;
+      }
 
       // STEP 1b: DAVLAT BOJI — qoralama yaratishdan OLDIN.
       //
