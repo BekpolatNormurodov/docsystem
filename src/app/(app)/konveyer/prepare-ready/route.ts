@@ -86,6 +86,42 @@ export async function POST(req: NextRequest) {
   // ZIP (isExportOnly) — sud biriktiriladi, lekin kunlik limit tanlovni KESMAYDI: fayl
   // tayyorlashning sud kunlik quvvatiga ham, ish kuniga ham aloqasi yo'q.
   const alloc = await allocateFirmCases(firmId, caseIds, new Date(), courtIds, isExportOnly);
+
+  /**
+   * BUGUN SIG'MAGAN ISHLAR YO'QOLMASIN — navbatga yozamiz.
+   *
+   * 2026-09-08: operator BRIGHT'da 200 ta yuborib, qolgan 91 tasini «Navbatga qo'shish»
+   * bilan qo'shdi va ular HECH QACHON ketmadi. Sabab: 200 talik partiya yaratilishi bilan
+   * consumeCourtSend Uchtepa sudining kunlik limitini (200) TO'LIQ band qiladi, ya'ni 91 ta
+   * uchun `remaining` = 0 bo'ladi va allocateFirmCases hammasini `deferred` ga tashlaydi.
+   * Route esa 400 qaytarardi, sahifadagi navbat yozuvi «xato» bo'lib qotib qolardi va bu
+   * 91 ta ish HECH QAYERDA — na bazada, na navbatda — qolmasdi.
+   *
+   * Endi ular CourtQueueItem'ga PENDING bo'lib yoziladi (jobId'siz). Bundan keyin:
+   *   • darhol «Navbatda» bo'lib ko'rinadi (court-ready shu jadvaldan o'qiydi);
+   *   • worker'ning avto-davom sikli keyingi ish kunida o'zi oladi;
+   *   • brauzer yopilsa ham yo'qolmaydi.
+   * Kunlik limit BAND QILINMAYDI: bu ishlar hali yuborilmagan.
+   */
+  const parkDeferred = async (ids: number[]): Promise<number> => {
+    if (!ids.length || isExportOnly) return 0;
+    const firm = await prisma.firm.findUnique({ where: { id: firmId }, select: { stir: true } });
+    const account = (firm?.stir || '').replace(/\D/g, '');
+    if (!account) return 0; // STIR'siz navbat yozuvi ma'nosiz — partiya baribir ishlamaydi
+    const why = 'Sud kunlik limiti tugagan — keyingi ish kunida avtomat davom etadi';
+    let parked = 0;
+    for (const caseId of ids) {
+      // Allaqachon navbatda yoki yuborilgan ishga TEGMAYMIZ (update: {}) — faqat yangi yozuv.
+      const r = await prisma.courtQueueItem.upsert({
+        where: { caseId },
+        create: { caseId, firmId, account, state: 'PENDING', lastError: why },
+        update: {},
+      });
+      if (r.state === 'PENDING') parked++;
+    }
+    return parked;
+  };
+
   if (alloc) {
     sendIds = alloc.assignments.map((a) => a.caseId);
     deferred = alloc.deferred.length;
@@ -100,6 +136,16 @@ export async function POST(req: NextRequest) {
         return `${b.court.shortName}: ${w}`;
       });
       const courtNote = courtIds?.length ? ' (faqat tanlangan sud(lar) hisobga olindi)' : '';
+      // Bugun bittasi ham ketmaydi — LEKIN bu xato emas. Ishlar navbatga qo'yiladi va bu
+      // MUVAFFAQIYAT deb qaytariladi: ular keyingi ish kunida o'zi ketadi. Ilgari bu yerda
+      // 400 qaytarilib, ishlar butunlay yo'qolardi.
+      const parked = await parkDeferred(alloc.deferred);
+      if (parked > 0) {
+        return NextResponse.json({
+          jobId: null, queued: parked, reason: 'QUOTA',
+          message: `${parked} ta ish navbatga qo‘yildi — keyingi ish kunida avtomat yuboriladi${courtNote}. ${parts.join(' · ')}`,
+        });
+      }
       return NextResponse.json(
         { error: `Bugun sudga yuborib bo‘lmaydi (keyingi ish kuniga suriladi)${courtNote}. ${parts.join(' · ')}` },
         { status: 400 },
@@ -110,6 +156,8 @@ export async function POST(req: NextRequest) {
     // limit band qilinmaydi. 2026-09-07: BRIGHT'ning ZIP job'i Yuqorichirchiqda 100 joyni
     // bekorga band qilib qo'ygan edi.
     await consumeCourtSend(alloc.assignments, new Date(), !isExportOnly);
+    // Bugunga sig'magani (limit/oyna) ham yo'qolmasin — navbatda qoladi.
+    if (alloc.deferred.length) await parkDeferred(alloc.deferred);
   }
 
   // Saytdan sudga yuborishda real topshirish dvigateli (COURT_SUBMIT) ishlaydi.

@@ -139,6 +139,18 @@ services:
     # chromium writes shared-memory to /dev/shm; Docker's 64MB default makes it crash under parallel
     # rendering. 1GB is comfortable headroom for a high WORKER_CONCURRENCY on a big-CPU backend.
     shm_size: "1gb"
+    # DEPLOY KETAYOTGAN ZIP'NI O'LDIRMASIN.
+    #
+    # Docker `stop` ning standart muddati 10 soniya, keyin SIGKILL. 616 mijozlik ZIP ~10
+    # daqiqa ketadi va u UZILSA NOLDAN boshlanadi (arxiv oqim, yarmini saqlab bo'lmaydi),
+    # 3 martadan keyin esa butunlay FAILED bo'ladi — ya'ni tez-tez deploy qilinsa katta ZIP
+    # umuman chiqmasligi mumkin edi.
+    #
+    # Worker SIGTERM'da yangi ish OLMAYDI va joriysini tugatib, o'zi chiqadi (index.ts:
+    # loop() oxirida process.exit(0)). Shuning uchun bo'sh worker ~2 soniyada to'xtaydi va
+    # odatiy deploy sekinlashmaydi; bu muddat FAQAT haqiqatan ZIP ketayotganda ishlaydi.
+    # Sud partiyasi kutilmaydi — u uzilishga chidamli (navbat bazada, avto-davom bor).
+    stop_grace_period: 15m
     # tini'ni PID 1 qilib qo'yadi — «zombi» jarayonlarni yig'ib turadi.
     #
     # Chromium har ish uchun yangi jarayon ochadi; `npm run worker` PID 1 bo'lganда u

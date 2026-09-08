@@ -37,7 +37,9 @@ interface ClientCounts { all: number; sendable: number; queued: number; draft: n
 interface ClientPage { rows: ClientRow[]; total: number; page: number; pageSize: number; pages: number; counts: ClientCounts; error?: string }
 
 // `asked` — operator nechta so'ragani (server topgani `total` dan kam bo'lishi mumkin).
-type JobState = { jobId: number; status: string; progress: number; total: number; error?: string; message?: string; type?: string; asked?: number };
+type JobState = { jobId: number; status: string; progress: number; total: number; error?: string; message?: string; type?: string; asked?: number;
+  /** Bugunga sig'magani (sud kunlik limiti) — navbatga qo'yildi, yo'qolmadi. */
+  deferred?: number };
 
 const n = (x: number) => x.toLocaleString('ru-RU');
 const sum = (v: string) => Number(v).toLocaleString('ru-RU');
@@ -230,9 +232,16 @@ function ExportControl({ job, sendable, onStart, batchActive }: {
     const hadError = /XATO/i.test(job.message || '');
     return (
       <div className="flex flex-col items-end gap-1">
-        <span className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${hadError ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'}`}>
+        <span className={`max-w-full text-balance rounded-lg border px-3 py-1.5 text-xs font-semibold leading-tight ${hadError ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'}`}>
           {job.message || `${job.total} ta yuborildi`}
         </span>
+        {/* Bugunga sig'magani JIM YO'QOLMASIN: ilgari operator «91 so'radim, 12 ketdi»
+            farqini ko'rmasdi — yozuv yashil «tayyor» bo'lib turardi. */}
+        {(job.deferred ?? 0) > 0 && (
+          <span className="max-w-full text-balance text-[10px] leading-tight text-amber-600 dark:text-amber-400">
+            {n(job.deferred!)} tasi bugungi sud limitiga sig‘madi — navbatda, ertaga o‘zi ketadi
+          </span>
+        )}
         {sendable > 0 && (
           <button onClick={onStart} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1 text-[11px] font-medium text-muted outline-none transition-colors hover:border-brand-500/40 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30" title={`Keyingi ${Math.min(MAX_COURT_BATCH, sendable)} ta`}>
             <IcoBolt /> Yana ({Math.min(MAX_COURT_BATCH, sendable)})
@@ -698,6 +707,12 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
     if (courtFilter !== 'all' && !courtOptions.some((c) => c.id === courtFilter)) setCourtFilter('all');
   }, [courtOptions, courtFilter]);
 
+  // Ochiq turgan «Navbatda» tab'i bo'shab qolsa — tab yo'qoladi, shuning uchun tanlovni
+  // «Tayyor»ga qaytaramiz (aks holda hech qanday tab faol bo'lmagan bo'sh ekran qoladi).
+  useEffect(() => {
+    if (filter === 'queued' && counts && counts.queued === 0) setFilter('sendable');
+  }, [filter, counts]);
+
   const filtered = React.useMemo(() => {
     const src = data?.rows ?? [];
     const needle = debouncedQ.trim().toLowerCase();
@@ -733,7 +748,8 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
     <div className="border-t border-line bg-surface-2/30 p-3">
       {/* filter chips with live counts */}
       <div className="mb-2 flex flex-wrap gap-1">
-        {CLIENT_FILTERS.map((f) => {
+        {/* «Navbatda» tab'i faqat navbatda ish bo'lsa — bo'sh tab bosilsa quruq ro'yxat chiqadi. */}
+        {CLIENT_FILTERS.filter((f) => f.key !== 'queued' || (counts?.queued ?? 0) > 0).map((f) => {
           const active = filter === f.key;
           const cnt = counts ? counts[f.key] : undefined;
           return (
@@ -1334,7 +1350,7 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
   );
 }
 
-function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCancel, onChanged, drillOpen, onToggleDrill, idx, autoActive, onStopAuto, batchActive }: {
+function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCancel, onChanged, drillOpen, onToggleDrill, idx, autoActive, onStopAuto, batchActive, showQueued }: {
   fr: FirmReadiness; snapshotId?: number; job?: JobState; zipJob?: JobState;
   batchActive?: { jobId: number; status: string; queuePos: number } | null;
   startExport: (firmId: number, extra: Record<string, unknown>) => void;
@@ -1342,6 +1358,8 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
   onZipCancel?: (jobId: number) => void;
   onChanged: () => void; drillOpen: boolean; onToggleDrill: () => void; idx: number;
   autoActive?: boolean; onStopAuto?: () => void;
+  /** Butun ro'yxatda navbatda ish bormi — «Navbatda» ustunini ko'rsatish/yashirish uchun. */
+  showQueued?: boolean;
 }) {
   const pct = fr.total ? (fr.ready / fr.total) * 100 : 0;
   const [includeExported, setIncludeExported] = useState(false); // «qaytadan» — allaqachon yuborilganlarni ham qo'shish
@@ -1402,8 +1420,12 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
               Besh ustunga o'tish `2xl` da: 1280px da beshtasi siqilib «Tayyo… / Nedb…»
               bo'lib qirqilardi, shuning uchun undan pastda 2–3 ustun. */}
           {!drillOpen && (
-            <div className="mt-2 grid max-w-[40rem] grid-cols-2 gap-1.5 sm:grid-cols-3 2xl:grid-cols-[1.3fr_1fr_1fr_1fr_1fr]">
-              {FIRM_STAT_CHIPS.map((f) => (
+            // «Navbatda» ustuni FAQAT navbatda ish bo'lganda chiqadi — bo'sh paytda u har
+            // qatorda «Navbatda 0» bo'lib bekorga joy egallardi. Qaror BUTUN RO'YXAT uchun
+            // bir marta qabul qilinadi (`showQueued`), firma bo'yicha emas: aks holda bir
+            // firmada 4, boshqasida 5 ustun bo'lib, qatorlar tekislanmay qolardi.
+            <div className={`mt-2 grid max-w-[40rem] grid-cols-2 gap-1.5 sm:grid-cols-3 ${showQueued ? '2xl:grid-cols-[1.3fr_1fr_1fr_1fr_1fr]' : '2xl:grid-cols-[1.3fr_1fr_1fr_1fr]'}`}>
+              {FIRM_STAT_CHIPS.filter((f) => f.key !== 'queued' || showQueued).map((f) => (
                 <span key={f.key} className="inline-flex min-w-0 items-center gap-1.5 rounded-lg bg-surface-2 px-2 py-1 text-[11px] font-medium" title={f.label}>
                   <span className={`shrink-0 ${f.iconCls}`}>{f.icon}</span>
                   <span className="truncate text-muted">{f.label}</span>
@@ -1663,7 +1685,20 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
         // mumkin (masalan tayyorlari kamaygan). Ilgari bu farq jim yo'qolardi va operator
         // «616 so'ragandim, nega 100?» degan savol bilan qolardi.
         const asked = typeof body.limit === 'number' ? (body.limit as number) : undefined;
-        setJobs((j) => ({ ...j, [key]: { jobId: d.jobId, status: 'PENDING', progress: 0, total: d.total, type: d.type, asked } }));
+
+        // PARTIYA YARATILMAGAN, LEKIN ISH YO'QOLMAGAN.
+        //
+        // Sud kunlik limiti tugagan bo'lsa server bugun partiya ochmaydi — o'rniga ishlarni
+        // navbatga yozib, `jobId: null` bilan qaytaradi. Bu XATO EMAS: ular keyingi ish
+        // kunida worker tomonidan o'zi yuboriladi. Ilgari bunday javob 400 edi va navbat
+        // yozuvi qizil «xato» bo'lib qotib qolardi.
+        if (!d.jobId) {
+          setJobs((j) => ({ ...j, [key]: { jobId: 0, status: 'DONE', progress: 0, total: Number(d.queued) || 0, type: 'COURT_SUBMIT', asked, message: d.message || 'Navbatga qo‘yildi' } }));
+          void loadRef.current();
+          onDone();
+          return;
+        }
+        setJobs((j) => ({ ...j, [key]: { jobId: d.jobId, status: 'PENDING', progress: 0, total: d.total, type: d.type, asked, deferred: Number(d.deferred) || undefined } }));
         // RAQAMLAR DARHOL YANGILANSIN. Partiyaga olingan ishlar shu zahoti «Tayyor»dan
         // «Navbatda»ga o'tadi — server allaqachon shunday hisoblaydi, faqat sahifadagi
         // nusxa eski qolardi. Ilgari u faqat 20 soniyalik davriy yangilanishda tuzatilardi
@@ -1965,7 +2000,10 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                 <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
                   <Stat label="Jami" value={ov!.total} icon={statIcon('all')} hint="Tanlangan firma/snapshot bo'yicha" />
                   <Stat label="Tayyor" value={ov!.sendable} tone="emerald" icon={statIcon('sendable')} hint="Talabnoma + skan + oferta + check + boji (invoice raqami) bor, hali yuborilmagan — shu tab'dan yuboriladi" />
-                  <Stat label="Navbatda" value={ov!.queued} tone="amber" icon={statIcon('queued')} hint="Partiyaga olingan, sudga hali yetib bormagan — «Tayyor» sanog'idan chiqarilgan" />
+                  {/* Nol bo'lsa karta umuman chiqmaydi — bo'sh «Navbatda 0» faqat joy egallaydi. */}
+                  {ov!.queued > 0 && (
+                    <Stat label="Navbatda" value={ov!.queued} tone="amber" icon={statIcon('queued')} hint="Partiyaga olingan, sudga hali yetib bormagan — «Tayyor» sanog'idan chiqarilgan" />
+                  )}
                   <Stat label="Qoralama" value={ov!.draft} tone="violet" icon={statIcon('draft')} hint="Sinab ko'rilgan (hali haqiqiy yuborilmagan)" />
                   {/* «Sudda» — ATAYIN `submitted`, `exported` EMAS. Ilgari bu karta ZIP
                       olingan ishlarni ham qo'shib «Yuborilgan 131» deb ko'rsatardi, holbuki
@@ -2159,6 +2197,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                       snapshotId={snapshotId}
                       job={jobs[`firm:${fr.firmId}`]}
                       batchActive={activeBatchByFirm.get(fr.firmId) ?? null}
+                      showQueued={(ov?.queued ?? 0) > 0}
                       zipJob={jobs[`zip:${fr.firmId}`]}
                       startExport={startExport}
                       onZip={() => setZipAsk({ firmId: fr.firmId, firmName: fr.firmName, max: fr.sendable, value: Math.min(MAX_ZIP_BATCH, fr.sendable) })}

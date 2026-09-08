@@ -39,9 +39,23 @@ let stopping = false;
 
 // Atomically claim the oldest PENDING doc-job: flip PENDING→RUNNING and only proceed if THIS update
 // won the row (count === 1). Guards against two workers grabbing the same job.
-async function claimNext(): Promise<number | null> {
+/**
+ * TEZ YO'LAK chegarasi — shuncha yoki undan kam hujjatli ish «interaktiv» hisoblanadi.
+ *
+ * Nega kerak: doc-navbat BITTA ish bajaradi. 616 mijozlik ZIP ~10 daqiqa ketadi va shu
+ * vaqtda boshqa yurist bitta mijozning hujjatini yuklamoqchi bo'lsa, uning so'rovi
+ * navbatda kutib `awaitJob` chegarasiga (280 s) urilardi va 504 qaytardi — garchi uning
+ * ishi 2 soniyalik bo'lsa ham. Endi kichik ishlar uchun alohida yo'lak bor.
+ */
+const QUICK_MAX_TOTAL = 5;
+
+async function claimNext(opts: { maxTotal?: number } = {}): Promise<number | null> {
   const job = await prisma.job.findFirst({
-    where: { status: 'PENDING', type: { in: DOC_TYPES as unknown as string[] } },
+    where: {
+      status: 'PENDING',
+      type: { in: DOC_TYPES as unknown as string[] },
+      ...(opts.maxTotal != null ? { total: { lte: opts.maxTotal } } : {}),
+    },
     // FIX 2 (queue priority): smallest job first (total = doc count), then oldest. A quick interactive
     // single-case download (total 1) must not wait behind a huge bulk batch (total ~1671) queued just
     // before it — that starvation is what times out the route's awaitJob. Ties break by createdAt (FIFO).
@@ -286,6 +300,16 @@ async function loop(): Promise<void> {
   }
   await prisma.$disconnect().catch(() => {});
   console.log('[worker] stopped');
+  // JARAYONNI O'ZIMIZ YOPAMIZ.
+  //
+  // Bu siklda `stopping` bo'lgach chiqamiz, lekin jarayon TIRIK qolardi: fon sikllari
+  // (billing 5 daq, sud statusi 30 daq) ref'li setTimeout ushlab turadi. Natijada Docker
+  // 10 soniyadan keyin SIGKILL qilardi va aynan shu ketayotgan ZIP'ni o'ldirardi —
+  // «joriy ishni tugatib chiqaman» degan himoya amalda hech qachon ishlamagan.
+  //
+  // Sud partiyasini KUTMAYMIZ: u uzilishga chidamli (navbat bazada, avto-davom o'zi
+  // qayta boshlaydi). ZIP esa chidamli emas — himoya aynan unga kerak.
+  process.exit(0);
 }
 
 // billing.sud.uz kvitansiyalarini firma bo'yicha AVTOMAT yangilab turadi (AUTO_EVERY_MS, hozir 2 soat) —
@@ -459,6 +483,32 @@ async function courtSubmitLoop(): Promise<void> {
   }
 }
 
+/**
+ * TEZ YO'LAK sikli — faqat kichik (<= QUICK_MAX_TOTAL) hujjat ishlari.
+ *
+ * Asosiy sikl bilan yonma-yon ishlaydi. Ikkovi bir ishni ola olmaydi: `claimNext` da
+ * PENDING→RUNNING o'tishi atomar (updateMany + count tekshiruvi), ya'ni poygada faqat
+ * bittasi yutadi. Xotira jihatidan xavfsiz: bitta mijozlik ish chromium'da bitta sahifa.
+ */
+async function quickLoop(): Promise<void> {
+  console.log(`[worker] tez yo'lak: <= ${QUICK_MAX_TOTAL} hujjatli ishlar alohida bajariladi`);
+  while (!stopping) {
+    try {
+      const id = await claimNext({ maxTotal: QUICK_MAX_TOTAL });
+      if (id != null) {
+        console.log(`[worker] (tez) job ${id} boshlandi`);
+        await runJobById(id).catch((e) => console.error(`[worker] (tez) job ${id} xatosi`, e));
+        console.log(`[worker] (tez) job ${id} tugadi`);
+        continue;
+      }
+    } catch (e) {
+      console.error('[worker] tez yo\'lak xatosi', e instanceof Error ? e.message : e);
+    }
+    await new Promise((r) => setTimeout(r, POLL_MS));
+  }
+}
+
+void quickLoop().catch((e) => console.error('[worker] tez yo\'lak fatal', e));
 void billingAutoSyncLoop().catch((e) => console.error('[worker] billing auto-sync fatal', e));
 void courtSubmitLoop().catch((e) => console.error('[worker] sud sikli fatal', e));
 void courtAutoResumeLoop().catch((e) => console.error('[worker] avto-davom fatal', e));
