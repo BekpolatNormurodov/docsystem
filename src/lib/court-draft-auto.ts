@@ -20,6 +20,10 @@ import { pausedFirmIds } from './cabinet/pacer';
 import { MAX_COURT_BATCH, selectReadyCaseIds } from './court-ready';
 
 const DRAFT_AUTO_KEY = 'court_draft_auto';
+// Round-robin kursori: oxirgi partiya berilgan firma id'si. Har tick shundan KEYINGI firmadan
+// boshlaydi — aks holda past-id firma (masalan doim xato beradigan ishlari qolgan) har tickда
+// birinchi bo'lib partiya olib, yuqori-id firmalarning tayyor ishlarini abadiy bloklab qo'yardi.
+const DRAFT_CURSOR_KEY = 'court_draft_cursor';
 
 /** 24/7 avto-qoralama yoqilganmi. */
 export async function isDraftAutoOn(): Promise<boolean> {
@@ -84,18 +88,31 @@ export async function draftAutoTick(): Promise<string | null> {
   const active = await prisma.job.count({ where: { type: 'COURT_SUBMIT', status: { in: ['PENDING', 'RUNNING'] } } });
   if (active > 0) return null;
 
-  const [snap, pausedFirms] = await Promise.all([
+  const [snap, pausedFirms, cursorRow] = await Promise.all([
     prisma.snapshot.findFirst({ orderBy: { reportDate: 'desc' }, select: { id: true } }),
     pausedFirmIds().then((ids) => new Set(ids)), // faqat firma-darajali pauza (umumiysini emas)
+    prisma.setting.findUnique({ where: { key: DRAFT_CURSOR_KEY }, select: { value: true } }),
   ]);
 
-  // Firmalarni jamiga ko'ra tartiblab, birinchi tayyor ishi borига partiya beramiz. Keyingi
-  // firma keyingi tickda oladi — bir vaqtda bitta partiya (portalni bosmaslik uchun).
+  // ROUND-ROBIN: firmalarni id bo'yicha tartiblab, oxirgi berilган firmadan KEYINGISIDAN
+  // boshlaymiz. Har tick bitta firmaga bitta partiya (portalni bosmaslik uchun), lekin
+  // ADOLATLI navbat bilan — hech bir firma boshqasini bloklab qo'ymaydi.
+  const cursor = Number(cursorRow?.value) || 0;
   const firms = await prisma.firm.findMany({ select: { id: true, shortName: true }, orderBy: { id: 'asc' } });
-  for (const f of firms) {
+  const startIdx = firms.findIndex((f) => f.id > cursor);
+  const ordered = startIdx <= 0 ? firms : [...firms.slice(startIdx), ...firms.slice(0, startIdx)];
+  for (const f of ordered) {
     if (pausedFirms.has(f.id)) continue; // shu firma alohida to'xtatilgan
     const made = await createDraftBatch(f.id, snap?.id ?? undefined);
-    if (made) return `firma ${f.id} (${f.shortName}): #${made.jobId} — ${made.count} ta qoralama tayyorlanmoqda`;
+    if (made) {
+      // Kursorni shu firmaga suramiz — keyingi tick undan KEYINGI firmadan boshlaydi.
+      await prisma.setting.upsert({
+        where: { key: DRAFT_CURSOR_KEY },
+        create: { key: DRAFT_CURSOR_KEY, value: String(f.id) },
+        update: { value: String(f.id) },
+      });
+      return `firma ${f.id} (${f.shortName}): #${made.jobId} — ${made.count} ta qoralama tayyorlanmoqda`;
+    }
   }
   return null; // hech kimda tayyor ish qolmadi
 }

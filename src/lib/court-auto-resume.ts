@@ -201,12 +201,14 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH): 
 
   // PARTIYA REJIMINI SAQLAYMIZ. Uzilgan qoralama partiyasi qoralama, real esa real bo'lib
   // davom etsin — aks holda avto-davom qoralamani REAL sudga topshirib qo'yardi (qaytarib
-  // bo'lmaydi). Aralash bo'lsa xavfsiz tomon: QORALAMA (real emas). Qoralama sud kvotasini
-  // band qilmaydi (ignoreQuota) va limit iste'mol qilmaydi.
+  // bo'lmaydi). ARALASH bo'lsa XAVFSIZ tomon: bitta ish qoralama bo'lsa ham — BUTUN partiya
+  // QORALAMA (real emas). Shuning uchun `.some()` — `.every()` EMAS: `.every()` aralashni
+  // real deb hisoblab, qoralama ishlarni sudga topshirib qo'yardi (teskari xavf). Qoralama
+  // sud kvotasini band qilmaydi (ignoreQuota) va limit iste'mol qilmaydi.
   const modeRows = await prisma.courtQueueItem.findMany({
     where: { caseId: { in: caseIds } }, select: { draftMode: true },
   });
-  const draftMode = modeRows.length > 0 && modeRows.every((r) => r.draftMode === true);
+  const draftMode = modeRows.some((r) => r.draftMode === true);
 
   const alloc = await allocateFirmCases(firmId, caseIds, new Date(), undefined, draftMode);
   let sendIds = caseIds;

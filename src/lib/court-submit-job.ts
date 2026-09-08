@@ -10,7 +10,7 @@ import { prisma } from './db';
 import { getStoredCabinetSession } from './cabinet/session';
 import { CabinetSubmitEngine } from '../../cabinet-api-skeleton/submitter';
 import { CabinetRequestError } from '../../cabinet-api-skeleton/client';
-import { paceCase, backoff, caseGapFor, isQueuePaused, REQUEST_GAP_MS, CASE_GAP_MS } from './cabinet/pacer';
+import { paceCase, backoff, caseGapFor, isQueuePaused, isFirmPaused, REQUEST_GAP_MS, CASE_GAP_MS } from './cabinet/pacer';
 import { audit, AuditAction } from './audit';
 import { resolveClaimantId } from './cabinet/claimant';
 import { releaseCourtSend } from './court-routing';
@@ -553,7 +553,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
         await prisma.courtQueueItem.upsert({
           where: { caseId: ac.id },
           create: { caseId: ac.id, firmId: firm.id, account: firmStir, state: 'SKIPPED', jobId, draftMode: isDraftMode, finishedAt: new Date(), lastError: why(ac) },
-          update: { state: 'SKIPPED', jobId, step: null, finishedAt: new Date(), lastError: why(ac) },
+          update: { state: 'SKIPPED', jobId, draftMode: isDraftMode, step: null, finishedAt: new Date(), lastError: why(ac) },
         });
       }
       await prisma.arizaCase.updateMany({
@@ -596,7 +596,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
         await prisma.courtQueueItem.upsert({
           where: { caseId: ac.id },
           create: { caseId: ac.id, firmId: firm.id, account: firmStir, state: 'SKIPPED', jobId, draftMode: isDraftMode, lastError: why(ac), finishedAt: new Date() },
-          update: { state: 'SKIPPED', jobId, lastError: why(ac), finishedAt: new Date(), step: null },
+          update: { state: 'SKIPPED', jobId, draftMode: isDraftMode, lastError: why(ac), finishedAt: new Date(), step: null },
         });
       }
       // Kunlik sud limitini QAYTARAMIZ: partiya tuzilishida bu ishlarga courtSentAt
@@ -634,9 +634,13 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
         break;
       }
 
-      // UMUMIY PAUZA: barcha firmalarga taalluqli. Ishlar PENDING bo'lib qoladi — davom
-      // ettirilganda aynan shu joydan ketadi, hech narsa takrorlanmaydi.
-      if (await isQueuePaused(opts.firmId)) {
+      // PAUZA: real yuborish umumiy VA firma pauzasiga bo'ysunadi. QORALAMA esa faqat FIRMA
+      // pauzasiga — qoralama xavfsiz (sudga yubormaydi), umumiy "Sudga yuborish to'xtatildi"
+      // uni to'xtatmasligi kerak (draftAutoTick bilan bir xil semantika: 7eb135f). Aks holda
+      // umumiy pauza yoqiq turganda «Go» bosilsa ham har partiya shu yerda 0 tada uzilardi.
+      // Ishlar PENDING bo'lib qoladi — davom ettirilganda aynan shu joydan ketadi.
+      const pausedNow = isDraftMode && opts.firmId ? await isFirmPaused(opts.firmId) : await isQueuePaused(opts.firmId);
+      if (pausedNow) {
         console.log(`[Job ${jobId}] Jarayon pauzada — to'xtatildi.`);
         stopReason = 'Pauza — operator jarayonni to\'xtatib qo\'ygan';
         break;

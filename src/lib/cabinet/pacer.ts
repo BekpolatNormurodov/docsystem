@@ -187,6 +187,17 @@ export async function isQueuePaused(firmId?: number | null): Promise<boolean> {
   }
 }
 
+/** FAQAT shu firmaning pauzasi (umumiy pauzani HISOBGA OLMAYDI). Qoralama jobi uchun: qoralama
+ *  xavfsiz, umumiy "Sudga yuborish to'xtatildi" uni to'xtatmasligi kerak — faqat firma pauzasi. */
+export async function isFirmPaused(firmId: number): Promise<boolean> {
+  try {
+    const row = await prisma.setting.findUnique({ where: { key: firmPauseKey(firmId) }, select: { value: true } });
+    return row?.value === '1';
+  } catch {
+    return false;
+  }
+}
+
 /** Faqat FIRMA darajasidagi pauza (umumiysini hisobga olmaydi) — UI holatini ko'rsatish uchun. */
 export async function pausedFirmIds(): Promise<number[]> {
   try {

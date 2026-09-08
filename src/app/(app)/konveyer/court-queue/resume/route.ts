@@ -97,9 +97,10 @@ export async function POST(req: NextRequest) {
 
   const caseIds = items.map((i) => i.caseId);
   // Uzilgan partiyaning REJIMINI saqlaymiz — aks holda qoralama deb boshlangan ishlar
-  // resume'da REAL sudga topshirilib ketardi (qaytarib bo'lmaydi). Barcha olingan ishlar
-  // qoralama bo'lsagina qoralama; aralash bo'lsa xavfsiz tomon — REAL emas, QORALAMA.
-  const draftMode = items.length > 0 && items.every((i) => i.draftMode === true);
+  // resume'da REAL sudga topshirilib ketardi (qaytarib bo'lmaydi). ARALASH bo'lsa xavfsiz
+  // tomon — bitta ish qoralama bo'lsa ham BUTUN partiya QORALAMA (real emas). `.some()` —
+  // `.every()` EMAS (`.every()` aralashni real deb topshirib qo'yardi, teskari xavf).
+  const draftMode = items.some((i) => i.draftMode === true);
   if (retryFailed) {
     // Urinishlar sanog'i NOLLANADI: bu operatorning ATAYIN qarori (kamchilik tuzatildi),
     // shuning uchun avtomatikaning «3 urinishdan keyin tinch qo'y» qoidasi qaytadan
