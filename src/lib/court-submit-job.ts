@@ -496,12 +496,20 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
     // tuzatib QAYTA yuborish kerak (tizimda «Suddan qaytganlar» oqimi bor). 2026-09-08
     // da bu farq yo'q edi va to'siqning yagona ta'siri BRIGHT'ning qaytarilgan 15 ta
     // ishini bloklash bo'ldi — ya'ni aynan teskarisi.
+    // FAQAT OCHIQ FAOL DA'VO to'sadi.
+    //
+    // 2026-09-08: portal mijozning ESKI, HAL BO'LGAN ishlarini ham saqlaydi (DECIDED,
+    // FINISHED — o'tgan yillar). Ilgari `status != DECLINED` deб OLINGAN edi, ya'ni bu
+    // resolved eski ishlar ham to'sar va mijozning YANGI qarzi hech qachon yuborilmasdi.
+    // Eski tugagan ish yangi qarzga dalil emas. Shuning uchun faqat AYNI PAYTDA ochiq/faol
+    // da'vo (ariza berilgan, ro'yxatda, ko'rilmoqda) ikkinchi da'voga to'siq bo'ladi.
+    const OPEN_PORTAL_STATUSES = ['ALLOCATE', 'CREATED', 'REGISTER', 'PENDING', 'IN_PROCESS'];
     const externalRows = casePinfls.length && firm.code
       ? await prisma.clientCaseStatus.findMany({
           where: {
             source: 'CABINET', branchCode: firm.code, matchedBy: 'PINFL',
             pinfl: { in: casePinfls },
-            status: { not: 'DECLINED' },
+            status: { in: OPEN_PORTAL_STATUSES },
           },
           select: { pinfl: true, caseNumber: true },
         })

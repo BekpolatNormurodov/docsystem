@@ -171,39 +171,19 @@ const PORTAL_CLOSED_STATUSES = new Set(['DECLINED']);
 
 async function portalCasePinfls(branchCode: string | null, firmStir?: string | null): Promise<{ portal: Set<string>; manual: Set<string> }> {
   const empty = { portal: new Set<string>(), manual: new Set<string>() };
-  if (!branchCode) return empty;
-  const rows = await prisma.clientCaseStatus.findMany({
-    where: { source: 'CABINET', branchCode, matchedBy: 'PINFL', pinfl: { not: null } },
-    select: { pinfl: true, caseNumber: true, status: true },
-  });
-  if (!rows.length) return empty;
+  // «SUDDA» SANOG'I FAQAT BIZNING YUBORGANIMIZNI KO'RSATADI — portal mosligi EMAS.
+  //
+  // 2026-09-08: bu funksiya «Sudda 19+286» degan chalkash sanoqni keltirib chiqardi.
+  // Sabab — portal mijozlarning ESKI, HAL BO'LGAN sud ishlarini ham saqlaydi (DECIDED 140,
+  // FINISHED 73 — o'tgan yillardagi). Mijozning o'tgan yilgi tugagan ishi bor deб, uning
+  // JORIY qarzi «allaqachon berilgan» (tashqi) deб noto'g'ri sanaldi va operator yuborgan
+  // 99 ta ish «19» ga tushib qoldi. Joriy qarz uchun eski ish dalil emas.
+  //
+  // Shuning uchun ko'rsatish (readiness) darajasida portal mosligi ISHLATILMAYDI: «Sudda» =
+  // faqat bizning yuborganimiz (courtCaseId yoki SENT_STAGES). Takroriy da'voga qarshi
+  // himoya esa DVIGATELDA qoladi (court-submit-job) va faqat OCHIQ faol da'vo bloklaydi.
+  return empty;
 
-  // Qaysi portal ishlari BIZNIKI: id'si bizning `courtCaseId` bilan bir xil bo'lganlari.
-  // (save-suit qaytargan id — portal ro'yxatida aynan shu id turadi.)
-  const portalIds: string[] = [];
-  for (const r of rows) if (r.caseNumber) portalIds.push(r.caseNumber);
-  const ourRows = portalIds.length
-    ? await prisma.arizaCase.findMany({ where: { courtCaseId: { in: portalIds } }, select: { courtCaseId: true } })
-    : [];
-  const ourIds = new Set<string>();
-  for (const o of ourRows) if (o.courtCaseId) ourIds.add(o.courtCaseId);
-
-  const portal = new Set<string>();
-  const oursPinfls = new Set<string>();
-  const maybeManual = new Set<string>();
-  for (const r of rows) {
-    if (!r.pinfl || !r.caseNumber) continue;
-    // Firmaning O'ZI ishtirokchi bo'lgan yozuvlar (da'vogar) — javobgar emas, tegishli emas.
-    if (firmStir && r.pinfl === firmStir) continue;
-    if (PORTAL_CLOSED_STATUSES.has(String(r.status))) continue; // qaytarilgan — qayta yuboriladi
-    portal.add(r.pinfl);
-    if (ourIds.has(r.caseNumber)) oursPinfls.add(r.pinfl);
-    else maybeManual.add(r.pinfl);
-  }
-  // Bizning ochiq ishimiz bor mijoz «qo'lda kiritilgan» deb sanalmaydi.
-  const manual = new Set<string>();
-  for (const pf of maybeManual) if (!oursPinfls.has(pf)) manual.add(pf);
-  return { portal, manual };
 }
 
 // Case'ga biriktirilgan CaseDocument'lar to'plami (kind bo'yicha) — SKAN (SIGNED_ARIZA) va
