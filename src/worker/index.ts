@@ -10,6 +10,7 @@ import { ingestCabinetDetails } from '../lib/cabinet/detail-ingest';
 import { ingestCabinetStatuses } from '../lib/cabinet/status-ingest';
 import { SessionExpiredError } from '../lib/session-store';
 import { autoResumeTick } from '../lib/court-auto-resume';
+import { draftAutoTick } from '../lib/court-draft-auto';
 import { syncCourtOutcomes } from '../lib/cabinet/outcome-sync';
 
 // Standalone background worker. Runs in its own process (a Docker container in production) and is the
@@ -548,6 +549,25 @@ async function courtAutoResumeLoop(): Promise<void> {
   }
 }
 
+// 24/7 AVTOMAT QORALAMA. «Go» yoqilgan bo'lsa (Setting court_draft_auto), tayyor ishlarga
+// firma-ketma-firma qoralama partiyasi boshlaydi. Bir vaqtda bitta COURT_SUBMIT job
+// (real yuborish ham, qoralama ham) — ular aralashmasin. Case'lar orasidagi 45s'ni pacer
+// sud sozlamasidan oladi; bu sikl faqat YANGI partiya boshlaydi (mavjud ketayotgan bo'lsa
+// tegmaydi).
+async function courtDraftAutoLoop(): Promise<void> {
+  console.log('[worker] 24/7 avto-qoralama: har daqiqada tekshiriladi');
+  await new Promise((r) => setTimeout(r, 75_000)); // boshqa startup sikllaridan keyin
+  while (!stopping) {
+    try {
+      const did = await draftAutoTick();
+      if (did) console.log(`[worker] avto-qoralama — ${did}`);
+    } catch (e) {
+      console.error('[worker] avto-qoralama xatosi', e instanceof Error ? e.message : e);
+    }
+    await new Promise((r) => setTimeout(r, 60_000));
+  }
+}
+
 // Sud partiyasi — ALOHIDA sikl. Doc-navbatdan mustaqil: uzoq sud partiyasi ZIP, oferta va
 // talabnoma tayyorlashni to'sib qo'ymaydi (ular bir-biriga xalaqit bermaydigan ishlar:
 // sud partiyasi tarmoqda kutadi, doc-joblar chromium bilan render qiladi).
@@ -616,6 +636,7 @@ void quickLoop().catch((e) => console.error('[worker] tez yo\'lak fatal', e));
 void billingAutoSyncLoop().catch((e) => console.error('[worker] billing auto-sync fatal', e));
 void courtSubmitLoop().catch((e) => console.error('[worker] sud sikli fatal', e));
 void courtAutoResumeLoop().catch((e) => console.error('[worker] avto-davom fatal', e));
+void courtDraftAutoLoop().catch((e) => console.error('[worker] avto-qoralama fatal', e));
 void courtStatusSyncLoop().catch((e) => console.error('[worker] sud status sync fatal', e));
 void courtDetailSyncLoop().catch((e) => console.error('[worker] sud detali sync fatal', e));
 void courtOutcomeSyncLoop().catch((e) => console.error('[worker] sud natijalari sinxroni fatal', e));

@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, useConfirm } from '@/ui';
 import { Dropdown } from './Dropdown';
+import DraftAutoPanel from './DraftAutoPanel';
 import { CaseDocs } from './CaseDocs';
 import { KeyPicker } from './KeyPicker';
 // Partiya hajmi — yagona manba (server ham shu qiymat bilan cheklaydi).
@@ -2200,6 +2201,8 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                   <p className="mt-2 text-[11px] text-muted">Ketma-ket yuboriladi. Har firma uchun kalit bir marta so‘raladi. Xato bo‘lsa keyingisiga o‘tadi.</p>
                 </div>
               )}
+              {/* 24/7 avtomat qoralama — boshqaruv + monitoring (firma/sud kesimida). */}
+              <DraftAutoPanel />
               <PauseSwitch />
               {/* NAVBATDA QOLGANLAR — bazadan tiklangan.
                   Sahifa yangilansa ham ko'rinadi: manba React state emas, CourtQueueItem.
