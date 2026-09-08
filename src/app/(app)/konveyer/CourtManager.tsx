@@ -1030,17 +1030,6 @@ function PauseSwitch() {
             </span>
           )}
         </div>
-        <div className="mt-0.5 text-[11px] leading-snug text-muted">
-          {paused
-            ? waiting > 0
-              ? `${n(waiting)} ta ish navbatda kutib turibdi. Davom ettirsangiz aynan shu joydan ketadi — hech narsa takrorlanmaydi.`
-              : 'Yangi partiya boshlanmaydi. Davom ettirmaguningizcha portalga hech nima yuborilmaydi.'
-            : running
-              ? 'Har ish orasida sud sozlamasidagi interval kutiladi (Sudlar bo‘limi, standart 60s).'
-              : waiting > 0
-                ? 'Partiya ketmayapti. Quyidagi «Tugallanmagan ishlar» panelidan «Davom ettirish» bosing — o‘sha joydan davom etadi.'
-                : 'Barcha firmalar bo‘yicha jarayonni bir tugma bilan to‘xtatib turish mumkin.'}
-        </div>
       </div>
 
       <button

@@ -117,11 +117,6 @@ export default function DraftAutoPanel() {
               </span>
             )}
           </div>
-          <p className="mt-0.5 text-[11px] leading-snug text-muted">
-            {on
-              ? `Tayyor ishlarga to‘xtovsiz qoralama tayyorlanmoqda (firma-ketma-firma, sud sozlamasidagi interval). Yurist portalda o‘zi yuboradi.${totalSendable > 0 ? ` Yana ${n(totalSendable)} ta tayyor — navbatda.` : ' Hammasi tayyorlandi.'}`
-              : `Yoqilsa, tizim ${totalSendable > 0 ? `${n(totalSendable)} ta tayyor ishni` : 'tayyor ishlarni'} 24/7 qoralama qilib tayyorlaydi — real sudga yubormaydi, faqat ADOLAT‘da to‘liq qoralama qoldiradi. Umumiy «Sudga yuborish» pauzasi buni to‘xtatmaydi.`}
-          </p>
         </div>
         <button
           onClick={toggle}
