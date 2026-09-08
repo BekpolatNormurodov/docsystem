@@ -241,6 +241,14 @@ export async function autoResumeTick(): Promise<string | null> {
   if (groups.length === 0) { await resetQueueBackoff(); return null; }
 
   for (const g of groups) {
+    // FIRMA DARAJASIDAGI PAUZANI ham hurmat qilamiz.
+    //
+    // Yuqoridagi tekshiruv faqat UMUMIY pauzani ko'rardi. Operator bitta firmani
+    // to'xtatib qo'ysa, avtomat har daqiqada o'sha firmaga job yaratar, job esa darhol
+    // «Pauza — operator jarayonni to'xtatgan» deb tugardi: 2026-09-08 da shu tarzda
+    // ketma-ket 7 ta bo'sh job (#239-#245) paydo bo'lgan va partiyalar tarixi
+    // shulardan iborat bo'lib qolgan edi. Endi to'xtatilgan firma o'tkazib yuboriladi.
+    if (await isQueuePaused(g.firmId)) continue;
     const made = await createResumeJob(g.firmId);
     if (made) return `firma ${g.firmId}: job #${made.jobId} (${made.count} ta ish) avtomat boshlandi`;
   }
