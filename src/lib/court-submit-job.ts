@@ -71,6 +71,13 @@ export interface CourtSubmitJobOpts {
   /** @deprecated Tezlik endi pacer.ts da global belgilanadi; bu maydon e'tiborga olinmaydi. */
   delayMs?: number;
   dryRun?: boolean;
+  /**
+   * QORALAMA TAYYORLASH rejimi. true bo'lsa: ADOLAT'da to'liq to'ldirilgan qoralama
+   * tayyorlanadi (hamma maydon + hujjatlar), lekin save-suit HAM, send-to-court HAM
+   * QILINMAYDI — yurist portalda ochib O'ZI yuboradi. Sud kunlik kvotasi/oynasi
+   * band qilinmaydi (24/7 tayyorlash mumkin). Bu — eng xavfsiz yo'l.
+   */
+  draftMode?: boolean;
 }
 
 /**
@@ -378,6 +385,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
   await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'RUNNING' } });
 
   const isDryRun = opts.dryRun === true;
+  const isDraftMode = opts.draftMode === true;
 
   try {
     const firm = await prisma.firm.findUnique({
@@ -734,6 +742,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
           try {
             result = await engine.submitCase(caseData, filesToUpload, {
               dryRun: isDryRun,
+              prepareDraftOnly: isDraftMode,
               // Bosqichni bazaga yozamiz — UI navbat panelida «Ketyapti · Hujjatlar (15 ta)»
               // deb ko'rsatadi. Yozuv muhim emas: yiqilsa ish to'xtamasin.
               onStep: (step) => {
@@ -751,7 +760,22 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
           }
         }
 
-        if (result.ok && !isDryRun) {
+        if (result.ok && isDraftMode) {
+          // QORALAMA TAYYOR — sudga YUBORILMAGAN. Bosqichni COURT_SUBMITTED qilMAYMIZ
+          // (ish hali sudda emas), faqat meta'ga belgilaymiz: yurist portalda ko'rib
+          // yuborishi uchun. courtCaseId ham yozilmaydi — sud ishi hali yaratilmagan.
+          await prisma.arizaCase.update({
+            where: { id: ac.id },
+            data: {
+              meta: {
+                ...((ac.meta as any) || {}),
+                draftReadyAt: new Date().toISOString(),
+                cabinetDraftId: result.draftId,
+              },
+            },
+          });
+          console.log(`✔ [Job ${jobId}] Case #${ac.id} QORALAMA TAYYOR (ID=${result.draftId}) — yurist portalda yuboradi.`);
+        } else if (result.ok && !isDryRun) {
           await prisma.arizaCase.update({
             where: { id: ac.id },
             data: {
@@ -791,7 +815,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
             actor: QUEUE_ACTOR,
             target: `case:${ac.id}`,
             detail: {
-              natija: isDryRun ? 'DRY-RUN' : 'yuborildi', firma: firm.shortName, mijoz: ac.clientName,
+              natija: isDraftMode ? 'qoralama tayyor' : isDryRun ? 'DRY-RUN' : 'yuborildi', firma: firm.shortName, mijoz: ac.clientName,
               pinfl: ac.pinfl, sud: ac.court?.shortName ?? null, summa: String(ac.totalDebt),
               ishRaqami: result.caseNumber ?? null, draftId: result.draftId ?? null, jobId,
             },
@@ -1012,7 +1036,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
     // HALOL YAKUN: avval xato bo'lsa ham "Barcha ishlar muvaffaqiyatli topshirildi" deb
     // yozilardi — operator 100 ta ish ketdi deb o'ylab, aslida hech biri ketmagan bo'lishi
     // mumkin edi. Endi holat aniq raqamlar bilan ko'rinadi.
-    const parts = [`${okCount} ta yuborildi`];
+    const parts = [`${okCount} ta ${isDraftMode ? 'qoralama tayyorlandi' : 'yuborildi'}`];
     if (failCount > 0) parts.push(`${failCount} ta XATO`);
     // Boji to'lanmaganlar ALOHIDA ko'rsatiladi: bu xato emas va operator qiladigan ish
     // ham boshqa — kodni tuzatish emas, to'lovni o'tkazish.

@@ -17,6 +17,18 @@ import type { CabinetAuthSession, DraftCaseResponse, DraftDetails, UploadedCabin
 
 export interface SubmissionOptions {
   dryRun?: boolean; // true bo'lsa: draft yaratib to'ldiradi, TEKSHIRADI, keyin O'CHIRADI.
+  /**
+   * QORALAMA TAYYORLASH rejimi. true bo'lsa: draft yaratiladi, HAMMA maydon to'ldiriladi
+   * va HAMMA hujjat biriktiriladi — lekin save-suit HAM, send-to-court HAM QILINMAYDI va
+   * qoralama O'CHIRILMAYDI. ADOLAT'da to'liq tayyor qoralama qoladi; yurist uni portalda
+   * ochib, ko'zdan kechirib, O'ZI (portalning o'z interfeysi orqali) yuboradi.
+   *
+   * NEGA ENG XAVFSIZ: yakuniy save-suit'ni PORTALNING O'ZI qiladi (to'g'ri payload bilan),
+   * ya'ni bizning teskari-muhandislik qilingan save-suit payload'imiz umuman ishlatilmaydi —
+   * nuqsonli da'vo xavfi yo'q. Va qoralama sud kunlik kvotasini/oynasini band qilmaydi,
+   * shuning uchun 24/7 tayyorlash mumkin.
+   */
+  prepareDraftOnly?: boolean;
   pkcs7Signature?: string; // Operator E-IMZO imzosi (ixtiyoriy)
   /** Bojdan ozod qilish asosi (GET /guide/duty-reasons). Yuridik tanlov — builder izohiga qarang. */
   dutyReasonId?: string | null;
@@ -29,7 +41,7 @@ export interface SubmissionOptions {
 
 export interface SubmissionResult {
   ok: boolean;
-  step: 'COMPLETED' | 'DRAFT_CREATED' | 'FAILED';
+  step: 'COMPLETED' | 'DRAFT_CREATED' | 'DRAFT_READY' | 'FAILED';
   draftId?: string;
   caseId?: string;
   caseNumber?: string;
@@ -232,6 +244,17 @@ export class CabinetSubmitEngine {
       details.courtCosts = courtCosts;
       await this.client.put(CABINET_ENDPOINTS.draftUpdate + draftId, { details });
       console.log(`✔ Hujjatlar qoralamaga biriktirildi (${fileRefs.length} ta).`);
+
+      // ── QORALAMA TAYYOR (prepareDraftOnly) ──────────────────────────────────────────────
+      //
+      // Hamma maydon to'ldirildi va hujjatlar biriktirildi. save-suit QILINMAYDI: ADOLAT'da
+      // to'liq tayyor qoralama qoladi, yurist portalda ochib O'ZI yuboradi. Bu — eng xavfsiz
+      // yo'l: yakuniy save-suit'ni portalning O'ZI to'g'ri payload bilan qiladi, va qoralama
+      // sud kvotasini band qilmaydi (24/7 tayyorlansa bo'ladi).
+      if (options.prepareDraftOnly) {
+        console.log(`✔ QORALAMA TAYYOR (ID=${draftId}): hamma maydon + ${fileRefs.length} ta hujjat biriktirildi. Sud ishi YARATILMADI — yurist portalda ko'rib qo'lda yuboradi.`);
+        return { ok: true, step: 'DRAFT_READY', draftId, uploadedFiles };
+      }
 
       if (options.dryRun) {
         console.log('⚠ DRY-RUN: qoralama tekshirildi, endi o\'chirilmoqda...');

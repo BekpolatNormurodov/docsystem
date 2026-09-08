@@ -23,6 +23,7 @@ export async function runJobById(jobId: number): Promise<void> {
       caseIds: intArr(p.caseIds),
       delayMs: p.delayMs != null ? Number(p.delayMs) : undefined,
       dryRun: p.dryRun === true,
+      draftMode: p.draftMode === true,
     };
     await runCourtSubmitJob(jobId, opts);
     return;

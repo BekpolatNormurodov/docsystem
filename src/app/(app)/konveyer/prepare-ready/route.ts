@@ -42,6 +42,10 @@ export async function POST(req: NextRequest) {
   // «allaqachon chiqarilgan» filtri faqat SHU oqimga tegishli. Shuning uchun bayroq
   // case tanlashdan ham, allokatsiyadan ham, CHEGARADAN ham OLDIN aniqlanadi.
   const isExportOnly = body?.exportOnly === true;
+  // QORALAMA rejimi: ADOLAT'da to'liq qoralama tayyorlanadi (save-suit'siz), yurist
+  // portalda O'ZI yuboradi. Sud kvotasi/oynasi tekshirilmaydi (24/7), chunki qoralama
+  // sudga hech narsa yubormaydi. isExportOnly (ZIP) bilan bir xil «ignoreQuota» yo'lidan.
+  const isDraftMode = body?.draftMode === true;
   // ZIP uchun chegara ancha katta: partiya hajmi portalni himoya qilish uchun, ZIP esa
   // portalga tegmaydi. 767 ta tayyorni 200 tadan 4 marta olish ma'nosiz edi.
   const cap = isExportOnly ? MAX_ZIP_BATCH : MAX_COURT_BATCH;
@@ -85,7 +89,7 @@ export async function POST(req: NextRequest) {
   let deferred = 0;
   // ZIP (isExportOnly) — sud biriktiriladi, lekin kunlik limit tanlovni KESMAYDI: fayl
   // tayyorlashning sud kunlik quvvatiga ham, ish kuniga ham aloqasi yo'q.
-  const alloc = await allocateFirmCases(firmId, caseIds, new Date(), courtIds, isExportOnly);
+  const alloc = await allocateFirmCases(firmId, caseIds, new Date(), courtIds, isExportOnly || isDraftMode);
 
   /**
    * BUGUN SIG'MAGAN ISHLAR YO'QOLMASIN — navbatga yozamiz.
@@ -169,13 +173,13 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
-    // Limitni darhol iste'mol qilamiz (count-at-write) — courtId + courtSentAt yoziladi.
-    // markSent=false (ZIP): sud biriktiriladi (ariza matni uchun kerak), lekin kunlik
-    // limit band qilinmaydi. 2026-09-07: BRIGHT'ning ZIP job'i Yuqorichirchiqda 100 joyni
-    // bekorga band qilib qo'ygan edi.
-    await consumeCourtSend(alloc.assignments, new Date(), !isExportOnly);
+    // markSent — kunlik limit sanog'ini band qiladimi. ZIP (isExportOnly) va QORALAMA
+    // (isDraftMode) sudga hech narsa yubormaydi, shuning uchun ikkalasida ham band
+    // qilinmaydi: sud biriktiriladi (ariza/qoralama matni uchun), limit esa erkin qoladi.
+    await consumeCourtSend(alloc.assignments, new Date(), !isExportOnly && !isDraftMode);
     // Bugunga sig'magani (limit/oyna) ham yo'qolmasin — navbatda qoladi.
-    if (alloc.deferred.length) await parkDeferred(alloc.deferred);
+    // Qoralama 24/7: ignoreQuota bilan deferred faqat sud-mosligi bo'yicha bo'ladi (kam).
+    if (alloc.deferred.length && !isDraftMode) await parkDeferred(alloc.deferred);
   }
 
   // Saytdan sudga yuborishda real topshirish dvigateli (COURT_SUBMIT) ishlaydi.
@@ -236,7 +240,7 @@ export async function POST(req: NextRequest) {
       status: 'PENDING',
       snapshotId: snapshotId ?? null,
       total: sendIds.length,
-      params: { firmId, snapshotId, caseIds: sendIds, ready: true, talabnomaPdf, includeGrafik: false, markExported: true },
+      params: { firmId, snapshotId, caseIds: sendIds, ready: true, talabnomaPdf, includeGrafik: false, markExported: !isDraftMode, draftMode: isDraftMode },
     },
   });
 

@@ -1552,7 +1552,7 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
         onChanged={onChanged}
       />
       {drillOpen && (
-        <ClientDrilldown firmId={fr.firmId} snapshotId={snapshotId} job={job} startExport={(caseIds) => startExport(fr.firmId, { caseIds })} onChanged={onChanged} batchActive={batchActive} />
+        <ClientDrilldown firmId={fr.firmId} snapshotId={snapshotId} job={job} startExport={(caseIds) => startExport(fr.firmId, { caseIds, draftMode: true })} onChanged={onChanged} batchActive={batchActive} />
       )}
     </div>
   );
@@ -1872,7 +1872,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   const [gate, setGate] = useState<{ firmId: number; firmName: string; stir: string | null; extra: Record<string, unknown>; summary: string } | null>(null);
   // «Sudga yuborish» (firma darajasida) → avval SONI so'raladi (max MAX_COURT_BATCH), keyin E-IMZO gate.
   // Drilldownда qo'lda tanlanган (caseIds) yoki soni allaqachon berilган bo'lsa — to'g'ridan gate.
-  const [countAsk, setCountAsk] = useState<{ firmId: number; firmName: string; max: number; queued: number; value: number; auto: boolean } | null>(null);
+  const [countAsk, setCountAsk] = useState<{ firmId: number; firmName: string; max: number; queued: number; value: number; auto: boolean; draftMode: boolean } | null>(null);
   // ZIP eksport modali — sudga YUBORMAYDI, faqat hujjatlarni bitta arxivga yig'adi.
   const [zipAsk, setZipAsk] = useState<{ firmId: number; firmName: string; max: number; value: number } | null>(null);
   const openGate = (fid: number, extra: Record<string, unknown> = {}) => {
@@ -1880,9 +1880,11 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     const ids = (extra as { caseIds?: unknown }).caseIds;
     const lim = (extra as { limit?: unknown }).limit;
     const cnt = Array.isArray(ids) ? ids.length : (typeof lim === 'number' ? lim : null);
+    const draft = (extra as { draftMode?: boolean }).draftMode === true;
+    const act = draft ? 'ADOLAT\'da qoralama tayyorlaysiz (sudga YUBORILMAYDI — yurist portalda o\'zi yuboradi)' : 'sudga yuborasiz';
     setGate({
       firmId: fid, firmName: f?.firmName ?? `Firma ${fid}`, stir: f?.stir ?? null, extra,
-      summary: cnt != null ? `${cnt} ta mijozni sudga yuborasiz. Firma kaliti bilan tasdiqlang.` : `Tayyor mijozlarni (bir martada ≤${MAX_COURT_BATCH}) sudga yuborasiz. Firma kaliti bilan tasdiqlang.`,
+      summary: cnt != null ? `${cnt} ta mijoz uchun ${act}. Firma kaliti bilan tasdiqlang.` : `Tayyor mijozlar uchun (bir martada ≤${MAX_COURT_BATCH}) ${act}. Firma kaliti bilan tasdiqlang.`,
     });
   };
   const startExport = (fid: number, extra: Record<string, unknown> = {}) => {
@@ -1892,7 +1894,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     const fr = data?.readiness.firms.find((f) => f.firmId === fid);
     const max = Math.min(MAX_COURT_BATCH, fr?.sendable ?? 0);
     if (max <= 0) return; // yuboriladigan yo'q
-    setCountAsk({ firmId: fid, firmName: fr?.firmName ?? `Firma ${fid}`, max, queued: fr?.queued ?? 0, value: max, auto: false });
+    setCountAsk({ firmId: fid, firmName: fr?.firmName ?? `Firma ${fid}`, max, queued: fr?.queued ?? 0, value: max, auto: false, draftMode: true });
   };
 
   // ── «Sudga yuborish» modalidagi SUD taqsimoti (ko'rsatkich) ──────────────────
@@ -1917,7 +1919,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   // job DONE/FAILED bo'lgach keyingisiga o'tadi (FAILED'da ham to'xtab qolmaydi).
   // `error` — NEGA yiqilgani. Ilgari chipda faqat qizil «xato» so'zi turardi va operator
   // sababni topolmasdi (eng ko'p uchraydigani: «bu firmada partiya allaqachon ketmoqda»).
-  type QItem = { id: string; firmId: number; firmName: string; stir: string | null; count: number; courtIds?: number[]; status: 'wait' | 'signing' | 'sending' | 'done' | 'error'; error?: string };
+  type QItem = { id: string; firmId: number; firmName: string; stir: string | null; count: number; courtIds?: number[]; draftMode?: boolean; status: 'wait' | 'signing' | 'sending' | 'done' | 'error'; error?: string };
   const [queue, setQueue] = useState<QItem[]>([]);
   const [queueActive, setQueueActive] = useState(false);
   const signedFirms = useRef<Set<number>>(new Set());
@@ -1930,8 +1932,8 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   // ko'rib, keyin «Boshlash» bosishi kerak edi. Endi qo'shish = «shu ishlarni yubor»:
   // navbat bo'sh bo'lsa darhol boshlanadi, band bo'lsa o'z navbatini kutadi. To'xtatish
   // uchun navbat panelida «To'xtatish» bor.
-  const addToQueue = (fid: number, fname: string, stir: string | null, count: number, courtIds?: number[]) => {
-    setQueue((q) => [...q, { id: `q${++qidRef.current}`, firmId: fid, firmName: fname, stir, count, courtIds, status: 'wait' as const }]);
+  const addToQueue = (fid: number, fname: string, stir: string | null, count: number, courtIds?: number[], draftMode?: boolean) => {
+    setQueue((q) => [...q, { id: `q${++qidRef.current}`, firmId: fid, firmName: fname, stir, count, courtIds, draftMode, status: 'wait' as const }]);
     setQueueActive(true);
   };
 
@@ -1971,7 +1973,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     if (activeBatchByFirm.has(cur.firmId)) return;
     if (signedFirms.current.has(cur.firmId)) {
       setQueue((q) => q.map((x) => (x.id === cur.id ? { ...x, status: 'sending' } : x)));
-      startJob(`queue:${cur.id}`, { firmId: cur.firmId, snapshotId, limit: cur.count, ...(cur.courtIds?.length ? { courtIds: cur.courtIds } : {}) }, () => {});
+      startJob(`queue:${cur.id}`, { firmId: cur.firmId, snapshotId, limit: cur.count, ...(cur.courtIds?.length ? { courtIds: cur.courtIds } : {}), ...(cur.draftMode ? { draftMode: true } : {}) }, () => {});
     } else {
       setQueue((q) => q.map((x) => (x.id === cur.id ? { ...x, status: 'signing' } : x)));
       setQueueGate({ itemId: cur.id, firmId: cur.firmId, firmName: cur.firmName, stir: cur.stir, count: cur.count });
@@ -2472,7 +2474,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
       )}
 
       {countAsk && (() => { const askBusy = activeBatchByFirm.get(countAsk.firmId) ?? null; return (
-        <Modal open onClose={() => { setCountAsk(null); setPickedCourts(null); }} title={`Sudga yuborish — ${countAsk.firmName}`}
+        <Modal open onClose={() => { setCountAsk(null); setPickedCourts(null); }} title={`${countAsk.draftMode ? 'Qoralama tayyorlash' : 'Sudga yuborish'} — ${countAsk.firmName}`}
           // «max» — NAVBATDAGILARSIZ tayyorlar soni. Navbatda turganini ham aytamiz, aks holda
           // operator «291 tayyor edi, nega 91 ta?» deb o'ylaydi (2026-09-07).
           description={`${n(countAsk.max)} ta tayyor${countAsk.queued ? ` (yana ${n(countAsk.queued)} tasi navbatda — ular qayta yuborilmaydi)` : ''}. Bir martada eng ko'pi ${MAX_COURT_BATCH} ta.`}
@@ -2487,14 +2489,14 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
               title={askBusy
                 ? `#${askBusy.jobId} tugashi bilan bu partiya o'zi boshlanadi — kalit qayta so'ralmaydi`
                 : "Navbatga qo'shish — bir nechta partiyani ketma-ket yuborish (skayner kabi)"}
-              onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const f = firms.find((x) => x.firmId === countAsk.firmId); addToQueue(countAsk.firmId, countAsk.firmName, f?.stir ?? null, v, pickedCourts ?? undefined); setCountAsk(null); setPickedCourts(null); }}>
+              onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const f = firms.find((x) => x.firmId === countAsk.firmId); addToQueue(countAsk.firmId, countAsk.firmName, f?.stir ?? null, v, pickedCourts ?? undefined, countAsk.draftMode); setCountAsk(null); setPickedCourts(null); }}>
               + Navbatga{askBusy ? ` (${Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0))})` : ''}
             </button>
             {!askBusy && (
               <button className="btn-primary" type="button"
                 disabled={!countAsk.value || countAsk.value < 1 || (pickedCourts !== null && pickedCourts.length === 0)}
-                onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const fid = countAsk.firmId; const au = countAsk.auto; const cs = pickedCourts; setCountAsk(null); setPickedCourts(null); openGate(fid, { limit: v, auto: au, ...(cs && cs.length ? { courtIds: cs } : {}) }); }}>
-                {countAsk.auto ? 'Auto boshlash' : 'Yuborish'} ({Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0))})
+                onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const fid = countAsk.firmId; const au = countAsk.auto; const cs = pickedCourts; const dm = countAsk.draftMode; setCountAsk(null); setPickedCourts(null); openGate(fid, { limit: v, auto: au, ...(cs && cs.length ? { courtIds: cs } : {}), ...(dm ? { draftMode: true } : {}) }); }}>
+                {countAsk.draftMode ? 'Qoralama tayyorlash' : countAsk.auto ? 'Auto boshlash' : 'Yuborish'} ({Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0))})
               </button>
             )}
           </>}
@@ -2516,6 +2518,22 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                   className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${countAsk.value === countAsk.max ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line text-muted hover:border-brand-500/40'}`}>Hammasi ({countAsk.max})</button>
               )}
             </div>
+            {/* QORALAMA REJIMI — DEFAULT YOQILGAN. Yoqilsa: ADOLAT'da to'liq to'ldirilgan
+                qoralama tayyorlanadi (hamma maydon + hujjatlar), lekin SUDGA YUBORILMAYDI —
+                yurist portalda ochib, ko'zdan kechirib O'ZI yuboradi. Bu eng xavfsiz: yakuniy
+                yuborishni portalning o'zi qiladi, va 24/7 tayyorlash mumkin (sud kvotasi band
+                bo'lmaydi). O'chirilsa — tizim o'zi sudga yuboradi (CABINET_ALLOW_SEND_TO_COURT). */}
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-emerald-500/40 bg-emerald-500/[0.05] p-2.5">
+              <input type="checkbox" checked={countAsk.draftMode} onChange={(e) => setCountAsk((c) => c && ({ ...c, draftMode: e.target.checked }))} className="mt-0.5 h-4 w-4 accent-emerald-600" />
+              <span className="min-w-0">
+                <span className="block text-[12px] font-medium">Qoralama tayyorlash — yurist portalda o‘zi yuboradi <span className="text-emerald-600 dark:text-emerald-400">(tavsiya)</span></span>
+                <span className="block text-[11px] text-muted">
+                  ADOLAT'da hamma maydon to‘ldirilib, hujjatlar biriktirilib to‘liq tayyor qoralama qoladi.
+                  Sudga YUBORILMAYDI — yurist ertalab portalda ochib, ko‘rib, o‘zi bosib yuboradi. 24/7 ishlaydi,
+                  sud kunlik limitini band qilmaydi va ketayotgan boshqa jarayonlarga tegmaydi.
+                </span>
+              </span>
+            </label>
             <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-line p-2.5">
               <input type="checkbox" checked={countAsk.auto} onChange={(e) => setCountAsk((c) => c && ({ ...c, auto: e.target.checked }))} className="mt-0.5 h-4 w-4 accent-brand-500" />
               <span className="min-w-0">
