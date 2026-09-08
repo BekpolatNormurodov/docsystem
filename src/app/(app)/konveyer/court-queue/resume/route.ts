@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
     where: retryFailed
       ? { firmId, state: 'FAILED', case: { courtCaseId: null } }
       : { firmId, state: 'PENDING' },
-    select: { caseId: true, draftMode: true },
+    select: { caseId: true, draftMode: true, suitMode: true },
     orderBy: { id: 'asc' },
     take: limit,
   });
@@ -96,11 +96,12 @@ export async function POST(req: NextRequest) {
   }
 
   const caseIds = items.map((i) => i.caseId);
-  // Uzilgan partiyaning REJIMINI saqlaymiz — aks holda qoralama deb boshlangan ishlar
-  // resume'da REAL sudga topshirilib ketardi (qaytarib bo'lmaydi). ARALASH bo'lsa xavfsiz
-  // tomon — bitta ish qoralama bo'lsa ham BUTUN partiya QORALAMA (real emas). `.some()` —
-  // `.every()` EMAS (`.every()` aralashni real deb topshirib qo'yardi, teskari xavf).
-  const draftMode = items.some((i) => i.draftMode === true);
+  // REJIMNI SAQLAYMIZ (real / qoralama / suit). ⛔ XAVFSIZ TOMON: bitta ish ham SEND-TO-COURT
+  // qilMAYDIGAN (suit yoki qoralama) bo'lsa — BUTUN partiya shunday, real sudga TOPSHIRILMAYDI
+  // (env=1). Faqat hammasi real bo'lsagina real. Suit ustun (aralash suit+qoralama → suit).
+  const suitMode = items.some((i) => i.suitMode === true);
+  const draftMode = !suitMode && items.some((i) => i.draftMode === true);
+  const noSend = suitMode || draftMode;
   if (retryFailed) {
     // Urinishlar sanog'i NOLLANADI: bu operatorning ATAYIN qarori (kamchilik tuzatildi),
     // shuning uchun avtomatikaning «3 urinishdan keyin tinch qo'y» qoidasi qaytadan
@@ -118,7 +119,7 @@ export async function POST(req: NextRequest) {
       status: 'PENDING',
       snapshotId: snap?.id ?? null,
       total: caseIds.length,
-      params: { firmId, snapshotId: snap?.id, caseIds, ready: true, talabnomaPdf: true, includeGrafik: false, markExported: !draftMode, draftMode },
+      params: { firmId, snapshotId: snap?.id, caseIds, ready: true, talabnomaPdf: true, includeGrafik: false, markExported: !noSend, draftMode, suitMode },
     },
   });
   enqueueJob(job.id);

@@ -257,7 +257,16 @@ export class CabinetSubmitEngine {
         mime_type: 'application/pdf',
       }));
       const fileUpload = CabinetPayloadBuilder.buildFileUpload(fileRefs);
-      const courtCosts = CabinetPayloadBuilder.buildCourtCosts({ dutyReasonId: options.dutyReasonId ?? null, receipts: [] });
+      // To'langan pochta kvitansiyasini (find-by-receipt-number natijasi) save-suit'ga biriktiramiz —
+      // aks holda ADOLAT'da claim_receipt_post=null bo'lib, pochta xarajati «Тўланмаган» ko'rinadi va
+      // yurist yubora olmaydi. requestStatus (API o'ram maydoni) olib tashlanadi.
+      let receiptsToAttach: unknown[] = [];
+      if (paidReceipt && typeof paidReceipt === 'object') {
+        const { requestStatus, ...clean } = paidReceipt as Record<string, unknown>;
+        void requestStatus;
+        receiptsToAttach = [clean];
+      }
+      const courtCosts = CabinetPayloadBuilder.buildCourtCosts({ dutyReasonId: options.dutyReasonId ?? null, receipts: receiptsToAttach });
       details.fileUpload = fileUpload;
       details.courtCosts = courtCosts;
       await this.client.put(CABINET_ENDPOINTS.draftUpdate + draftId, { details });

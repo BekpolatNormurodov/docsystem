@@ -568,8 +568,8 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
       for (const ac of hit) {
         await prisma.courtQueueItem.upsert({
           where: { caseId: ac.id },
-          create: { caseId: ac.id, firmId: firm.id, account: firmStir, state: 'SKIPPED', jobId, draftMode: isDraftMode, finishedAt: new Date(), lastError: why(ac) },
-          update: { state: 'SKIPPED', jobId, draftMode: isDraftMode, step: null, finishedAt: new Date(), lastError: why(ac) },
+          create: { caseId: ac.id, firmId: firm.id, account: firmStir, state: 'SKIPPED', jobId, draftMode: isDraftMode, suitMode: isSuitMode, finishedAt: new Date(), lastError: why(ac) },
+          update: { state: 'SKIPPED', jobId, draftMode: isDraftMode, suitMode: isSuitMode, step: null, finishedAt: new Date(), lastError: why(ac) },
         });
       }
       await prisma.arizaCase.updateMany({
@@ -602,8 +602,8 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
     for (const ac of sendCases) {
       await prisma.courtQueueItem.upsert({
         where: { caseId: ac.id },
-        create: { caseId: ac.id, firmId: firm.id, account: firmStir, state: 'PENDING', jobId, draftMode: isDraftMode },
-        update: { state: 'PENDING', jobId, draftMode: isDraftMode, lastError: null, finishedAt: null },
+        create: { caseId: ac.id, firmId: firm.id, account: firmStir, state: 'PENDING', jobId, draftMode: isDraftMode, suitMode: isSuitMode },
+        update: { state: 'PENDING', jobId, draftMode: isDraftMode, suitMode: isSuitMode, lastError: null, finishedAt: null },
       });
     }
     if (unpaid.length) {
@@ -611,8 +611,8 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
       for (const ac of unpaid) {
         await prisma.courtQueueItem.upsert({
           where: { caseId: ac.id },
-          create: { caseId: ac.id, firmId: firm.id, account: firmStir, state: 'SKIPPED', jobId, draftMode: isDraftMode, lastError: why(ac), finishedAt: new Date() },
-          update: { state: 'SKIPPED', jobId, draftMode: isDraftMode, lastError: why(ac), finishedAt: new Date(), step: null },
+          create: { caseId: ac.id, firmId: firm.id, account: firmStir, state: 'SKIPPED', jobId, draftMode: isDraftMode, suitMode: isSuitMode, lastError: why(ac), finishedAt: new Date() },
+          update: { state: 'SKIPPED', jobId, draftMode: isDraftMode, suitMode: isSuitMode, lastError: why(ac), finishedAt: new Date(), step: null },
         });
       }
       // Kunlik sud limitini QAYTARAMIZ: partiya tuzilishida bu ishlarga courtSentAt

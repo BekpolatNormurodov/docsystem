@@ -458,6 +458,10 @@ model CourtQueueItem {
   // qolgan partiyani `resume`/avto-davom AYNAN shu rejimda davom ettiradi — aks holda
   // qoralama deb boshlangan ish resume'da REAL sudga topshirilib ketardi (qaytarib bo'lmaydi).
   draftMode  Boolean @default(false)
+  // SUIT-READY (stop-B) rejimi: save-suit qilinadi (ADOLAT'da REAL ish, «Murojaatlarim»da),
+  // lekin send-to-court QILINMAYDI. Resume/avto-davom AYNAN shu rejimda davom etishi SHART —
+  // aks holda suit-ish resume'da send-to-court'ga o'tib, real da'vo rasman berilardi (env=1).
+  suitMode   Boolean @default(false)
   jobId      Int? // qaysi batch (Job) ichida — progress/bekor qilish uchun
   draftId    String? // ADOLAT qoralama UUID'i (xato bo'lsa ham qoladi — yetim draftni topish uchun)
   // Ish ayni paytda QAYSI bosqichda ekani (operatorga ko'rsatiladi). Bitta ish ~7 qadamdan

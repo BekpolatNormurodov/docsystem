@@ -62,7 +62,9 @@ export async function createDraftBatch(
       status: 'PENDING',
       snapshotId: snapshotId ?? null,
       total: sendIds.length,
-      params: { firmId, snapshotId, caseIds: sendIds, ready: true, talabnomaPdf: true, includeGrafik: false, markExported: false, draftMode: true },
+      // suitMode: save-suit → ADOLAT'da REAL ish «Murojaatlarim»da (xuddi realga ketyotgandek),
+      // lekin send-to-court QILINMAYDI — yurist oxirgi «Sudga yuborish»ни O'ZI bosadi.
+      params: { firmId, snapshotId, caseIds: sendIds, ready: true, talabnomaPdf: true, includeGrafik: false, markExported: false, suitMode: true },
     },
   });
   enqueueJob(job.id);
@@ -100,8 +102,8 @@ export async function draftAutoTick(): Promise<string | null> {
   const stuck = new Set<number>();
   const seenFirm = new Set<number>();
   for (const j of recentJobs) {
-    const p = j.params as { firmId?: number; draftMode?: boolean } | null;
-    if (p?.draftMode !== true) continue;               // faqat qoralama partiyalari
+    const p = j.params as { firmId?: number; draftMode?: boolean; suitMode?: boolean } | null;
+    if (p?.suitMode !== true && p?.draftMode !== true) continue; // faqat qoralama/suit partiyalari
     const fid = Number(p.firmId);
     if (!Number.isInteger(fid) || seenFirm.has(fid)) continue;
     seenFirm.add(fid);                                  // shu firmaning eng oxirgisi

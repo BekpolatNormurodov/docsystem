@@ -199,23 +199,24 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH): 
 
   const caseIds = pending.map((p) => p.caseId);
 
-  // PARTIYA REJIMINI SAQLAYMIZ. Uzilgan qoralama partiyasi qoralama, real esa real bo'lib
-  // davom etsin — aks holda avto-davom qoralamani REAL sudga topshirib qo'yardi (qaytarib
-  // bo'lmaydi). ARALASH bo'lsa XAVFSIZ tomon: bitta ish qoralama bo'lsa ham — BUTUN partiya
-  // QORALAMA (real emas). Shuning uchun `.some()` — `.every()` EMAS: `.every()` aralashni
-  // real deb hisoblab, qoralama ishlarni sudga topshirib qo'yardi (teskari xavf). Qoralama
-  // sud kvotasini band qilmaydi (ignoreQuota) va limit iste'mol qilmaydi.
+  // PARTIYA REJIMINI SAQLAYMIZ (real / qoralama-stop-A / suit-stop-B). ⛔ XAVFSIZ TOMON: bitta
+  // ish ham SEND-TO-COURT qilMAYDIGAN (suit yoki qoralama) bo'lsa — BUTUN partiya shunday davom
+  // etadi, real sudga TOPSHIRILMAYDI (qaytarib bo'lmaydi, env=1). Faqat HAMMASI real bo'lsagina
+  // real yuboriladi. Suit ustun (agar aralash suit+qoralama bo'lsa — suit). `.some()` bilan:
+  // bironta suit/qoralama bor bo'lsa yetarli.
   const modeRows = await prisma.courtQueueItem.findMany({
-    where: { caseId: { in: caseIds } }, select: { draftMode: true },
+    where: { caseId: { in: caseIds } }, select: { draftMode: true, suitMode: true },
   });
-  const draftMode = modeRows.some((r) => r.draftMode === true);
+  const suitMode = modeRows.some((r) => r.suitMode === true);
+  const draftMode = !suitMode && modeRows.some((r) => r.draftMode === true);
+  const noSend = suitMode || draftMode; // ikkovi ham send-to-court qilmaydi (kvota band emas)
 
-  const alloc = await allocateFirmCases(firmId, caseIds, new Date(), undefined, draftMode);
+  const alloc = await allocateFirmCases(firmId, caseIds, new Date(), undefined, noSend);
   let sendIds = caseIds;
   if (alloc) {
     sendIds = alloc.assignments.map((a) => a.caseId);
     if (sendIds.length === 0) return null; // kunlik limit tugagan yoki sud oynasi yopiq
-    if (!draftMode) await consumeCourtSend(alloc.assignments);
+    if (!noSend) await consumeCourtSend(alloc.assignments);
   }
 
   const job = await prisma.job.create({
@@ -223,7 +224,7 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH): 
       type: 'COURT_SUBMIT',
       status: 'PENDING',
       total: sendIds.length,
-      params: { firmId, caseIds: sendIds, ready: true, markExported: !draftMode, draftMode },
+      params: { firmId, caseIds: sendIds, ready: true, markExported: !noSend, draftMode, suitMode },
     },
   });
   enqueueJob(job.id);
