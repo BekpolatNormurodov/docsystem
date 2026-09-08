@@ -2209,9 +2209,6 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                   <div className="mt-1 text-[11px] text-muted">Bittagina hujjat yetmaydi — o'shani to'ldirsangiz darhol sudga chiqadi. Sud uchun 5 ta shart (hammasi majburiy): talabnoma + imzolangan skan + oferta + check (UZPOST kvitansiya) + boji (invoice raqami). Invoice PDF sudga ketmaydi, lekin raqami ariza ichida ketadi. Odatda «faqat skan» yoki «faqat check» eng katta guruh.</div>
                 </div>
               )}
-              <div className="rounded-lg border border-line bg-surface-2/30 px-3 py-2 text-[11px] leading-relaxed text-muted">
-                Faqat <b className="font-medium text-fg">to'liq tayyor</b> (talabnoma, imzolangan skan, oferta, check/kvitansiya, boji — invoice raqami) mijozlar sudga yuboriladi. Har firma <b className="font-medium text-fg">alohida</b>, bir martada <b className="font-medium text-fg">max {MAX_COURT_BATCH} ta</b>. Grafik qo'shilmaydi. «Batafsil» — kim tayyor, kimda nima yetishmayotganini ko'rish, hujjat biriktirish.
-              </div>
               {queue.length > 0 && (
                 <div className="rounded-xl border border-brand-500/30 bg-brand-500/[0.05] p-3">
                   <div className="mb-2 flex items-center justify-between gap-2">
