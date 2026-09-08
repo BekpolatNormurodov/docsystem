@@ -3,6 +3,7 @@ import { requireStep } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { isDraftAutoOn, setDraftAuto } from '@/lib/court-draft-auto';
 import { courtReadiness } from '@/lib/court-ready';
+import { pausedFirmIds } from '@/lib/cabinet/pacer';
 import { audit, AuditAction } from '@/lib/audit';
 
 export const runtime = 'nodejs';
@@ -30,15 +31,16 @@ export async function GET() {
   const activeFirmId = Number((activeJob?.params as { firmId?: number } | null)?.firmId) || null;
   const activeDraft = (activeJob?.params as { draftMode?: boolean } | null)?.draftMode === true;
 
-  const [courtList, readiness] = await Promise.all([
+  const [courtList, readiness, pausedFirms] = await Promise.all([
     prisma.court.findMany({ select: { id: true, shortName: true } }),
     courtReadiness(snap?.id).catch(() => null),
+    pausedFirmIds().then((ids) => new Set(ids)),
   ]);
   const courtName = new Map(courtList.map((c) => [c.id, c.shortName]));
   const firmName = new Map((readiness?.firms ?? []).map((f) => [f.firmId, f.firmName]));
 
   const firmRows = (readiness?.firms ?? [])
-    .map((f) => ({ firmId: f.firmId, firmName: f.firmName, total: f.total, draftReady: f.draftReady, submitted: f.submitted, queued: f.queued, sendable: f.sendable, active: f.firmId === activeFirmId }))
+    .map((f) => ({ firmId: f.firmId, firmName: f.firmName, total: f.total, draftReady: f.draftReady, submitted: f.submitted, queued: f.queued, sendable: f.sendable, active: f.firmId === activeFirmId, paused: pausedFirms.has(f.firmId) }))
     .sort((a, b) => b.sendable - a.sendable || b.draftReady - a.draftReady || b.total - a.total);
   const courtRows = (readiness?.courts ?? [])
     .map((c) => ({ courtId: c.courtId, courtName: courtName.get(c.courtId) ?? `Sud ${c.courtId}`, total: c.total, draftReady: c.draftReady, submitted: c.submitted, queued: c.queued, sendable: c.sendable }))

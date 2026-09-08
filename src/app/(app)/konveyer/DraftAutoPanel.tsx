@@ -10,7 +10,7 @@ import { useCallback, useEffect, useState } from 'react';
 const n = (x: number) => x.toLocaleString('ru-RU');
 
 interface Tally { total: number; draftReady: number; submitted: number; queued: number }
-interface FirmRow extends Tally { firmId: number; firmName: string; sendable: number; active: boolean }
+interface FirmRow extends Tally { firmId: number; firmName: string; sendable: number; active: boolean; paused: boolean }
 interface CourtRow extends Tally { courtId: number; courtName: string; sendable: number }
 interface Status {
   on: boolean;
@@ -63,6 +63,22 @@ export default function DraftAutoPanel() {
       });
       if (r.ok) { const d = await r.json(); setData((p) => (p ? { ...p, on: d.on === true } : p)); }
     } catch { /* tarmoq — holat o'zgarmaydi */ } finally { setBusy(false); void load(); }
+  };
+
+  // Bitta firmani to'xtatish/davom ettirish (umumiy «Go»dan mustaqil). Pauzaga qo'yilgan firma
+  // avto-qoralamada chetlab o'tiladi — boshqa firmalar ketaveradi.
+  const [firmBusy, setFirmBusy] = useState<number | null>(null);
+  const toggleFirm = async (firmId: number, paused: boolean) => {
+    if (firmBusy) return;
+    setFirmBusy(firmId);
+    // Optimistik: darhol ko'rsatamiz.
+    setData((p) => (p ? { ...p, firms: p.firms.map((f) => (f.firmId === firmId ? { ...f, paused: !paused } : f)) } : p));
+    try {
+      await fetch('/konveyer/court-queue/pause', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paused: !paused, firmId }),
+      });
+    } catch { /* tarmoq — keyingi pollда to'g'rilanadi */ } finally { setFirmBusy(null); void load(); }
   };
 
   if (!data && !err) return null;
@@ -139,8 +155,19 @@ export default function DraftAutoPanel() {
             </div>
             <ul className="space-y-1">
               {data.firms.map((f) => (
-                <li key={f.firmId} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11px] ${f.active ? 'bg-sky-500/[0.06]' : 'bg-surface-2'}`}>
-                  <span className="min-w-0 flex-1 truncate font-medium" title={f.firmName}>{f.firmName}{f.active && ' ·'}</span>
+                <li key={f.firmId} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11px] ${f.paused ? 'bg-rose-500/[0.06] opacity-70' : f.active ? 'bg-sky-500/[0.06]' : 'bg-surface-2'}`}>
+                  <button
+                    onClick={() => toggleFirm(f.firmId, f.paused)}
+                    disabled={firmBusy === f.firmId}
+                    title={f.paused ? 'Bu firmani davom ettirish' : 'Bu firmani to‘xtatish (boshqalari ketaveradi)'}
+                    className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded outline-none transition-colors focus-visible:ring-2 disabled:opacity-40 ${f.paused ? 'text-rose-600 hover:bg-rose-500/15 focus-visible:ring-rose-500/30 dark:text-rose-300' : 'text-muted hover:bg-surface hover:text-fg focus-visible:ring-teal-500/30'}`}
+                  >
+                    {f.paused
+                      ? <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M8 5v14l11-7z" /></svg>
+                      : <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>}
+                  </button>
+                  <span className={`min-w-0 flex-1 truncate font-medium ${f.paused ? 'text-muted' : ''}`} title={f.firmName}>{f.firmName}{f.active && !f.paused && ' ·'}</span>
+                  {f.paused && <span className="shrink-0 rounded bg-rose-500/15 px-1 py-0.5 text-[9px] font-medium text-rose-700 dark:text-rose-300">pauza</span>}
                   <Bar ready={f.draftReady} submitted={f.submitted} total={f.total} />
                   <span className="w-8 shrink-0 text-right tabular-nums text-amber-600 dark:text-amber-400" title="Tayyor — qoralama qilinadi">{n(f.sendable)}</span>
                   <span className="w-8 shrink-0 text-right tabular-nums text-teal-600 dark:text-teal-400" title="Qoralama tayyor">{n(f.draftReady)}</span>
