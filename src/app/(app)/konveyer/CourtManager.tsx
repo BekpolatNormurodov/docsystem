@@ -1485,7 +1485,7 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
                       <span className="font-semibold">{n(fr.submitted - fr.submittedExternal)}</span>
                       <span
                         className="text-[10px] font-semibold text-amber-600 dark:text-amber-400"
-                        title={`+${n(fr.submittedExternal)} tasini yurist ADOLAT'da qo'lda kiritgan — biz yubormaganmiz. Ular qayta yuborilmaydi.`}
+                        title={`+${n(fr.submittedExternal)} tasini yurist ADOLAT'da QO'LDA kiritgan — tizim yubormagan. Ular qayta yuborilmaydi. Chapdagi son — tizim yuborganlari.`}
                       >+{n(fr.submittedExternal)}</span>
                     </span>
                   ) : (
@@ -2092,7 +2092,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                     label="Sudda" value={ov!.submitted} tone="indigo" icon={statIcon('submitted')}
                     hint="ADOLAT'da rasman ochilgan da'volar — tizim yuborganlari va yurist qo'lda kiritganlari"
                     extra={ov!.submittedExternal}
-                    extraHint={`${n(ov!.submittedExternal)} tasini yurist ADOLAT'da qo'lda kiritgan (biz yubormaganmiz). Ular qayta yuborilmaydi.`}
+                    extraHint={`${n(ov!.submittedExternal)} tasini yurist ADOLAT'da QO'LDA kiritgan (tizim yubormagan). Ular qayta yuborilmaydi.`}
                   />
                 </div>
               </div>

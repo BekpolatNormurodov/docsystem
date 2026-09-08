@@ -489,12 +489,39 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
           select: { pinfl: true, caseNumber: true },
         })
       : [];
-    const externalByPinfl = new Map(externalRows.map((r) => [r.pinfl!, r.caseNumber]));
+    // Portal ishlaridan qaysilari BIZNIKI: id'si `ArizaCase.courtCaseId` bilan bir xil.
+    // Bu farq TO'SIQ uchun emas (ikkala holatda ham ikkinchi da'vo ochilmasligi kerak),
+    // balki OPERATORGA aytiladigan SABAB uchun kerak: «yurist qo'lda kiritgan» va
+    // «bizning boshqa qatorimizdan ketgan» — bular ikki xil muammo, ikki xil yechim.
+    const ourPortalIds = new Set<string>();
+    if (externalRows.length) {
+      const ids: string[] = [];
+      for (const r of externalRows) if (r.caseNumber) ids.push(r.caseNumber);
+      if (ids.length) {
+        const mine = await prisma.arizaCase.findMany({ where: { courtCaseId: { in: ids } }, select: { courtCaseId: true } });
+        for (const m of mine) if (m.courtCaseId) ourPortalIds.add(m.courtCaseId);
+      }
+    }
+    // pinfl -> { portal ish id'si, bizniki bo'lganmi }
+    const externalByPinfl = new Map<string, { caseNumber: string; ours: boolean }>();
+    for (const r of externalRows) {
+      if (!r.pinfl || !r.caseNumber) continue;
+      const ours = ourPortalIds.has(r.caseNumber);
+      const prev = externalByPinfl.get(r.pinfl);
+      // Yuristniki (ours=false) ustunroq: sabab matni aniqroq bo'lsin.
+      if (!prev || (prev.ours && !ours)) externalByPinfl.set(r.pinfl, { caseNumber: r.caseNumber, ours });
+    }
+
     if (externalByPinfl.size) {
       const hit = targetCases.filter((c) => c.pinfl && externalByPinfl.has(c.pinfl));
-      const why = (c: { pinfl: string | null }) =>
-        `ADOLAT'da bu mijozga shu firma nomidan da'vo ALLAQACHON bor (${externalByPinfl.get(c.pinfl!)}) — `
-        + `yurist qo'lda kiritgan. Ikkinchi da'vo ochilmasligi uchun yuborilmadi.`;
+      const why = (c: { pinfl: string | null }) => {
+        const x = externalByPinfl.get(c.pinfl!)!;
+        return x.ours
+          ? `Bu mijozga ADOLAT'da da'vo ALLAQACHON ochilgan (${x.caseNumber}) — tizimning oldingi partiyasidan. `
+            + `Ikkinchi da'vo ochilmasligi uchun yuborilmadi.`
+          : `ADOLAT'da bu mijozga shu firma nomidan da'vo ALLAQACHON bor (${x.caseNumber}) — yurist qo'lda kiritgan. `
+            + `Ikkinchi da'vo ochilmasligi uchun yuborilmadi.`;
+      };
       for (const ac of hit) {
         await prisma.courtQueueItem.upsert({
           where: { caseId: ac.id },
@@ -507,7 +534,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
         data: { courtSentAt: null },
       });
       targetCases = targetCases.filter((c) => !c.pinfl || !externalByPinfl.has(c.pinfl));
-      console.log(`[Job ${jobId}] ${hit.length} ta ish portalda allaqachon da'vo qilingani uchun o'tkazib yuborildi (qo'lda kiritilgan).`);
+      if (hit.length) console.log(`[Job ${jobId}] ${hit.length} ta ish portalda allaqachon da'vo qilingani uchun o'tkazib yuborildi.`);
     }
 
     // ── DAVLAT BOJI PREFLIGHT ────────────────────────────────────────────────────────────

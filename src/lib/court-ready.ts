@@ -82,7 +82,7 @@ function metaHas(meta: unknown, key: string): boolean {
 function isExported(meta: unknown): boolean { return metaHas(meta, 'exportedAt'); }
 function isDraftMeta(meta: unknown): boolean { return metaHas(meta, 'draftAt'); }
 
-function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<number>, ofertaPinfls: Set<string>, paidReceipts?: Set<string>, queuedCaseIds?: Set<number>, externalPinfls?: Set<string>): DocFlags {
+function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<number>, ofertaPinfls: Set<string>, paidReceipts?: Set<string>, queuedCaseIds?: Set<number>, portalCases?: { portal: Set<string>; manual: Set<string> }): DocFlags {
   const talabnoma = !!c.talabnomaAt;
   // SKAN = imzolangan ariza SHU case'ga biriktirilgan (CaseDocument SIGNED_ARIZA) — paket
   // bilan bir xil manba. Ilgari global PINFL to'plami ishlatilardi: bir odam (PINFL) boshqa
@@ -116,8 +116,12 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
   // ish topildi, 25-avgustdan buyon). Bizning tizim ular haqida bilmasa, o'sha odamlarni
   // «Tayyor» deb ko'rsatib qayta yuboradi va AYNI ODAMGA IKKINCHI da'vo ochiladi —
   // qaytarib bo'lmaydigan xato. Shuning uchun bunday ish `submitted` hisoblanadi.
-  const submittedExternal = !!c.pinfl && (externalPinfls?.has(c.pinfl) ?? false);
-  const submitted = SENT_STAGES.has(c.stage) || !!c.courtCaseId || submittedExternal;
+  // TO'SIQ — portalda bu odamga shu firma nomidan ish BOR (bizniki bo'ladimi, yuristniki —
+  // farqi yo'q): ikkinchi da'vo ochilmasligi kerak.
+  const submittedPortal = !!c.pinfl && (portalCases?.portal.has(c.pinfl) ?? false);
+  // YORLIQ — shulardan BIZ yubormaganlari («Sudda 147+4» dagi +4).
+  const submittedExternal = !!c.pinfl && (portalCases?.manual.has(c.pinfl) ?? false);
+  const submitted = SENT_STAGES.has(c.stage) || !!c.courtCaseId || submittedPortal;
   const exported = isExported(c.meta) || submitted;
   const draft = !exported && isDraftMeta(c.meta); // qoralama-sinov qilingan, hali haqiqiy yuborilmagan
   // «Tayyor» = ready va SUDGA hali ketmagan.
@@ -165,22 +169,24 @@ async function portalCasePinfls(branchCode: string | null): Promise<{ portal: Se
   if (!rows.length) return empty;
 
   // Qaysi portal ishlari BIZNIKI: id'si bizning `courtCaseId` bilan bir xil bo'lganlari.
-  const ourRows = await prisma.arizaCase.findMany({
-    where: { courtCaseId: { in: rows.map((r) => r.caseNumber) } },
-    select: { courtCaseId: true },
-  });
-  const ourIds = new Set(ourRows.map((o) => o.courtCaseId!).filter(Boolean));
+  const portalIds: string[] = [];
+  for (const r of rows) if (r.caseNumber) portalIds.push(r.caseNumber);
+  const ourRows = portalIds.length
+    ? await prisma.arizaCase.findMany({ where: { courtCaseId: { in: portalIds } }, select: { courtCaseId: true } })
+    : [];
+  const ourIds = new Set<string>();
+  for (const o of ourRows) if (o.courtCaseId) ourIds.add(o.courtCaseId);
 
   const portal = new Set<string>();
   const manual = new Set<string>();
   for (const r of rows) {
     if (!r.pinfl) continue;
     portal.add(r.pinfl);
-    if (!ourIds.has(r.caseNumber)) manual.add(r.pinfl);
+    if (r.caseNumber && !ourIds.has(r.caseNumber)) manual.add(r.pinfl);
   }
   // Bizning ishimiz bor mijoz «qo'lda kiritilgan» deb sanalmasin: agar o'sha odamda
   // BIZNIKI ish bo'lsa, u qo'lda kiritilganlar ro'yxatidan chiqadi.
-  for (const r of rows) if (r.pinfl && ourIds.has(r.caseNumber)) manual.delete(r.pinfl);
+  for (const r of rows) if (r.pinfl && r.caseNumber && ourIds.has(r.caseNumber)) manual.delete(r.pinfl);
   return { portal, manual };
 }
 
@@ -346,12 +352,12 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
     // 45 ta navbatdagi so'rov chiqardi va bu operator partiya ketayotganda qayta-qayta
     // yangilaydigan sahifa.
     const ids = cases.map((c) => c.id);
-    const [signedIds, receiptIds, paidReceipts, queuedIds, externalPinfls] = await Promise.all([
+    const [signedIds, receiptIds, paidReceipts, queuedIds, portalCases] = await Promise.all([
       signedCaseIdSet(ids),
       receiptCaseIdSet(ids),
       paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]),
       queuedCaseIdSet(ids),
-      externallySubmittedPinfls(f.code),
+      portalCasePinfls(f.code),
     ]);
     const queuedTotal = await queuedCountForFirm(f.id);
 
@@ -363,7 +369,7 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
       docs: firmDocsStatus(f.id),
     };
     for (const c of cases as CaseRow[]) {
-      const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds, externalPinfls);
+      const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds, portalCases);
       if (fl.ready) fr.ready++;
       if (fl.exported) fr.exported++;
       if (fl.submitted) fr.submitted++;
@@ -482,12 +488,12 @@ export async function firmReadyClients(opts: {
     ofertaPinflSet(opts.snapshotId, firm.code),
   ]);
   const ids = cases.map((c) => c.id);
-  const [signedIds, receiptIds, paidReceipts, queuedIds, externalPinfls] = await Promise.all([
+  const [signedIds, receiptIds, paidReceipts, queuedIds, portalCases] = await Promise.all([
     signedCaseIdSet(ids),
     receiptCaseIdSet(ids),
     paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]),
     queuedCaseIdSet(ids),
-    externallySubmittedPinfls(firm.code),
+    portalCasePinfls(firm.code),
   ]);
   const deliveredPinfls = await talabnomaDeliveredPinflSet(firm.code);
   const now = Date.now();
@@ -498,7 +504,7 @@ export async function firmReadyClients(opts: {
   // firm's cases + meta) was the «juda sekin»; now the firm is loaded once when the drill-down opens.
   const rows: ClientReadyRow[] = [];
   for (const c of cases) {
-    const fl = flagsFor(c as CaseRow, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds, externalPinfls);
+    const fl = flagsFor(c as CaseRow, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds, portalCases);
     rows.push({
       caseId: c.id, clientName: c.clientName, pinfl: c.pinfl, stage: c.stage, stageLabel: STAGE_LABEL[c.stage],
       talabnoma: fl.talabnoma, talabnomaDelivered: !!(c.pinfl && deliveredPinfls.has(c.pinfl)),
@@ -538,12 +544,12 @@ export async function sendableCourtBreakdown(opts: { snapshotId?: number; firmId
     ofertaPinflSet(opts.snapshotId, firm.code),
   ]);
   const ids = cases.map((c) => c.id);
-  const [signedIds, receiptIds, paidReceipts, queuedIds, externalPinfls] = await Promise.all([
+  const [signedIds, receiptIds, paidReceipts, queuedIds, portalCases] = await Promise.all([
     signedCaseIdSet(ids),
     receiptCaseIdSet(ids),
     paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]),
     queuedCaseIdSet(ids),
-    externallySubmittedPinfls(firm.code),
+    portalCasePinfls(firm.code),
   ]);
 
   // BARCHA faol sudlar ro'yxatdan boshlanadi — tayyor ishi bo'lmagani ham, ADOLAT'da yopig'i
@@ -564,7 +570,7 @@ export async function sendableCourtBreakdown(opts: { snapshotId?: number; firmId
 
   let total = 0;
   for (const c of cases) {
-    const fl = flagsFor(c as CaseRow, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds, externalPinfls);
+    const fl = flagsFor(c as CaseRow, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds, portalCases);
     if (!fl.sendable) continue;
     total++;
     const key = String(c.courtId ?? 'none');
@@ -611,16 +617,16 @@ export async function selectReadyCaseIds(opts: {
     ofertaPinflSet(opts.snapshotId, firm.code),
   ]);
   const ids = cases.map((c) => c.id);
-  const [signedIds, receiptIds, paidReceipts, queuedIds, externalPinfls] = await Promise.all([
+  const [signedIds, receiptIds, paidReceipts, queuedIds, portalCases] = await Promise.all([
     signedCaseIdSet(ids),
     receiptCaseIdSet(ids),
     paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]),
     queuedCaseIdSet(ids),
-    externallySubmittedPinfls(firm.code),
+    portalCasePinfls(firm.code),
   ]);
   const picked: number[] = [];
   for (const c of cases as CaseRow[]) {
-    const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds, externalPinfls);
+    const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds, portalCases);
     // Shart AYNAN kartadagi «Tayyor» bilan bir xil (fl.sendable) — bitta manba, flagsFor.
     //
     // 2026-09-08: bu yerda `ready && !SENT_STAGES` turardi, karta va modal esa `sendable`
@@ -656,16 +662,16 @@ export async function validateSelectedCaseIds(opts: {
     ofertaPinflSet(opts.snapshotId, firm.code),
   ]);
   const ids = cases.map((c) => c.id);
-  const [signedIds, receiptIds, paidReceipts, queuedIds, externalPinfls] = await Promise.all([
+  const [signedIds, receiptIds, paidReceipts, queuedIds, portalCases] = await Promise.all([
     signedCaseIdSet(ids),
     receiptCaseIdSet(ids),
     paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]),
     queuedCaseIdSet(ids),
-    externallySubmittedPinfls(firm.code),
+    portalCasePinfls(firm.code),
   ]);
   return (cases as CaseRow[])
     .filter((c) => {
-      const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds, externalPinfls);
+      const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds, portalCases);
       // ZIP va SUDGA YUBORISH uchun shart ATAYIN boshqacha.
       //
       // Ilgari bu yerda `queuedIds`/`externalPinfls` hisoblanar, LEKIN ishlatilmasdi —
