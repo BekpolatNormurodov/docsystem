@@ -36,7 +36,18 @@ export interface DocFlags {
   // Endi ikkisi alohida: «Chiqarilgan» (ZIP) va «Sudda» (haqiqiy da'vo).
   submitted: boolean;
   draft: boolean;     // meta.draftAt & !exported — «Qoralama» (sinab ko'rilgan, hali haqiqiy emas)
-  sendable: boolean;  // «Tayyor» — ready && hali qoralama/yuborilmagan & bosqich sudga chiqmagan
+  /**
+   * NAVBATDA — bu ish allaqachon partiyaga olingan (CourtQueueItem PENDING/RUNNING),
+   * lekin hali sudga yetib bormagan.
+   *
+   * NEGA ALOHIDA HOLAT: 2026-09-07 da BRIGHT'da 291 ta tayyor bor edi, operator 200 tasini
+   * navbatga berdi — va ro'yxat baribir «Tayyor 291» deb turaverdi, keyingi modalda ham
+   * «max 200» chiqdi. Ya'ni navbatdagi 200 ta ish IKKI marta sanalardi: bir marta
+   * «navbatda», bir marta «hali yuborilmagan tayyor». Operator uchun bu «hech narsa
+   * kamaymadi» degan ma'noni berardi va u qayta-qayta bosishga urinardi.
+   */
+  queued: boolean;
+  sendable: boolean;  // «Tayyor» — ready && qoralama/navbat/sudda EMAS
 }
 
 interface CaseRow {
@@ -55,7 +66,7 @@ function metaHas(meta: unknown, key: string): boolean {
 function isExported(meta: unknown): boolean { return metaHas(meta, 'exportedAt'); }
 function isDraftMeta(meta: unknown): boolean { return metaHas(meta, 'draftAt'); }
 
-function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<number>, ofertaPinfls: Set<string>, paidReceipts?: Set<string>): DocFlags {
+function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<number>, ofertaPinfls: Set<string>, paidReceipts?: Set<string>, queuedCaseIds?: Set<number>): DocFlags {
   const talabnoma = !!c.talabnomaAt;
   // SKAN = imzolangan ariza SHU case'ga biriktirilgan (CaseDocument SIGNED_ARIZA) — paket
   // bilan bir xil manba. Ilgari global PINFL to'plami ishlatilardi: bir odam (PINFL) boshqa
@@ -94,8 +105,12 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
   // ALOHIDA, haqiqiy amal: ZIP olish shunchaki fayl yuklab olish, sudga hech narsa
   // ketmaydi. 2026-09-07: BRIGHT'ning 100 ta ishi ZIP olingani uchun «Tayyor»dan
   // yo'qolgan edi, holbuki ularning bittasi ham sudga bermagan.
-  const sendable = ready && !submitted && !draft && !SENT_STAGES.has(c.stage);
-  return { talabnoma, scan, oferta, receipt, boji, ready, exported, submitted, draft, sendable };
+  // NAVBATDAGI ish «Tayyor» EMAS: u allaqachon olingan, ustida ish ketyapti. Aks holda
+  // operator 291 tadan 200 tasini navbatga bergach ham «Tayyor 291» ko'rardi va shu
+  // 200 tani qayta-qayta yuborishga urinardi.
+  const queued = queuedCaseIds?.has(c.id) ?? false;
+  const sendable = ready && !submitted && !draft && !queued && !SENT_STAGES.has(c.stage);
+  return { talabnoma, scan, oferta, receipt, boji, ready, exported, submitted, draft, queued, sendable };
 }
 
 // Case'ga biriktirilgan CaseDocument'lar to'plami (kind bo'yicha) — SKAN (SIGNED_ARIZA) va
@@ -106,6 +121,21 @@ async function caseIdSetByKind(caseIds: number[], kind: string): Promise<Set<num
   return new Set(docs.map((d) => d.caseId));
 }
 const signedCaseIdSet = (caseIds: number[]) => caseIdSetByKind(caseIds, 'SIGNED_ARIZA');
+
+/**
+ * NAVBATDA turgan (hali sudga yetib bormagan) case'lar — CourtQueueItem PENDING/RUNNING.
+ *
+ * Bu YAGONA manba: firma raqamlari, mijoz ro'yxati, sud taqsimoti va partiya tanlovi
+ * ham shundan oziqlanadi, shuning uchun ular hech qachon bir-biriga zid bo'lmaydi.
+ */
+async function queuedCaseIdSet(caseIds: number[]): Promise<Set<number>> {
+  if (caseIds.length === 0) return new Set();
+  const rows = await prisma.courtQueueItem.findMany({
+    where: { caseId: { in: caseIds }, state: { in: ['PENDING', 'RUNNING'] } },
+    select: { caseId: true },
+  });
+  return new Set(rows.map((r) => r.caseId));
+}
 
 // TO'LANGAN kvitansiya raqamlari to'plami.
 //
@@ -184,6 +214,8 @@ export interface FirmReadiness {
   exported: number;   // ZIP chiqarilgan yoki sudga ketgan (umumiy «ishlov ko'rgan»)
   submitted: number;  // SUDGA haqiqatan yuborilgan — «Chiqarilgan» bilan aralashmasin
   draft: number;
+  /** Partiyaga olingan, hali sudga yetib bormagan (CourtQueueItem PENDING/RUNNING). */
+  queued: number;
   sendable: number;
   missing: DocQuad;
   almost: DocQuad; // missing exactly this one doc (1 qadam qolgan)
@@ -191,7 +223,7 @@ export interface FirmReadiness {
 }
 export interface CourtReadiness {
   firms: FirmReadiness[];
-  overall: { total: number; ready: number; exported: number; submitted: number; draft: number; sendable: number; missing: DocQuad; almost: DocQuad };
+  overall: { total: number; ready: number; exported: number; submitted: number; draft: number; queued: number; sendable: number; missing: DocQuad; almost: DocQuad };
 }
 
 /** Per-firm «sudga tayyorlik»: jami / to'liq tayyor / chiqarilgan / yuborishga
@@ -225,22 +257,24 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
     ]);
     if (cases.length === 0) return null;
     const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
-    const receiptIds = await receiptCaseIdSet(cases.map((c) => c.id));
-    const paidReceipts = await paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]);
+  const receiptIds = await receiptCaseIdSet(cases.map((c) => c.id));
+  const paidReceipts = await paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]);
+  const queuedIds = await queuedCaseIdSet(cases.map((c) => c.id));
 
     const fr: FirmReadiness = {
       firmId: f.id, firmName: f.shortName, total: cases.length,
-      ready: 0, exported: 0, submitted: 0, draft: 0, sendable: 0,
+      ready: 0, exported: 0, submitted: 0, draft: 0, queued: 0, sendable: 0,
       missing: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 },
       almost: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 },
       docs: firmDocsStatus(f.id),
     };
     for (const c of cases as CaseRow[]) {
-      const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls, paidReceipts);
+      const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds);
       if (fl.ready) fr.ready++;
       if (fl.exported) fr.exported++;
       if (fl.submitted) fr.submitted++;
       if (fl.draft) fr.draft++;
+      if (fl.queued) fr.queued++;
       if (fl.sendable) fr.sendable++;
       if (!fl.talabnoma) fr.missing.talabnoma++;
       if (!fl.scan) fr.missing.scan++;
@@ -265,21 +299,21 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
 
   const overall = firmsOut.reduce(
     (o, f) => {
-      o.total += f.total; o.ready += f.ready; o.exported += f.exported; o.submitted += f.submitted; o.draft += f.draft; o.sendable += f.sendable;
+      o.total += f.total; o.ready += f.ready; o.exported += f.exported; o.submitted += f.submitted; o.draft += f.draft; o.queued += f.queued; o.sendable += f.sendable;
       o.missing.talabnoma += f.missing.talabnoma; o.missing.scan += f.missing.scan;
       o.missing.oferta += f.missing.oferta; o.missing.receipt += f.missing.receipt; o.missing.boji += f.missing.boji;
       o.almost.talabnoma += f.almost.talabnoma; o.almost.scan += f.almost.scan;
       o.almost.oferta += f.almost.oferta; o.almost.receipt += f.almost.receipt; o.almost.boji += f.almost.boji;
       return o;
     },
-    { total: 0, ready: 0, exported: 0, submitted: 0, draft: 0, sendable: 0, missing: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 }, almost: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 } },
+    { total: 0, ready: 0, exported: 0, submitted: 0, draft: 0, queued: 0, sendable: 0, missing: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 }, almost: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 } },
   );
 
   return { firms: firmsOut, overall };
 }
 
 // ── Per-client (case-level) drill-down: the 4-doc checklist, filterable ───────
-export type ReadyFilter = 'all' | 'sendable' | 'draft' | 'ready' | 'exported' | 'submitted' | 'notready';
+export type ReadyFilter = 'all' | 'sendable' | 'queued' | 'draft' | 'ready' | 'exported' | 'submitted' | 'notready';
 export interface ClientReadyRow {
   caseId: number;
   clientName: string | null;
@@ -297,6 +331,8 @@ export interface ClientReadyRow {
   /** SUDGA haqiqatan topshirilgan — «Chiqarilgan» (ZIP) bilan aralashmasin. */
   submitted: boolean;
   draft: boolean;
+  /** Partiyaga olingan, hali sudga yetib bormagan — «Tayyor»dan chiqarilgan. */
+  queued: boolean;
   /** Ish qaysi sudga yo'naltirilgan (filtr uchun; tayinlanmagan bo'lsa null). */
   courtId: number | null;
   courtName: string | null;
@@ -307,7 +343,7 @@ export interface ClientReadyRow {
   daysLeft: number | null;
   receiptNumber: string | null; // real boji kvitansiya № (for the drill-down CaseDocs invoice slot)
 }
-export interface ClientReadyCounts { all: number; sendable: number; draft: number; ready: number; exported: number; submitted: number; notready: number }
+export interface ClientReadyCounts { all: number; sendable: number; draft: number; queued: number; ready: number; exported: number; submitted: number; notready: number }
 export interface ClientReadyPage {
   rows: ClientReadyRow[];
   total: number;
@@ -323,7 +359,7 @@ export interface ClientReadyPage {
 export async function firmReadyClients(opts: {
   snapshotId?: number; firmId: number;
 }): Promise<ClientReadyPage> {
-  const empty: ClientReadyPage = { rows: [], total: 0, page: 1, pageSize: 0, pages: 1, counts: { all: 0, sendable: 0, draft: 0, ready: 0, exported: 0, submitted: 0, notready: 0 } };
+  const empty: ClientReadyPage = { rows: [], total: 0, page: 1, pageSize: 0, pages: 1, counts: { all: 0, sendable: 0, draft: 0, queued: 0, ready: 0, exported: 0, submitted: 0, notready: 0 } };
 
   const firm = await prisma.firm.findUnique({ where: { id: opts.firmId }, select: { id: true, code: true } });
   if (!firm) return empty;
@@ -346,6 +382,7 @@ export async function firmReadyClients(opts: {
   const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
     const receiptIds = await receiptCaseIdSet(cases.map((c) => c.id));
     const paidReceipts = await paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]);
+  const queuedIds = await queuedCaseIdSet(cases.map((c) => c.id));
   const deliveredPinfls = await talabnomaDeliveredPinflSet(firm.code);
   const now = Date.now();
   const day = 86400000;
@@ -353,12 +390,13 @@ export async function firmReadyClients(opts: {
   // ALL rows + counts in ONE query — the drill-down filters/searches/paginates client-side, so a
   // filter or page switch never re-hits the DB. That per-interaction refetch (each loading the whole
   // firm's cases + meta) was the «juda sekin»; now the firm is loaded once when the drill-down opens.
-  const counts: ClientReadyCounts = { all: 0, sendable: 0, draft: 0, ready: 0, exported: 0, submitted: 0, notready: 0 };
+  const counts: ClientReadyCounts = { all: 0, sendable: 0, draft: 0, queued: 0, ready: 0, exported: 0, submitted: 0, notready: 0 };
   const rows: ClientReadyRow[] = [];
   for (const c of cases) {
-    const fl = flagsFor(c as CaseRow, signedIds, receiptIds, ofertaPinfls, paidReceipts);
+    const fl = flagsFor(c as CaseRow, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds);
     counts.all++;
     if (fl.sendable) counts.sendable++;
+    if (fl.queued) counts.queued++;
     if (fl.draft) counts.draft++;
     if (fl.ready) counts.ready++;
     // «Chiqarilgan» = ZIP olingan, LEKIN sudga ketmagan. Sudga ketgani alohida sanaladi —
@@ -370,7 +408,7 @@ export async function firmReadyClients(opts: {
       caseId: c.id, clientName: c.clientName, pinfl: c.pinfl, stage: c.stage, stageLabel: STAGE_LABEL[c.stage],
       talabnoma: fl.talabnoma, talabnomaDelivered: !!(c.pinfl && deliveredPinfls.has(c.pinfl)),
       receipt: fl.receipt, scan: fl.scan, oferta: fl.oferta, boji: fl.boji,
-      ready: fl.ready, exported: fl.exported, submitted: fl.submitted, draft: fl.draft, sendable: fl.sendable,
+      ready: fl.ready, exported: fl.exported, submitted: fl.submitted, draft: fl.draft, queued: fl.queued, sendable: fl.sendable,
       totalDebt: String(c.totalDebt),
       daysLeft: c.dueAt ? ((v: number) => (v < 0 ? Math.floor(v) : Math.ceil(v)))((c.dueAt.getTime() - now) / day) : null,
       receiptNumber: c.receiptNumber,
@@ -407,6 +445,7 @@ export async function sendableCourtBreakdown(opts: { snapshotId?: number; firmId
   const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
   const receiptIds = await receiptCaseIdSet(cases.map((c) => c.id));
   const paidReceipts = await paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]);
+  const queuedIds = await queuedCaseIdSet(cases.map((c) => c.id));
 
   // BARCHA faol sudlar ro'yxatdan boshlanadi — tayyor ishi bo'lmagani ham, ADOLAT'da yopig'i
   // ham ko'rinsin. Avval faqat ishi borlari chiqardi va operator yopiq sudni umuman ko'rmasdi:
@@ -426,7 +465,7 @@ export async function sendableCourtBreakdown(opts: { snapshotId?: number; firmId
 
   let total = 0;
   for (const c of cases) {
-    const fl = flagsFor(c as CaseRow, signedIds, receiptIds, ofertaPinfls, paidReceipts);
+    const fl = flagsFor(c as CaseRow, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds);
     if (!fl.sendable) continue;
     total++;
     const key = String(c.courtId ?? 'none');
@@ -464,9 +503,10 @@ export async function selectReadyCaseIds(opts: {
   const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
     const receiptIds = await receiptCaseIdSet(cases.map((c) => c.id));
     const paidReceipts = await paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]);
+  const queuedIds = await queuedCaseIdSet(cases.map((c) => c.id));
   const picked: number[] = [];
   for (const c of cases as CaseRow[]) {
-    const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls, paidReceipts);
+    const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds);
     if (!fl.ready) continue;
     if (SENT_STAGES.has(c.stage)) continue;
     // ZIP olingani HECH QAYERDA to'siq emas: u sudga hech narsa yubormaydi va shunchaki
@@ -498,9 +538,10 @@ export async function validateSelectedCaseIds(opts: {
   const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
     const receiptIds = await receiptCaseIdSet(cases.map((c) => c.id));
     const paidReceipts = await paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]);
+  const queuedIds = await queuedCaseIdSet(cases.map((c) => c.id));
   return (cases as CaseRow[])
     .filter((c) => {
-      const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls, paidReceipts);
+      const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds);
       return fl.ready && !SENT_STAGES.has(c.stage);
     })
     .map((c) => c.id)
