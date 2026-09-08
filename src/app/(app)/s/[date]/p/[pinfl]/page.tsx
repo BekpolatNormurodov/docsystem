@@ -263,7 +263,7 @@ export default async function PersonPage({
                         <OfertaPreview
                           key={loan.id}
                           label={loan.ldId || `#${loan.id}`}
-                          html={fillOferta(loan as never, firm as never, loan.clientName, loan.pinfl, 0)}
+                          html={fillOferta(loan as never, firm as never, loan.clientName, loan.pinfl, 0, courtNameByFirm.get(firm.id))}
                         />
                       ))}
                     </div>

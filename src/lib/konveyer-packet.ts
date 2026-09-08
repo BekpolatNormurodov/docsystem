@@ -191,7 +191,7 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
       if (Number((l as any).summKr) <= 0) continue; // no amount → no meaningful oferta
       n += 1;
       try {
-        const buf = await renderOfertaPdf(l as any, firm ?? {}, opts.browser, ac.clientName, ac.pinfl, 0);
+        const buf = await renderOfertaPdf(l as any, firm ?? {}, opts.browser, ac.clientName, ac.pinfl, 0, (ac as any).court?.nameUz);
         files.push({ name: `Oferta_${(l as any).ldId ?? n}_${folder}.pdf`, buf });
       } catch (e) {
         // Har bir shartnomaning ofertasi sudga majburiy — bittasi chiqmasa ham paket chala.
@@ -280,7 +280,9 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
 export async function buildCaseOfertas(caseId: number, browser: Browser, insurancePct = 0): Promise<{ folder: string; files: PacketFile[] } | null> {
   const ac = await prisma.arizaCase.findUnique({
     where: { id: caseId },
-    select: { pinfl: true, snapshotId: true, kod: true, clientName: true },
+    // `court.nameUz` — oferta 10.1.а bandi AYNAN shu ishning sudini nomlaydi (arizadagi sud).
+    // `firmId` — sud tayinlanmagan bo'lsa firma asosiy sudiga tushish uchun.
+    select: { pinfl: true, snapshotId: true, kod: true, clientName: true, firmId: true, court: { select: { nameUz: true } } },
   });
   if (!ac?.pinfl || !ac.snapshotId) return null;
 
@@ -292,6 +294,10 @@ export async function buildCaseOfertas(caseId: number, browser: Browser, insuran
     }),
   ]);
 
+  // Sud nomi: ishga tayinlangan sud (arizadagi), bo'lmasa firma asosiy sudi.
+  const courtNameUz = ac.court?.nameUz
+    ?? (ac.firmId ? (await firmPrimaryCourt(ac.firmId))?.nameUz : null)
+    ?? null;
   const firmShort = firm?.shortName || ac.kod || 'firma';
   // Group by PINFL: «<FIRM> / <full name> <PINFL>» — two clients sharing a name land in
   // distinct folders, and every oferta is filed under its owner's PINFL (matches the loans path).
@@ -301,7 +307,7 @@ export async function buildCaseOfertas(caseId: number, browser: Browser, insuran
   for (const l of loans) {
     if (Number((l as { summKr?: unknown }).summKr) <= 0) continue; // no amount → no meaningful oferta
     try {
-      const buf = await renderOfertaPdf(l as never, firm ?? {}, browser, ac.clientName, ac.pinfl, insurancePct);
+      const buf = await renderOfertaPdf(l as never, firm ?? {}, browser, ac.clientName, ac.pinfl, insurancePct, courtNameUz);
       // Dedupe on name — two loans sharing the same (non-null) ldId must NOT overwrite each other in
       // the ZIP (else the download has fewer files than the «Oferta (N)» count). Fall back to the
       // unique loan id on collision.

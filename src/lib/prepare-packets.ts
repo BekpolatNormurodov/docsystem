@@ -15,6 +15,7 @@ import { prisma } from './db';
 import { buildCasePacket, buildCaseOfertas, markPacketGenerated, firmLibraryFiles } from './konveyer-packet';
 import { markCasesExported } from './court-ready';
 import { renderOfertaPdf } from './oferta-pdf';
+import { firmPrimaryCourt } from './court-routing';
 import { loadTalabnomaRowsForScope, type TalabnomaScope } from './hippo/talabnoma-bulk';
 import { renderTalabnomaPdf } from './hippo/talabnoma-pdf';
 import { talabnomaExcelBuffer } from './hippo/talabnoma-excel';
@@ -344,6 +345,12 @@ export async function runOfertaJobByLoans(jobId: number, loanIds: number[], insu
     const codes = [...new Set(loans.map((l) => l.branchCode).filter((c): c is string => !!c))];
     const firms = await prisma.firm.findMany({ where: { code: { in: codes } } });
     const firmByCode = new Map(firms.map((f) => [f.code, f]));
+    // Oferta 10.1.а bandi uchun har firmaning asosiy sudi (bu ro'yxatda ish/sud yo'q,
+    // shuning uchun firma sudi ishlatiladi). firmId -> Court.nameUz (lotin).
+    const courtNameByFirm = new Map<number, string | null>();
+    await Promise.all(firms.map(async (f) => {
+      courtNameByFirm.set(f.id, (await firmPrimaryCourt(f.id).catch(() => null))?.nameUz ?? null);
+    }));
 
     await fsp.mkdir(EXPORTS_DIR, { recursive: true });
     await pruneOldExports(); // eski/ortiqcha ZIP'larni tozalab, yangi yozishga joy ochamiz
@@ -377,7 +384,7 @@ export async function runOfertaJobByLoans(jobId: number, loanIds: number[], insu
         if (Number(l.summKr) <= 0) return null;
         const firm = l.branchCode ? firmByCode.get(l.branchCode) ?? null : null;
         try {
-          const buf = await withTimeout(renderOfertaPdf(l as never, firm ?? {}, browser as Browser, l.clientName, l.pinfl, insurancePct));
+          const buf = await withTimeout(renderOfertaPdf(l as never, firm ?? {}, browser as Browser, l.clientName, l.pinfl, insurancePct, firm ? courtNameByFirm.get(firm.id) : null));
           if (!buf) return null; // timeout/xato — bu PDF tashlab ketiladi, sikl to'xtamaydi
           // 3-level layout: «<FIRM> / <full name> <PINFL> / oferta_<ld_id>.pdf». A client with
           // contracts in several firms appears under each firm folder (that firm's contracts only).

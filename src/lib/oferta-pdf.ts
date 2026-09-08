@@ -53,8 +53,26 @@ export interface OfertaLoan {
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+/**
+ * Oferta 10.1.а bandidagi sud — AYNAN ISHNING SUDI (arizadagi sud), kirill yozuvda.
+ *
+ * Ilgari shablonda ikkala sud ham («ФИБ Юкоричирчик … ёки … Учтепа …») qattiq yozilgan va
+ * til «рус тилида» edi. Endi ariza qaysi sudga bo'lsa, oferta ham o'sha SUDNI nomlaydi:
+ * Yuqorichirchiq → «ФИБ Юкоричирчик туманлараро судига», Uchtepa → «ФИБ Учтепа туманлараро
+ * судига». Manba — `Court.nameUz` (lotin, masalan «…Yuqorichirchiq tumanlararo sudiga»).
+ *
+ * Faqat ikki sud ishlatiladi; noma'lum bo'lsa ish sudsiz qolmasin uchun neytral «тегишли
+ * туманлараро судига» ga tushadi (amalda deyarli bo'lmaydi — sudga yuborishda sud tayin).
+ */
+export function ofertaCourtClause(courtNameUz?: string | null): string {
+  const s = (courtNameUz || '').toLowerCase();
+  if (/yuqorichirchiq|юқоричирчиқ|юкоричирчик/.test(s)) return 'ФИБ Юкоричирчик туманлараро судига';
+  if (/uchtepa|учтепа/.test(s)) return 'ФИБ Учтепа туманлараро судига';
+  return 'тегишли туманлараро судига';
+}
+
 /** Build the {{token}} → value map for one loan's oferta. */
-export function ofertaFields(loan: OfertaLoan, firm: OfertaFirm, clientName: string | null, pinfl: string | null, insurancePct = 0): Record<string, string> {
+export function ofertaFields(loan: OfertaLoan, firm: OfertaFirm, clientName: string | null, pinfl: string | null, insurancePct = 0, courtNameUz?: string | null): Record<string, string> {
   const principal = Math.round(Number(loan.summKr) || 0);
   const rate = Number(loan.rate) || 0;
   // Term from the REAL close (same source as the grafik) → 12/24/36 mo; fall back to 12.
@@ -113,19 +131,20 @@ export function ofertaFields(loan: OfertaLoan, firm: OfertaFirm, clientName: str
     firm_reqvizit: esc(reqv),
     firm_contact: '',
     ewallet_acc: esc(ewalletAcc),
+    court_clause: esc(ofertaCourtClause(courtNameUz)),
   };
 }
 
-export function fillOferta(loan: OfertaLoan, firm: OfertaFirm, clientName: string | null, pinfl: string | null, insurancePct = 0): string {
-  const f = ofertaFields(loan, firm, clientName, pinfl, insurancePct);
+export function fillOferta(loan: OfertaLoan, firm: OfertaFirm, clientName: string | null, pinfl: string | null, insurancePct = 0, courtNameUz?: string | null): string {
+  const f = ofertaFields(loan, firm, clientName, pinfl, insurancePct, courtNameUz);
   return template().replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (_m, key: string) => f[key] ?? '');
 }
 
 /** Render one loan's oferta to a PDF buffer. Pass a shared `browser` for batches. */
-export async function renderOfertaPdf(loan: OfertaLoan, firm: OfertaFirm, browser: Browser, clientName: string | null, pinfl: string | null, insurancePct = 0): Promise<Buffer> {
+export async function renderOfertaPdf(loan: OfertaLoan, firm: OfertaFirm, browser: Browser, clientName: string | null, pinfl: string | null, insurancePct = 0, courtNameUz?: string | null): Promise<Buffer> {
   const page = await browser.newPage();
   try {
-    await page.setContent(fillOferta(loan, firm, clientName, pinfl, insurancePct), { waitUntil: 'networkidle' });
+    await page.setContent(fillOferta(loan, firm, clientName, pinfl, insurancePct, courtNameUz), { waitUntil: 'networkidle' });
     return await page.pdf({ format: 'A4', printBackground: true, margin: { top: '14mm', bottom: '14mm', left: '16mm', right: '16mm' } });
   } finally {
     await page.close();
