@@ -10,7 +10,7 @@ import { useCallback, useEffect, useState } from 'react';
 const n = (x: number) => x.toLocaleString('ru-RU');
 
 interface Tally { total: number; draftReady: number; submitted: number; queued: number }
-interface FirmRow extends Tally { firmId: number; firmName: string; active: boolean }
+interface FirmRow extends Tally { firmId: number; firmName: string; sendable: number; active: boolean }
 interface CourtRow extends Tally { courtId: number; courtName: string }
 interface Status {
   on: boolean;
@@ -49,7 +49,7 @@ export default function DraftAutoPanel() {
 
   useEffect(() => {
     void load();
-    const t = setInterval(load, 8000);
+    const t = setInterval(load, 12000);
     return () => clearInterval(t);
   }, [load]);
 
@@ -69,7 +69,8 @@ export default function DraftAutoPanel() {
   const on = data?.on === true;
   const active = data?.active ?? null;
   const totalDraftReady = (data?.firms ?? []).reduce((s, f) => s + f.draftReady, 0);
-  const totalRemaining = (data?.firms ?? []).reduce((s, f) => s + Math.max(0, f.total - f.submitted - f.draftReady - f.queued), 0);
+  // «Tayyor» = hujjati to'liq, hali qoralama/yuborilmagan — «Go»da AYNAN shular qoralama qilinadi.
+  const totalSendable = (data?.firms ?? []).reduce((s, f) => s + (f.sendable ?? 0), 0);
 
   return (
     <div className={`rounded-xl border transition-colors ${on ? 'border-teal-500/45 bg-teal-500/[0.05]' : 'border-line bg-surface'}`}>
@@ -83,6 +84,11 @@ export default function DraftAutoPanel() {
             <span className={`text-[13px] font-semibold ${on ? 'text-teal-700 dark:text-teal-300' : 'text-fg'}`}>
               24/7 avtomat qoralama {on ? '— ishlamoqda' : '— o‘chiq'}
             </span>
+            {totalSendable > 0 && (
+              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-amber-700 dark:text-amber-300" title="Hujjati to‘liq, hali qoralama qilinmagan — «Go»da shular tayyorlanadi">
+                {n(totalSendable)} tayyor
+              </span>
+            )}
             {totalDraftReady > 0 && (
               <span className="rounded bg-teal-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-teal-700 dark:text-teal-300">
                 {n(totalDraftReady)} qoralama tayyor
@@ -97,8 +103,8 @@ export default function DraftAutoPanel() {
           </div>
           <p className="mt-0.5 text-[11px] leading-snug text-muted">
             {on
-              ? `Tayyor ishlarga to‘xtovsiz qoralama tayyorlanmoqda (firma-ketma-firma, sud sozlamasidagi interval). Yurist portalda o‘zi yuboradi.${totalRemaining > 0 ? ` Yana ~${n(totalRemaining)} ta navbatda.` : ' Tayyorlar tugadi.'}`
-              : 'Yoqilsa, tizim tayyor ishlarni 24/7 qoralama qilib tayyorlaydi — real sudga yubormaydi, faqat ADOLAT‘da to‘liq qoralama qoldiradi.'}
+              ? `Tayyor ishlarga to‘xtovsiz qoralama tayyorlanmoqda (firma-ketma-firma, sud sozlamasidagi interval). Yurist portalda o‘zi yuboradi.${totalSendable > 0 ? ` Yana ${n(totalSendable)} ta tayyor — navbatda.` : ' Hammasi tayyorlandi.'}`
+              : `Yoqilsa, tizim ${totalSendable > 0 ? `${n(totalSendable)} ta tayyor ishni` : 'tayyor ishlarni'} 24/7 qoralama qilib tayyorlaydi — real sudga yubormaydi, faqat ADOLAT‘da to‘liq qoralama qoldiradi. Umumiy «Sudga yuborish» pauzasi buni to‘xtatmaydi.`}
           </p>
         </div>
         <button
@@ -126,6 +132,7 @@ export default function DraftAutoPanel() {
             <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-muted">
               <span>Firma kesimida</span>
               <span className="ml-auto flex items-center gap-2 text-[10px] font-normal">
+                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" />tayyor</span>
                 <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-teal-500" />qoralama</span>
                 <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-indigo-500" />sudda</span>
               </span>
@@ -135,8 +142,9 @@ export default function DraftAutoPanel() {
                 <li key={f.firmId} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11px] ${f.active ? 'bg-sky-500/[0.06]' : 'bg-surface-2'}`}>
                   <span className="min-w-0 flex-1 truncate font-medium" title={f.firmName}>{f.firmName}{f.active && ' ·'}</span>
                   <Bar ready={f.draftReady} submitted={f.submitted} total={f.total} />
-                  <span className="shrink-0 tabular-nums text-teal-600 dark:text-teal-400" title="Qoralama tayyor">{n(f.draftReady)}</span>
-                  <span className="shrink-0 tabular-nums text-indigo-600 dark:text-indigo-400" title="Sudda">{n(f.submitted)}</span>
+                  <span className="w-8 shrink-0 text-right tabular-nums text-amber-600 dark:text-amber-400" title="Tayyor — qoralama qilinadi">{n(f.sendable)}</span>
+                  <span className="w-8 shrink-0 text-right tabular-nums text-teal-600 dark:text-teal-400" title="Qoralama tayyor">{n(f.draftReady)}</span>
+                  <span className="w-8 shrink-0 text-right tabular-nums text-indigo-600 dark:text-indigo-400" title="Sudda">{n(f.submitted)}</span>
                 </li>
               ))}
             </ul>

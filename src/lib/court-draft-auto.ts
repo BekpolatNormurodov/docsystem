@@ -6,14 +6,17 @@
 // Tayyorlangan ishlar «Tayyor»dan chiqadi (meta.draftReadyAt), shuning uchun qayta olinmaydi.
 //
 // CHEKLOVLAR (ataylab):
-//   • Operator PAUZA qo'ysa — to'xtaydi (inson qarori).
+//   • «Go» qoralamaning O'Z boshqaruvi. Umumiy "Sudga yuborish to'xtatildi" pauzasi FAQAT
+//     real yuborishga taalluqli — qoralama xavfsiz (sudga yubormaydi), shuning uchun umumiy
+//     pauza uni TO'XTATMAYDI. To'xtatish uchun «Go»ni o'chiring. (ALOHIDA firma pauzasi esa
+//     shu firmani chetlab o'tadi — operator xohlasa bitta firmani to'xtatib turishi mumkin.)
 //   • Real yuborish yoki boshqa qoralama partiyasi ketayotgan bo'lsa — yangi partiya
 //     boshlanmaydi (bir vaqtda bitta COURT_SUBMIT job: real va qoralama aralashmasin).
 //   • «Go» o'chirilsa — yangi partiya boshlanmaydi (ketayotgani tugaydi).
 import { prisma } from './db';
 import { enqueueJob } from './job-dispatch';
 import { allocateFirmCases, consumeCourtSend } from './court-routing';
-import { isQueuePaused } from './cabinet/pacer';
+import { pausedFirmIds } from './cabinet/pacer';
 import { MAX_COURT_BATCH, selectReadyCaseIds } from './court-ready';
 
 const DRAFT_AUTO_KEY = 'court_draft_auto';
@@ -72,20 +75,25 @@ export async function createDraftBatch(
  */
 export async function draftAutoTick(): Promise<string | null> {
   if (!(await isDraftAutoOn())) return null;      // «Go» o'chiq
-  if (await isQueuePaused()) return null;          // operator to'xtatgan
+  // ⚠️ Umumiy "Sudga yuborish to'xtatildi" pauzasini QASDAN tekshirmaymiz: u faqat REAL
+  // yuborishni to'xtatadi. Qoralama xavfsiz (sudga yubormaydi) — «Go» uning o'z boshqaruvi.
+  // Faqat ALOHIDA firma pauzasiga bo'ysunamiz (quyida `pausedFirmIds`).
 
   // BIR VAQTDA BITTA COURT_SUBMIT job — real yuborish ham, qoralama ham. Real ketayotganda
   // qoralama boshlanmaydi (va aksincha): ikkalasi bir vaqtda portalga chiqmasin.
   const active = await prisma.job.count({ where: { type: 'COURT_SUBMIT', status: { in: ['PENDING', 'RUNNING'] } } });
   if (active > 0) return null;
 
-  const snap = await prisma.snapshot.findFirst({ orderBy: { reportDate: 'desc' }, select: { id: true } });
+  const [snap, pausedFirms] = await Promise.all([
+    prisma.snapshot.findFirst({ orderBy: { reportDate: 'desc' }, select: { id: true } }),
+    pausedFirmIds().then((ids) => new Set(ids)), // faqat firma-darajali pauza (umumiysini emas)
+  ]);
 
   // Firmalarni jamiga ko'ra tartiblab, birinchi tayyor ishi borига partiya beramiz. Keyingi
   // firma keyingi tickda oladi — bir vaqtda bitta partiya (portalni bosmaslik uchun).
   const firms = await prisma.firm.findMany({ select: { id: true, shortName: true }, orderBy: { id: 'asc' } });
   for (const f of firms) {
-    if (await isQueuePaused(f.id)) continue; // shu firma alohida to'xtatilgan
+    if (pausedFirms.has(f.id)) continue; // shu firma alohida to'xtatilgan
     const made = await createDraftBatch(f.id, snap?.id ?? undefined);
     if (made) return `firma ${f.id} (${f.shortName}): #${made.jobId} — ${made.count} ta qoralama tayyorlanmoqda`;
   }

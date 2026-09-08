@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireStep } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { isDraftAutoOn, setDraftAuto } from '@/lib/court-draft-auto';
+import { courtReadiness } from '@/lib/court-ready';
 import { audit, AuditAction } from '@/lib/audit';
 
 export const runtime = 'nodejs';
@@ -39,12 +40,16 @@ export async function GET() {
     (await prisma.courtQueueItem.findMany({ where: { state: { in: ['PENDING', 'RUNNING'] } }, select: { caseId: true } })).map((q) => q.caseId),
   );
 
-  const [firms, courts] = await Promise.all([
+  const [firms, courts, readiness] = await Promise.all([
     prisma.firm.findMany({ select: { id: true, shortName: true } }),
     prisma.court.findMany({ select: { id: true, shortName: true } }),
+    // «Tayyor» (sendable) — hujjati to'liq, hali qoralama/yuborilmagan: «Go»da SHULAR qoralama qilinadi.
+    // Bu sonni to'g'ri hisoblash uchun to'liq tayyorlik tekshiruvi kerak (hujjat/oferta/boji).
+    courtReadiness(snap?.id).catch(() => null),
   ]);
   const firmName = new Map(firms.map((f) => [f.id, f.shortName]));
   const courtName = new Map(courts.map((c) => [c.id, c.shortName]));
+  const sendableByFirm = new Map<number, number>((readiness?.firms ?? []).map((f) => [f.firmId, f.sendable]));
 
   type Tally = { total: number; draftReady: number; submitted: number; queued: number };
   const mk = (): Tally => ({ total: 0, draftReady: 0, submitted: 0, queued: 0 });
@@ -68,8 +73,8 @@ export async function GET() {
   }
 
   const firmRows = [...byFirm.entries()]
-    .map(([id, t]) => ({ firmId: id, firmName: firmName.get(id) ?? `Firma ${id}`, ...t, active: id === activeFirmId }))
-    .sort((a, b) => b.draftReady - a.draftReady || b.total - a.total);
+    .map(([id, t]) => ({ firmId: id, firmName: firmName.get(id) ?? `Firma ${id}`, ...t, sendable: sendableByFirm.get(id) ?? 0, active: id === activeFirmId }))
+    .sort((a, b) => b.sendable - a.sendable || b.draftReady - a.draftReady || b.total - a.total);
   const courtRows = [...byCourt.entries()]
     .map(([id, t]) => ({ courtId: id, courtName: courtName.get(id) ?? `Sud ${id}`, ...t }))
     .sort((a, b) => b.draftReady - a.draftReady || b.total - a.total);

@@ -14,7 +14,6 @@ export interface CountableRow {
   ready: boolean;
   exported: boolean;
   submitted: boolean;
-  draft: boolean;
   draftReady?: boolean;
   queued?: boolean;
   sendable: boolean;
@@ -25,7 +24,6 @@ export interface ClientReadyCounts {
   sendable: number;
   queued: number;
   draftReady: number;
-  draft: number;
   ready: number;
   exported: number;
   submitted: number;
@@ -33,7 +31,7 @@ export interface ClientReadyCounts {
 }
 
 export const emptyClientCounts = (): ClientReadyCounts => ({
-  all: 0, sendable: 0, queued: 0, draftReady: 0, draft: 0, ready: 0, exported: 0, submitted: 0, notready: 0,
+  all: 0, sendable: 0, queued: 0, draftReady: 0, ready: 0, exported: 0, submitted: 0, notready: 0,
 });
 
 /**
@@ -50,7 +48,6 @@ export function tallyClientCounts(rows: CountableRow[]): ClientReadyCounts {
     if (r.sendable) c.sendable++;
     if (r.queued) c.queued++;
     if (r.draftReady) c.draftReady++;
-    if (r.draft) c.draft++;
     if (r.ready) c.ready++;
     if (r.submitted) c.submitted++;
     else if (r.exported) c.exported++;
