@@ -8,7 +8,14 @@ import { MAX_COURT_BATCH } from '@/lib/court-batch';
 
 export const runtime = 'nodejs';
 
-// POST { firmId, limit? } — navbatda QOLGAN ishlarni davom ettirish.
+// POST { firmId, limit?, retryFailed? } — navbatda QOLGAN ishlarni davom ettirish.
+//
+// `retryFailed: true` — XATO bergan / SUD RAD ETGAN ishlarni qaytadan navbatga qo'yish.
+// Bu ALOHIDA, ATAYIN operator amali: avtomatika xato bergan ishni 3 urinishdan keyin
+// tinch qo'yadi (sabab odatda doimiy — hujjat, sud sozlamasi, boji), ya'ni kamchilik
+// tuzatilgach ularni qaytadan yo'lga solish uchun qo'lda tugma kerak. 2026-09-08 da
+// aynan shu holat bo'ldi: Yuqorichirchiq 308 ta ishni hujjat tartibi uchun rad etdi,
+// tartib kodda tuzatildi, lekin 308 ta ishni qayta yuborishning YO'LI yo'q edi.
 //
 // «Sudga yuborish» partiya tanlashdan boshlanadi (tayyor ishlardan N ta). Bu esa boshqa
 // holat: partiya allaqachon tuzilgan, bir qismi ketgan, qolgani `CourtQueueItem` da PENDING
@@ -64,17 +71,40 @@ export async function POST(req: NextRequest) {
   }
 
   const limit = Math.min(MAX_COURT_BATCH, Math.max(1, Number(body?.limit) || MAX_COURT_BATCH));
+  const retryFailed = body?.retryFailed === true;
+
+  // ADOLAT'da ISHI BOR case QAYTA YUBORILMAYDI — bu eng muhim shart.
+  //
+  // FAILED har doim «sudga ketmadi» degani emas: `save-suit` o'tib, `send-to-court`
+  // uzilgan bo'lishi mumkin — ya'ni da'vo rasman berilgan, bizda esa xato yozilgan.
+  // Bunday ishni qayta yuborish AYNI ODAMGA IKKINCHI da'vo ochadi. Sud rad etgan ishlarda
+  // `courtCaseId` outcome-sync tomonidan tozalanadi (id `meta.declinedCaseId` da qoladi),
+  // shuning uchun ular bu filtrdan bemalol o'tadi.
   const items = await prisma.courtQueueItem.findMany({
-    where: { firmId, state: 'PENDING' },
+    where: retryFailed
+      ? { firmId, state: 'FAILED', case: { courtCaseId: null } }
+      : { firmId, state: 'PENDING' },
     select: { caseId: true },
     orderBy: { id: 'asc' },
     take: limit,
   });
   if (!items.length) {
-    return NextResponse.json({ error: 'Bu firmada navbatda qolgan ish yo‘q' }, { status: 400 });
+    return NextResponse.json(
+      { error: retryFailed ? 'Qayta yuboriladigan (xato bergan) ish yo‘q' : 'Bu firmada navbatda qolgan ish yo‘q' },
+      { status: 400 },
+    );
   }
 
   const caseIds = items.map((i) => i.caseId);
+  if (retryFailed) {
+    // Urinishlar sanog'i NOLLANADI: bu operatorning ATAYIN qarori (kamchilik tuzatildi),
+    // shuning uchun avtomatikaning «3 urinishdan keyin tinch qo'y» qoidasi qaytadan
+    // boshlanishi kerak — aks holda ish bitta urinishdan keyin yana chetga chiqib qolardi.
+    await prisma.courtQueueItem.updateMany({
+      where: { caseId: { in: caseIds } },
+      data: { state: 'PENDING', attempts: 0, lastError: null, step: null, finishedAt: null },
+    });
+  }
   const snap = await prisma.snapshot.findFirst({ orderBy: { reportDate: 'desc' }, select: { id: true } });
 
   const job = await prisma.job.create({

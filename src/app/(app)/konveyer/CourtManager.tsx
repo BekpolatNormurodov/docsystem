@@ -1070,6 +1070,42 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
     } finally { setCancelBusy(false); }
   };
 
+  // XATO BERGAN / SUD RAD ETGAN ISHLARNI QAYTA YUBORISH.
+  //
+  // Avtomatika bunday ishni 3 urinishdan keyin tinch qo'yadi (sabab odatda doimiy).
+  // Kamchilik tuzatilgach ularni qaytadan yo'lga solishning UI'da yo'li yo'q edi:
+  // 2026-09-08 da Yuqorichirchiq 308 ta ishni hujjat tartibi uchun rad etdi, tartib
+  // kodda tuzatildi va operator qo'lida hech narsa qolmadi.
+  const [retryBusy, setRetryBusy] = useState(false);
+
+  const retryFailed = async (failedNow: number) => {
+    if (retryBusy) return;
+    const ok = await confirmQ({
+      title: 'Xato berganlar qayta yuborilsinmi?',
+      description:
+        `${n(failedNow)} ta ish qaytadan navbatga qo'yiladi va sudga yuboriladi. ` +
+        `ADOLAT'da ishi bor (ya'ni da'vosi allaqachon qabul qilingan) ishlar bunga KIRMAYDI — ` +
+        `bir odamga ikkinchi da'vo ochilmaydi. ` +
+        `Sabab tuzatilmagan bo'lsa, sud yana rad etishi mumkin.`,
+      confirmLabel: 'Ha, qayta yuborilsin',
+    });
+    if (!ok) return;
+    setRetryBusy(true);
+    setErr(null);
+    try {
+      const r = await fetch('/konveyer/court-queue/resume', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ firmId, retryFailed: true }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { setErr(d?.error || 'Qayta yuborilmadi'); return; }
+      await load();
+      onChanged?.();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Qayta yuborilmadi');
+    } finally { setRetryBusy(false); }
+  };
+
   const toggleFirmPause = async () => {
     if (firmPaused === null || pauseBusy) return;
     setPauseBusy(true);
@@ -1177,6 +1213,20 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
             ><path d="m6 9 6 6 6-6" /></svg>
           </span>
         </button>
+
+        {/* «Qayta yuborish» — navbatda ish QOLMAGANDA ham kerak: rad etilgan ishlar
+            aynan shunday holatda qoladi (hammasi FAILED, navbat bo'sh). Shuning uchun u
+            pauza tugmasidan MUSTAQIL ko'rsatiladi. */}
+        {failed > 0 && (
+          <button
+            onClick={() => { void retryFailed(failed); }}
+            disabled={retryBusy}
+            title="Xato bergan / sud rad etgan ishlarni qaytadan navbatga qo‘yish"
+            className="h-7 shrink-0 rounded-lg border border-brand-500/40 bg-brand-500/10 px-2.5 text-[11px] font-semibold text-brand-700 outline-none transition-colors hover:bg-brand-500/[0.18] focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50 dark:text-brand-300"
+          >
+            {retryBusy ? '…' : `Qayta yuborish (${n(failed)})`}
+          </button>
+        )}
 
         {/* Faqat SHU firmani to'xtatish — navbatda ish bo'lgandagina ma'noli. */}
         {firmPaused !== null && waiting > 0 && (
@@ -1563,26 +1613,43 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   const pollJob = useCallback((key: string, jobId: number, onDone: () => void) => {
     if (timers.current[key]) return;
     let pollFails = 0;
-    timers.current[key] = setInterval(async () => {
+    // KUZATUV TASLIM BO'LMAYDI.
+    //
+    // Ilgari ketma-ket 5 marta (~10 soniya) yiqilsa poller BUTUNLAY to'xtardi. 10 soniyalik
+    // tarmoq g'ijimi — ish ketayotgan 10 daqiqalik ZIP uchun hech narsa emas, lekin karta
+    // shu joyda muzlab qolardi va boshqa hech qachon yangilanmasdi: operator serverda ish
+    // muvaffaqiyatli tugaganini ko'rmasdi ham. Endi poller cheksiz davom etadi, faqat
+    // tezligini pasaytiradi (2s → 10s) va aloqa yo'qligini OCHIQ aytadi; aloqa tiklangach
+    // ogohlantirish o'zi yo'qoladi.
+    const FAST_MS = 2000, SLOW_MS = 10_000, WARN_AFTER = 5;
+    let period = FAST_MS;
+    const tick = async () => {
       try {
         const s = await getJson(`/api/jobs/${jobId}`);
+        const wasFailing = pollFails >= WARN_AFTER;
         pollFails = 0;
-        setJobs((j) => (j[key] ? { ...j, [key]: { ...j[key], status: s.status, progress: s.progress, total: s.total, message: s.message ?? undefined } } : j));
+        if (period !== FAST_MS) { period = FAST_MS; schedule(); }
+        setJobs((j) => (j[key]
+          ? { ...j, [key]: { ...j[key], status: s.status, progress: s.progress, total: s.total, message: s.message ?? undefined, ...(wasFailing ? { error: undefined } : {}) } }
+          : j));
         if (s.status === 'DONE' || s.status === 'FAILED' || s.status === 'CANCELED') {
           clearInterval(timers.current[key]); delete timers.current[key];
           if (s.status === 'DONE') onDone();
         }
       } catch (e) {
-        // Bitta-ikkita uzilish — tarmoq g'ijimi, davom etamiz. Lekin ketma-ket 5 marta
-        // (~10s) yiqilsa sabab jiddiy (odatda sessiya tugagan): avval bu jimgina yutilardi
-        // va progress abadiy qotib qolardi — operator ish ketyapti deb o'ylab turaverardi.
-        if (++pollFails >= 5) {
-          clearInterval(timers.current[key]); delete timers.current[key];
+        if (++pollFails === WARN_AFTER) {
           const msg = e instanceof Error ? e.message : 'Holatni o‘qib bo‘lmadi';
-          setJobs((j) => (j[key] ? { ...j, [key]: { ...j[key], error: msg } } : j));
+          // Ish SERVERDA davom etyapti — bu faqat ko'rsatkich uzilgani.
+          setJobs((j) => (j[key] ? { ...j, [key]: { ...j[key], error: `${msg} — aloqa tiklanishi kutilmoqda (ish serverda davom etyapti)` } } : j));
         }
+        if (pollFails >= WARN_AFTER && period !== SLOW_MS) { period = SLOW_MS; schedule(); }
       }
-    }, 2000);
+    };
+    const schedule = () => {
+      clearInterval(timers.current[key]);
+      timers.current[key] = setInterval(tick, period);
+    };
+    schedule();
   }, []);
 
   const startJob = useCallback((key: string, body: Record<string, unknown>, onDone: () => void, endpoint = '/konveyer/prepare-ready') => {
@@ -1619,9 +1686,14 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     (async () => {
       try {
         const d = await getJson('/api/jobs?type=PACKET&limit=30');
-        if (!alive || !Array.isArray(d?.rows)) return;
+        // `jobs` — API'ning HAQIQIY maydoni (route.ts: `NextResponse.json({ jobs: rows })`).
+        // Bu yerda `d.rows` o'qilardi, ya'ni ro'yxat HAR DOIM bo'sh chiqib, tiklash kodi
+        // hech qachon ishlamagan: F5 bosilsa ketayotgan ZIP kartasi butunlay yo'qolardi.
+        // `rows` — eski javob shakli uchun zaxira (ikkalasi ham qabul qilinadi).
+        const list = Array.isArray(d?.jobs) ? d.jobs : Array.isArray(d?.rows) ? d.rows : null;
+        if (!alive || !list) return;
         const seen = new Set<number>();
-        for (const r of d.rows) {                       // eng yangisidan (createdAt desc)
+        for (const r of list) {                         // eng yangisidan (createdAt desc)
           const fid = Number(r?.firmId);
           if (!Number.isInteger(fid) || fid <= 0 || seen.has(fid)) continue;
           seen.add(fid);
