@@ -366,6 +366,8 @@ function ExportControl({ job, sendable, onStart, batchActive }: {
 const ROW_H = 'h-9';
 const ROW_BTN = `inline-flex ${ROW_H} shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 disabled:cursor-not-allowed`;
 const ZIP_BTN = `relative grid ${ROW_H} w-9 shrink-0 place-items-center rounded-lg border transition-colors outline-none focus-visible:ring-2`;
+// ⋮ menyu ichidagi bitta amal — chapga tekislangan, ikon + yorliq (+ ixtiyoriy o'ng qism).
+const MENU_ITEM = 'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[12px] font-medium text-fg outline-none transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 disabled:opacity-50';
 
 function ZipRing({ pct, indeterminate }: { pct: number; indeterminate?: boolean }) {
   const C = 2 * Math.PI * 15.5;
@@ -1419,6 +1421,22 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
     ? 'Firma hujjatlari to‘liq: guvohnoma, ishonchnoma, shartnoma'
     : `Firma hujjatlari yetishmaydi: ${docsMissing.join(', ')}. Firmalar → firma → «Hujjatlar»dan yuklang. To‘liq bo‘lmaguncha sudga yuborib bo‘lmaydi.`;
 
+  // ⋮ menyu (qo'shimcha amallar) + hisobot modali. Detalni kamaytirish: asosiy son/tugma
+  // ko'rinadi, qolgani menyuda.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDoc = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false); };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onEsc);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onEsc); };
+  }, [menuOpen]);
+  // ZIP faol/tayyor bo'lsa qatorda ko'rinadi (progress/yuklab olish); aks holda «boshlash» menyuda.
+  const zipShown = !!zipJob;
+
   return (
     <div className={`animate-fade-in rounded-xl border bg-surface transition-colors ${docsOk ? 'border-line hover:border-brand-500/40' : 'border-amber-500/40 bg-amber-500/[0.03]'}`} style={{ animationDelay: `${Math.min(idx, 8) * 40}ms` }}>
       {/* BARQAROR 3 ZONA: [halqa] [nom + sonlar] [amallar].
@@ -1509,42 +1527,57 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
             undan keyin boshlanadi» chiqqanda layout buzilardi). `w-` + `max-w-full`:
             keng ekranda hamma firmada tugmalar bir chiziqda, tor ekranda esa ustun
             konteynerdan chiqib ketmaydi. */}
-        <div className="flex w-[24rem] max-w-full shrink-0 flex-col items-end gap-1.5">
-        {/* flex-wrap — himoya to'ri: ZIP «tayyor» holatida yonига «+» tugmasi qo'shiladi va
-            tarkib ustundan kengroq bo'lib qolishi mumkin. Wrap bo'lmasa u ustundan toshib
-            chiqardi; wrap bilan esa «Batafsil» pastki qatorga tushadi, ustun eni esa
-            o'zgarmaydi — qo'shni firmalarning tugmalari joyidan siljimaydi. */}
-        <div className="flex flex-wrap items-start justify-end gap-2">
-        {autoActive ? (
-          <div className="inline-flex shrink-0 items-center gap-2">
-            <span className={`${ROW_BTN} border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300`}>
-              <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" /> Auto{job && (job.status === 'RUNNING' || job.status === 'PENDING') ? ' · yuborilyapti' : ' · keyingi partiya 60s dan keyin'}
-            </span>
-            <button type="button" onClick={() => onStopAuto?.()} className={`${ROW_BTN} border border-rose-500/40 text-rose-600 hover:bg-rose-500/10 focus-visible:ring-rose-500/30 dark:text-rose-300`}>
-              To‘xtatish
+        {/* O'NG USTUN — faqat ASOSIY amal + ⋮ menyu. Qolgan amallar (batafsil, hisobot, ZIP)
+            menyu ichida — qator tozalanadi, sonlar ko'zга tawlanadi. */}
+        <div className="flex shrink-0 items-center justify-end gap-2">
+          {autoActive ? (
+            <div className="inline-flex shrink-0 items-center gap-2">
+              <span className={`${ROW_BTN} border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300`}>
+                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" /> Auto{job && (job.status === 'RUNNING' || job.status === 'PENDING') ? ' · ketyapti' : ''}
+              </span>
+              <button type="button" onClick={() => onStopAuto?.()} className={`${ROW_BTN} border border-rose-500/40 text-rose-600 hover:bg-rose-500/10 focus-visible:ring-rose-500/30 dark:text-rose-300`}>
+                To‘xtatish
+              </button>
+            </div>
+          ) : docsOk ? (
+            <>
+              {/* ZIP faqat faol/tayyor bo'lsa qatorda ko'rinadi (progress/yuklab olish); aks holda ⋮ da. */}
+              {zipShown && <ZipControl job={zipJob} sendable={fr.sendable} onStart={() => onZip?.()} onCancel={onZipCancel} />}
+              <ExportControl job={job} sendable={fr.sendable} onStart={() => startExport(fr.firmId, {})} batchActive={batchActive} />
+            </>
+          ) : (
+            <button type="button" disabled title={docsTip}
+              className={`${ROW_BTN} border border-amber-500/40 bg-amber-500/10 text-amber-700 opacity-90 dark:text-amber-300`}>
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+              Hujjat kerak
             </button>
-          </div>
-        ) : docsOk ? (
-          <div className="flex shrink-0 items-start gap-2">
-            {/* ZIP — hujjatlarni faylga chiqarish. Sudga YUBORMAYDI: portalga tegmaydi,
-                shuning uchun pauza va sud limiti unga taalluqli emas. */}
-            <ZipControl job={zipJob} sendable={fr.sendable} onStart={() => onZip?.()} onCancel={onZipCancel} />
-            <ExportControl job={job} sendable={fr.sendable} onStart={() => startExport(fr.firmId, {})} batchActive={batchActive} />
-          </div>
-        ) : (
-          <button type="button" disabled title={docsTip}
-            className={`${ROW_BTN} border border-amber-500/40 bg-amber-500/10 text-amber-700 opacity-90 dark:text-amber-300`}>
-            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
-            Firma hujjatlari kerak
-          </button>
-        )}
+          )}
 
-        <button onClick={onToggleDrill} aria-expanded={drillOpen} title="Mijozlarni koʻrish — kimda nima yetishmayapti, hujjat biriktirish" className={`${ROW_BTN} border border-line font-medium text-muted hover:border-brand-500/40 hover:bg-surface-2 hover:text-fg focus-visible:ring-brand-500/30`}>
-          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
-          Batafsil
-          <svg className={`h-3 w-3 transition-transform ${drillOpen ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
-        </button>
-        </div>
+          {/* ⋮ MENYU — batafsil / hisobot / ZIP */}
+          <div ref={menuRef} className="relative shrink-0">
+            <button type="button" onClick={() => setMenuOpen((v) => !v)} aria-expanded={menuOpen} aria-haspopup="menu" title="Boshqa amallar"
+              className={`inline-flex ${ROW_H} w-9 items-center justify-center rounded-lg border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-500/30 ${menuOpen || drillOpen ? 'border-brand-500/40 bg-surface-2 text-fg' : 'border-line text-muted hover:border-brand-500/40 hover:bg-surface-2 hover:text-fg'}`}>
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden><circle cx="12" cy="5" r="1.7" /><circle cx="12" cy="12" r="1.7" /><circle cx="12" cy="19" r="1.7" /></svg>
+            </button>
+            {menuOpen && (
+              <div role="menu" className="absolute right-0 top-full z-30 mt-1.5 w-56 overflow-hidden rounded-xl border border-line bg-surface p-1 shadow-xl">
+                <button type="button" role="menuitem" onClick={() => { onToggleDrill(); setMenuOpen(false); }} className={MENU_ITEM}>
+                  <svg className="h-4 w-4 shrink-0 text-brand-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+                  <span className="flex-1">Mijozlar {drillOpen ? '(yopish)' : '(batafsil)'}</span>
+                </button>
+                <button type="button" role="menuitem" onClick={() => { setReportOpen(true); setMenuOpen(false); }} className={MENU_ITEM}>
+                  <svg className="h-4 w-4 shrink-0 text-indigo-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18" /><rect x="7" y="10" width="3" height="7" /><rect x="12" y="6" width="3" height="11" /><rect x="17" y="13" width="3" height="4" /></svg>
+                  <span className="flex-1">Hisobot</span>
+                </button>
+                {docsOk && !zipShown && (
+                  <button type="button" role="menuitem" onClick={() => { onZip?.(); setMenuOpen(false); }} className={MENU_ITEM} title="Hujjatlarni bitta arxivga — sudga YUBORMAYDI">
+                    <svg className="h-4 w-4 shrink-0 text-teal-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M21 8v13H3V8" /><path d="M1 3h22v5H1z" /><path d="M10 12h4" /></svg>
+                    <span className="flex-1">ZIP — hujjatlarni yuklab olish</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1557,6 +1590,58 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
       />
       {drillOpen && (
         <ClientDrilldown firmId={fr.firmId} snapshotId={snapshotId} job={job} startExport={(caseIds) => startExport(fr.firmId, { caseIds, draftMode: true })} onChanged={onChanged} batchActive={batchActive} />
+      )}
+
+      {/* HISOBOT modali — firma tayyorligi tafsiloti (⋮ menyudan ochiladi). */}
+      {reportOpen && (
+        <Modal open onClose={() => setReportOpen(false)} title={`Hisobot — ${fr.firmName}`} description={`Jami ${n(fr.total)} ta ish`} size="lg">
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {[
+                { label: 'Tayyor emas', value: fr.total - fr.ready, cls: 'text-rose-600 dark:text-rose-400' },
+                { label: 'Tayyor', value: fr.sendable, cls: 'text-emerald-600 dark:text-emerald-400' },
+                { label: 'Qoralama tayyor', value: fr.draftReady, cls: 'text-teal-600 dark:text-teal-400' },
+                { label: 'Navbatda', value: fr.queued, cls: 'text-amber-600 dark:text-amber-400' },
+                { label: 'Sudda (tizim)', value: fr.submitted - fr.submittedExternal, cls: 'text-indigo-600 dark:text-indigo-400' },
+                { label: 'Sudda (yurist qo‘lda)', value: fr.submittedExternal, cls: 'text-amber-600 dark:text-amber-400' },
+              ].map((s) => (
+                <div key={s.label} className="rounded-lg border border-line bg-surface-2 px-3 py-2">
+                  <div className="text-[11px] text-muted">{s.label}</div>
+                  <div className={`text-lg font-semibold tabular-nums ${s.cls}`}>{n(s.value)}</div>
+                </div>
+              ))}
+            </div>
+
+            <div>
+              <div className="mb-1.5 text-[12px] font-semibold text-muted">Yetishmayotgan hujjatlar (ish soni)</div>
+              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-5">
+                {([['Talabnoma', 'talabnoma'], ['Skan', 'scan'], ['Oferta', 'oferta'], ['Chek', 'receipt'], ['Boji', 'boji']] as const).map(([lbl, k]) => (
+                  <div key={k} className="rounded-lg bg-surface-2 px-2 py-1.5 text-[11px]">
+                    <div className="text-muted">{lbl}</div>
+                    <div className={`font-semibold tabular-nums ${fr.missing[k] ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{n(fr.missing[k])}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-1.5 text-[12px] font-semibold text-muted">1 qadam qolgan (aynan bittasi yetishmaydi)</div>
+              <div className="flex flex-wrap gap-1.5 text-[11px]">
+                {([['Talabnoma', 'talabnoma'], ['Skan', 'scan'], ['Oferta', 'oferta'], ['Chek', 'receipt'], ['Boji', 'boji']] as const)
+                  .filter(([, k]) => fr.almost[k] > 0)
+                  .map(([lbl, k]) => (
+                    <span key={k} className="rounded bg-amber-500/15 px-2 py-1 font-medium text-amber-700 dark:text-amber-300">{lbl}: {n(fr.almost[k])}</span>
+                  ))}
+                {(fr.almost.talabnoma + fr.almost.scan + fr.almost.oferta + fr.almost.receipt + fr.almost.boji) === 0 && <span className="text-muted">Yo‘q</span>}
+              </div>
+            </div>
+
+            <div className={`rounded-lg border px-3 py-2 text-[11px] ${docsOk ? 'border-emerald-500/30 bg-emerald-500/[0.05]' : 'border-amber-500/40 bg-amber-500/[0.05]'}`}>
+              <span className="font-semibold">Firma hujjatlari: </span>
+              {docsOk ? 'to‘liq (guvohnoma, ishonchnoma, shartnoma)' : `yetishmaydi — ${docsMissing.join(', ')}`}
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );
