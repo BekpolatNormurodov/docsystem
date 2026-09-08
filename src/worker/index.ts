@@ -9,6 +9,7 @@ import { getStoredCabinetSession } from '../lib/cabinet/session';
 import { ingestCabinetStatuses } from '../lib/cabinet/status-ingest';
 import { SessionExpiredError } from '../lib/session-store';
 import { autoResumeTick } from '../lib/court-auto-resume';
+import { syncCourtOutcomes } from '../lib/cabinet/outcome-sync';
 
 // Standalone background worker. Runs in its own process (a Docker container in production) and is the
 // ONLY executor of the heavy document jobs when the web app runs with JOB_MODE=worker. It polls the
@@ -364,6 +365,56 @@ async function courtStatusSyncLoop(): Promise<void> {
   }
 }
 
+// Sudga topshirilgan ishning HAQIQIY natijasini (qabul / RAD ETILGAN) portaldan olib keladi.
+//
+// NEGA ALOHIDA SIKL: yuqoridagi `courtStatusSyncLoop` faqat KO'RSATISH uchun ishlaydi — u
+// `ClientCaseStatus` jadvalini to'ldiradi va «Sudda» sahifasidagi raqamlarni beradi, lekin
+// ishning O'Z bosqichiga (`ArizaCase.stage`) tegmaydi. Ya'ni sud ishni RAD ETSA ham bizda u
+// abadiy «sudga topshirilgan» bo'lib qolaverardi va qayta yuborilmasdi.
+//
+// `syncCourtOutcomes` aynan shuni tuzatadi (DECLINED → COURT_RETURNED, eksport belgilari
+// tozalanadi, kunlik limit qaytariladi), lekin uni FAQAT qo'lda skript chaqirardi
+// (`scripts/court-outcome-sync.ts`) — cron ham, worker ham chaqirmasdi. 2026-09-08 holati:
+// BRIGHT bo'yicha portalda 316 ta ish DECLINED edi, bazada esa 332 tasi ham «yuborilgan»
+// bo'lib turardi. Ya'ni mexanizm bor edi, uni hech kim ishga tushirmasdi.
+//
+// ARZON: har firma uchun ATIGI BITTA so'rov (`all-cases` — butun ro'yxat), case-per-request
+// emas. Shuning uchun uni tez-tez chaqirish portalga sezilarli yuk bermaydi.
+const COURT_OUTCOME_EVERY_MS = Math.max(
+  5 * 60_000,
+  Number(process.env.COURT_OUTCOME_SYNC_MS) || 20 * 60_000,
+);
+const COURT_OUTCOME_FIRM_GAP_MS = 15_000;
+
+async function courtOutcomeSyncLoop(): Promise<void> {
+  console.log(`[worker] sud natijalari sinxroni: har ${Math.round(COURT_OUTCOME_EVERY_MS / 60_000)} daqiqada`);
+  // Statuslar siklidan KEYIN boshlanadi — ikkalasi bir vaqtda portalga urilmasin.
+  await new Promise((r) => setTimeout(r, 150_000));
+  while (!stopping) {
+    for (const f of FIRMS) {
+      if (stopping) break;
+      try {
+        const firm = await prisma.firm.findFirst({ where: { code: f.branchCode }, select: { id: true } });
+        if (!firm) continue;
+        const r = await syncCourtOutcomes(firm.id);
+        if (r.checked > 0) {
+          console.log(
+            `[worker] sud natijasi ${f.branchCode}: tekshirildi ${r.checked}, ` +
+            `RAD ETILGAN ${r.declined}, qabul ${r.accepted}, portalda topilmadi ${r.missing}`,
+          );
+        }
+      } catch (e) {
+        // Sessiya yo'q / portal javob bermadi — shu firma bu tsiklda o'tkazib yuboriladi.
+        // Bitta firmaning sessiyasi tugagani qolganlarining sinxronini o'chirmasin.
+        const msg = e instanceof SessionExpiredError ? "sessiya yo'q" : (e as Error).message?.slice(0, 120);
+        if (!(e instanceof SessionExpiredError)) console.error(`[worker] sud natijasi ${f.branchCode}: ${msg}`);
+      }
+      await new Promise((r) => setTimeout(r, COURT_OUTCOME_FIRM_GAP_MS));
+    }
+    await new Promise((r) => setTimeout(r, COURT_OUTCOME_EVERY_MS));
+  }
+}
+
 // Navbat portal bloki tufayli to'xtagan bo'lsa — o'zi qayta boshlaydi (5→5→5→30→60→120 daq).
 // Operator qo'yган PAUZA va sud kunlik limiti baribir amal qiladi.
 async function courtAutoResumeLoop(): Promise<void> {
@@ -412,6 +463,7 @@ void billingAutoSyncLoop().catch((e) => console.error('[worker] billing auto-syn
 void courtSubmitLoop().catch((e) => console.error('[worker] sud sikli fatal', e));
 void courtAutoResumeLoop().catch((e) => console.error('[worker] avto-davom fatal', e));
 void courtStatusSyncLoop().catch((e) => console.error('[worker] sud status sync fatal', e));
+void courtOutcomeSyncLoop().catch((e) => console.error('[worker] sud natijalari sinxroni fatal', e));
 
 loop().catch((e) => {
   console.error('[worker] fatal', e);

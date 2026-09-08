@@ -71,6 +71,11 @@ export async function syncCourtOutcomes(firmId: number): Promise<OutcomeSyncResu
     const meta = (c.meta && typeof c.meta === 'object' && !Array.isArray(c.meta))
       ? { ...(c.meta as Record<string, unknown>) } : {};
 
+    // Sud nomi portal javobida bor — xabarga qo'shamiz, operator qaysi sud rad etganini
+    // darhol ko'rsin (bir firma bir nechta sudga yuboradi).
+    const courtName: string | null =
+      hit?.names?.uz ?? hit?.names?.uz_cyr ?? hit?.court_name ?? null;
+
     if (status === 'DECLINED') {
       // Ish QAYTA yuborilishi kerak: bosqichni qaytaramiz va «chiqarilgan/yuborilgan»
       // belgilarini tozalaymiz — aks holda court-ready uni «Tayyor» deb ko'rsatmaydi
@@ -90,11 +95,24 @@ export async function syncCourtOutcomes(firmId: number): Promise<OutcomeSyncResu
         },
       });
       // Navbat yozuvi ham qayta urinishga tayyor bo'lsin.
+      // SABABNI TAXMIN QILMAYMIZ.
+      //
+      // Ilgari bu yerda «Sabab odatda javobgar JShShIR ma'lumotlari» deb yozilardi. Bu bir
+      // marta to'g'ri bo'lgan (2026-09-07, URBAN) va shundan keyin HAR QANDAY rad etishga
+      // yopishtirilib kelaverdi. 2026-09-08 da Yuqorichirchiq butunlay boshqa sabab bilan
+      // rad etdi («Ҳужжатлар тартибсиз ёки тескари сақланганлиги сабабли уларни ўқиш
+      // имконияти йўқ») — operator esa navbatda eski, noto'g'ri sababni o'qirdi va
+      // JShShIR'ni qidirib vaqt yo'qotardi. Portal API'si sabab matnini bermaydi (tekshirildi:
+      // all-cases, get-one-case-by-id, histories — hech birida yo'q), shuning uchun uni
+      // ADOLAT'ning o'z sahifasidan o'qish kerakligini AYTAMIZ.
       await prisma.courtQueueItem.updateMany({
         where: { caseId: c.id },
         data: {
           state: 'FAILED',
-          lastError: 'Sud rad etdi (DECLINED). Sabab odatda javobgar JShShIR ma\'lumotlari — tuzatilgach qayta yuboriladi.',
+          lastError:
+            `Sud rad etdi (DECLINED)${courtName ? ` — ${courtName}` : ''}. ` +
+            `Sababi ADOLAT'da: ish sahifasidagi «Rad etish sabab(lar)i» bo'limida. ` +
+            `Tuzatilgach ish qayta yuboriladi.`,
           finishedAt: new Date(),
         },
       });
