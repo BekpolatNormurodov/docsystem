@@ -244,7 +244,7 @@ function ExportControl({ job, sendable, onStart, batchActive }: {
     const hadError = /XATO/i.test(job.message || '');
     return (
       <div className="flex flex-col items-end gap-1">
-        <span className={`max-w-full text-balance rounded-lg border px-3 py-1.5 text-xs font-semibold leading-tight ${hadError ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'}`}>
+        <span className={`inline-flex min-h-9 max-w-full items-center text-balance rounded-lg border px-3 py-1.5 text-xs font-semibold leading-tight ${hadError ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'}`}>
           {job.message || `${job.total} ta yuborildi`}
         </span>
         {/* Bugunga sig'magani JIM YO'QOLMASIN: ilgari operator «91 so'radim, 12 ketdi»
@@ -298,7 +298,7 @@ function ExportControl({ job, sendable, onStart, batchActive }: {
         onClick={onStart}
         disabled={blocked}
         aria-busy={running || serverRunning}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm outline-none transition-all hover:bg-brand-600 focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:cursor-not-allowed disabled:opacity-40"
+        className={`${ROW_BTN} bg-brand-500 text-white shadow-sm hover:bg-brand-600 focus-visible:ring-brand-500/40 disabled:opacity-40`}
         title={
           busyServer
             ? `Bu firmaning partiyasi hozir ${serverRunning ? 'ketmoqda' : 'navbatda'} (#${batchActive!.jobId}). Yangi partiya YUBORISH NAVBATIGA qo'shiladi va o'sha tugashi bilan o'zi boshlanadi — kalit qayta so'ralmaydi.`
@@ -345,7 +345,22 @@ function ExportControl({ job, sendable, onStart, batchActive }: {
 // Ma'no yo'qolmasin uchun holat ikonkaning O'ZIDA ko'rsatiladi (halqa = progress,
 // yashil = tayyor, qizil = xato), izohi esa title/aria-label da to'liq yoziladi —
 // ya'ni ikonka «yalang'och» emas: sichqoncha bilan ham, skrinrider bilan ham o'qiladi.
-const ZIP_BTN = 'relative grid h-9 w-9 shrink-0 place-items-center rounded-lg border transition-colors outline-none focus-visible:ring-2';
+/**
+ * FIRMA QATORIDAGI AMALLAR — YAGONA BALANDLIK.
+ *
+ * O'lchangan holat (2026-09-08): bitta qatorda TO'RT xil balandlik bor edi —
+ * ZIP ikonkasi 36px, «Batafsil» 30px, «Sudga yuborish» 28px, kichik ikonkalar 24px.
+ * «Sudga yuborish» eng MUHIM amal bo'la turib eng past edi, va u «Batafsil»dan aynan
+ * 2px past edi chunki unda border yo'q — `py-*` bilan balandlik ramka borligiga qarab
+ * o'zgaradi. Shuning uchun balandlik endi QAT'IY (`h-9` = 36px), `py-*` emas: ramka
+ * bor-yo'qligi endi hech narsani suriltirmaydi.
+ *
+ * 36px — bosish maydoni sifatida ham 28px dan ancha yaxshi (ideal 44px, lekin bu zich
+ * admin jadvali; 36px qo'shni tugmalar orasidagi 8px bilan birga xavfsiz).
+ */
+const ROW_H = 'h-9';
+const ROW_BTN = `inline-flex ${ROW_H} shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 disabled:cursor-not-allowed`;
+const ZIP_BTN = `relative grid ${ROW_H} w-9 shrink-0 place-items-center rounded-lg border transition-colors outline-none focus-visible:ring-2`;
 
 function ZipRing({ pct, indeterminate }: { pct: number; indeterminate?: boolean }) {
   const C = 2 * Math.PI * 15.5;
@@ -400,7 +415,7 @@ function ZipControl({ job, sendable, onStart, onCancel }: { job?: JobState; send
         )}
         {sendable > 0 && (
           <button type="button" onClick={onStart} title={`Yangi ZIP — ${n(sendable)} ta tayyor`} aria-label={`Yangi ZIP — ${n(sendable)} ta tayyor`}
-            className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-muted outline-none transition-colors hover:bg-surface-2 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30">
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted outline-none transition-colors hover:bg-surface-2 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30">
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 5v14M5 12h14" /></svg>
           </button>
         )}
@@ -429,7 +444,7 @@ function ZipControl({ job, sendable, onStart, onCancel }: { job?: JobState; send
           <button type="button" onClick={() => onCancel(job!.jobId)}
             title={job!.message === 'Bekor qilinmoqda…' ? 'Bekor qilinmoqda…' : 'ZIP tayyorlashni bekor qilish'}
             aria-label="ZIP tayyorlashni bekor qilish"
-            className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-muted outline-none transition-colors hover:bg-rose-500/10 hover:text-rose-600 focus-visible:ring-2 focus-visible:ring-rose-500/30">
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted outline-none transition-colors hover:bg-rose-500/10 hover:text-rose-600 focus-visible:ring-2 focus-visible:ring-rose-500/30">
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M18 6 6 18M6 6l12 12" /></svg>
           </button>
         )}
@@ -1494,10 +1509,10 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
         <div className="flex flex-wrap items-start justify-end gap-2">
         {autoActive ? (
           <div className="inline-flex shrink-0 items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+            <span className={`${ROW_BTN} border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300`}>
               <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" /> Auto{job && (job.status === 'RUNNING' || job.status === 'PENDING') ? ' · yuborilyapti' : ' · keyingi partiya 60s dan keyin'}
             </span>
-            <button type="button" onClick={() => onStopAuto?.()} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 px-2.5 py-1.5 text-xs font-semibold text-rose-600 outline-none transition-colors hover:bg-rose-500/10 focus-visible:ring-2 focus-visible:ring-rose-500/30 dark:text-rose-300">
+            <button type="button" onClick={() => onStopAuto?.()} className={`${ROW_BTN} border border-rose-500/40 text-rose-600 hover:bg-rose-500/10 focus-visible:ring-rose-500/30 dark:text-rose-300`}>
               To‘xtatish
             </button>
           </div>
@@ -1510,13 +1525,13 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
           </div>
         ) : (
           <button type="button" disabled title={docsTip}
-            className="inline-flex shrink-0 cursor-not-allowed items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-700 opacity-90 dark:text-amber-300">
+            className={`${ROW_BTN} border border-amber-500/40 bg-amber-500/10 text-amber-700 opacity-90 dark:text-amber-300`}>
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
             Firma hujjatlari kerak
           </button>
         )}
 
-        <button onClick={onToggleDrill} aria-expanded={drillOpen} title="Mijozlarni koʻrish — kimda nima yetishmayapti, hujjat biriktirish" className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-muted outline-none transition-colors hover:border-brand-500/40 hover:bg-surface-2 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30">
+        <button onClick={onToggleDrill} aria-expanded={drillOpen} title="Mijozlarni koʻrish — kimda nima yetishmayapti, hujjat biriktirish" className={`${ROW_BTN} border border-line font-medium text-muted hover:border-brand-500/40 hover:bg-surface-2 hover:text-fg focus-visible:ring-brand-500/30`}>
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
           Batafsil
           <svg className={`h-3 w-3 transition-transform ${drillOpen ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
