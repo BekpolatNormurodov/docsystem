@@ -11,7 +11,7 @@ const n = (x: number) => x.toLocaleString('ru-RU');
 
 interface Tally { total: number; draftReady: number; submitted: number; queued: number }
 interface FirmRow extends Tally { firmId: number; firmName: string; sendable: number; active: boolean }
-interface CourtRow extends Tally { courtId: number; courtName: string }
+interface CourtRow extends Tally { courtId: number; courtName: string; sendable: number }
 interface Status {
   on: boolean;
   active: { jobId: number; status: string; progress: number; total: number; firmName: string | null; draftMode: boolean; message: string | null } | null;
@@ -151,15 +151,23 @@ export default function DraftAutoPanel() {
           </div>
           {/* SUD kesimida */}
           <div>
-            <div className="mb-1.5 text-[11px] font-semibold text-muted">Sud kesimida</div>
+            <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-muted">
+              <span>Sud kesimida</span>
+              <span className="ml-auto flex items-center gap-2 text-[10px] font-normal">
+                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" />tayyor</span>
+                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-teal-500" />qoralama</span>
+                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-indigo-500" />sudda</span>
+              </span>
+            </div>
             <ul className="space-y-1">
               {data.courts.length === 0 && <li className="rounded-lg bg-surface-2 px-2 py-1.5 text-[11px] text-muted">Sud biriktirilmagan</li>}
               {data.courts.map((c) => (
                 <li key={c.courtId} className="flex items-center gap-2 rounded-lg bg-surface-2 px-2 py-1.5 text-[11px]">
                   <span className="min-w-0 flex-1 truncate font-medium" title={c.courtName}>{c.courtName}</span>
                   <Bar ready={c.draftReady} submitted={c.submitted} total={c.total} />
-                  <span className="shrink-0 tabular-nums text-teal-600 dark:text-teal-400">{n(c.draftReady)}</span>
-                  <span className="shrink-0 tabular-nums text-indigo-600 dark:text-indigo-400">{n(c.submitted)}</span>
+                  <span className="w-8 shrink-0 text-right tabular-nums text-amber-600 dark:text-amber-400" title="Tayyor — qoralama qilinadi">{n(c.sendable)}</span>
+                  <span className="w-8 shrink-0 text-right tabular-nums text-teal-600 dark:text-teal-400" title="Qoralama tayyor">{n(c.draftReady)}</span>
+                  <span className="w-8 shrink-0 text-right tabular-nums text-indigo-600 dark:text-indigo-400" title="Sudda">{n(c.submitted)}</span>
                 </li>
               ))}
             </ul>

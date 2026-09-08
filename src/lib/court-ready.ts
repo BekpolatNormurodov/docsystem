@@ -76,6 +76,7 @@ interface CaseRow {
   talabnomaAt: Date | null;
   receiptNumber: string | null;
   courtCaseId?: string | null;
+  courtId?: number | null; // biz biriktirgan sud — sud kesimidagi tallilar uchun (flagsFor ishlatmaydi)
   meta: unknown;
 }
 
@@ -331,8 +332,13 @@ export interface FirmReadiness {
   almost: DocQuad; // missing exactly this one doc (1 qadam qolgan)
   docs: FirmDocsStatus; // firma hujjatlari (guvohnoma/ishonchnoma/shartnoma) to'liqmi
 }
+/** Sud kesimida tally — panel «Sud bo'yicha» bo'limi shundan oziqlanadi (firma tallilari bilan
+ *  BIR XIL flagsFor'dan, shuning uchun panel va asosiy sahifa hech qachon zid bo'lmaydi). */
+export interface CourtTally { courtId: number; total: number; ready: number; submitted: number; draftReady: number; sendable: number; queued: number }
+
 export interface CourtReadiness {
   firms: FirmReadiness[];
+  courts: CourtTally[];
   overall: { total: number; ready: number; exported: number; submitted: number; submittedExternal: number; draft: number; draftReady: number; queued: number; sendable: number; missing: DocQuad; almost: DocQuad };
 }
 
@@ -356,11 +362,11 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
 
   // Firms in parallel (was sequential — N round-trips of case-scan + oferta-scan on the
   // aggregate «Hamma firma» load). Each firm's two queries already run together.
-  const perFirm = await Promise.all(firms.map(async (f): Promise<FirmReadiness | null> => {
+  const perFirm = await Promise.all(firms.map(async (f): Promise<{ fr: FirmReadiness; courts: Map<number, CourtTally> } | null> => {
     const [cases, ofertaPinfls] = await Promise.all([
       prisma.arizaCase.findMany({
         where: { firmId: f.id, ...(snapshotId ? { snapshotId } : {}) },
-        select: { id: true, pinfl: true, stage: true, talabnomaAt: true, receiptNumber: true, courtCaseId: true, meta: true },
+        select: { id: true, pinfl: true, stage: true, talabnomaAt: true, receiptNumber: true, courtCaseId: true, courtId: true, meta: true },
         orderBy: { id: 'asc' },
       }),
       ofertaPinflSet(snapshotId, f.code),
@@ -386,6 +392,8 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
       almost: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 },
       docs: firmDocsStatus(f.id),
     };
+    // Sud kesimidagi tally — AYNI flagsFor natijasidan (panel bilan bitta haqiqat).
+    const courtMap = new Map<number, CourtTally>();
     for (const c of cases as CaseRow[]) {
       const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds, portalCases);
       if (fl.ready) fr.ready++;
@@ -395,6 +403,16 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
       if (fl.draft) fr.draft++;
       if (fl.draftReady) fr.draftReady++;
       if (fl.sendable) fr.sendable++;
+      if (c.courtId != null) {
+        const ct = courtMap.get(c.courtId) ?? { courtId: c.courtId, total: 0, ready: 0, submitted: 0, draftReady: 0, sendable: 0, queued: 0 };
+        ct.total++;
+        if (fl.ready) ct.ready++;
+        if (fl.submitted) ct.submitted++;
+        if (fl.draftReady) ct.draftReady++;
+        if (fl.sendable) ct.sendable++;
+        if (fl.queued) ct.queued++;
+        courtMap.set(c.courtId, ct);
+      }
       if (!fl.talabnoma) fr.missing.talabnoma++;
       if (!fl.scan) fr.missing.scan++;
       if (!fl.oferta) fr.missing.oferta++;
@@ -413,10 +431,23 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
     }
     // «Navbatda» — panel bilan bitta manbadan (yuqoridagi `queuedCountForFirm` izohiga q.).
     fr.queued = queuedTotal;
-    return fr;
+    return { fr, courts: courtMap };
   }));
-  const firmsOut = perFirm.filter((x): x is FirmReadiness => x !== null);
+  const nonNull = perFirm.filter((x): x is { fr: FirmReadiness; courts: Map<number, CourtTally> } => x !== null);
+  const firmsOut = nonNull.map((x) => x.fr);
   firmsOut.sort((a, b) => b.total - a.total);
+
+  // Firmalar bo'yicha sud tallilarini yig'amiz (bir sud bir necha firmadan iborat bo'lishi mumkin).
+  const courtAgg = new Map<number, CourtTally>();
+  for (const { courts } of nonNull) {
+    for (const [cid, ct] of courts) {
+      const acc = courtAgg.get(cid) ?? { courtId: cid, total: 0, ready: 0, submitted: 0, draftReady: 0, sendable: 0, queued: 0 };
+      acc.total += ct.total; acc.ready += ct.ready; acc.submitted += ct.submitted;
+      acc.draftReady += ct.draftReady; acc.sendable += ct.sendable; acc.queued += ct.queued;
+      courtAgg.set(cid, acc);
+    }
+  }
+  const courtsOut = [...courtAgg.values()].sort((a, b) => b.total - a.total);
 
   const overall = firmsOut.reduce(
     (o, f) => {
@@ -430,7 +461,7 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
     { total: 0, ready: 0, exported: 0, submitted: 0, submittedExternal: 0, draft: 0, draftReady: 0, queued: 0, sendable: 0, missing: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 }, almost: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 } },
   );
 
-  return { firms: firmsOut, overall };
+  return { firms: firmsOut, courts: courtsOut, overall };
 }
 
 // ── Per-client (case-level) drill-down: the 4-doc checklist, filterable ───────
