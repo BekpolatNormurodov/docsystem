@@ -141,54 +141,38 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
 }
 
 /**
- * ADOLAT'da SHU FIRMA nomidan da'vosi bor mijozlar — ikki to'plam.
+ * ADOLAT'da SHU FIRMA nomidan OCHIQ da'vosi bor mijozlar — ikki to'plam.
  *
- *   `portal` — portalda ishi bor HAMMA mijoz. Bu — qayta yuborishga TO'SIQ: bir odamga
- *              ikkinchi da'vo ochilishi qaytarib bo'lmaydigan xato.
+ *   `portal` — portalda ochiq ishi bor hamma mijoz. Bu — qayta yuborishga TO'SIQ:
+ *              bir odamga ikkinchi da'vo ochilishi qaytarib bo'lmaydigan xato.
  *   `manual` — shulardan BIZ yubormaganlari, ya'ni yurist portalda qo'lda kiritganlari.
- *              Bu faqat KO'RSATISH uchun («Sudda 147+4»).
+ *              Faqat KO'RSATISH uchun («Sudda 147+4» dagi +4).
  *
- * NEGA IKKITA. 2026-09-08 da bitta to'plam ishlatilgan edi va u xato bo'lib chiqdi:
- * BIZ yuborgan har bir ish ham portalda paydo bo'ladi, ya'ni sinxron to'lgani sari
- * bizning o'z ishlarimiz «qo'lda kiritilgan» bo'lib sanalardi. Operator buni darhol
- * payqadi: «BRIGHT'dan hech kim qo'lda yuklamadi». Farqni ANIQ ajratadigan narsa bor —
- * biz `save-suit` qaytargan id'ni `ArizaCase.courtCaseId` ga yozamiz va portal ro'yxatida
- * u AYNAN shu id bilan turadi (tekshirildi: 920f7500-288a-… ikkala tomonda bir xil).
+ * QAYTARILGAN ISH TO'SIQ EMAS. `DECLINED` — sud ishni ko'rmasdan qaytargan; uni tuzatib
+ * QAYTA yuborish kerak, bu tizimda alohida oqim ham bor («Suddan qaytganlar»). 2026-09-08
+ * da to'siq shu farqni bilmasdi va yagona ta'siri BRIGHT'ning qaytarilgan 15 ta ishini
+ * bloklash bo'ldi — ya'ni aynan teskarisi.
+ *
+ * Qolgan holatlar (CREATED/ALLOCATE/REGISTER/PENDING/DECIDED/FINISHED) to'sadi: ish
+ * sudda ko'rilyapti yoki allaqachon hal bo'lgan — ikkalasida ham ikkinchi da'vo noto'g'ri.
  *
  * MOSLIK FAQAT ANIQ: `matchedBy = 'PINFL'` — detal so'rovidan olingan javobgar PINFL'i
  * portfelimizdagi mijozga to'g'ri kelgani. Ism bo'yicha taxmin ATAYIN hisobga olinmaydi
  * (operator qarori): noto'g'ri taxmin haqiqiy qarzdorni konveyerdan jimgina chiqarardi.
  */
-/**
- * TIRIK bo'lmagan portal holatlari — bunday yozuv qayta yuborishni TO'SMAYDI.
- *
- * DECLINED / RETURNED — sud rad etgan yoki qaytargan: da'vo YO'Q, ish qaytadan berilishi
- * KERAK. Ularni to'suvchi deb hisoblash 2026-09-08 dagi eng og'ir xatoga olib keldi: sud
- * rad etgan 298 ta ish `submitted` bo'lib qolar, `sendable` bo'lmas va «Tayyor»ga QAYTA
- * OLMASDI — firma kartasi ularni «Sudda» der, navbat paneli esa aynan o'sha odamni
- * «Yuborilmadi» derdi. Bu shart bir marta qo'shilib, keyingi tahrirda tushib qolgan —
- * shuning uchun izoh SHU YERDA, so'rovning yonida turadi.
- *
- * CREATED / DRAFT — portalda ochilgan, lekin SUDGA BERILMAGAN qoralama. U da'vo emas
- * (BRIGHT'da bunday 144 ta yozuv bor edi); to'suvchi deb hisoblash 144 ta mijozni
- * konveyerdan asossiz chiqarib yuborardi.
- */
-const NON_BLOCKING_PORTAL_STATUS = ['DECLINED', 'RETURNED', 'CREATED', 'DRAFT'];
+const PORTAL_CLOSED_STATUSES = new Set(['DECLINED']);
 
-async function portalCasePinfls(branchCode: string | null): Promise<{ portal: Set<string>; manual: Set<string> }> {
+async function portalCasePinfls(branchCode: string | null, firmStir?: string | null): Promise<{ portal: Set<string>; manual: Set<string> }> {
   const empty = { portal: new Set<string>(), manual: new Set<string>() };
   if (!branchCode) return empty;
   const rows = await prisma.clientCaseStatus.findMany({
-    where: {
-      source: 'CABINET', branchCode, matchedBy: 'PINFL', pinfl: { not: null },
-      // FAQAT TIRIK DA'VO to'sadi (yuqoridagi ro'yxatga qarang).
-      status: { notIn: NON_BLOCKING_PORTAL_STATUS },
-    },
-    select: { pinfl: true, caseNumber: true },
+    where: { source: 'CABINET', branchCode, matchedBy: 'PINFL', pinfl: { not: null } },
+    select: { pinfl: true, caseNumber: true, status: true },
   });
   if (!rows.length) return empty;
 
   // Qaysi portal ishlari BIZNIKI: id'si bizning `courtCaseId` bilan bir xil bo'lganlari.
+  // (save-suit qaytargan id — portal ro'yxatida aynan shu id turadi.)
   const portalIds: string[] = [];
   for (const r of rows) if (r.caseNumber) portalIds.push(r.caseNumber);
   const ourRows = portalIds.length
@@ -198,15 +182,20 @@ async function portalCasePinfls(branchCode: string | null): Promise<{ portal: Se
   for (const o of ourRows) if (o.courtCaseId) ourIds.add(o.courtCaseId);
 
   const portal = new Set<string>();
-  const manual = new Set<string>();
+  const oursPinfls = new Set<string>();
+  const maybeManual = new Set<string>();
   for (const r of rows) {
-    if (!r.pinfl) continue;
+    if (!r.pinfl || !r.caseNumber) continue;
+    // Firmaning O'ZI ishtirokchi bo'lgan yozuvlar (da'vogar) — javobgar emas, tegishli emas.
+    if (firmStir && r.pinfl === firmStir) continue;
+    if (PORTAL_CLOSED_STATUSES.has(String(r.status))) continue; // qaytarilgan — qayta yuboriladi
     portal.add(r.pinfl);
-    if (r.caseNumber && !ourIds.has(r.caseNumber)) manual.add(r.pinfl);
+    if (ourIds.has(r.caseNumber)) oursPinfls.add(r.pinfl);
+    else maybeManual.add(r.pinfl);
   }
-  // Bizning ishimiz bor mijoz «qo'lda kiritilgan» deb sanalmasin: agar o'sha odamda
-  // BIZNIKI ish bo'lsa, u qo'lda kiritilganlar ro'yxatidan chiqadi.
-  for (const r of rows) if (r.pinfl && r.caseNumber && ourIds.has(r.caseNumber)) manual.delete(r.pinfl);
+  // Bizning ochiq ishimiz bor mijoz «qo'lda kiritilgan» deb sanalmaydi.
+  const manual = new Set<string>();
+  for (const pf of maybeManual) if (!oursPinfls.has(pf)) manual.add(pf);
   return { portal, manual };
 }
 
@@ -343,7 +332,7 @@ export interface CourtReadiness {
 export async function courtReadiness(snapshotId?: number, firmId?: number): Promise<CourtReadiness> {
   const firms = await prisma.firm.findMany({
     where: firmId ? { id: firmId } : {},
-    select: { id: true, code: true, shortName: true },
+    select: { id: true, code: true, shortName: true, stir: true },
   });
 
   // Firma hujjatlari (guvohnoma/ishonchnoma/shartnoma) — bir so'rovda hammasi.
@@ -377,7 +366,7 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
       receiptCaseIdSet(ids),
       paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]),
       queuedCaseIdSet(ids),
-      portalCasePinfls(f.code),
+      portalCasePinfls(f.code, f.stir),
     ]);
     const queuedTotal = await queuedCountForFirm(f.id);
 
@@ -489,7 +478,7 @@ export async function firmReadyClients(opts: {
 }): Promise<ClientReadyPage> {
   const empty: ClientReadyPage = { rows: [], total: 0, page: 1, pageSize: 0, pages: 1, counts: emptyClientCounts() };
 
-  const firm = await prisma.firm.findUnique({ where: { id: opts.firmId }, select: { id: true, code: true } });
+  const firm = await prisma.firm.findUnique({ where: { id: opts.firmId }, select: { id: true, code: true, stir: true } });
   if (!firm) return empty;
   const [cases, ofertaPinfls] = await Promise.all([
     prisma.arizaCase.findMany({
@@ -513,7 +502,7 @@ export async function firmReadyClients(opts: {
     receiptCaseIdSet(ids),
     paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]),
     queuedCaseIdSet(ids),
-    portalCasePinfls(firm.code),
+    portalCasePinfls(firm.code, firm.stir),
   ]);
   const deliveredPinfls = await talabnomaDeliveredPinflSet(firm.code);
   const now = Date.now();
@@ -554,7 +543,7 @@ export interface CourtBreakdownItem {
   note: string | null;
 }
 export async function sendableCourtBreakdown(opts: { snapshotId?: number; firmId: number }): Promise<{ courts: CourtBreakdownItem[]; total: number }> {
-  const firm = await prisma.firm.findUnique({ where: { id: opts.firmId }, select: { id: true, code: true } });
+  const firm = await prisma.firm.findUnique({ where: { id: opts.firmId }, select: { id: true, code: true, stir: true } });
   if (!firm) return { courts: [], total: 0 };
   const [cases, ofertaPinfls] = await Promise.all([
     prisma.arizaCase.findMany({
@@ -569,7 +558,7 @@ export async function sendableCourtBreakdown(opts: { snapshotId?: number; firmId
     receiptCaseIdSet(ids),
     paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]),
     queuedCaseIdSet(ids),
-    portalCasePinfls(firm.code),
+    portalCasePinfls(firm.code, firm.stir),
   ]);
 
   // BARCHA faol sudlar ro'yxatdan boshlanadi — tayyor ishi bo'lmagani ham, ADOLAT'da yopig'i
@@ -626,7 +615,7 @@ export async function sendableCourtBreakdown(opts: { snapshotId?: number; firmId
 export async function selectReadyCaseIds(opts: {
   snapshotId?: number; firmId: number; limit: number; includeExported?: boolean; forExport?: boolean;
 }): Promise<number[]> {
-  const firm = await prisma.firm.findUnique({ where: { id: opts.firmId }, select: { id: true, code: true } });
+  const firm = await prisma.firm.findUnique({ where: { id: opts.firmId }, select: { id: true, code: true, stir: true } });
   if (!firm) return [];
   const [cases, ofertaPinfls] = await Promise.all([
     prisma.arizaCase.findMany({
@@ -642,7 +631,7 @@ export async function selectReadyCaseIds(opts: {
     receiptCaseIdSet(ids),
     paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]),
     queuedCaseIdSet(ids),
-    portalCasePinfls(firm.code),
+    portalCasePinfls(firm.code, firm.stir),
   ]);
   const picked: number[] = [];
   for (const c of cases as CaseRow[]) {
@@ -671,7 +660,7 @@ export async function selectReadyCaseIds(opts: {
 export async function validateSelectedCaseIds(opts: {
   snapshotId?: number; firmId: number; caseIds: number[]; includeExported?: boolean; forExport?: boolean; limit?: number;
 }): Promise<number[]> {
-  const firm = await prisma.firm.findUnique({ where: { id: opts.firmId }, select: { id: true, code: true } });
+  const firm = await prisma.firm.findUnique({ where: { id: opts.firmId }, select: { id: true, code: true, stir: true } });
   if (!firm || !opts.caseIds.length) return [];
   const [cases, ofertaPinfls] = await Promise.all([
     prisma.arizaCase.findMany({
@@ -687,7 +676,7 @@ export async function validateSelectedCaseIds(opts: {
     receiptCaseIdSet(ids),
     paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]),
     queuedCaseIdSet(ids),
-    portalCasePinfls(firm.code),
+    portalCasePinfls(firm.code, firm.stir),
   ]);
   return (cases as CaseRow[])
     .filter((c) => {

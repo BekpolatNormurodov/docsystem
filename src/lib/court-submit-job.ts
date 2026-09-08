@@ -483,9 +483,18 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
     // FAQAT ANIQ moslik (matchedBy='PINFL'): ism bo'yicha taxmin haqiqiy qarzdorni
     // jimgina konveyerdan chiqarib yuborardi (operator qarori, 2026-09-08).
     const casePinfls = [...new Set(targetCases.map((c) => c.pinfl).filter(Boolean) as string[])];
+    //
+    // QAYTARILGAN ISH TO'SIQ EMAS: `DECLINED` — sud ishni ko'rmasdan qaytargan, uni
+    // tuzatib QAYTA yuborish kerak (tizimda «Suddan qaytganlar» oqimi bor). 2026-09-08
+    // da bu farq yo'q edi va to'siqning yagona ta'siri BRIGHT'ning qaytarilgan 15 ta
+    // ishini bloklash bo'ldi — ya'ni aynan teskarisi.
     const externalRows = casePinfls.length && firm.code
       ? await prisma.clientCaseStatus.findMany({
-          where: { source: 'CABINET', branchCode: firm.code, matchedBy: 'PINFL', pinfl: { in: casePinfls } },
+          where: {
+            source: 'CABINET', branchCode: firm.code, matchedBy: 'PINFL',
+            pinfl: { in: casePinfls },
+            status: { not: 'DECLINED' },
+          },
           select: { pinfl: true, caseNumber: true },
         })
       : [];
@@ -506,6 +515,8 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
     const externalByPinfl = new Map<string, { caseNumber: string; ours: boolean }>();
     for (const r of externalRows) {
       if (!r.pinfl || !r.caseNumber) continue;
+      // Firmaning O'ZI ishtirokchi bo'lgan yozuv (da'vogar) — javobgar emas.
+      if (firmStir && r.pinfl === firmStir) continue;
       const ours = ourPortalIds.has(r.caseNumber);
       const prev = externalByPinfl.get(r.pinfl);
       // Yuristniki (ours=false) ustunroq: sabab matni aniqroq bo'lsin.
