@@ -42,7 +42,8 @@ export async function POST(req: Request) {
         },
       });
       const msg =
-        `${r.firm}: ${r.wiped} tozalandi · ${r.linked} qayta biriktirildi` +
+        `${r.firm}: ${r.updated + r.linked} qayta sartirovka qilindi` +
+        (r.kept ? ` · ${r.kept} tegilmadi (skanда yo‘q)` : '') +
         (r.noCase ? ` · ${r.noCase} ish topilmadi` : '') +
         (r.noMatch ? ` · ${r.noMatch} firma aniqlanmadi` : '');
       await prisma.job.updateMany({ where: { id: job.id }, data: { status: 'DONE', progress: 1, total: 1, message: msg } });

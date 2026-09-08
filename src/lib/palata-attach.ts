@@ -201,25 +201,31 @@ export async function attachAllScanned(opts: AttachOpts = {}): Promise<AttachRes
 }
 
 export interface ResortFirmResult extends AttachResult {
-  firm: string;   // topilgan firma nomi
-  wiped: number;  // o'chirilgan eski imzolangan-skan hujjatlari (fayl + yozuv)
+  firm: string;    // topilgan firma nomi
+  skanda: number;  // shu firmaning skandagi arizalari (qayta sartirovka qilinganlar manbai)
+  kept: number;    // TEGILMAGAN hujjatlar — mijozi shu skanда yo'q (o'chirilmadi, yo'qotilmadi)
 }
 
 /**
- * BITTA FIRMANI TO'LIQ TOZALAB QAYTA SARTIROVKA QILADI.
+ * BITTA FIRMANI SKAN BO'YICHA QAYTA SARTIROVKA QILADI.
  *
- * Operator so'ragan amal (2026-09-08): «arizalar firmaga qarab to'liq tozalanib, har bir
- * userga qo'yib sartirovka qilib qayta yuklansin». Ma'nosi: bir marta sortlash noto'g'ri
- * ketgan bo'lsa (ariza boshqa mijozga tushib qolgan yoki eskirgan), o'sha firmaning
- * imzolangan-skan hujjatlarini BUTUNLAY o'chirib, skandan qaytadan bo'lib, har arizani
- * o'z mijoziga yangidan biriktiradi.
+ * Operator so'ragan amal (2026-09-08): «arizalar firmaga qarab tozalanib, har bir userga
+ * qo'yib sartirovka qilib qayta yuklansin». Ya'ni sortlash chalkash ketgan bo'lsa (imzolangan
+ * ariza boshqa mijozga tushib qolgan) — skandagi har arizani o'z mijoziga QAYTADAN biriktiradi.
  *
- * XAVFSIZ: skan dataseti PINFL bo'yicha JAMLANADI (mergeArizas) — ya'ni firmaning
- * bir marta skanerlangan HAMMA arizasi datasetда turadi. Shuning uchun tozalab qayta
- * biriktirish har birini qaytadan yaratadi; faqat datasetда umuman bo'lmagan (boshqa
- * yo'l bilan qo'yilgan) hujjat qaytmaydi.
+ * MUHIM — HECH NARSA YO'QOTILMAYDI. Dastlab bu funksiya firmaning BARCHA imzolangan-skan
+ * hujjatlarini o'chirib, keyin skandan qaytadan yaratardi. Lekin productionда tekshirilganda
+ * (2026-09-08): BRIGHT'da 775 hujjatdan atigi 462 tasining mijozi hozirgi skanда bor edi —
+ * ya'ni «to'liq o'chirish» 313 ta imzolangan arizani ABADIY yo'qotardi (ular eski skandan
+ * yoki boshqa yo'l bilan qo'yilgan, hozirgi datasetда yo'q). Sud paketiga kerak bo'lgan
+ * hujjatni bunday yo'qotib bo'lmaydi.
  *
- * FAQAT SHU FIRMA: boshqa firmalarning hujjatlariga tegilmaydi (firmId bo'yicha).
+ * Shuning uchun endi: FAQAT skanда mijozi bor case'ning hujjati qayta yaratiladi
+ * (`replaceAll` — eskisi o'chirilib, skandan yangi bo'linib yoziladi). Skanда mijozi
+ * BO'LMAGAN hujjatga TEGILMAYDI — u o'z joyida qoladi. Bu «chalkash sortlashni tuzatish»
+ * vazifasini bajaradi, lekin qayta yaratib bo'lmaydigan hujjatni o'chirmaydi.
+ *
+ * FAQAT SHU FIRMA: boshqa firmalarga tegilmaydi (skan firmKey → firmId bo'yicha).
  */
 export async function resortFirmScanned(
   firmLabel: string,
@@ -238,19 +244,20 @@ export async function resortFirmScanned(
   const all = readScannedArizas();
   const mine = all.filter((a) => resolveFirmId(a.firmKey, firms) === firm.id);
 
-  // 1) TOZALASH — shu firma case'laridagi imzolangan-skan hujjatlarini o'chiramiz
-  //    (fayl + DB yozuvi). Boshqa turdagi hujjatlarga (talabnoma, oferta) tegilmaydi.
-  const cases = await prisma.arizaCase.findMany({ where: { firmId: firm.id }, select: { id: true } });
+  // «Tegilmaydiganlar» sanog'i — mijozi skanда bo'lmagan hujjatlar (operatorga ko'rsatiladi).
+  const scanPinfls = new Set(mine.map((a) => a.pinfl).filter(Boolean));
+  const cases = await prisma.arizaCase.findMany({ where: { firmId: firm.id }, select: { id: true, pinfl: true } });
   const caseIds = cases.map((c) => c.id);
-  const docs = caseIds.length
-    ? await prisma.caseDocument.findMany({ where: { caseId: { in: caseIds }, kind: 'SIGNED_ARIZA' }, select: { id: true, filePath: true } })
+  const docRows = caseIds.length
+    ? await prisma.caseDocument.findMany({ where: { caseId: { in: caseIds }, kind: 'SIGNED_ARIZA' }, select: { caseId: true } })
     : [];
-  for (const d of docs) await fsp.rm(d.filePath, { force: true }).catch(() => {});
-  await prisma.caseDocument.deleteMany({ where: { caseId: { in: caseIds }, kind: 'SIGNED_ARIZA' } });
-  const wiped = docs.length;
+  const pinflByCase = new Map(cases.map((c) => [c.id, c.pinfl]));
+  let kept = 0;
+  for (const d of docRows) { const pf = pinflByCase.get(d.caseId); if (!pf || !scanPinfls.has(pf)) kept++; }
 
-  // 2) QAYTA SARTIROVKA — endi hech bir case'da hujjat yo'q, shuning uchun har ariza
-  //    yangidan bo'linib biriktiriladi (replaceAll shart emas: bo'sh case «yangi» sifatida).
-  const r = await attachScannedArizas(mine, opts);
-  return { ...r, firm: firm.shortName, wiped };
+  // QAYTA SARTIROVKA: skandagi har arizani o'z case'iga yangidan biriktiramiz. `replaceAll`
+  // — mijozning eski imzolangan-skani skandan qaytadan bo'linib almashtiriladi. Skanда
+  // mijozi yo'q hujjat bu jarayonga UMUMAN kirmaydi (o'chirilmaydi).
+  const r = await attachScannedArizas(mine, { ...opts, replaceAll: true });
+  return { ...r, firm: firm.shortName, skanda: mine.length, kept };
 }

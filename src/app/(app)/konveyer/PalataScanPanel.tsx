@@ -408,10 +408,10 @@ export function PalataScanPanel() {
                   {asking && (
                     <div className="border-t border-violet-500/30 px-3 py-2 text-[11px] leading-snug">
                       <p className="text-muted">
-                        <b className="font-semibold text-fg">{f.firm}</b> ning imzolangan-skan hujjatlari
-                        (<b className="font-semibold text-fg">{n(f.saved)}</b> ta) BUTUNLAY oʻchiriladi va
-                        skandan qaytadan har mijozga biriktiriladi. Boshqa firmalarga tegilmaydi.
-                        Avval bu firmaning toʻliq skani yuklangan boʻlsin.
+                        <b className="font-semibold text-fg">{f.firm}</b> ning skandagi arizalari qaytadan
+                        boʻlinib, har biri oʻz mijoziga yangidan biriktiriladi (chalkash sortlash tuzatiladi).
+                        Skanда mijozi boʻlmagan eski hujjatlar <b className="font-semibold text-fg">saqlanadi</b> —
+                        oʻchirilmaydi. Boshqa firmalarga tegilmaydi.
                       </p>
                       <div className="mt-2 flex items-center gap-2">
                         <button type="button" onClick={() => doResort(f.firm)} disabled={resorting}
