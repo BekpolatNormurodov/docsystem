@@ -54,6 +54,9 @@ let stopping = false;
  * bitta job IKKI marta parallel render bo'lishi mumkin. Shuning uchun ikkala sikl ham
  * shu va'daning ochilishini kutadi.
  */
+/** Ayni damda portalga ish yuborayotgan partiya (bo'lmasa null) — chiqishdan oldin kutiladi. */
+let busyCourtJobId: number | null = null;
+
 let markRecoveryDone!: () => void;
 const recoveryDone = new Promise<void>((resolve) => {
   markRecoveryDone = resolve;
@@ -333,8 +336,27 @@ async function loop(): Promise<void> {
   // 10 soniyadan keyin SIGKILL qilardi va aynan shu ketayotgan ZIP'ni o'ldirardi —
   // «joriy ishni tugatib chiqaman» degan himoya amalda hech qachon ishlamagan.
   //
-  // Sud partiyasini KUTMAYMIZ: u uzilishga chidamli (navbat bazada, avto-davom o'zi
-  // qayta boshlaydi). ZIP esa chidamli emas — himoya aynan unga kerak.
+  // SUD PARTIYASINI HAM KUTAMIZ.
+  //
+  // Ilgari bu yerda shartsiz `process.exit(0)` turardi va izohda «sud partiyasi uzilishga
+  // chidamli» deyilardi. Partiya chidamli — LEKIN ayni damdagi BITTA ish emas: agar
+  // jarayon `save-suit` (da'vo ADOLAT'da saqlandi) bilan `send-to-court` (rasman berildi)
+  // orasida o'lsa, bizda `courtCaseId` yozilmay qoladi va ish «ketmagan» bo'lib ko'rinadi,
+  // ADOLAT'da esa da'vo berilgan bo'lishi mumkin. Keyin uni qayta yuborish AYNI ODAMGA
+  // IKKINCHI da'vo ochadi — butun tizim shundan qochadi (2026-09-08 kod ko'rigi).
+  //
+  // Shuning uchun ish o'rtasida chiqmaymiz, lekin cheksiz ham kutmaymiz: bitta ish ~60s,
+  // Docker esa SIGKILL'gacha vaqt beradi. Kutish tugasa baribir chiqamiz — bu holat
+  // idempotentlik bilan himoyalangan (courtCaseId yozilgan ish qayta yuborilmaydi).
+  const EXIT_GRACE_MS = 90_000;
+  const t0 = Date.now();
+  while (busyCourtJobId != null && Date.now() - t0 < EXIT_GRACE_MS) {
+    console.log(`[worker] sud partiyasi #${busyCourtJobId} tugashini kutmoqda…`);
+    await new Promise((r) => setTimeout(r, 3_000));
+  }
+  if (busyCourtJobId != null) {
+    console.warn(`[worker] sud partiyasi #${busyCourtJobId} ${EXIT_GRACE_MS / 1000}s ichida tugamadi — baribir chiqamiz`);
+  }
   process.exit(0);
 }
 
@@ -478,8 +500,12 @@ const COURT_OUTCOME_FIRM_GAP_MS = 15_000;
 
 async function courtOutcomeSyncLoop(): Promise<void> {
   console.log(`[worker] sud natijalari sinxroni: har ${Math.round(COURT_OUTCOME_EVERY_MS / 60_000)} daqiqada`);
-  // Statuslar siklidan KEYIN boshlanadi — ikkalasi bir vaqtda portalga urilmasin.
-  await new Promise((r) => setTimeout(r, 150_000));
+  // Boshqa portal sikllaridan KEYIN boshlanadi. 150 s bo'lsa DETAL sikli bilan aynan bir
+  // vaqtda ishga tushardi (u ham 150 s kutadi) — izoh «bir vaqtda urilmasin» desa ham,
+  // amalda uchala oqim (status, detal, natija) ustma-ust tushardi. Portal bu tizimni bir
+  // marta parallellik uchun allaqachon bloklagan, shuning uchun ular ataylab ajratildi:
+  // status 90 s, detal 150 s, natija 300 s.
+  await new Promise((r) => setTimeout(r, 300_000));
   while (!stopping) {
     for (const f of FIRMS) {
       if (stopping) break;
@@ -490,7 +516,8 @@ async function courtOutcomeSyncLoop(): Promise<void> {
         if (r.checked > 0) {
           console.log(
             `[worker] sud natijasi ${f.branchCode}: tekshirildi ${r.checked}, ` +
-            `RAD ETILGAN ${r.declined}, qabul ${r.accepted}, portalda topilmadi ${r.missing}`,
+            `RAD ETILGAN ${r.declined}, qabul ${r.accepted}, berilmagan qoralama ${r.notFiled}, ` +
+            `portalda topilmadi ${r.missing}, portal id'siz ${r.noPortalId}`,
           );
         }
       } catch (e) {
@@ -540,7 +567,12 @@ async function courtSubmitLoop(): Promise<void> {
         const claimed = await prisma.job.updateMany({ where: { id: job.id, status: 'PENDING' }, data: { status: 'RUNNING' } });
         if (claimed.count > 0) {
           console.log(`[worker] sud partiyasi ${job.id} boshlandi`);
-          await runJobById(job.id).catch((e) => console.error(`[worker] sud partiyasi ${job.id} xatosi`, e));
+          busyCourtJobId = job.id;
+          try {
+            await runJobById(job.id).catch((e) => console.error(`[worker] sud partiyasi ${job.id} xatosi`, e));
+          } finally {
+            busyCourtJobId = null;
+          }
           console.log(`[worker] sud partiyasi ${job.id} tugadi`);
           continue;
         }

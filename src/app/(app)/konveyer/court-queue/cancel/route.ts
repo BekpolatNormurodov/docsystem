@@ -90,6 +90,26 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // OSILIB QOLGAN «RUNNING» YOZUV — bekor qilingan navbatda qolmasin.
+  //
+  // RUNNING yozuv faqat HAQIQATAN ish ketayotganda ma'noli. Agar bu firmada RUNNING job
+  // bo'lmasa, u o'lik yozuv (worker o'rtada uzilgan). Uni qoldirsak worker keyingi startda
+  // `resetInterruptedCourtJobs` orqali PENDING'ga qaytaradi — ya'ni operator BEKOR QILGAN
+  // navbatda bitta ish o'z-o'zidan tirilib, pauza olingach sudga ketardi.
+  const stillRunningJob = mine.some((j) => j.status === 'RUNNING');
+  if (!stillRunningJob) {
+    const zombie = await prisma.courtQueueItem.findMany({
+      where: { firmId, state: 'RUNNING' }, select: { caseId: true },
+    });
+    if (zombie.length) {
+      await prisma.courtQueueItem.deleteMany({ where: { firmId, state: 'RUNNING' } });
+      await prisma.arizaCase.updateMany({
+        where: { id: { in: zombie.map((z) => z.caseId) }, stage: { not: 'COURT_SUBMITTED' } },
+        data: { courtSentAt: null },
+      });
+    }
+  }
+
   const runningLeft = await prisma.courtQueueItem.count({ where: { firmId, state: 'RUNNING' } });
   const doneCount = await prisma.courtQueueItem.count({ where: { firmId, state: 'DONE' } });
 

@@ -11,6 +11,8 @@
 // da saqlaymiz (schema o'zgarmasdan, db push kerak emas).
 import { prisma } from './db';
 import { MAX_COURT_BATCH } from './court-batch';
+// Tab sonlari qoidasi — brauzer bilan YAGONA manba (court-counts.ts izohiga qarang).
+import { tallyClientCounts, emptyClientCounts, type ClientReadyCounts } from './court-counts';
 import type { CaseStage } from '@prisma/client';
 import { STAGE_LABEL } from './konveyer';
 import { performLabel } from './hippo/mail-status';
@@ -135,23 +137,51 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
 }
 
 /**
- * SHU FIRMA nomidan ADOLAT'da da'vosi bor mijozlarning PINFL to'plami — QO'LDA kiritilganlar.
+ * ADOLAT'da SHU FIRMA nomidan da'vosi bor mijozlar — ikki to'plam.
  *
- * Manba: `ClientCaseStatus` (source CABINET), uni worker har 30 daqiqada portaldan tortadi.
+ *   `portal` — portalda ishi bor HAMMA mijoz. Bu — qayta yuborishga TO'SIQ: bir odamga
+ *              ikkinchi da'vo ochilishi qaytarib bo'lmaydigan xato.
+ *   `manual` — shulardan BIZ yubormaganlari, ya'ni yurist portalda qo'lda kiritganlari.
+ *              Bu faqat KO'RSATISH uchun («Sudda 147+4»).
  *
- * FAQAT `matchedBy = 'PINFL'` olinadi. Bu — detal so'rovdan (`get-one-case-by-id`) olingan
- * javobgar PINFL'i bizning portfelimizdagi mijozga to'g'ri kelgani, ya'ni ANIQ moslik.
- * Ism bo'yicha topilgan mosliklar (`matchedBy='NAME'`) ATAYIN olinmaydi: operator qarori —
- * «taxmin kerak emas». Noto'g'ri taxmin haqiqiy qarzdorni konveyerdan jimgina chiqarib
- * yuborardi, buni esa hech kim sezmasdi.
+ * NEGA IKKITA. 2026-09-08 da bitta to'plam ishlatilgan edi va u xato bo'lib chiqdi:
+ * BIZ yuborgan har bir ish ham portalda paydo bo'ladi, ya'ni sinxron to'lgani sari
+ * bizning o'z ishlarimiz «qo'lda kiritilgan» bo'lib sanalardi. Operator buni darhol
+ * payqadi: «BRIGHT'dan hech kim qo'lda yuklamadi». Farqni ANIQ ajratadigan narsa bor —
+ * biz `save-suit` qaytargan id'ni `ArizaCase.courtCaseId` ga yozamiz va portal ro'yxatida
+ * u AYNAN shu id bilan turadi (tekshirildi: 920f7500-288a-… ikkala tomonda bir xil).
+ *
+ * MOSLIK FAQAT ANIQ: `matchedBy = 'PINFL'` — detal so'rovidan olingan javobgar PINFL'i
+ * portfelimizdagi mijozga to'g'ri kelgani. Ism bo'yicha taxmin ATAYIN hisobga olinmaydi
+ * (operator qarori): noto'g'ri taxmin haqiqiy qarzdorni konveyerdan jimgina chiqarardi.
  */
-async function externallySubmittedPinfls(branchCode: string | null): Promise<Set<string>> {
-  if (!branchCode) return new Set();
+async function portalCasePinfls(branchCode: string | null): Promise<{ portal: Set<string>; manual: Set<string> }> {
+  const empty = { portal: new Set<string>(), manual: new Set<string>() };
+  if (!branchCode) return empty;
   const rows = await prisma.clientCaseStatus.findMany({
     where: { source: 'CABINET', branchCode, matchedBy: 'PINFL', pinfl: { not: null } },
-    select: { pinfl: true },
+    select: { pinfl: true, caseNumber: true },
   });
-  return new Set(rows.map((r) => r.pinfl!).filter(Boolean));
+  if (!rows.length) return empty;
+
+  // Qaysi portal ishlari BIZNIKI: id'si bizning `courtCaseId` bilan bir xil bo'lganlari.
+  const ourRows = await prisma.arizaCase.findMany({
+    where: { courtCaseId: { in: rows.map((r) => r.caseNumber) } },
+    select: { courtCaseId: true },
+  });
+  const ourIds = new Set(ourRows.map((o) => o.courtCaseId!).filter(Boolean));
+
+  const portal = new Set<string>();
+  const manual = new Set<string>();
+  for (const r of rows) {
+    if (!r.pinfl) continue;
+    portal.add(r.pinfl);
+    if (!ourIds.has(r.caseNumber)) manual.add(r.pinfl);
+  }
+  // Bizning ishimiz bor mijoz «qo'lda kiritilgan» deb sanalmasin: agar o'sha odamda
+  // BIZNIKI ish bo'lsa, u qo'lda kiritilganlar ro'yxatidan chiqadi.
+  for (const r of rows) if (r.pinfl && ourIds.has(r.caseNumber)) manual.delete(r.pinfl);
+  return { portal, manual };
 }
 
 // Case'ga biriktirilgan CaseDocument'lar to'plami (kind bo'yicha) — SKAN (SIGNED_ARIZA) va
@@ -169,6 +199,19 @@ const signedCaseIdSet = (caseIds: number[]) => caseIdSetByKind(caseIds, 'SIGNED_
  * Bu YAGONA manba: firma raqamlari, mijoz ro'yxati, sud taqsimoti va partiya tanlovi
  * ham shundan oziqlanadi, shuning uchun ular hech qachon bir-biriga zid bo'lmaydi.
  */
+/**
+ * Firma bo'yicha navbatda turgan ishlar SONI — navbat panelidagi bilan AYNAN bir manba.
+ *
+ * NEGA ALOHIDA: `queuedCaseIdSet` faqat SHU SNAPSHOT case'lari bo'yicha ishlaydi (u
+ * qatordagi «Navbatda» belgisi uchun kerak). Firma qatoridagi SON esa navbat paneli bilan
+ * yonma-yon turadi va panel snapshotni umuman bilmaydi — natijada bir ekranda «Navbatda
+ * 200» va «195 navbatda» ko'rinardi (2026-09-08 kod ko'rigi). Endi ikkala son bitta
+ * so'rovdan: firmaning PENDING+RUNNING yozuvlari.
+ */
+async function queuedCountForFirm(firmId: number): Promise<number> {
+  return prisma.courtQueueItem.count({ where: { firmId, state: { in: ['PENDING', 'RUNNING'] } } });
+}
+
 async function queuedCaseIdSet(caseIds: number[]): Promise<Set<number>> {
   if (caseIds.length === 0) return new Set();
   const rows = await prisma.courtQueueItem.findMany({
@@ -299,11 +342,18 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
       ofertaPinflSet(snapshotId, f.code),
     ]);
     if (cases.length === 0) return null;
-    const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
-  const receiptIds = await receiptCaseIdSet(cases.map((c) => c.id));
-  const paidReceipts = await paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]);
-  const queuedIds = await queuedCaseIdSet(cases.map((c) => c.id));
-  const externalPinfls = await externallySubmittedPinfls(f.code);
+    // Beshovi BIR VAQTDA: ular bir-biriga bog'liq emas. Ketma-ket bo'lganda 9 firma uchun
+    // 45 ta navbatdagi so'rov chiqardi va bu operator partiya ketayotganda qayta-qayta
+    // yangilaydigan sahifa.
+    const ids = cases.map((c) => c.id);
+    const [signedIds, receiptIds, paidReceipts, queuedIds, externalPinfls] = await Promise.all([
+      signedCaseIdSet(ids),
+      receiptCaseIdSet(ids),
+      paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]),
+      queuedCaseIdSet(ids),
+      externallySubmittedPinfls(f.code),
+    ]);
+    const queuedTotal = await queuedCountForFirm(f.id);
 
     const fr: FirmReadiness = {
       firmId: f.id, firmName: f.shortName, total: cases.length,
@@ -319,7 +369,6 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
       if (fl.submitted) fr.submitted++;
       if (fl.submittedExternal) fr.submittedExternal++;
       if (fl.draft) fr.draft++;
-      if (fl.queued) fr.queued++;
       if (fl.sendable) fr.sendable++;
       if (!fl.talabnoma) fr.missing.talabnoma++;
       if (!fl.scan) fr.missing.scan++;
@@ -337,6 +386,8 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
         else fr.almost.boji++;
       }
     }
+    // «Navbatda» — panel bilan bitta manbadan (yuqoridagi `queuedCountForFirm` izohiga q.).
+    fr.queued = queuedTotal;
     return fr;
   }));
   const firmsOut = perFirm.filter((x): x is FirmReadiness => x !== null);
@@ -375,6 +426,12 @@ export interface ClientReadyRow {
   exported: boolean;
   /** SUDGA haqiqatan topshirilgan — «Chiqarilgan» (ZIP) bilan aralashmasin. */
   submitted: boolean;
+  /**
+   * `submitted` sababi BIZ EMAS: ADOLAT'da shu odamga bu firma nomidan TIRIK da'vo bor
+   * (yurist portalda qo'lda kiritgan). Qatorda alohida ko'rsatiladi — busiz mijoz
+   * «Tayyor»dan sababsiz yo'qolgandek tuyulardi va operator uni qidirib yurardi.
+   */
+  submittedExternal: boolean;
   draft: boolean;
   /** Partiyaga olingan, hali sudga yetib bormagan — «Tayyor»dan chiqarilgan. */
   queued: boolean;
@@ -388,7 +445,7 @@ export interface ClientReadyRow {
   daysLeft: number | null;
   receiptNumber: string | null; // real boji kvitansiya № (for the drill-down CaseDocs invoice slot)
 }
-export interface ClientReadyCounts { all: number; sendable: number; draft: number; queued: number; ready: number; exported: number; submitted: number; notready: number }
+export type { ClientReadyCounts };
 export interface ClientReadyPage {
   rows: ClientReadyRow[];
   total: number;
@@ -404,7 +461,7 @@ export interface ClientReadyPage {
 export async function firmReadyClients(opts: {
   snapshotId?: number; firmId: number;
 }): Promise<ClientReadyPage> {
-  const empty: ClientReadyPage = { rows: [], total: 0, page: 1, pageSize: 0, pages: 1, counts: { all: 0, sendable: 0, draft: 0, queued: 0, ready: 0, exported: 0, submitted: 0, notready: 0 } };
+  const empty: ClientReadyPage = { rows: [], total: 0, page: 1, pageSize: 0, pages: 1, counts: emptyClientCounts() };
 
   const firm = await prisma.firm.findUnique({ where: { id: opts.firmId }, select: { id: true, code: true } });
   if (!firm) return empty;
@@ -424,11 +481,14 @@ export async function firmReadyClients(opts: {
     }),
     ofertaPinflSet(opts.snapshotId, firm.code),
   ]);
-  const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
-    const receiptIds = await receiptCaseIdSet(cases.map((c) => c.id));
-    const paidReceipts = await paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]);
-  const queuedIds = await queuedCaseIdSet(cases.map((c) => c.id));
-  const externalPinfls = await externallySubmittedPinfls(firm.code);
+  const ids = cases.map((c) => c.id);
+  const [signedIds, receiptIds, paidReceipts, queuedIds, externalPinfls] = await Promise.all([
+    signedCaseIdSet(ids),
+    receiptCaseIdSet(ids),
+    paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]),
+    queuedCaseIdSet(ids),
+    externallySubmittedPinfls(firm.code),
+  ]);
   const deliveredPinfls = await talabnomaDeliveredPinflSet(firm.code);
   const now = Date.now();
   const day = 86400000;
@@ -436,25 +496,14 @@ export async function firmReadyClients(opts: {
   // ALL rows + counts in ONE query — the drill-down filters/searches/paginates client-side, so a
   // filter or page switch never re-hits the DB. That per-interaction refetch (each loading the whole
   // firm's cases + meta) was the «juda sekin»; now the firm is loaded once when the drill-down opens.
-  const counts: ClientReadyCounts = { all: 0, sendable: 0, draft: 0, queued: 0, ready: 0, exported: 0, submitted: 0, notready: 0 };
   const rows: ClientReadyRow[] = [];
   for (const c of cases) {
     const fl = flagsFor(c as CaseRow, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds, externalPinfls);
-    counts.all++;
-    if (fl.sendable) counts.sendable++;
-    if (fl.queued) counts.queued++;
-    if (fl.draft) counts.draft++;
-    if (fl.ready) counts.ready++;
-    // «Chiqarilgan» = ZIP olingan, LEKIN sudga ketmagan. Sudga ketgani alohida sanaladi —
-    // aks holda operator ZIP eksportini sudga yuborish deb o'qiydi (2026-09-07 holati).
-    if (fl.submitted) counts.submitted++;
-    else if (fl.exported) counts.exported++;
-    if (!fl.ready) counts.notready++;
     rows.push({
       caseId: c.id, clientName: c.clientName, pinfl: c.pinfl, stage: c.stage, stageLabel: STAGE_LABEL[c.stage],
       talabnoma: fl.talabnoma, talabnomaDelivered: !!(c.pinfl && deliveredPinfls.has(c.pinfl)),
       receipt: fl.receipt, scan: fl.scan, oferta: fl.oferta, boji: fl.boji,
-      ready: fl.ready, exported: fl.exported, submitted: fl.submitted, draft: fl.draft, queued: fl.queued, sendable: fl.sendable,
+      ready: fl.ready, exported: fl.exported, submitted: fl.submitted, submittedExternal: fl.submittedExternal, draft: fl.draft, queued: fl.queued, sendable: fl.sendable,
       totalDebt: String(c.totalDebt),
       daysLeft: c.dueAt ? ((v: number) => (v < 0 ? Math.floor(v) : Math.ceil(v)))((c.dueAt.getTime() - now) / day) : null,
       receiptNumber: c.receiptNumber,
@@ -463,7 +512,7 @@ export async function firmReadyClients(opts: {
       courtEnabled: c.court ? c.court.cabinetEnabled !== false : true,
     });
   }
-  return { rows, total: rows.length, page: 1, pageSize: rows.length, pages: 1, counts };
+  return { rows, total: rows.length, page: 1, pageSize: rows.length, pages: 1, counts: tallyClientCounts(rows) };
 }
 
 /** Yuborishga TAYYOR (sendable) case'larni SUD bo'yicha guruhlaydi — «Sudga yuborish»
@@ -488,11 +537,14 @@ export async function sendableCourtBreakdown(opts: { snapshotId?: number; firmId
     }),
     ofertaPinflSet(opts.snapshotId, firm.code),
   ]);
-  const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
-  const receiptIds = await receiptCaseIdSet(cases.map((c) => c.id));
-  const paidReceipts = await paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]);
-  const queuedIds = await queuedCaseIdSet(cases.map((c) => c.id));
-  const externalPinfls = await externallySubmittedPinfls(firm.code);
+  const ids = cases.map((c) => c.id);
+  const [signedIds, receiptIds, paidReceipts, queuedIds, externalPinfls] = await Promise.all([
+    signedCaseIdSet(ids),
+    receiptCaseIdSet(ids),
+    paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]),
+    queuedCaseIdSet(ids),
+    externallySubmittedPinfls(firm.code),
+  ]);
 
   // BARCHA faol sudlar ro'yxatdan boshlanadi — tayyor ishi bo'lmagani ham, ADOLAT'da yopig'i
   // ham ko'rinsin. Avval faqat ishi borlari chiqardi va operator yopiq sudni umuman ko'rmasdi:
@@ -558,11 +610,14 @@ export async function selectReadyCaseIds(opts: {
     }),
     ofertaPinflSet(opts.snapshotId, firm.code),
   ]);
-  const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
-    const receiptIds = await receiptCaseIdSet(cases.map((c) => c.id));
-    const paidReceipts = await paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]);
-  const queuedIds = await queuedCaseIdSet(cases.map((c) => c.id));
-  const externalPinfls = await externallySubmittedPinfls(firm.code);
+  const ids = cases.map((c) => c.id);
+  const [signedIds, receiptIds, paidReceipts, queuedIds, externalPinfls] = await Promise.all([
+    signedCaseIdSet(ids),
+    receiptCaseIdSet(ids),
+    paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]),
+    queuedCaseIdSet(ids),
+    externallySubmittedPinfls(firm.code),
+  ]);
   const picked: number[] = [];
   for (const c of cases as CaseRow[]) {
     const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds, externalPinfls);
@@ -600,15 +655,29 @@ export async function validateSelectedCaseIds(opts: {
     }),
     ofertaPinflSet(opts.snapshotId, firm.code),
   ]);
-  const signedIds = await signedCaseIdSet(cases.map((c) => c.id));
-    const receiptIds = await receiptCaseIdSet(cases.map((c) => c.id));
-    const paidReceipts = await paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]);
-  const queuedIds = await queuedCaseIdSet(cases.map((c) => c.id));
-  const externalPinfls = await externallySubmittedPinfls(firm.code);
+  const ids = cases.map((c) => c.id);
+  const [signedIds, receiptIds, paidReceipts, queuedIds, externalPinfls] = await Promise.all([
+    signedCaseIdSet(ids),
+    receiptCaseIdSet(ids),
+    paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]),
+    queuedCaseIdSet(ids),
+    externallySubmittedPinfls(firm.code),
+  ]);
   return (cases as CaseRow[])
     .filter((c) => {
       const fl = flagsFor(c, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds, externalPinfls);
-      return fl.ready && !SENT_STAGES.has(c.stage);
+      // ZIP va SUDGA YUBORISH uchun shart ATAYIN boshqacha.
+      //
+      // Ilgari bu yerda `queuedIds`/`externalPinfls` hisoblanar, LEKIN ishlatilmasdi —
+      // ya'ni qo'lda belgilangan ish navbatda tursa ham, portalda da'vosi bo'lsa ham
+      // partiyaga tushaverardi. Bu — ikkinchi da'voga ochiq yagona yo'l edi, chunki
+      // eskirgan tanlovni to'sish uchun mo'ljallangan server tekshiruvi aynan shu.
+      //
+      // ZIP boshqa masala: u sudga hech narsa yubormaydi, shuning uchun navbatda turgan
+      // mijozning hujjatlarini yuklab olishni to'sish noto'g'ri bo'lardi. Lekin SUDGA
+      // ketgan ish u yerda ham chiqarilmaydi.
+      if (opts.forExport) return fl.ready && !fl.submitted && !SENT_STAGES.has(c.stage);
+      return fl.sendable;
     })
     .map((c) => c.id)
     .slice(0, Math.min(MAX_COURT_BATCH, opts.limit ?? MAX_COURT_BATCH));

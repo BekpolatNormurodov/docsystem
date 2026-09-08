@@ -30,9 +30,34 @@ export interface OutcomeSyncResult {
   checked: number;   // bazada «yuborilgan» deb turgan ishlar
   matched: number;   // portalda topilgani
   declined: number;  // rad etilgani (qayta yuborishga qaytarildi)
-  accepted: number;  // qabul qilingani
-  missing: number;   // portalda topilmagani (holati noma'lum — tegilmaydi)
+  accepted: number;  // sud QABUL QILGAN (ro'yxatga olingan / ko'rilmoqda / qaror chiqqan)
+  /** Portalda bor, lekin SUDGA BERILMAGAN qoralama (CREATED/DRAFT) — «qabul» EMAS. */
+  notFiled: number;
+  /** Bazada «yuborilgan», portal ro'yxatida esa YO'Q — id mos kelmayapti, tekshirish kerak. */
+  missing: number;
+  /** Bosqichi «yuborilgan», lekin portal id'si umuman yozilmagan — solishtirib bo'lmaydi. */
+  noPortalId: number;
 }
+
+/**
+ * Portal holati → bizning bosqich.
+ *
+ * NEGA KERAK: ilgari DECLINED'dan boshqa HAMMA holat bitta `else` shoxida «qabul» deb
+ * sanalardi — shu jumladan CREATED, ya'ni SUDGA BERILMAGAN qoralama (2026-09-08 da
+ * BRIGHT'da bunday 144 ta yozuv bor edi). Operatorga «qabul qilindi» deyilar, aslida
+ * hech narsa berilmagan edi. Bundan tashqari ish REGISTER → IN_PROCESS → DECIDED →
+ * FINISHED bo'lib borsa ham bazada bosqich O'ZGARMAS edi, ya'ni «sudga topshirilgan»dan
+ * keyin hech narsa ko'rinmasdi — operator «qabul qilinsa bilmayapman» deganining sababi.
+ */
+const PORTAL_STAGE: Record<string, 'ACCEPTED' | 'NOT_FILED'> = {
+  REGISTER: 'ACCEPTED',     // ro'yxatga olindi — da'vo qabul qilingan
+  PENDING: 'ACCEPTED',      // ko'rib chiqish navbatida
+  IN_PROCESS: 'ACCEPTED',   // ko'rilmoqda
+  DECIDED: 'ACCEPTED',      // qaror chiqarilgan
+  FINISHED: 'ACCEPTED',     // yakunlangan
+  CREATED: 'NOT_FILED',     // qoralama — hali berilmagan
+  DRAFT: 'NOT_FILED',
+};
 
 /**
  * Bitta firma bo'yicha natijalarni sinxronlaydi. Portalga ATIGI BITTA so'rov yuboradi
@@ -47,10 +72,20 @@ export async function syncCourtOutcomes(firmId: number): Promise<OutcomeSyncResu
 
   const cases = await prisma.arizaCase.findMany({
     where: { firmId, stage: 'COURT_SUBMITTED', courtCaseId: { not: null } },
-    select: { id: true, courtCaseId: true, meta: true },
+    select: { id: true, courtCaseId: true, meta: true, stage: true },
   });
+  // PORTAL ID'SIZ ISHLAR — solishtirib bo'lmaydi, lekin JIM qolmasligi kerak.
+  //
+  // `courtCaseId` yozilmagan bo'lsa (send-to-court javobida raqam kelmagan, yoki eski
+  // yozuvda «YUBORILDI» kabi matn turgan) ish portal bilan solishtirilmaydi va abadiy
+  // «sudga topshirilgan» bo'lib qoladi. Ilgari u sanoqqa ham tushmasdi.
+  const noPortalId = await prisma.arizaCase.count({
+    where: { firmId, stage: 'COURT_SUBMITTED', courtCaseId: null },
+  });
+
   const res: OutcomeSyncResult = {
-    firm: firm.shortName, checked: cases.length, matched: 0, declined: 0, accepted: 0, missing: 0,
+    firm: firm.shortName, checked: cases.length, matched: 0, declined: 0, accepted: 0,
+    notFiled: 0, missing: 0, noPortalId,
   };
   if (!cases.length) return res;
 
@@ -65,7 +100,26 @@ export async function syncCourtOutcomes(firmId: number): Promise<OutcomeSyncResu
 
   for (const c of cases) {
     const hit = byId.get(String(c.courtCaseId));
-    if (!hit) { res.missing++; continue; }
+    if (!hit) {
+      // PORTALDA TOPILMADI — sanab, tashlab yubormaymiz.
+      //
+      // 2026-09-08: URBAN bo'yicha 100 ta ishning 100 tasi ham shu holatda edi (saqlangan
+      // id portal ro'yxatidagi hech bir yozuvga to'g'ri kelmaydi). Ular COURT_SUBMITTED
+      // bo'lib qolaveradi: qayta yuborilmaydi, hech qayerda ko'rinmaydi. Endi izi
+      // `meta.portalMissingAt` da qoladi va operatorga ko'rsatiladi.
+      //
+      // BOSQICH O'ZGARTIRILMAYDI: id mos kelmagani «da'vo yo'q» degani EMAS — portalda
+      // boshqa id bilan turgan bo'lishi mumkin. Uni «qaytgan» deb belgilash IKKINCHI
+      // da'voga yo'l ochardi. Bu — odam tekshiradigan holat.
+      res.missing++;
+      const m = (c.meta && typeof c.meta === 'object' && !Array.isArray(c.meta))
+        ? { ...(c.meta as Record<string, unknown>) } : {};
+      if (!m.portalMissingAt) {
+        m.portalMissingAt = new Date().toISOString();
+        await prisma.arizaCase.update({ where: { id: c.id }, data: { meta: m as any } }).catch(() => {});
+      }
+      continue;
+    }
     res.matched++;
     const status = String(hit.current_status ?? hit.status ?? '').toUpperCase();
     const meta = (c.meta && typeof c.meta === 'object' && !Array.isArray(c.meta))
@@ -119,11 +173,37 @@ export async function syncCourtOutcomes(firmId: number): Promise<OutcomeSyncResu
       res.declined++;
     } else {
       const caseNumber = hit.case_number ?? hit.registry_number ?? null;
-      if (caseNumber && meta.caseNumber !== caseNumber) {
-        meta.caseNumber = caseNumber;
-        await prisma.arizaCase.update({ where: { id: c.id }, data: { meta: meta as any } });
+      const kind = PORTAL_STAGE[status];
+
+      // Portal holati HAR DOIM saqlanadi — «sudda» dan keyin nima bo'layotgani ko'rinsin.
+      let changed = false;
+      if (caseNumber && meta.caseNumber !== caseNumber) { meta.caseNumber = caseNumber; changed = true; }
+      if (meta.portalStatus !== status) { meta.portalStatus = status; changed = true; }
+      if (meta.portalMissingAt) { delete meta.portalMissingAt; changed = true; } // topildi — eski belgi ketsin
+
+      if (kind === 'NOT_FILED') {
+        // QORALAMA — «qabul» EMAS. Bosqichga tegilmaydi: ish bizda «yuborilgan» deb
+        // yozilgan, portalda esa berilmagan qoralama turibdi. Buni odam tekshirishi kerak,
+        // avtomatik «qaytgan» deb belgilash IKKINCHI da'voga yo'l ochardi.
+        res.notFiled++;
+        if (!meta.portalNotFiledAt) { meta.portalNotFiledAt = new Date().toISOString(); changed = true; }
+      } else {
+        res.accepted++;
+        if (meta.portalNotFiledAt) { delete meta.portalNotFiledAt; changed = true; }
+        // SUD QABUL QILDI → bosqich oldinga suriladi. Ilgari bosqich COURT_SUBMITTED da
+        // qotib qolardi va ish sudda ro'yxatga olinganini ham, qaror chiqqanini ham hech
+        // kim ko'rmasdi. COURT_ACCEPTED ham SENT_STAGES ichida — ish qayta yuborilmaydi.
+        if (kind === 'ACCEPTED' && c.stage !== 'COURT_ACCEPTED') {
+          await prisma.arizaCase.update({
+            where: { id: c.id },
+            data: { stage: 'COURT_ACCEPTED', stageEnteredAt: new Date(), meta: meta as any },
+          }).catch(() => {});
+          changed = false; // meta shu yerda yozildi
+        }
       }
-      res.accepted++;
+      if (changed) {
+        await prisma.arizaCase.update({ where: { id: c.id }, data: { meta: meta as any } }).catch(() => {});
+      }
     }
   }
 

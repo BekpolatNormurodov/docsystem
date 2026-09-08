@@ -7,6 +7,9 @@ import { CaseDocs } from './CaseDocs';
 import { KeyPicker } from './KeyPicker';
 // Partiya hajmi — yagona manba (server ham shu qiymat bilan cheklaydi).
 import { MAX_COURT_BATCH, MAX_ZIP_BATCH } from '@/lib/court-batch';
+// Tab sonlari — server bilan YAGONA qoida (court-counts.ts). Ilgari bu yerda o'z nusxasi
+// bor edi va ikkisi bir-biridan uzoqlashib ketishi mumkin edi.
+import { tallyClientCounts } from '@/lib/court-counts';
 
 // ── types (mirror src/lib/court-ready.ts) ────────────────────────────────────
 interface Missing { talabnoma: number; scan: number; oferta: number; receipt: number; boji: number }
@@ -29,7 +32,7 @@ type ReadyFilter = 'all' | 'sendable' | 'queued' | 'draft' | 'ready' | 'exported
 interface ClientRow {
   caseId: number; clientName: string | null; pinfl: string | null; stage: string; stageLabel: string;
   talabnoma: boolean; talabnomaDelivered: boolean; receipt: boolean; scan: boolean; oferta: boolean; boji: boolean;
-  ready: boolean; exported: boolean; submitted: boolean; draft: boolean; queued: boolean; sendable: boolean; totalDebt: string; daysLeft: number | null;
+  ready: boolean; exported: boolean; submitted: boolean; submittedExternal?: boolean; draft: boolean; queued: boolean; sendable: boolean; totalDebt: string; daysLeft: number | null;
   receiptNumber: string | null;
   // Sud — «Batafsil» ichidagi filtr uchun (firma ishlari bir necha sudga bo'lingan bo'lishi mumkin).
   courtId: number | null; courtName: string | null; courtEnabled: boolean;
@@ -520,6 +523,11 @@ function statusChip(r: ClientRow) {
   // sudga ketmagan edi — 100 tasida faqat ZIP paketi chiqarilgan. Operator ularni sudda
   // deb o'ylashi mumkin edi, shuning uchun endi belgi aniq: sudda bo'lgani — «Sudda».
   if ((r as { submitted?: boolean }).submitted) {
+    // QO'LDA kiritilgani ALOHIDA belgilanadi: mijoz «Tayyor»dan yo'qolgan bo'lsa, operator
+    // sababini shu yerda ko'radi — aks holda u sababsiz g'oyib bo'lgandek tuyulardi.
+    if ((r as { submittedExternal?: boolean }).submittedExternal) {
+      return <span className="rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:text-violet-300" title="ADOLAT'da bu odamga shu firma nomidan tirik da'vo bor — biz yubormaganmiz (yurist portalda qo'lda kiritgan). Shuning uchun qayta yuborilmaydi.">Portalda bor</span>;
+    }
     return <span className="rounded-md bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:text-indigo-300" title="Da'vo ADOLAT orqali sudga topshirilgan">Sudda</span>;
   }
   // «Navbatda» — partiyaga olingan, sudga hali yetmagan. Busiz bunday ish «Tayyor» ko'rinardi
@@ -670,14 +678,10 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
   const refresh = useCallback(() => { load(); onChanged(); }, [load, onChanged]);
   // Tab sonlari — mahalliy `data.rows`dan hisoblanadi (server `counts` emas). Shunda bitta qatorni
   // OPTIMISTIK o'zgartirsak (undo), sonlar DARROV to'g'rilanadi — butun ro'yxatni qayta yuklash shart emas.
-  const counts = React.useMemo<ClientCounts | undefined>(() => {
-    if (!data) return undefined;
-    const c: ClientCounts = { all: 0, sendable: 0, queued: 0, draft: 0, ready: 0, exported: 0, submitted: 0, notready: 0 };
-    // «Chiqarilgan» va «Sudda» — ATAYIN bir-birini istisno qiladi: sudga ketgan ish
-    // «Chiqarilgan» sanog'ida turmaydi, aks holda bitta ish ikki joyda ko'rinadi.
-    for (const r of data.rows) { c.all++; if (r.sendable) c.sendable++; if (r.queued) c.queued++; if (r.draft) c.draft++; if (r.ready) c.ready++; if (r.submitted) c.submitted++; else if (r.exported) c.exported++; if (!r.ready) c.notready++; }
-    return c;
-  }, [data]);
+  const counts = React.useMemo<ClientCounts | undefined>(
+    () => (data ? tallyClientCounts(data.rows) : undefined),
+    [data],
+  );
   // Bitta qatorni joyida yangilash (optimistik) — to'liq refetch/flash yo'q.
   const patchRow = useCallback((caseId: number, patch: Partial<ClientRow>) => {
     setData((prev) => (prev ? { ...prev, rows: prev.rows.map((row) => (row.caseId === caseId ? { ...row, ...patch } : row)) } : prev));
