@@ -93,6 +93,26 @@ export const getUser = (s: CabinetSession) => jget(s, ENDPOINTS.userGet);
 export const getCategories = (s: CabinetSession) => jget(s, ENDPOINTS.guideCategories);
 export const getDocumentTypes = (s: CabinetSession) => jget(s, ENDPOINTS.guideDocumentTypes);
 export const getDutyReasons = (s: CabinetSession) => jget(s, ENDPOINTS.dutyReasons);
+
+// «Davlat boji to'g'risidagi qonunning 8-moddasiga asosan ozod etilgan» (FUQAROLIK/CIVIL) imtiyozining
+// id'si. Bu ishlar mikromoliya — davlat bojidan 8-modda bo'yicha OZOD. ADOLAT'da bu imtiyoz
+// (duty_reason_id) tanlanmasa, portal to'liq davlat bojini hisoblaydi (1+ mln, «Тўланмаган») va yurist
+// «Sudga yuborish»ni bosolmaydi. Shuning uchun har partiyada bir marta ADOLAT ma'lumotnomasidan
+// code===8 + claim_types CIVIL bo'yicha aniqlanadi. GUID o'zgarsa ham dinamik topiladi; topilmasa —
+// jonli tekshirilgan zaxira qiymat (2026-09-08). Draft va real yuborish — IKKALASIGA ham tegishli.
+const DUTY_REASON_ART8_CIVIL_FALLBACK = 'b4c87d9e-1f9e-4e9f-94f5-0b21840d57b1';
+export async function resolveDutyReasonArt8(s: CabinetSession): Promise<string> {
+  try {
+    const r = (await getDutyReasons(s)) as { json?: unknown; data?: unknown };
+    const arr = (Array.isArray(r?.json) ? r.json : Array.isArray(r?.data) ? r.data : []) as Array<Record<string, unknown>>;
+    const isCivil = (x: Record<string, unknown>) => String(x?.claim_types ?? '').toUpperCase().includes('CIVIL');
+    const hit =
+      arr.find((x) => Number(x?.code) === 8 && isCivil(x) && x?.is_for_registration !== false) ??
+      arr.find((x) => Number(x?.code) === 8);
+    if (hit?.id) return String(hit.id);
+  } catch { /* ma'lumotnoma olinmasa — zaxira qiymat */ }
+  return DUTY_REASON_ART8_CIVIL_FALLBACK;
+}
 export const getMinimumWages = (s: CabinetSession) => jget(s, ENDPOINTS.minimumWages);
 export const listDrafts = (s: CabinetSession) => jget(s, ENDPOINTS.draftList);
 export const getConflictCases = (s: CabinetSession) => jget(s, ENDPOINTS.conflictCases);

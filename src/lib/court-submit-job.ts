@@ -8,6 +8,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { prisma } from './db';
 import { getStoredCabinetSession } from './cabinet/session';
+import { resolveDutyReasonArt8 } from './cabinet/api';
 import { CabinetSubmitEngine } from '../../cabinet-api-skeleton/submitter';
 import { CabinetRequestError } from '../../cabinet-api-skeleton/client';
 import { paceCase, backoff, caseGapFor, isQueuePaused, isFirmPaused, REQUEST_GAP_MS, CASE_GAP_MS } from './cabinet/pacer';
@@ -407,6 +408,11 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
     const sess = await getStoredCabinetSession(firmStir);
     const sessionToken = process.env.CABINET_TOKEN || sess.token;
 
+    // DAVLAT BOJI IMTIYOZI (8-modda). Bu ishlar mikromoliya — davlat bojidan ozod. Imtiyoz
+    // (duty_reason_id) qo'yilmasa ADOLAT to'liq bojni hisoblaydi (1+ mln «Тўланмаган») va yurist
+    // «Sudga yuborish»ni bosolmaydi. Partiya boshida bir marta aniqlanadi (draft VA real uchun).
+    const dutyReasonId = await resolveDutyReasonArt8(sess);
+
     // Da'vogar: bazadan; bo'lmasa portaldagi qoralamalardan avtomatik aniqlanib saqlanadi;
     // u ham bo'lmasa ClaimantUnknownError — taxmin qilib yubormaymiz.
     const claimantId = await resolveClaimantId(firm, sess);
@@ -755,6 +761,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
             result = await engine.submitCase(caseData, filesToUpload, {
               dryRun: isDryRun,
               prepareDraftOnly: isDraftMode,
+              dutyReasonId, // 8-modda imtiyozi — davlat boji 0 bo'ladi (draft va real)
               // Bosqichni bazaga yozamiz — UI navbat panelida «Ketyapti · Hujjatlar (15 ta)»
               // deb ko'rsatadi. Yozuv muhim emas: yiqilsa ish to'xtamasin.
               onStep: (step) => {

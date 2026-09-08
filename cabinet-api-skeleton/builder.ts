@@ -207,11 +207,13 @@ export class CabinetPayloadBuilder {
    * Sud xarajatlari. `case_details.state_duty_amount` SHUNDAN o'qiladi — bo'lmasa portal
    * yiqiladi, shuning uchun har doim yuboriladi.
    *
-   * TODO(duty-reason): bojdan ozod qilish ASOSI (duty_reason_id) — YURIDIK tanlov, kodda
-   * taxmin qilinmaydi. GET /guide/duty-reasons 12 ta variant qaytaradi (masalan «Давлат божи
-   * тўғрисидаги қонуннинг 8/9/10-моддасига асосан озод этилган»). Qaysi modda bizning
-   * mikroqarz undirish da'vosiga tegishli ekanini yurist tasdiqlashi va Firm/Setting'ga
-   * yozilishi kerak. Berilmasa — boj to'lanishi kerak deb hisoblanadi.
+   * DAVLAT BOJI IMTIYOZI (duty_reason_id): FUQAROLIK (CIVIL) da'volarida ADOLAT to'liq davlat
+   * bojini hisoblaydi (1+ mln) va u «Тўланмаган» bo'lib turadi — yurist «Sudga yuborish»ni
+   * bosolmaydi. Bu ishlar mikromoliya — «Давлат божи тўғрисидаги қонуннинг 8-моддасига асосан
+   * озод этилган» (code=8, CIVIL) imtiyozi qo'yiladi va boj 0 bo'ladi. duty_reason_id chaqiruvchi
+   * tomonidan beriladi (court-submit-job → resolveDutyReasonArt8, ADOLAT ma'lumotnomasidan
+   * dinamik). 2026-09-07 da ba'zi da'vo turi uchun calc-duties STATE=0 qaytargan edi (imtiyoz
+   * kerak emas) — lekin joriy CIVIL ishlarда boj chiqadi, shuning uchun imtiyoz o'tkaziladi.
    */
   static buildCourtCosts(
     opts: { stateFee?: number; dutyReasonId?: string | null; receipts?: unknown[] } = {},
@@ -219,10 +221,6 @@ export class CabinetPayloadBuilder {
     return {
       stateFee: opts.stateFee ?? 0,
       customStateFee: null,
-      // 2026-09-07 jonli tekshiruv: calc-duties bizning da'vo turi uchun STATE=0 qaytardi
-      // (summadan qat'i nazar). Ya'ni davlat boji YO'Q va «bojdan ozod qilish asosi» ham
-      // kerak emas — ozod bo'ladigan boj mavjud emas. To'lanadigani POST=22 000 (pochta
-      // xarajati) va VCC=110 000.
       duty_reason_id: opts.dutyReasonId ?? null,
       // To'langan pochta kvitansiyasi shu yerga tushadi (find-by-receipt-number natijasi).
       receipts: opts.receipts ?? [],
