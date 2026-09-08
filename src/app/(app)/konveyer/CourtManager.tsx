@@ -410,6 +410,12 @@ const CLIENT_FILTERS: { key: ReadyFilter; label: string; icon: React.JSX.Element
   { key: 'submitted', label: 'Sudda', icon: svg(<><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4Z" /></>), activeCls: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-300', iconCls: 'text-indigo-500' },
   { key: 'all', label: 'Hammasi', icon: svg(<><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></>), activeCls: 'bg-slate-500/15 text-slate-700 dark:text-slate-300', iconCls: 'text-slate-500' },
 ];
+
+// Firma qatorida ko'rsatiladigan holat chiplari — «Hammasi» dan boshqa hammasi.
+// ALOHIDA konstanta: qator layouti (ustunlar soni) ham shu ro'yxatdan hisoblanadi, ya'ni
+// yangi holat qo'shilganda grid o'zi moslashadi va hech nima keyingi qatorga tushmaydi.
+const FIRM_STAT_CHIPS = CLIENT_FILTERS.filter((f) => f.key !== 'all');
+
 // Firma qatoridagi qisqa xulosa — tab'lar bilan bir xil ikon/rang (Tayyor emas · Tayyor · Qoralama · Yuborilgan),
 // «batafsil» yopiq paytda ko'rinadi. `all` chiqmaydi (u umumiy jami).
 const firmStatValue = (fr: FirmReadiness, key: ReadyFilter): number =>
@@ -1251,17 +1257,16 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
               baribir «Tayyor»da qoladi) va qatorda faqat chalg'itardi. Batafsil ko'rish kerak bo'lsa,
               «Batafsil» ochilganda tab sifatida chiqadi.
               «Batafsil» YOPIQ paytda ko'rinadi (ochiq bo'lsa xuddi shu tab'lar pastda chiqadi). */}
-          {/* Chiplar GRID'da: har biri bir xil kenglikda, ya'ni «Tayyor 491» va pastdagi
-              «Tayyor 164» ko'z bilan solishtiriladigan bo'lib bir ustunda turadi. Ilgari
-              ular oqim bo'ylab joylashardi va har firmada boshqa joydan boshlanardi. */}
-          {/* Birinchi ustun kengroq: «Tayyor emas» eng uzun yorliq va eng katta son
-              (4 xonali) — teng ustunlarda u yagona bo'lib qirqilardi. Nisbat qat'iy,
-              ya'ni ustunlar baribir hamma qatorda bir chiziqda turadi.
-              Ustunlar soni CLIENT_FILTERS bilan mos: Tayyor emas · Tayyor · Navbatda ·
-              Qoralama · Sudda. */}
+          {/* Chiplar GRID'da: ustunlar hamma firma qatorida BIR CHIZIQDA turadi, ya'ni
+              «Tayyor 491» va pastdagi «Tayyor 164» ko'z bilan solishtiriladi. Ilgari ular
+              matn oqimi bo'ylab joylashardi va har firmada boshqa joydan boshlanardi.
+              Birinchi ustun kengroq: «Tayyor emas» eng uzun yorliq va eng katta son
+              (4 xonali) — teng ustunlarda u yagona bo'lib qirqilardi.
+              Besh ustunga o'tish `2xl` da: 1280px da beshtasi siqilib «Tayyo… / Nedb…»
+              bo'lib qirqilardi, shuning uchun undan pastda 2–3 ustun. */}
           {!drillOpen && (
-            <div className="mt-2 grid max-w-[40rem] grid-cols-2 gap-1.5 xl:grid-cols-[1.3fr_1fr_1fr_1fr_1fr]">
-              {CLIENT_FILTERS.filter((f) => f.key !== 'all').map((f) => (
+            <div className="mt-2 grid max-w-[40rem] grid-cols-2 gap-1.5 sm:grid-cols-3 2xl:grid-cols-[1.3fr_1fr_1fr_1fr_1fr]">
+              {FIRM_STAT_CHIPS.map((f) => (
                 <span key={f.key} className="inline-flex min-w-0 items-center gap-1.5 rounded-lg bg-surface-2 px-2 py-1 text-[11px] font-medium" title={f.label}>
                   <span className={`shrink-0 ${f.iconCls}`}>{f.icon}</span>
                   <span className="truncate text-muted">{f.label}</span>
@@ -1773,7 +1778,10 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                     </div>
                   </div>
                 </div>
-                <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-4">
+                {/* BESHTA karta — ustun soni ham beshta. Ilgari `sm:grid-cols-4` edi va
+                    «Navbatda» qo'shilgach oxirgi karta yolg'iz ikkinchi qatorga tushib,
+                    yonida katta bo'sh joy qolardi. */}
+                <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
                   <Stat label="Jami" value={ov!.total} icon={statIcon('all')} hint="Tanlangan firma/snapshot bo'yicha" />
                   <Stat label="Tayyor" value={ov!.sendable} tone="emerald" icon={statIcon('sendable')} hint="Talabnoma + skan + oferta + check + boji (invoice raqami) bor, hali yuborilmagan — shu tab'dan yuboriladi" />
                   <Stat label="Navbatda" value={ov!.queued} tone="amber" icon={statIcon('queued')} hint="Partiyaga olingan, sudga hali yetib bormagan — «Tayyor» sanog'idan chiqarilgan" />
