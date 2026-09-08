@@ -382,7 +382,9 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
   try {
     const firm = await prisma.firm.findUnique({
       where: { id: opts.firmId },
-      select: { id: true, shortName: true, stir: true, cabinetClaimantId: true },
+      // `code` — firma filial kodi; ClientCaseStatus.branchCode bilan bir xil, portalda
+      // allaqachon da'vosi bor mijozlarni topish uchun kerak.
+      select: { id: true, shortName: true, stir: true, code: true, cabinetClaimantId: true },
     });
     if (!firm) {
       throw new Error(`Firma topilmadi: id=${opts.firmId}`);
@@ -471,6 +473,43 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
       orderBy: { id: 'asc' },
     });
 
+    // ── PORTALDA ALLAQACHON DA'VOSI BOR ─────────────────────────────────────────────────
+    //
+    // Yuristlar ADOLAT'da to'g'ridan-to'g'ri ham ish qo'yishadi. `selectReadyCaseIds` bunday
+    // ishlarni tanlamaydi, lekin `resume` va avto-davom navbatdan TO'G'RIDAN oladi va u
+    // filtrni chetlab o'tadi. Shuning uchun to'siq DVIGATELNING O'ZIDA ham turadi —
+    // bir odamga ikkinchi da'vo ochilishi qaytarib bo'lmaydigan xato.
+    //
+    // FAQAT ANIQ moslik (matchedBy='PINFL'): ism bo'yicha taxmin haqiqiy qarzdorni
+    // jimgina konveyerdan chiqarib yuborardi (operator qarori, 2026-09-08).
+    const casePinfls = [...new Set(targetCases.map((c) => c.pinfl).filter(Boolean) as string[])];
+    const externalRows = casePinfls.length && firm.code
+      ? await prisma.clientCaseStatus.findMany({
+          where: { source: 'CABINET', branchCode: firm.code, matchedBy: 'PINFL', pinfl: { in: casePinfls } },
+          select: { pinfl: true, caseNumber: true },
+        })
+      : [];
+    const externalByPinfl = new Map(externalRows.map((r) => [r.pinfl!, r.caseNumber]));
+    if (externalByPinfl.size) {
+      const hit = targetCases.filter((c) => c.pinfl && externalByPinfl.has(c.pinfl));
+      const why = (c: { pinfl: string | null }) =>
+        `ADOLAT'da bu mijozga shu firma nomidan da'vo ALLAQACHON bor (${externalByPinfl.get(c.pinfl!)}) — `
+        + `yurist qo'lda kiritgan. Ikkinchi da'vo ochilmasligi uchun yuborilmadi.`;
+      for (const ac of hit) {
+        await prisma.courtQueueItem.upsert({
+          where: { caseId: ac.id },
+          create: { caseId: ac.id, firmId: firm.id, account: firmStir, state: 'SKIPPED', jobId, finishedAt: new Date(), lastError: why(ac) },
+          update: { state: 'SKIPPED', jobId, step: null, finishedAt: new Date(), lastError: why(ac) },
+        });
+      }
+      await prisma.arizaCase.updateMany({
+        where: { id: { in: hit.map((c) => c.id) }, stage: { not: 'COURT_SUBMITTED' } },
+        data: { courtSentAt: null },
+      });
+      targetCases = targetCases.filter((c) => !c.pinfl || !externalByPinfl.has(c.pinfl));
+      console.log(`[Job ${jobId}] ${hit.length} ta ish portalda allaqachon da'vo qilingani uchun o'tkazib yuborildi (qo'lda kiritilgan).`);
+    }
+
     // ── DAVLAT BOJI PREFLIGHT ────────────────────────────────────────────────────────────
     //
     // To'lanmagan bojli ishni portalga OLIB CHIQMAYMIZ. Portal `find-by-receipt-number`
@@ -526,7 +565,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
     let okCount = 0;
     let failCount = 0;
     // Boji to'lanmagani uchun o'tkazib yuborilganlar — «xato» emas, alohida sanaladi.
-    let skipCount = unpaid.length;
+    let skipCount = unpaid.length + externalByPinfl.size;
     // Ketma-ket portal nosozliklari — shu songa yetganda navbat to'xtaydi (haqiqiy blok belgisi).
     let consecutiveBlocked = 0;
     const MAX_CONSECUTIVE_BLOCKED = 3;

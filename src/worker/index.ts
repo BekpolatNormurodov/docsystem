@@ -6,6 +6,7 @@ import { runJobById } from '../lib/job-runner';
 import { firmsDueForSync, syncFirm, AUTO_EVERY_MS } from '../lib/billing-check/sync';
 import { FIRMS } from '../lib/firms';
 import { getStoredCabinetSession } from '../lib/cabinet/session';
+import { ingestCabinetDetails } from '../lib/cabinet/detail-ingest';
 import { ingestCabinetStatuses } from '../lib/cabinet/status-ingest';
 import { SessionExpiredError } from '../lib/session-store';
 import { autoResumeTick } from '../lib/court-auto-resume';
@@ -389,6 +390,46 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
 const COURT_STATUS_EVERY_MS = 30 * 60_000;
 const COURT_STATUS_FIRM_GAP_MS = 15_000;
 
+// ── ANIQ (PINFL) MOSLIK YIG'ISH ────────────────────────────────────────────────────────
+//
+// NEGA KERAK. Yuristlar ADOLAT'da to'g'ridan-to'g'ri ham da'vo qo'yishadi. Ro'yxat so'rovi
+// (`ingestCabinetStatuses`) bunday ishlarni ko'radi, lekin javobgarning PINFL'ini
+// BERMAYDI — faqat ismini. Ism bo'yicha moslik esa TAXMIN, unga tayanib bo'lmaydi
+// (operator qarori, 2026-09-08). Aniq PINFL faqat `get-one-case-by-id` detalida bor.
+//
+// 2026-09-08 holati: portalda 3 173 ta ish, aniq moslik 0 ta — chunki bu modul faqat
+// qo'lda skriptdan chaqirilardi va worker uni HECH QACHON ishga tushirmasdi. Natijada
+// bizda «Tayyor» turgan 391 ta ish portalda allaqachon da'vo qilingan odamlarga tegishli
+// edi va avtomatika ularga IKKINCHI da'vo ochishi mumkin edi.
+//
+// Sikl ATAYIN kichik partiyalar bilan ishlaydi: har o'tishda firma boshiga 40 ta ish,
+// so'rovlar orasida 8 soniya (~5 daqiqa efir vaqti). Bir kunda ~1 100 ta ish hal bo'ladi,
+// ya'ni orqada qolgan 3 173 ta ~3 kunda tugaydi va keyin faqat yangilari qoladi.
+const COURT_DETAIL_EVERY_MS = 20 * 60_000;
+const COURT_DETAIL_BATCH = 40;
+
+async function courtDetailSyncLoop(): Promise<void> {
+  console.log(`[worker] sud detali (aniq PINFL): har ${Math.round(COURT_DETAIL_EVERY_MS / 60_000)} daqiqada, firma boshiga ${COURT_DETAIL_BATCH} ta`);
+  await new Promise((r) => setTimeout(r, 150_000)); // status sync birinchi o'tsin — ro'yxat to'lsin
+  while (!stopping) {
+    for (const f of FIRMS) {
+      if (stopping) break;
+      try {
+        const s = await getStoredCabinetSession(f.stir);
+        const r = await ingestCabinetDetails(s, f.branchCode, { limit: COURT_DETAIL_BATCH, onlyUnresolved: true });
+        if (r.total > 0) {
+          console.log(`[worker] sud detali ${f.branchCode}: ${r.fetched}/${r.total} olindi, ${r.withPinfl} tasida PINFL, ${r.failed} xato`);
+        }
+      } catch (e) {
+        const msg = e instanceof SessionExpiredError ? 'sessiya yo\'q' : (e as Error).message?.slice(0, 120);
+        if (!(e instanceof SessionExpiredError)) console.error(`[worker] sud detali ${f.branchCode}: ${msg}`);
+      }
+      await new Promise((r) => setTimeout(r, COURT_STATUS_FIRM_GAP_MS));
+    }
+    await new Promise((r) => setTimeout(r, COURT_DETAIL_EVERY_MS));
+  }
+}
+
 async function courtStatusSyncLoop(): Promise<void> {
   console.log(`[worker] sud status sync: har ${Math.round(COURT_STATUS_EVERY_MS / 60_000)} daqiqada`);
   await new Promise((r) => setTimeout(r, 90_000)); // migrate/DB tayyor bo'lsin
@@ -544,6 +585,7 @@ void billingAutoSyncLoop().catch((e) => console.error('[worker] billing auto-syn
 void courtSubmitLoop().catch((e) => console.error('[worker] sud sikli fatal', e));
 void courtAutoResumeLoop().catch((e) => console.error('[worker] avto-davom fatal', e));
 void courtStatusSyncLoop().catch((e) => console.error('[worker] sud status sync fatal', e));
+void courtDetailSyncLoop().catch((e) => console.error('[worker] sud detali sync fatal', e));
 void courtOutcomeSyncLoop().catch((e) => console.error('[worker] sud natijalari sinxroni fatal', e));
 
 loop().catch((e) => {

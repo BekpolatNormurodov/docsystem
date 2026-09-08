@@ -1,6 +1,7 @@
 // Enrich cabinet cases with their full detail (get-one-case-by-id): the detail
 // exposes the defendant PINFL (hidden in list views), enabling EXACT pinfl
 // linking + address/passport/judge. Updates ClientCaseStatus in place.
+import { Prisma } from '@prisma/client';
 import { prisma } from '../db';
 import { cabinetFetch } from './api';
 import type { CabinetSession } from './oneid';
@@ -16,12 +17,26 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // a concurrency-6 detail-fetch pool over a firm's full case list is believed to have
 // tripped a multi-hour connection block affecting the whole *.sud.uz domain). Fetch
 // one case at a time with a fixed pacing delay between requests instead of a pool.
-const DETAIL_FETCH_INTERVAL_MS = 60_000;
+//
+// 60 SONIYA JUDA SEKIN EDI. 2026-09-08: portalda 3 173 ta ish bor, ya'ni to'liq o'tish
+// ~53 soat. Shu sabab aniq (PINFL) moslik BITTA HAM yig'ilmagan edi va sudga yuborish
+// to'sig'i ishlamasdi. Blokni tezlik emas, PARALLELLIK keltirib chiqargan: bir vaqtda 6 ta
+// so'rov. Ketma-ket so'rov esa allaqachon isbotlangan — sudga yuborish dvigateli har
+// kuni soatlab 4 soniyada bittadan so'rov yuboradi va hech qachon bloklanmagan.
+// Shuning uchun 8 soniya: dvigateldan IKKI BAROBAR sekinroq, lekin 3 173 ta ishni
+// ~7 soatda emas, kerakli qismini ~1 soatda o'tadi.
+const DETAIL_FETCH_INTERVAL_MS = Number(process.env.CABINET_DETAIL_GAP_MS) || 8_000;
 
 export interface DetailResult { total: number; fetched: number; withPinfl: number; failed: number }
 
 export async function ingestCabinetDetails(
   session: CabinetSession, branchCode: string,
+  opts: {
+    /** Shu partiyada eng ko'pi shuncha ish olinadi (worker sikli uchun). */
+    limit?: number;
+    /** Allaqachon aniq bog'langan yoki detali olingan ishlarni qayta so'ramaslik. */
+    onlyUnresolved?: boolean;
+  } = {},
 ): Promise<DetailResult> {
   // re-pull the list to get case_id (the detail key) alongside our stored caseNumber
   const cases: { caseId: string; caseNumber: string }[] = [];
@@ -39,11 +54,31 @@ export async function ingestCabinetDetails(
     } catch { /* one flaky list endpoint must not abort the whole ingest */ }
   }
 
-  const res: DetailResult = { total: cases.length, fetched: 0, withPinfl: 0, failed: 0 };
+  // FAQAT HAL QILINMAGANLARNI olamiz.
+  //
+  // Har siklda 3 173 ta ishning detalini qayta so'rash — portalga behuda yuk va bizga
+  // hech narsa bermaydi: aniq bog'langan ish o'zgarmaydi. Shuning uchun `matchedBy`
+  // allaqachon 'PINFL' bo'lganlari va detali olinganlari o'tkazib yuboriladi.
+  let pending = cases;
+  if (opts.onlyUnresolved) {
+    const resolved = await prisma.clientCaseStatus.findMany({
+      where: {
+        source: 'CABINET', branchCode,
+        caseNumber: { in: cases.map((c) => c.caseNumber) },
+        OR: [{ matchedBy: 'PINFL' }, { detail: { not: Prisma.DbNull } }],
+      },
+      select: { caseNumber: true },
+    });
+    const done = new Set(resolved.map((r) => r.caseNumber));
+    pending = cases.filter((c) => !done.has(c.caseNumber));
+  }
+  if (opts.limit && pending.length > opts.limit) pending = pending.slice(0, opts.limit);
+
+  const res: DetailResult = { total: pending.length, fetched: 0, withPinfl: 0, failed: 0 };
   const snap = await prisma.snapshot.findFirst({ orderBy: { reportDate: 'desc' } });
 
-  for (let idx = 0; idx < cases.length; idx++) {
-    const c = cases[idx];
+  for (let idx = 0; idx < pending.length; idx++) {
+    const c = pending[idx];
     try {
       const r = await cabinetFetch(session, `/api/cabinet/case/get-one-case-by-id/${c.caseId}`);
       const d: any = r.json ?? {};
@@ -82,7 +117,7 @@ export async function ingestCabinetDetails(
         });
       }
     } catch { res.failed++; }
-    if (idx < cases.length - 1) await sleep(DETAIL_FETCH_INTERVAL_MS);
+    if (idx < pending.length - 1) await sleep(DETAIL_FETCH_INTERVAL_MS);
   }
 
   return res;

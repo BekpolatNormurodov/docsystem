@@ -11,10 +11,11 @@ import { MAX_COURT_BATCH, MAX_ZIP_BATCH } from '@/lib/court-batch';
 // ── types (mirror src/lib/court-ready.ts) ────────────────────────────────────
 interface Missing { talabnoma: number; scan: number; oferta: number; receipt: number; boji: number }
 interface FirmDocsStatus { complete: boolean; missing: string[]; present: string[] }
-interface FirmReadiness { firmId: number; firmName: string; total: number; ready: number; exported: number; submitted: number; draft: number; queued: number; sendable: number; missing: Missing; almost: Missing; docs: FirmDocsStatus }
+// `submittedExternal` — `submitted` ICHIDAN: yurist ADOLAT'da qo'lda kiritgan da'volar.
+interface FirmReadiness { firmId: number; firmName: string; total: number; ready: number; exported: number; submitted: number; submittedExternal: number; draft: number; queued: number; sendable: number; missing: Missing; almost: Missing; docs: FirmDocsStatus }
 // Sud paketiga qo'shiladigan firma hujjatlari — 3 tasi ham kerak.
 const FIRM_DOCS_ALL = ['guvohnoma', 'ishonchnoma', 'shartnoma'];
-interface Overall { total: number; ready: number; exported: number; submitted: number; draft: number; queued: number; sendable: number; missing: Missing; almost: Missing }
+interface Overall { total: number; ready: number; exported: number; submitted: number; submittedExternal: number; draft: number; queued: number; sendable: number; missing: Missing; almost: Missing }
 interface StatusBucket { code: string; label: string; tone: string; count: number; source: string }
 interface StatusBoard { total: number; matched: number; buckets: StatusBucket[]; sources: Record<string, number> }
 interface ReturnCase {
@@ -115,11 +116,22 @@ function ReadinessRing({ pct, size = 48, sw = 5 }: { pct: number; size?: number;
   );
 }
 
-function Stat({ label, value, tone = 'slate', hint, icon }: { label: string; value: number; tone?: string; hint?: string; icon?: React.JSX.Element }) {
+// `extra` — asosiy sondan ALOHIDA manbadan kelgan qism («Sudda» uchun: yurist portalda
+// qo'lda kiritgan da'volar). Kichikroq va boshqa rangda, `50+120` ko'rinishida: ikkalasi
+// ham sudda, lekin qaysi biri qayerdan kelgani ko'rinib tursin.
+function Stat({ label, value, tone = 'slate', hint, icon, extra, extraHint }: {
+  label: string; value: number; tone?: string; hint?: string; icon?: React.JSX.Element;
+  extra?: number; extraHint?: string;
+}) {
   return (
     <div className="flex min-h-[104px] flex-col items-center justify-center gap-1.5 rounded-xl border border-line bg-surface p-3 text-center" title={hint}>
       {icon}
-      <div className={`text-3xl font-bold leading-none tabular-nums ${VALUE_TONE[tone] ?? ''}`}>{n(value)}</div>
+      <div className={`flex items-baseline justify-center gap-0.5 text-3xl font-bold leading-none tabular-nums ${VALUE_TONE[tone] ?? ''}`}>
+        {n(extra ? value - extra : value)}
+        {!!extra && (
+          <span className="text-lg font-semibold text-amber-600 dark:text-amber-400" title={extraHint}>+{n(extra)}</span>
+        )}
+      </div>
       <div className="text-[11px] font-medium text-muted">{label}</div>
     </div>
   );
@@ -1444,7 +1456,22 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
                 <span key={f.key} className="inline-flex min-w-0 items-center gap-1.5 rounded-lg bg-surface-2 px-2 py-1 text-[11px] font-medium" title={f.label}>
                   <span className={`shrink-0 ${f.iconCls}`}>{f.icon}</span>
                   <span className="truncate text-muted">{f.label}</span>
-                  <span className="ml-auto shrink-0 font-semibold tabular-nums">{n(firmStatValue(fr, f.key))}</span>
+                  {/* «Sudda» ATAYIN ikki qismga bo'linadi: `50+120`.
+                      Chapdagi — BIZ yuborganlar, o'ngdagi kichikroq va boshqa rangdagi —
+                      yurist ADOLAT'da QO'LDA kiritganlari. Ular ham sudda, ya'ni qayta
+                      yuborilmaydi, lekin manbasi boshqa: operator qaysi raqam nimadan
+                      kelganini bir qarashda ko'rishi kerak (2026-09-08 operator so'rovi). */}
+                  {f.key === 'submitted' && fr.submittedExternal > 0 ? (
+                    <span className="ml-auto shrink-0 tabular-nums">
+                      <span className="font-semibold">{n(fr.submitted - fr.submittedExternal)}</span>
+                      <span
+                        className="text-[10px] font-semibold text-amber-600 dark:text-amber-400"
+                        title={`+${n(fr.submittedExternal)} tasini yurist ADOLAT'da qo'lda kiritgan — biz yubormaganmiz. Ular qayta yuborilmaydi.`}
+                      >+{n(fr.submittedExternal)}</span>
+                    </span>
+                  ) : (
+                    <span className="ml-auto shrink-0 font-semibold tabular-nums">{n(firmStatValue(fr, f.key))}</span>
+                  )}
                 </span>
               ))}
             </div>
@@ -2042,7 +2069,12 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                   {/* «Sudda» — ATAYIN `submitted`, `exported` EMAS. Ilgari bu karta ZIP
                       olingan ishlarni ham qo'shib «Yuborilgan 131» deb ko'rsatardi, holbuki
                       ularning ko'pi sudga ketmagan edi (2026-09-07: BRIGHT'da 100 tasi ZIP). */}
-                  <Stat label="Sudda" value={ov!.submitted} tone="indigo" icon={statIcon('submitted')} hint="ADOLAT orqali sudga rasman topshirilgan da'volar" />
+                  <Stat
+                    label="Sudda" value={ov!.submitted} tone="indigo" icon={statIcon('submitted')}
+                    hint="ADOLAT'da rasman ochilgan da'volar — tizim yuborganlari va yurist qo'lda kiritganlari"
+                    extra={ov!.submittedExternal}
+                    extraHint={`${n(ov!.submittedExternal)} tasini yurist ADOLAT'da qo'lda kiritgan (biz yubormaganmiz). Ular qayta yuborilmaydi.`}
+                  />
                 </div>
               </div>
               {(ov!.almost.scan + ov!.almost.oferta + ov!.almost.talabnoma + ov!.almost.receipt + ov!.almost.boji) > 0 && (
