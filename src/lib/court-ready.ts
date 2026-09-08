@@ -159,11 +159,31 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
  * portfelimizdagi mijozga to'g'ri kelgani. Ism bo'yicha taxmin ATAYIN hisobga olinmaydi
  * (operator qarori): noto'g'ri taxmin haqiqiy qarzdorni konveyerdan jimgina chiqarardi.
  */
+/**
+ * TIRIK bo'lmagan portal holatlari — bunday yozuv qayta yuborishni TO'SMAYDI.
+ *
+ * DECLINED / RETURNED — sud rad etgan yoki qaytargan: da'vo YO'Q, ish qaytadan berilishi
+ * KERAK. Ularni to'suvchi deb hisoblash 2026-09-08 dagi eng og'ir xatoga olib keldi: sud
+ * rad etgan 298 ta ish `submitted` bo'lib qolar, `sendable` bo'lmas va «Tayyor»ga QAYTA
+ * OLMASDI — firma kartasi ularni «Sudda» der, navbat paneli esa aynan o'sha odamni
+ * «Yuborilmadi» derdi. Bu shart bir marta qo'shilib, keyingi tahrirda tushib qolgan —
+ * shuning uchun izoh SHU YERDA, so'rovning yonida turadi.
+ *
+ * CREATED / DRAFT — portalda ochilgan, lekin SUDGA BERILMAGAN qoralama. U da'vo emas
+ * (BRIGHT'da bunday 144 ta yozuv bor edi); to'suvchi deb hisoblash 144 ta mijozni
+ * konveyerdan asossiz chiqarib yuborardi.
+ */
+const NON_BLOCKING_PORTAL_STATUS = ['DECLINED', 'RETURNED', 'CREATED', 'DRAFT'];
+
 async function portalCasePinfls(branchCode: string | null): Promise<{ portal: Set<string>; manual: Set<string> }> {
   const empty = { portal: new Set<string>(), manual: new Set<string>() };
   if (!branchCode) return empty;
   const rows = await prisma.clientCaseStatus.findMany({
-    where: { source: 'CABINET', branchCode, matchedBy: 'PINFL', pinfl: { not: null } },
+    where: {
+      source: 'CABINET', branchCode, matchedBy: 'PINFL', pinfl: { not: null },
+      // FAQAT TIRIK DA'VO to'sadi (yuqoridagi ro'yxatga qarang).
+      status: { notIn: NON_BLOCKING_PORTAL_STATUS },
+    },
     select: { pinfl: true, caseNumber: true },
   });
   if (!rows.length) return empty;
