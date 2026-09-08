@@ -20,10 +20,6 @@ import { pausedFirmIds } from './cabinet/pacer';
 import { MAX_COURT_BATCH, selectReadyCaseIds } from './court-ready';
 
 const DRAFT_AUTO_KEY = 'court_draft_auto';
-// Round-robin kursori: oxirgi partiya berilgan firma id'si. Har tick shundan KEYINGI firmadan
-// boshlaydi — aks holda past-id firma (masalan doim xato beradigan ishlari qolgan) har tickда
-// birinchi bo'lib partiya olib, yuqori-id firmalarning tayyor ishlarini abadiy bloklab qo'yardi.
-const DRAFT_CURSOR_KEY = 'court_draft_cursor';
 
 /** 24/7 avto-qoralama yoqilganmi. */
 export async function isDraftAutoOn(): Promise<boolean> {
@@ -88,30 +84,44 @@ export async function draftAutoTick(): Promise<string | null> {
   const active = await prisma.job.count({ where: { type: 'COURT_SUBMIT', status: { in: ['PENDING', 'RUNNING'] } } });
   if (active > 0) return null;
 
-  const [snap, pausedFirms, cursorRow] = await Promise.all([
+  const [snap, pausedFirms, recentJobs] = await Promise.all([
     prisma.snapshot.findFirst({ orderBy: { reportDate: 'desc' }, select: { id: true } }),
     pausedFirmIds().then((ids) => new Set(ids)), // faqat firma-darajali pauza (umumiysini emas)
-    prisma.setting.findUnique({ where: { key: DRAFT_CURSOR_KEY }, select: { value: true } }),
+    // Firma bo'yicha OXIRGI tugagan qoralama partiyasi natijasi — buzuq firmani aniqlash uchun.
+    prisma.job.findMany({
+      where: { type: 'COURT_SUBMIT', status: { in: ['DONE', 'FAILED'] } },
+      orderBy: { id: 'desc' }, take: 40, select: { progress: true, total: true, params: true },
+    }),
   ]);
 
-  // ROUND-ROBIN: firmalarni id bo'yicha tartiblab, oxirgi berilган firmadan KEYINGISIDAN
-  // boshlaymiz. Har tick bitta firmaga bitta partiya (portalni bosmaslik uchun), lekin
-  // ADOLATLI navbat bilan — hech bir firma boshqasini bloklab qo'ymaydi.
-  const cursor = Number(cursorRow?.value) || 0;
+  // BUZUQ firma = oxirgi qoralama partiyasi 0 ta chiqargan (hammasi xato: claimant yo'q, sud
+  // yopiq, sessiya tugagan...). Bunday firma har tickда birinchi bo'lib partiya olib, sog'lom
+  // firmalarni bloklab qo'ymasin (audit: firma-ochligi). Faqat ENG OXIRGI partiya hisobga olinadi.
+  const stuck = new Set<number>();
+  const seenFirm = new Set<number>();
+  for (const j of recentJobs) {
+    const p = j.params as { firmId?: number; draftMode?: boolean } | null;
+    if (p?.draftMode !== true) continue;               // faqat qoralama partiyalari
+    const fid = Number(p.firmId);
+    if (!Number.isInteger(fid) || seenFirm.has(fid)) continue;
+    seenFirm.add(fid);                                  // shu firmaning eng oxirgisi
+    if ((j.total ?? 0) > 0 && (j.progress ?? 0) === 0) stuck.add(fid);
+  }
+
+  // TO'LIQ DRENAJ: firmalarni id tartibida yuramiz va BIRINCHI sog'lom firmaga partiya beramiz.
+  // U firma har tickда yana tanlanadi — TAYYOR ISHI TUGAGUNCHA (drain), keyin keyingisiga
+  // o'tadi. Shunda operator «BRIGHT hammasi ketyapti» deb ko'radi, 200 da to'xtab qolmaydi.
+  //   1-o'tish: sog'lom firmalar (tez, ishonchli).
+  //   2-o'tish: sog'lomlarda ish qolmasa — buzuqlarni ham QAYTA urinamiz (o'tkinchi xato tuzaladi;
+  //             butunlay buzuq bo'lsa faqat boshqa ish qolmaganda bitta tick sarflaydi).
   const firms = await prisma.firm.findMany({ select: { id: true, shortName: true }, orderBy: { id: 'asc' } });
-  const startIdx = firms.findIndex((f) => f.id > cursor);
-  const ordered = startIdx <= 0 ? firms : [...firms.slice(startIdx), ...firms.slice(0, startIdx)];
-  for (const f of ordered) {
-    if (pausedFirms.has(f.id)) continue; // shu firma alohida to'xtatilgan
-    const made = await createDraftBatch(f.id, snap?.id ?? undefined);
-    if (made) {
-      // Kursorni shu firmaga suramiz — keyingi tick undan KEYINGI firmadan boshlaydi.
-      await prisma.setting.upsert({
-        where: { key: DRAFT_CURSOR_KEY },
-        create: { key: DRAFT_CURSOR_KEY, value: String(f.id) },
-        update: { value: String(f.id) },
-      });
-      return `firma ${f.id} (${f.shortName}): #${made.jobId} — ${made.count} ta qoralama tayyorlanmoqda`;
+  for (const pass of [0, 1] as const) {
+    for (const f of firms) {
+      if (pausedFirms.has(f.id)) continue;              // shu firma alohida to'xtatilgan
+      if (pass === 0 && stuck.has(f.id)) continue;      // 1-o'tishda buzuqlar chetlab o'tiladi
+      if (pass === 1 && !stuck.has(f.id)) continue;     // 2-o'tishda faqat buzuqlar
+      const made = await createDraftBatch(f.id, snap?.id ?? undefined);
+      if (made) return `firma ${f.id} (${f.shortName}): #${made.jobId} — ${made.count} ta qoralama tayyorlanmoqda`;
     }
   }
   return null; // hech kimda tayyor ish qolmadi
