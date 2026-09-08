@@ -191,17 +191,41 @@ services:
     environment:
       PORT: "3128"
 
-  # ── nginx + certbot OLIB TASHLANDI (2026-09-08) ──────────────────────────────────────────
-  # Host 80/443 ni `fininvest-nginx` (fininvest stackining edge'i) egallaydi va u
-  # yuristsystem.uz ni to'g'ridan-to'g'ri `web:5200` ga proxy qiladi (yuqoridagi izohga qarang).
-  # Bu yerdagi `nginx` xizmati eski arxitekturadan qolgan ORTIQCHA edge edi: sertifikati yo'q
-  # (certbot_certs bo'sh) va portlar band bo'lgani uchun 5784 marta qayta ishga tushib,
-  # bekorga yiqilib turardi. Bir hostda ikkita nginx 80/443 ni egallolmaydi. `certbot` ham
-  # faqat shu nginx uchun edi. Ikkalasi olib tashlandi — sayt fininvest edge orqali ishlaydi,
-  # crash-loop tugadi, hech narsa tushmaydi.
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./docker/nginx/snippets:/etc/nginx/snippets:ro
+      - certbot_certs:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
+    depends_on:
+      web:
+        condition: service_started
+    # Reload every 6h so renewed certs are picked up without a restart; run nginx in the foreground.
+    command: >
+      /bin/sh -c "while :; do sleep 6h & wait $${!}; nginx -s reload; done & exec nginx -g 'daemon off;'"
+
+  certbot:
+    image: certbot/certbot
+    restart: unless-stopped
+    logging: *default-logging
+    volumes:
+      - certbot_certs:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    # Attempt renewal twice a day; certbot only actually renews within 30 days of expiry.
+    entrypoint: >
+      /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h & wait $${!}; done"
 
 volumes:
   mysql_data:
+  certbot_certs:
+  certbot_www:
 
 networks:
   # docsystem's own network (auto-named `docsystem_default`) — every internal service talks over it.
