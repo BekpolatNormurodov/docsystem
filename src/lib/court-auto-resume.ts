@@ -18,7 +18,7 @@
 import { prisma } from './db';
 import { enqueueJob } from './job-dispatch';
 import { allocateFirmCases, consumeCourtSend } from './court-routing';
-import { isQueuePaused } from './cabinet/pacer';
+import { isQueuePaused, isFirmPaused } from './cabinet/pacer';
 import { MAX_COURT_BATCH } from './court-batch';
 import { paidReceiptSet, unpaidQueueReason } from './court-ready';
 
@@ -64,7 +64,7 @@ async function backoffElapsed(): Promise<boolean> {
  * Navbatda tugamagan ishlar uchun yangi COURT_SUBMIT job yaratadi (saytdagi tugma bilan bir xil).
  * Qaytaradi: yaratilgan job id yoki null (yaratilmagan sabab bilan).
  */
-export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH): Promise<{ jobId: number; count: number } | null> {
+export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH, opts?: { requireNoSend?: boolean }): Promise<{ jobId: number; count: number } | null> {
   // ADOLAT'da ishi BOR (courtCaseId yozilgan) case QAYTA YUBORILMAYDI.
   //
   // FAILED har doim «sudga ketmadi» degani EMAS: save-suit muvaffaqiyatli o'tib,
@@ -211,6 +211,11 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH): 
   const draftMode = !suitMode && modeRows.some((r) => r.draftMode === true);
   const noSend = suitMode || draftMode; // ikkovi ham send-to-court qilmaydi (kvota band emas)
 
+  // UMUMIY "sudga yuborish to'xtatildi" pauzasi FAQAT real yuborishga taalluqli. suit/qoralama
+  // partiya sudga hech narsa yubormaydi — 24/7 qoralama kabi umumiy pauzada ham davom etadi.
+  // Faqat HAMMASI REAL bo'lgan partiya umumiy pauzada bloklanadi (aks holda pauza teshiladi).
+  if (opts?.requireNoSend && !noSend) return null;
+
   const alloc = await allocateFirmCases(firmId, caseIds, new Date(), undefined, noSend);
   let sendIds = caseIds;
   if (alloc) {
@@ -236,11 +241,19 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH): 
  * Hech narsa qilmasa `null`, aks holda nima qilinganini qaytaradi.
  */
 export async function autoResumeTick(): Promise<string | null> {
-  if (await isQueuePaused()) return null;                   // operator to'xtatgan — hurmat qilamiz
   if (!(await backoffElapsed())) return null;               // hali kutish muddati tugamagan
 
   const running = await prisma.job.count({ where: { type: 'COURT_SUBMIT', status: { in: ['PENDING', 'RUNNING'] } } });
   if (running > 0) return null;                             // ish allaqachon ketyapti
+
+  // UMUMIY "sudga yuborish to'xtatildi" pauzasi FAQAT REAL yuborishni to'xtatadi. suit/qoralama
+  // navbat ishlari sudga hech narsa yubormaydi — ular umumiy pauzada ham davom etishi kerak
+  // (24/7 qoralama bilan bir xil semantika). Ilgari bu yerda `if (isQueuePaused()) return null`
+  // turardi: umumiy pauza yoqilganда suit-rejim navbat ishlari (masalan BRIGHT'ning 199 tasi)
+  // butunlay qotib qolardi — draftAutoTick ularni «sendable emas» deb chetlab o'tadi, autoResume
+  // esa umumiy pauzada to'xtardi, natijada hech kim ishlamasdi. Endi umumiy pauza faqat REAL
+  // partiyani bloklaydi (createResumeJob'даги requireNoSend), suit/qoralama davom etadi.
+  const globalPaused = await isQueuePaused();
 
   // Qaysi firmalarda tugamagan ish bor — eng ko'pidan boshlaymiz.
   // SKIPPED ham hisobga olinadi: firmada faqat boji to'langan SKIPPED ish qolgan bo'lsa ham
@@ -254,16 +267,12 @@ export async function autoResumeTick(): Promise<string | null> {
   if (groups.length === 0) { await resetQueueBackoff(); return null; }
 
   for (const g of groups) {
-    // FIRMA DARAJASIDAGI PAUZANI ham hurmat qilamiz.
-    //
-    // Yuqoridagi tekshiruv faqat UMUMIY pauzani ko'rardi. Operator bitta firmani
-    // to'xtatib qo'ysa, avtomat har daqiqada o'sha firmaga job yaratar, job esa darhol
-    // «Pauza — operator jarayonni to'xtatgan» deb tugardi: 2026-09-08 da shu tarzda
-    // ketma-ket 7 ta bo'sh job (#239-#245) paydo bo'lgan va partiyalar tarixi
-    // shulardan iborat bo'lib qolgan edi. Endi to'xtatilgan firma o'tkazib yuboriladi.
-    if (await isQueuePaused(g.firmId)) continue;
-    const made = await createResumeJob(g.firmId);
+    // FIRMA DARAJASIDAGI PAUZA HAR DOIM hurmat qilinadi (operator bitta firmani to'xtatib qo'ysa,
+    // avtomat unga tegmaydi — boshqalari ketaveradi). Umumiy pauza esa endi bu yerda EMAS,
+    // createResumeJob ichida mode-aware tekshiriladi (real → bloklanadi, suit/qoralama → davom).
+    if (await isFirmPaused(g.firmId)) continue;
+    const made = await createResumeJob(g.firmId, MAX_COURT_BATCH, { requireNoSend: globalPaused });
     if (made) return `firma ${g.firmId}: job #${made.jobId} (${made.count} ta ish) avtomat boshlandi`;
   }
-  return null; // hammasida limit tugagan / sud oynasi yopiq — keyingi tsiklda qayta ko'ramiz
+  return null; // hammasida limit tugagan / sud oynasi yopiq / real pauza — keyingi tsiklda qayta ko'ramiz
 }
