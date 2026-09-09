@@ -23,6 +23,7 @@ export function PalataScanPanel() {
   const [onlyNoCase, setOnlyNoCase] = useState(false);
   const [firmFilter, setFirmFilter] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);        // uploading
+  const [upProg, setUpProg] = useState<{ done: number; total: number } | null>(null); // ko'p bo'lakli yuklash: nechta so'rov jo'natildi
   const [cancelling, setCancelling] = useState(false); // stopping a live OCR job
   const [saving, setSaving] = useState(false);    // starting the manual attach job
   const [confirmSave, setConfirmSave] = useState(false); // «Saqlansinmi?» tasdiq oynasi
@@ -77,25 +78,54 @@ export function PalataScanPanel() {
     return () => { if (pollRef.current) clearTimeout(pollRef.current); };
   }, [loadSummary, poll]);
 
+  // Edge nginx BITTA so'rovning umumiy tanasini cheklaydi (client_max_body_size) — hamma faylni bitta
+  // so'rovda yuborsak, ular yig'indisi limitdan oshsa 413 (Request Entity Too Large) qaytadi. Shuning
+  // uchun fayllarni HAJM bo'yicha kichik bo'laklarga bo'lib, HAR BO'LAKNI alohida so'rovda ketma-ket
+  // yuboramiz — har so'rov limitdan past qoladi. Server yuklamalarni navbatga qo'shib, bitta OCR job
+  // bilan ketma-ket o'qiydi, shuning uchun ko'p so'rov muammo emas. Bo'lak chegarasi 120MB — nginx odat
+  // 200M bo'lsa ham multipart ustama + zaxira uchun keng joy qoldiramiz.
+  const BATCH_BYTES = 120 * 1024 * 1024;
+
   const onFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const list = e.target.files;
     if (!list || list.length === 0) return;
+    const files = Array.from(list);
+
+    // Ketma-ket bo'laklar: navbatdagi faylni qo'shsak bo'lak 120MB dan oshsa — yangi bo'lak boshlaymiz.
+    // Bitta faylning o'zi 120MB dan katta bo'lsa — o'z bo'lagida yolg'iz ketadi (baribir <200MB bo'lsa o'tadi).
+    const batches: File[][] = [];
+    let cur: File[] = [], curSize = 0;
+    for (const f of files) {
+      if (cur.length && curSize + f.size > BATCH_BYTES) { batches.push(cur); cur = []; curSize = 0; }
+      cur.push(f); curSize += f.size;
+    }
+    if (cur.length) batches.push(cur);
+
     setBusy(true); setErr(null);
+    setUpProg(batches.length > 1 ? { done: 0, total: batches.length } : null);
     try {
-      const fd = new FormData();
-      Array.from(list).forEach((f) => fd.append('files', f));
-      fd.append('update', String(update));
-      const res = await fetch('/konveyer/palata-ocr', { method: 'POST', body: fd });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d?.error || 'Yuklab boʻlmadi'); }
-      const d = await res.json().catch(() => ({} as { queued?: boolean }));
-      // Navbatga qo'shilgan bo'lsa — joriy progress'ni nolga tushirmaymiz (poll haqiqiy holatni beradi).
-      if (!d?.queued) setJob({ id: 0, status: 'PENDING', progress: 0, total: 0, message: null });
-      wasRunning.current = true;
-      poll();
+      let started = false;
+      for (let b = 0; b < batches.length; b++) {
+        const fd = new FormData();
+        batches[b].forEach((f) => fd.append('files', f));
+        fd.append('update', String(update));
+        const res = await fetch('/konveyer/palata-ocr', { method: 'POST', body: fd });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          const base = d?.error || `Yuklab boʻlmadi (${res.status})`;
+          throw new Error(res.status === 413 ? `${base} — fayl(lar) juda katta` : base);
+        }
+        // Birinchi muvaffaqiyatli so'rov job'ni ochadi; keyingilari o'sha navbatga qo'shiladi.
+        if (!started) { setJob({ id: 0, status: 'PENDING', progress: 0, total: 0, message: null }); started = true; }
+        wasRunning.current = true;
+        setUpProg(batches.length > 1 ? { done: b + 1, total: batches.length } : null);
+        poll(); // navbat o'sishini ko'rsatadi
+      }
     } catch (e2) {
       setErr(e2 instanceof Error ? e2.message : 'Yuklab boʻlmadi');
     } finally {
       if (fileRef.current) fileRef.current.value = '';
+      setUpProg(null);
       setBusy(false);
     }
   };
@@ -159,7 +189,7 @@ export function PalataScanPanel() {
     finally { poll(); }
   };
   const pct = job && job.total > 0 ? Math.round((job.progress / job.total) * 100) : null;
-  const runLabel = busy ? 'Yuklanmoqda…' : attaching ? `Bazaga saqlanmoqda${pct != null ? ` · ${pct}%` : '…'}` : running ? `OCR ishlayapti${pct != null ? ` · ${pct}%` : '…'}` : 'Skanerlangan PDF(lar)ni yuklang';
+  const runLabel = busy ? (upProg ? `Yuklanmoqda · ${upProg.done}/${upProg.total} bo‘lak…` : 'Yuklanmoqda…') : attaching ? `Bazaga saqlanmoqda${pct != null ? ` · ${pct}%` : '…'}` : running ? `OCR ishlayapti${pct != null ? ` · ${pct}%` : '…'}` : 'Skanerlangan PDF(lar)ni yuklang';
 
   const savedTotal = s?.saved ?? 0;
 
