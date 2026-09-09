@@ -124,7 +124,14 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
   // (portalda ochiq faol da'vo bor, biz yubormaganmiz). `manual` allaqachon biznikilarni va
   // eski hal bo'lgan ishlarni chiqarib tashlaydi (portalCasePinfls).
   const isOurs = SENT_STAGES.has(c.stage) || !!c.courtCaseId;
-  const submittedExternal = !isOurs && !!c.pinfl && (portalCases?.manual.has(c.pinfl) ?? false);
+  // BIZ TAYYORLAGAN ish «tashqi» (yurist qo'lda kiritgani) EMAS. suit-rejim (prepareSuitOnly)
+  // ADOLAT'da REAL ish yaratadi va «Murojaatlarim»da turadi, LEKIN courtCaseId YOZILMAYDI (sudga
+  // yuborilmagani uchun — aks holda «Sudda» deb sanalardi). Portal sync o'sha ochiq ishni
+  // qaytaradi va u submittedExternal bo'lib sanalardi — natijada BIZ suit-tayyor qilgan yuzlab
+  // ish «Sudda +M» ga tushib, «Qoralama tayyor»dan yo'qolardi (2026-09-09: BRIGHT 609 tadan 480
+  // tasi shunday edi). meta.suitReadyAt/draftReadyAt bor ish — BIZNIKI, tashqi emas.
+  const preparedByUs = metaHas(c.meta, 'suitReadyAt') || metaHas(c.meta, 'draftReadyAt');
+  const submittedExternal = !isOurs && !preparedByUs && !!c.pinfl && (portalCases?.manual.has(c.pinfl) ?? false);
   const submitted = isOurs || submittedExternal;
   const exported = isExported(c.meta) || submitted;
   const draft = !exported && isDraftMeta(c.meta); // qoralama-sinov qilingan, hali haqiqiy yuborilmagan
