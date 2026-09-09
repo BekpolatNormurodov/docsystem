@@ -86,7 +86,7 @@ function metaHas(meta: unknown, key: string): boolean {
 function isExported(meta: unknown): boolean { return metaHas(meta, 'exportedAt'); }
 function isDraftMeta(meta: unknown): boolean { return metaHas(meta, 'draftAt'); }
 
-function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<number>, ofertaPinfls: Set<string>, paidReceipts?: Set<string>, queuedCaseIds?: Set<number>, portalCases?: { portal: Set<string>; manual: Set<string> }): DocFlags {
+function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<number>, ofertaPinfls: Set<string>, paidReceipts?: Set<string>, queuedCaseIds?: Set<number>, portalCases?: { portal: Set<string>; manual: Set<string>; courtActive: Set<string> }): DocFlags {
   const talabnoma = !!c.talabnomaAt;
   // SKAN = imzolangan ariza SHU case'ga biriktirilgan (CaseDocument SIGNED_ARIZA) — paket
   // bilan bir xil manba. Ilgari global PINFL to'plami ishlatilardi: bir odam (PINFL) boshqa
@@ -131,8 +131,13 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
   // ish «Sudda +M» ga tushib, «Qoralama tayyor»dan yo'qolardi (2026-09-09: BRIGHT 609 tadan 480
   // tasi shunday edi). meta.suitReadyAt/draftReadyAt bor ish — BIZNIKI, tashqi emas.
   const preparedByUs = metaHas(c.meta, 'suitReadyAt') || metaHas(c.meta, 'draftReadyAt');
+  // BIZ suit-tayyor qilgan ishni YURIST portaldan sudga yuborgan bo'lsa — endi «Sudda». Buni
+  // portal holatidan bilamiz: suit-tayyor ish CREATED (Murojaatlarim, yuborilmagan) holatida
+  // turadi; yurist yuborsa REGISTER/ALLOCATE/PENDING/IN_PROCESS ga o'tadi (courtActive). Shunda
+  // ish «Qoralama tayyor»dan «Sudda»ga ko'chadi. Hali CREATED bo'lsa «Qoralama tayyor»da qoladi.
+  const preparedSent = preparedByUs && !!c.pinfl && (portalCases?.courtActive.has(c.pinfl) ?? false);
   const submittedExternal = !isOurs && !preparedByUs && !!c.pinfl && (portalCases?.manual.has(c.pinfl) ?? false);
-  const submitted = isOurs || submittedExternal;
+  const submitted = isOurs || preparedSent || submittedExternal;
   const exported = isExported(c.meta) || submitted;
   const draft = !exported && isDraftMeta(c.meta); // qoralama-sinov qilingan, hali haqiqiy yuborilmagan
   // QORALAMA TAYYOR — ADOLAT'da to'liq tayyorlangan (prepareDraftOnly), yurist yuboradi.
@@ -182,6 +187,13 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
 // berilganini bildirmaydi (2026-09-08 «Sudda 19+286» bug'i shundan edi).
 const OPEN_PORTAL_STATUSES = ['ALLOCATE', 'CREATED', 'REGISTER', 'PENDING', 'IN_PROCESS'];
 
+// SUDGA HAQIQATAN topshirilgan holatlar (CREATED dan o'tgan). Suit-tayyor ish (biz save-suit
+// qilганimiz) ADOLAT'da CREATED — «Murojaatlarim»da, hali YUBORILMAGAN. Yurist uni portaldan
+// sudga yuborsa holat REGISTER/ALLOCATE/PENDING/IN_PROCESS ga o'tadi — SHUNDA ish endi «Sudda».
+// CREATED bu ro'yxatda ATAYIN yo'q: u «tayyorlangan, hali yuborilmagan» degani (2026-09-09
+// o'lchovi: BRIGHT 609 suit-tayyordan 560 tasi CREATED, 4 tasi REGISTER).
+const COURT_ACTIVE_STATUSES = ['ALLOCATE', 'REGISTER', 'PENDING', 'IN_PROCESS'];
+
 /**
  * «Sudda N+M» dagi M — YURIST QO'LDA KIRITGAN da'volar: portalda shu firma nomidan OCHIQ
  * FAOL sud ishi bor mijozlar, LEKIN biz (hech qanday snapshotda) yubormaganmiz.
@@ -191,12 +203,12 @@ const OPEN_PORTAL_STATUSES = ['ALLOCATE', 'CREATED', 'REGISTER', 'PENDING', 'IN_
  * snapshotда yuborgan bo'lishimiz mumkin. Aks holda o'z eski yuborishlarimiz «tashqi» bo'lib
  * sanalardi (2026-09-08: URBAN'da 201 ta shunday «yolg'on tashqi» chiqqan edi).
  */
-async function portalCasePinfls(firmId: number, branchCode: string | null, firmStir?: string | null): Promise<{ portal: Set<string>; manual: Set<string> }> {
-  const empty = { portal: new Set<string>(), manual: new Set<string>() };
+async function portalCasePinfls(firmId: number, branchCode: string | null, firmStir?: string | null): Promise<{ portal: Set<string>; manual: Set<string>; courtActive: Set<string> }> {
+  const empty = { portal: new Set<string>(), manual: new Set<string>(), courtActive: new Set<string>() };
   if (!branchCode) return empty;
   const openRows = await prisma.clientCaseStatus.findMany({
     where: { source: 'CABINET', branchCode, matchedBy: 'PINFL', status: { in: OPEN_PORTAL_STATUSES }, pinfl: { not: null } },
-    select: { pinfl: true },
+    select: { pinfl: true, status: true },
   });
   if (!openRows.length) return empty;
   // BIZ YUBORGAN mijozlar (har qanday snapshot) — courtCaseId yoki yuborilgan bosqich.
@@ -207,13 +219,17 @@ async function portalCasePinfls(firmId: number, branchCode: string | null, firmS
   const ourSentPinfls = new Set(ourSent.map((x) => x.pinfl).filter((p): p is string => !!p));
   const stir = (firmStir || '').replace(/\D/g, '');
   const manual = new Set<string>();
+  // courtActive — portalda SUDGA topshirilgan (CREATED dan o'tgan) holatdagi mijozlar. Biz
+  // suit-tayyor qilgan ish shu holatga o'tgan bo'lsa — yurist uni portaldan yuborgani (→ «Sudda»).
+  const courtActive = new Set<string>();
   for (const r of openRows) {
     if (!r.pinfl) continue;
     if (stir && r.pinfl === stir) continue;        // firma o'zi (da'vogar) — javobgar emas
+    if (COURT_ACTIVE_STATUSES.includes(r.status)) courtActive.add(r.pinfl);
     if (ourSentPinfls.has(r.pinfl)) continue;      // biz yuborganmiz — «tashqi» emas
     manual.add(r.pinfl);
   }
-  return { portal: manual, manual };
+  return { portal: manual, manual, courtActive };
 }
 
 // Case'ga biriktirilgan CaseDocument'lar to'plami (kind bo'yicha) — SKAN (SIGNED_ARIZA) va
