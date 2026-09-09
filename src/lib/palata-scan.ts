@@ -1,11 +1,7 @@
 // Palatadan qaytgan IMZOLANGAN arizalar (skan) ni case/portfel bilan bogʻlab
 // firma boʻyicha xulosa beradi. Dataset — skanni OCR qilib chiqarilgan `data/
 // palata-scan.json` (har ariza: reg №, PINFL, firma, ism, sahifa, manzil).
-import fs from 'node:fs';
-import path from 'node:path';
 import { prisma } from './db';
-
-const DATA_PATH = path.join(process.cwd(), 'data', 'palata-scan.json');
 
 export interface ScannedAriza {
   reg: string;       // palata registratsiya raqami (147820…)
@@ -37,33 +33,40 @@ export interface PalataScanSummary {
   updatedAt: string | null;
 }
 
-// Cache the parsed dataset keyed by the file's mtime. This JSON is read on every
-// court-readiness / drill-down / export-validate call; re-reading + JSON.parse each
-// time blocks the event loop. A cheap statSync guards the cache and only re-parses
-// after the OCR pipeline rewrites the file (which bumps mtime). Same rows out —
-// callers that mutate the array would be surprised, but every caller is read-only.
-let _scanCache: { mtimeMs: number; rows: ScannedAriza[] } | null = null;
-export function readScannedArizas(): ScannedAriza[] {
-  try {
-    const mtimeMs = fs.statSync(DATA_PATH).mtimeMs;
-    if (_scanCache && _scanCache.mtimeMs === mtimeMs) return _scanCache.rows;
-    const rows = JSON.parse(fs.readFileSync(DATA_PATH, 'utf8')) as ScannedAriza[];
-    _scanCache = { mtimeMs, rows };
-    return rows;
-  } catch { return []; }
+/** Eng oxirgi (aktiv) snapshot id — sana berilmaganda shu ishlatiladi. */
+export async function latestSnapshotId(): Promise<number | null> {
+  const s = await prisma.snapshot.findFirst({ orderBy: { reportDate: 'desc' }, select: { id: true } });
+  return s?.id ?? null;
 }
 
-export async function palataScanSummary(): Promise<PalataScanSummary> {
-  const rows = readScannedArizas();
-  const stat = fs.existsSync(DATA_PATH) ? fs.statSync(DATA_PATH).mtime.toISOString() : null;
+// SHU SNAPSHOT (sana) dagi skan yozuvlari — PalataScan jadvalidan. Ilgari global JSON fayl
+// edi (sanalar aralashardi); endi har sana ALOHIDA (2026-09-09 DB'ga ko'chirildi).
+export async function readScannedArizas(snapshotId: number): Promise<ScannedAriza[]> {
+  const rows = await prisma.palataScan.findMany({
+    where: { snapshotId },
+    orderBy: { reg: 'asc' },
+    select: { reg: true, pages: true, name: true, pinfl: true, firmKey: true, address: true, source: true },
+  });
+  return rows.map((r) => ({
+    reg: r.reg, pages: r.pages, name: r.name, pinfl: r.pinfl, firmKey: r.firmKey,
+    address: r.address ?? undefined, source: r.source ?? undefined,
+  }));
+}
+
+export async function palataScanSummary(snapshotId?: number): Promise<PalataScanSummary> {
+  const snap = snapshotId ?? (await latestSnapshotId());
+  if (snap == null) return { total: 0, matched: 0, withCase: 0, noCase: 0, saved: 0, firms: [], arizas: [], updatedAt: null };
+  const rows = await readScannedArizas(snap);
+  const last = await prisma.palataScan.findFirst({ where: { snapshotId: snap }, orderBy: { updatedAt: 'desc' }, select: { updatedAt: true } });
+  const stat = last?.updatedAt?.toISOString() ?? null;
   if (rows.length === 0) return { total: 0, matched: 0, withCase: 0, noCase: 0, saved: 0, firms: [], arizas: [], updatedAt: stat };
 
   const pinfls = [...new Set(rows.map((r) => r.pinfl).filter(Boolean))];
   const [loans, cases, firms] = await Promise.all([
     // Keep the (pinfl, branchCode) pair — a client may have loans at several firms,
-    // so we match the ariza's firm, not an arbitrary one.
-    prisma.loan.findMany({ where: { pinfl: { in: pinfls } }, select: { pinfl: true, branchCode: true }, distinct: ['pinfl', 'branchCode'] }),
-    prisma.arizaCase.findMany({ where: { pinfl: { in: pinfls } }, select: { id: true, pinfl: true, firmId: true }, orderBy: { id: 'asc' } }),
+    // so we match the ariza's firm, not an arbitrary one. SHU SNAPSHOT bilan cheklangan.
+    prisma.loan.findMany({ where: { snapshotId: snap, pinfl: { in: pinfls } }, select: { pinfl: true, branchCode: true }, distinct: ['pinfl', 'branchCode'] }),
+    prisma.arizaCase.findMany({ where: { snapshotId: snap, pinfl: { in: pinfls } }, select: { id: true, pinfl: true, firmId: true }, orderBy: { id: 'asc' } }),
     prisma.firm.findMany({ select: { id: true, code: true, shortName: true } }),
   ]);
   // Which of those cases already carry a signed-ariza PDF in the DB — «bazaga saqlangan».

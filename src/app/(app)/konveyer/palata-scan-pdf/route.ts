@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'node:fs';
 import path from 'node:path';
 import { requireUser } from '@/lib/auth';
-import { readScannedArizas } from '@/lib/palata-scan';
+import { readScannedArizas, latestSnapshotId } from '@/lib/palata-scan';
 import { SCAN_STORE } from '@/lib/palata-ocr';
 import { extractPagesPdfFromFile } from '@/lib/palata-attach';
 
@@ -15,7 +15,8 @@ export async function GET(req: NextRequest) {
   const pinfl = req.nextUrl.searchParams.get('pinfl');
   if (!pinfl) return NextResponse.json({ error: 'pinfl kerak' }, { status: 400 });
 
-  const ariza = readScannedArizas().find((a) => a.pinfl === pinfl);
+  const snap = await latestSnapshotId();
+  const ariza = snap != null ? (await readScannedArizas(snap)).find((a) => a.pinfl === pinfl) : undefined;
   if (!ariza || !ariza.source) return NextResponse.json({ error: 'Bu ariza uchun skan saqlanmagan' }, { status: 404 });
   const file = path.join(SCAN_STORE, path.basename(ariza.source));
   if (!fs.existsSync(file)) return NextResponse.json({ error: 'Skan fayli topilmadi' }, { status: 404 });

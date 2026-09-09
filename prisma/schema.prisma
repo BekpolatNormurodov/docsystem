@@ -87,6 +87,31 @@ model Snapshot {
   importedAt     DateTime @default(now())
   excludedCount  Int      @default(0)
   loans          Loan[]
+  palataScans    PalataScan[]
+}
+
+// Palatadan qaytgan IMZOLANGAN ariza skanlari (OCR metadata) — HAR SNAPSHOT (sana) ALOHIDA.
+//
+// Ilgari bu `data/palata-scan.json` tekis faylда, global (sanaga bog'lanmagan) edi: ertaga
+// yangi snapshot kelsa eski skanlar shu faylда qolib, PINFL bo'yicha yangi sana ishlariga
+// noto'g'ri yopishardi (2026-09-09). Endi har skan o'zi yuklangan snapshotга bog'lanadi va
+// o'qish/moslash faqat shu sana bo'yicha bo'ladi — sanalar hech qachon aralashmaydi.
+model PalataScan {
+  id         Int      @id @default(autoincrement())
+  snapshotId Int
+  snapshot   Snapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  reg        String // palata registratsiya raqami
+  pages      String // skandagi sahifa oralig'i ("1-2")
+  name       String // qarzdor F.I.Sh
+  pinfl      String // JShShIR — moslash kaliti
+  firmKey    String // arizada ko'ringan firma (BRIGHT/URBAN/…)
+  address    String?  @db.Text
+  source     String?  @db.Text // saqlangan skan fayli (exports/palata-scans/)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([snapshotId, pinfl]) // bir sanada bir PINFL bitta yozuv (re-scan ustiga yozadi)
+  @@index([snapshotId])
 }
 
 model Loan {

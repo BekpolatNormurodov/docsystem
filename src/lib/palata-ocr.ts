@@ -9,9 +9,9 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { prisma } from './db';
+import { latestSnapshotId } from './palata-scan';
 
 const execFileP = promisify(execFile);
-const DATA_PATH = path.join(process.cwd(), 'data', 'palata-scan.json');
 
 export interface OcrPage { page: number; text: string }
 // `source` = the retained scan file (in exports/palata-scans/) this ariza came from;
@@ -186,22 +186,25 @@ export async function ocrPdf(pdfPath: string, outJson: string, onProgress?: (don
 }
 
 // ---------- merge ----------
+// Skanlar endi DB'da (PalataScan), HAR SNAPSHOT (sana) ALOHIDA. Yozuv AYNI PAYTDAGI eng oxirgi
+// snapshotга tegishli — ertaga yangi snapshot kelsa, yangi skanlar yangi snapshotга tushadi,
+// eski sana daxlsiz qoladi (sanalar aralashmaydi). Bir sanada bir PINFL bitta yozuv; «update»
+// bo'lsa re-scan eski yozuvni ustiga yozadi.
 export async function mergeArizas(fresh: ScannedArizaFull[], update = false): Promise<{ added: number; updated: number; total: number }> {
-  let cur: ScannedArizaFull[] = [];
-  try { cur = JSON.parse(await fsp.readFile(DATA_PATH, 'utf8')); } catch { cur = []; }
-  const idx = new Map<string, number>();
-  cur.forEach((x, i) => { if (x.pinfl) idx.set(x.pinfl, i); });
+  const snapshotId = await latestSnapshotId();
+  if (snapshotId == null) return { added: 0, updated: 0, total: 0 };
   let added = 0, updated = 0;
   for (const a of fresh) {
     if (!a.pinfl) continue;
-    const at = idx.get(a.pinfl);
-    if (at === undefined) { cur.push(a); idx.set(a.pinfl, cur.length - 1); added++; }
-    else if (update) { cur[at] = a; updated++; } // «yangilash» — re-scan overwrites source/pages/name
+    const data = { reg: a.reg, pages: a.pages, name: a.name, firmKey: a.firmKey, address: a.address || null, source: a.source || null };
+    const existing = await prisma.palataScan.findUnique({
+      where: { snapshotId_pinfl: { snapshotId, pinfl: a.pinfl } }, select: { id: true },
+    });
+    if (!existing) { await prisma.palataScan.create({ data: { snapshotId, pinfl: a.pinfl, ...data } }); added++; }
+    else if (update) { await prisma.palataScan.update({ where: { id: existing.id }, data }); updated++; }
   }
-  cur.sort((a, b) => Number(a.reg) - Number(b.reg));
-  await fsp.mkdir(path.dirname(DATA_PATH), { recursive: true });
-  await fsp.writeFile(DATA_PATH, JSON.stringify(cur, null, 1));
-  return { added, updated, total: cur.length };
+  const total = await prisma.palataScan.count({ where: { snapshotId } });
+  return { added, updated, total };
 }
 
 // A live OCR job refreshes updatedAt every ~10 pages (~20s). If a RUNNING/PENDING job

@@ -10,7 +10,7 @@ import { PDFDocument } from 'pdf-lib';
 import { prisma } from './db';
 import { dueForStage } from './konveyer-sla';
 import { SCAN_STORE } from './palata-ocr';
-import { readScannedArizas } from './palata-scan';
+import { readScannedArizas, latestSnapshotId } from './palata-scan';
 
 const DOCS = path.join(process.cwd(), 'exports', 'case-docs');
 const safe = (s: string) => s.replace(/[^\p{L}\p{N}._-]+/gu, '_').slice(0, 120);
@@ -70,6 +70,9 @@ export interface AttachOpts {
   // Replace EVERY already-saved doc with the fresh scan («Mavjudlarni yangilash» —
   // the manual «Bazaga saqlash» default). Supersedes replacePinfls when set.
   replaceAll?: boolean;
+  // Qaysi snapshot (sana) case'lariga moslash — berilmasa eng oxirgisi. Skan shu sana bilan
+  // biriktiriladi, boshqa sana ishlariga yopishmaydi.
+  snapshotId?: number;
 }
 
 /**
@@ -88,9 +91,11 @@ export async function attachScannedArizas(arizas: AttachInput[], opts: AttachOpt
   if (items.length === 0) { onProgress?.(0, 0); return res; }
 
   const pinfls = [...new Set(items.map((a) => a.pinfl))];
+  // Skan SHU SNAPSHOT (sana) case'lariga moslanadi — boshqa sana ishlariga yopishmasin.
+  const snap = opts.snapshotId ?? (await latestSnapshotId());
   const [firms, cases] = await Promise.all([
     prisma.firm.findMany({ select: { id: true, code: true, shortName: true } }),
-    prisma.arizaCase.findMany({ where: { pinfl: { in: pinfls } }, select: { id: true, pinfl: true, firmId: true, stage: true }, orderBy: { id: 'asc' } }),
+    prisma.arizaCase.findMany({ where: { ...(snap != null ? { snapshotId: snap } : {}), pinfl: { in: pinfls } }, select: { id: true, pinfl: true, firmId: true, stage: true }, orderBy: { id: 'asc' } }),
   ]);
 
   // (pinfl::firmId) → latest case (orderBy id asc, last write wins); pinfl → all its
@@ -197,7 +202,9 @@ export async function attachScannedArizas(arizas: AttachInput[], opts: AttachOpt
  *  (idempotent). Used by the OCR job's phase 2 and the «Bazaga saqlash» button.
  *  `replacePinfls` overwrites the given clients' already-saved docs («yangilash»). */
 export async function attachAllScanned(opts: AttachOpts = {}): Promise<AttachResult> {
-  return attachScannedArizas(readScannedArizas(), opts);
+  const snap = opts.snapshotId ?? (await latestSnapshotId());
+  if (snap == null) return { total: 0, linked: 0, updated: 0, already: 0, advanced: 0, noCase: 0, noMatch: 0 };
+  return attachScannedArizas(await readScannedArizas(snap), { ...opts, snapshotId: snap });
 }
 
 export interface ResortFirmResult extends AttachResult {
@@ -240,13 +247,14 @@ export async function resortFirmScanned(
     null;
   if (!firm) throw new Error(`Firma topilmadi: ${firmLabel}`);
 
-  // Shu firmaga tegishli skanlangan arizalar (firmKey → firmId).
-  const all = readScannedArizas();
+  const snap = opts.snapshotId ?? (await latestSnapshotId());
+  // Shu firmaga tegishli skanlangan arizalar (firmKey → firmId) — SHU SNAPSHOT (sana).
+  const all = snap != null ? await readScannedArizas(snap) : [];
   const mine = all.filter((a) => resolveFirmId(a.firmKey, firms) === firm.id);
 
   // «Tegilmaydiganlar» sanog'i — mijozi skanда bo'lmagan hujjatlar (operatorga ko'rsatiladi).
   const scanPinfls = new Set(mine.map((a) => a.pinfl).filter(Boolean));
-  const cases = await prisma.arizaCase.findMany({ where: { firmId: firm.id }, select: { id: true, pinfl: true } });
+  const cases = await prisma.arizaCase.findMany({ where: { firmId: firm.id, ...(snap != null ? { snapshotId: snap } : {}) }, select: { id: true, pinfl: true } });
   const caseIds = cases.map((c) => c.id);
   const docRows = caseIds.length
     ? await prisma.caseDocument.findMany({ where: { caseId: { in: caseIds }, kind: 'SIGNED_ARIZA' }, select: { caseId: true } })
@@ -258,6 +266,6 @@ export async function resortFirmScanned(
   // QAYTA SARTIROVKA: skandagi har arizani o'z case'iga yangidan biriktiramiz. `replaceAll`
   // — mijozning eski imzolangan-skani skandan qaytadan bo'linib almashtiriladi. Skanда
   // mijozi yo'q hujjat bu jarayonga UMUMAN kirmaydi (o'chirilmaydi).
-  const r = await attachScannedArizas(mine, { ...opts, replaceAll: true });
+  const r = await attachScannedArizas(mine, { ...opts, replaceAll: true, snapshotId: snap ?? undefined });
   return { ...r, firm: firm.shortName, skanda: mine.length, kept };
 }
