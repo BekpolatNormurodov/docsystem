@@ -23,7 +23,7 @@ export function PalataScanPanel() {
   const [onlyNoCase, setOnlyNoCase] = useState(false);
   const [firmFilter, setFirmFilter] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);        // uploading
-  const [upProg, setUpProg] = useState<{ done: number; total: number } | null>(null); // ko'p bo'lakli yuklash: nechta so'rov jo'natildi
+  const [upProg, setUpProg] = useState<{ done: number; total: number; pct: number } | null>(null); // ketma-ket yuklash: nechta fayl yuborildi + joriy fayl foizi
   const [cancelling, setCancelling] = useState(false); // stopping a live OCR job
   const [saving, setSaving] = useState(false);    // starting the manual attach job
   const [confirmSave, setConfirmSave] = useState(false); // «Saqlansinmi?» tasdiq oynasi
@@ -101,24 +101,42 @@ export function PalataScanPanel() {
     }
     if (cur.length) batches.push(cur);
 
+    const totalFiles = files.length;
     setBusy(true); setErr(null);
-    setUpProg(batches.length > 1 ? { done: 0, total: batches.length } : null);
+    setUpProg({ done: 0, total: totalFiles, pct: 0 });
     try {
       let started = false;
+      let doneFiles = 0;
       for (let b = 0; b < batches.length; b++) {
-        const fd = new FormData();
-        batches[b].forEach((f) => fd.append('files', f));
-        fd.append('update', String(update));
-        const res = await fetch('/konveyer/palata-ocr', { method: 'POST', body: fd });
-        if (!res.ok) {
-          const d = await res.json().catch(() => ({}));
-          const base = d?.error || `Yuklab boʻlmadi (${res.status})`;
-          throw new Error(res.status === 413 ? `${base} — fayl(lar) juda katta` : base);
-        }
+        // XHR (fetch emas) — chunki yuklash (upload) progressini FAQAT XHR beradi. Katta fayl sekin
+        // yuklanadi; bar harakatlanib tursin, «qotib qolgan» ko'rinmasin. Har bo'lak alohida so'rov.
+        // eslint-disable-next-line no-await-in-loop
+        const resp = await new Promise<{ queued?: boolean }>((resolve, reject) => {
+          const fd = new FormData();
+          batches[b].forEach((f) => fd.append('files', f));
+          fd.append('update', String(update));
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', '/konveyer/palata-ocr');
+          xhr.upload.onprogress = (ev) => {
+            if (ev.lengthComputable) setUpProg({ done: doneFiles, total: totalFiles, pct: Math.round((ev.loaded / ev.total) * 100) });
+          };
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) { try { resolve(JSON.parse(xhr.responseText)); } catch { resolve({}); } }
+            else {
+              let msg = `Yuklab boʻlmadi (${xhr.status})`;
+              try { const d = JSON.parse(xhr.responseText); if (d?.error) msg = d.error; } catch { /* ignore */ }
+              reject(new Error(xhr.status === 413 ? `${msg} — fayl(lar) juda katta` : msg));
+            }
+          };
+          xhr.onerror = () => reject(new Error('Tarmoq xatosi — yuklab boʻlmadi'));
+          xhr.send(fd);
+        });
+        void resp;
         // Birinchi muvaffaqiyatli so'rov job'ni ochadi; keyingilari o'sha navbatga qo'shiladi.
         if (!started) { setJob({ id: 0, status: 'PENDING', progress: 0, total: 0, message: null }); started = true; }
         wasRunning.current = true;
-        setUpProg(batches.length > 1 ? { done: b + 1, total: batches.length } : null);
+        doneFiles += batches[b].length;
+        setUpProg({ done: doneFiles, total: totalFiles, pct: 0 });
         poll(); // navbat o'sishini ko'rsatadi
       }
     } catch (e2) {
@@ -189,7 +207,13 @@ export function PalataScanPanel() {
     finally { poll(); }
   };
   const pct = job && job.total > 0 ? Math.round((job.progress / job.total) * 100) : null;
-  const runLabel = busy ? (upProg ? `Yuklanmoqda · ${upProg.done}/${upProg.total} bo‘lak…` : 'Yuklanmoqda…') : attaching ? `Bazaga saqlanmoqda${pct != null ? ` · ${pct}%` : '…'}` : running ? `OCR ishlayapti${pct != null ? ` · ${pct}%` : '…'}` : 'Skanerlangan PDF(lar)ni yuklang';
+  const runLabel = busy
+    ? (upProg && upProg.total > 1
+        ? `Yuklanmoqda · ${upProg.done}/${upProg.total} fayl${upProg.pct > 0 ? ` · ${upProg.pct}%` : ''}…`
+        : (upProg && upProg.pct > 0 ? `Yuklanmoqda · ${upProg.pct}%…` : 'Yuklanmoqda…'))
+    : attaching ? `Bazaga saqlanmoqda${pct != null ? ` · ${pct}%` : '…'}` : running ? `OCR ishlayapti${pct != null ? ` · ${pct}%` : '…'}` : 'Skanerlangan PDF(lar)ni yuklang';
+  // Yuklash paytida (busy) barning foizi: joriy fayl yuklanish % — «qotib qolgan» ko'rinmasligi uchun.
+  const upPct = busy && upProg ? upProg.pct : null;
 
   const savedTotal = s?.saved ?? 0;
 
@@ -217,9 +241,16 @@ export function PalataScanPanel() {
           : <svg className="h-6 w-6 text-violet-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round"><path d="M12 16V4" /><path d="m7 9 5-5 5 5" /><path d="M5 20h14" /></svg>}
         <div className="text-sm font-medium">{runLabel}</div>
         <div className="text-[11px] text-muted">
-          {running && job!.total > 0 ? `${n(job!.progress)} / ${n(job!.total)} ${attaching ? 'ariza' : 'sahifa'}` : running ? 'boshlanmoqda…' : 'bosing yoki tashlang · PDF · bir nechta'}
+          {busy
+            ? (upProg && upProg.total > 1 ? 'katta/ko‘p fayl ketma-ket yuborilmoqda — yopmang, kutib turing' : 'yuborilmoqda — yopmang')
+            : running && job!.total > 0 ? `${n(job!.progress)} / ${n(job!.total)} ${attaching ? 'ariza' : 'sahifa'}` : running ? 'boshlanmoqda…' : 'bosing yoki tashlang · PDF · bir nechta'}
         </div>
-        {running && pct != null && (
+        {busy && upPct != null && (
+          <div className="mt-1 h-1 w-40 overflow-hidden rounded-full bg-violet-500/15">
+            <div className="h-full rounded-full bg-violet-500 transition-all" style={{ width: `${upPct}%` }} />
+          </div>
+        )}
+        {!busy && running && pct != null && (
           <div className={`mt-1 h-1 w-40 overflow-hidden rounded-full ${attaching ? 'bg-emerald-500/15' : 'bg-violet-500/15'}`}>
             <div className={`h-full rounded-full transition-all ${attaching ? 'bg-emerald-500' : 'bg-violet-500'}`} style={{ width: `${pct}%` }} />
           </div>
