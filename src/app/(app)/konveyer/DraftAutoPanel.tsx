@@ -122,9 +122,17 @@ export default function DraftAutoPanel() {
               </span>
             )}
             {active && (
-              <span className="inline-flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-500" />
-                {active.firmName}: {n(active.progress)}/{n(active.total)}
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-sky-500/15 px-2 py-0.5 text-[11px] font-semibold text-sky-700 ring-1 ring-sky-500/30 dark:text-sky-300" title="Ayni damда ishlanayotgan firma">
+                <span className="relative flex h-2 w-2" aria-hidden>
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-500/70" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-sky-500" />
+                </span>
+                {active.firmName} — {n(active.progress)}/{n(active.total)}
+                {active.total > 0 && (
+                  <span className="ml-0.5 h-1 w-10 overflow-hidden rounded-full bg-sky-500/25" aria-hidden>
+                    <span className="block h-full rounded-full bg-sky-500" style={{ width: `${Math.min(100, Math.round((active.progress / active.total) * 100))}%` }} />
+                  </span>
+                )}
               </span>
             )}
           </div>
@@ -162,7 +170,7 @@ export default function DraftAutoPanel() {
             </div>
             <ul className="space-y-1">
               {data.firms.map((f) => (
-                <li key={f.firmId} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11px] ${f.paused ? 'bg-rose-500/[0.06] opacity-70' : f.active ? 'bg-sky-500/[0.06]' : 'bg-surface-2'}`}>
+                <li key={f.firmId} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11px] ${f.paused ? 'bg-rose-500/[0.06] opacity-70' : f.active ? 'bg-sky-500/10 ring-1 ring-inset ring-sky-500/35' : 'bg-surface-2'}`}>
                   <button
                     onClick={() => toggleFirm(f.firmId, f.paused)}
                     disabled={firmBusy === f.firmId}
@@ -173,7 +181,16 @@ export default function DraftAutoPanel() {
                       ? <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M8 5v14l11-7z" /></svg>
                       : <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>}
                   </button>
-                  <span className={`min-w-0 flex-1 truncate font-medium ${f.paused ? 'text-muted' : ''}`} title={f.firmName}>{f.firmName}{f.active && !f.paused && ' ·'}</span>
+                  <span className={`min-w-0 flex-1 truncate font-medium ${f.paused ? 'text-muted' : f.active ? 'text-sky-700 dark:text-sky-300' : ''}`} title={f.firmName}>{f.firmName}</span>
+                  {f.active && !f.paused && (
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded bg-sky-500/15 px-1 py-0.5 text-[9px] font-semibold text-sky-700 dark:text-sky-300" title="Ayni damда ishlanyapti">
+                      <span className="relative flex h-1.5 w-1.5" aria-hidden>
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-500/70" />
+                        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-sky-500" />
+                      </span>
+                      {active ? `${n(active.progress)}/${n(active.total)}` : 'ketyapti'}
+                    </span>
+                  )}
                   {f.paused && <span className="shrink-0 rounded bg-rose-500/15 px-1 py-0.5 text-[9px] font-medium text-rose-700 dark:text-rose-300">pauza</span>}
                   <Bar ready={f.draftReady} queued={f.queued} submitted={f.submitted} total={f.total} />
                   <span className="w-8 shrink-0 text-right tabular-nums text-emerald-600 dark:text-emerald-400" title="Tayyor — hali navbatga olinmagan">{n(f.sendable)}</span>
