@@ -179,6 +179,13 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
       if (!res.ok) { setErr(data?.error || 'Xatolik'); return; }
       setJob({ status: 'PENDING', progress: 0, total: data.total });
       setJobId(data.jobId);
+      // Eski (fayli o'chgan, 0 B) qatorlar endi keraksiz — yangi to'liq ZIP ularning o'rnini bosadi.
+      // Shu firmaning muddati o'tgan qatorlarini ro'yxatdan va bazadan olib tashlaymiz (o'chirilgan bo'lsin).
+      const stale = history.filter((x) => x.size === 0 && x.firmId === fid).map((x) => x.id);
+      if (stale.length) {
+        setHistory((h) => h.filter((x) => !stale.includes(x.id)));
+        for (const id of stale) fetch(`/api/export/${id}`, { method: 'DELETE' }).catch(() => {});
+      }
     } catch (e) { setErr(e instanceof Error ? e.message : 'Tarmoq xatosi'); }
     finally { setStarting(false); inFlight.current = false; }
   };
