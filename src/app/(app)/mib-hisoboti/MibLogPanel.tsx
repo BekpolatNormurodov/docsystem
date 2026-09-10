@@ -18,13 +18,24 @@ export function MibLogPanel({ q, title = 'Avtomator logi', defaultOpen = true }:
   const poll = useCallback(async () => {
     const url = `/api/mib/logs?after=${lastId.current}${q ? `&q=${encodeURIComponent(q)}` : ''}`;
     const j = await fetch(url, { cache: 'no-store' }).then((r) => r.json()).catch(() => null);
-    if (!j) return;
-    if (Array.isArray(j.lines) && j.lines.length) setLines((prev) => [...prev, ...j.lines].slice(-500));
-    if (typeof j.lastId === 'number') lastId.current = j.lastId;
+    if (!j || typeof j.lastId !== 'number') return;
+    // Server restart bo'lsa (deploy) seq 0 dan boshlanadi — kursor orqaga ketsa qaytadan o'qiymiz.
+    if (j.lastId < lastId.current) { lastId.current = 0; setLines([]); return; }
+    if (Array.isArray(j.lines) && j.lines.length) {
+      setLines((prev) => {
+        const have = new Set(prev.map((l) => l.id));
+        const fresh = j.lines.filter((l: Line) => !have.has(l.id)); // dublikat kalitlar bo'lmasin
+        return fresh.length ? [...prev, ...fresh].slice(-500) : prev;
+      });
+    }
+    lastId.current = j.lastId;
   }, [q]);
 
+  // Ish boshlanganда (defaultOpen true bo'lsa) panel o'zi ochilsin (lekin qo'lда yopganni majburlamaymiz).
+  useEffect(() => { if (defaultOpen) setOpen(true); }, [defaultOpen]);
+  // Bir marta boshlang'ich o'qish + ochiq turганда har 2.5s (yopiq bo'lsa trafik sarflamaymiz).
   useEffect(() => { void poll(); }, [poll]);
-  useEffect(() => { const t = setInterval(() => void poll(), 2500); return () => clearInterval(t); }, [poll]);
+  useEffect(() => { if (!open) return; const t = setInterval(() => void poll(), 2500); return () => clearInterval(t); }, [open, poll]);
   useEffect(() => { if (open && box.current) box.current.scrollTop = box.current.scrollHeight; }, [lines, open]);
 
   return (

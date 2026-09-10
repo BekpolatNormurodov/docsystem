@@ -25,11 +25,18 @@ export async function addPinflAndCheck(reportId: number, pinflRaw: string, fio?:
 
   let client = await prisma.mibClient.findFirst({ where: { reportId, pinfl } });
   if (client) {
+    // MUHIM: shu mijoz AYNAN HOZIR tekshirilayotgan bo'lsa (jonli run uni RUNNING qilgan) — tegmaymiz.
+    // Aks holda uning ishlarini o'chirib yuborsak, ketayotgan run mibCase.update'da «record not found»
+    // xatosiga uchraydi. Allaqachon tekshirilmoqda — shunchaki qaytaramiz.
+    if (client.status === 'RUNNING' && isMibRunActive(reportId)) {
+      return { ok: true, clientId: client.id, running: true };
+    }
     // Qayta tekshirish — eski ishlarni o'chirib PENDING qilamiz (dublikat chiqmasin).
     await prisma.mibCase.deleteMany({ where: { clientId: client.id } });
     client = await prisma.mibClient.update({
       where: { id: client.id },
-      data: { status: 'PENDING', error: null, checkedAt: null, attempts: 0, ...(fio ? { fio } : {}) },
+      // holat=MANUAL_HOLAT — qo'lda qayta tekshirilgan Excel mijozi ham Excel qayta qurishda o'chmasin.
+      data: { status: 'PENDING', error: null, checkedAt: null, attempts: 0, holat: MANUAL_HOLAT, ...(fio ? { fio } : {}) },
     });
   } else {
     client = await prisma.mibClient.create({ data: { reportId, pinfl, fio: fio ?? null, holat: MANUAL_HOLAT, status: 'PENDING' } });

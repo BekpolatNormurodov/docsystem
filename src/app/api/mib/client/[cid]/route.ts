@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
-import { reconcileZombieClients } from '@/lib/mib/run';
+import { reconcileZombieClients, isMibRunActive } from '@/lib/mib/run';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,5 +19,5 @@ export async function GET(_req: NextRequest, { params }: { params: { cid: string
     const fixed = await reconcileZombieClients(client.reportId).catch(() => 0);
     if (fixed) client = await prisma.mibClient.findUnique({ where: { id: cid }, include: { cases: { orderBy: { id: 'asc' } } } }) ?? client;
   }
-  return NextResponse.json({ client });
+  return NextResponse.json({ client, running: isMibRunActive(client.reportId) });
 }

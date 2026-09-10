@@ -6,6 +6,8 @@ import { CaptchaSolver } from './captcha';
 
 const REDIRECTS = [301, 302, 303, 307, 308];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// mib.uz captchasi (so'z bilan yozilgan matematika) OCR uchun og'ir — ko'proq urinish = ko'proq imkon.
+const CAPTCHA_ATTEMPTS = 10;
 
 export interface Step10Case { workNumber: string; monitoringUrl: string | null }
 export interface Step10Result {
@@ -179,7 +181,7 @@ export class MibEngine {
     const captchaImgMatch = tabHtml.match(/<img[^>]*alt="Защитный код"[^>]*src="([^"]+)"/i) || tabHtml.match(/<img[^>]*src="([^"]+)"/i);
     if (captchaImgMatch) currentCaptchaImg = new URL(captchaImgMatch[1]!.replace(/&amp;/g, '&'), `${this.baseUrl}/${baseUrl}`).href;
 
-    for (let attempt = 1; attempt <= 5; attempt++) {
+    for (let attempt = 1; attempt <= CAPTCHA_ATTEMPTS; attempt++) {
       let secureCode: string | null = null;
       if (currentCaptchaImg) {
         try {
@@ -190,7 +192,7 @@ export class MibEngine {
       }
 
       if (!secureCode) {
-        this.log(`[captcha ${attempt}/5] unrecognized, refreshing`);
+        this.log(`PINFL ${pinfl}: captcha ${attempt}/${CAPTCHA_ATTEMPTS} — oʻqilmadi, yangilanmoqda…`);
         const captchaLinkId = (debtPageHtml.match(/<a class="captcha[^"]*" id="([^"]+)"/i) || [])[1] || 'id6';
         const refreshMatch = debtPageHtml.match(new RegExp(`Wicket\\.Ajax\\.ajax\\(\\{"u":"([^"]+)".*?"c":"${captchaLinkId}"`))
           || debtPageHtml.match(/Wicket\.Ajax\.ajax\(\{"u":"([^"]+)".*?"c":"id6"/);
@@ -207,6 +209,7 @@ export class MibEngine {
         continue;
       }
 
+      this.log(`PINFL ${pinfl}: captcha ${attempt}/${CAPTCHA_ATTEMPTS} yechildi (${secureCode}) — qidirilmoqda…`);
       const postBody = new URLSearchParams({ [`${formId}_hf_0`]: '', pinfl: pinfl.trim(), secure_code: String(secureCode).trim(), submit_button: '1' }).toString();
       const postRes = await this.request(cleanAjaxUrl, {
         method: 'POST',
@@ -226,7 +229,8 @@ export class MibEngine {
       if (newImgMatch) currentCaptchaImg = new URL(newImgMatch[1]!.replace(/&amp;/g, '&'), `${this.baseUrl}/${baseUrl}`).href;
       await sleep(1000);
     }
-    return { success: false, message: 'Captcha 5 marta urinishda ham yechilmadi yoki PINFL bo‘yicha qarz yo‘q' };
+    this.log(`PINFL ${pinfl}: captcha ${CAPTCHA_ATTEMPTS} urinishda ham yechilmadi`);
+    return { success: false, message: `Captcha ${CAPTCHA_ATTEMPTS} marta urinishda ham yechilmadi` };
   }
 
   parseStep10Results(html: string, resultPath: string, pinfl: string): Step10Result {
@@ -273,16 +277,17 @@ export class MibEngine {
     const captchaMatch = formHtml.match(/<img[^>]*alt="Защитный код"[^>]*src="([^"]+)"/i) || formHtml.match(/<img[^>]*src="([^"]+)"/i);
     if (captchaMatch) currentCaptchaImg = new URL(captchaMatch[1]!.replace(/&amp;/g, '&'), `${this.baseUrl}/${baseUrl}`).href;
 
-    for (let attempt = 1; attempt <= 5; attempt++) {
+    for (let attempt = 1; attempt <= CAPTCHA_ATTEMPTS; attempt++) {
       let secureCode: string | null = null;
       if (currentCaptchaImg) {
         try {
           const imgRes = await this.request(currentCaptchaImg);
           const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
           secureCode = await this.captchaSolver.solve(imgBuffer);
-        } catch (e) { this.log(`monitoring captcha err: ${(e as Error).message}`); }
+        } catch (e) { this.log(`PINFL ${pinfl} · ish ${workNumber}: monitoring captcha xato: ${(e as Error).message}`); }
       }
       if (!secureCode) {
+        this.log(`PINFL ${pinfl} · ish ${workNumber}: monitoring captcha ${attempt}/${CAPTCHA_ATTEMPTS} — oʻqilmadi, yangilanmoqda…`);
         const linkId = (formHtml.match(/<a class="captcha[^"]*" id="([^"]+)"/i) || [])[1] || 'id1d';
         const refreshMatch = html.match(new RegExp(`Wicket\\.Ajax\\.ajax\\(\\{"u":"([^"]+)".*?"c":"${linkId}"`));
         if (refreshMatch) {
@@ -319,7 +324,7 @@ export class MibEngine {
       if (newImg) currentCaptchaImg = new URL(newImg[1]!.replace(/&amp;/g, '&'), formActionUrl).href;
       await sleep(1000);
     }
-    throw new Error('Monitoring Captcha 5 marta urinishda ham yechilmadi.');
+    throw new Error(`Monitoring captcha ${CAPTCHA_ATTEMPTS} marta urinishda ham yechilmadi.`);
   }
 
   async submitSmsCode(verifyFormAction: string, verifyCode: string): Promise<string> {

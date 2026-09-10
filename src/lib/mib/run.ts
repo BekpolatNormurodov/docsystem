@@ -51,17 +51,16 @@ export async function startMibRun(reportId: number): Promise<{ jobId: number; pe
  */
 export async function reconcileZombieClients(reportId: number): Promise<number> {
   if (ACTIVE.has(reportId)) return 0; // jonli run bor — tegmaymiz
-  const stuck = await prisma.mibClient.findMany({
-    where: { reportId, status: 'RUNNING' },
-    select: { id: true, checkedAt: true, _count: { select: { cases: true } } },
-  });
+  const stuck = await prisma.mibClient.findMany({ where: { reportId, status: 'RUNNING' }, select: { id: true } });
+  // MUHIM: DONE qilmaymiz — mijoz yarim ishlangan bo'lishi mumkin (ishlar birma-bir, har biriga SMS
+  // kutiladi). Uzilgan bo'lsa eski (yarim) ishlarni O'CHIRIB, PENDINGga qaytaramiz — GO bosilganda
+  // toza qaytadan to'liq tekshiriladi (dublikat ham, kam ish ham chiqmaydi).
   for (const c of stuck) {
-    const hasCases = c._count.cases > 0;
-    await prisma.mibClient.update({
-      where: { id: c.id },
-      data: { status: hasCases ? 'DONE' : 'PENDING', ...(hasCases && !c.checkedAt ? { checkedAt: new Date() } : {}) },
-    });
+    await prisma.mibCase.deleteMany({ where: { clientId: c.id } });
+    await prisma.mibClient.update({ where: { id: c.id }, data: { status: 'PENDING', error: null, checkedAt: null } });
   }
+  // Jonli run yo'q — «ishlayapti» (autoRun) yolg'on bo'lib qolmasin.
+  if (stuck.length) await prisma.mibReport.update({ where: { id: reportId }, data: { autoRun: false, runJobId: null } }).catch(() => {});
   return stuck.length;
 }
 
@@ -148,10 +147,19 @@ export async function runMibReportJob(jobId: number): Promise<void> {
         debtPage = await engine.getDebtSearchPage((await engine.request('/home').then((r) => r.text())));
         const search = await engine.searchDebtsByPinfl(client.pinfl, debtPage);
 
-        if (!search.success || !search.cases || search.cases.length === 0) {
+        if (!search.success) {
+          // Captcha/qidiruv MUVAFFAQIYATSIZ — bu «Toza» EMAS, XATO (qayta urinsa bo'ladi).
+          log(`PINFL ${client.pinfl}: qidiruv muvaffaqiyatsiz — ${search.message || 'xato'}`);
           await prisma.mibClient.update({
             where: { id: client.id },
-            data: { status: 'CLEAN', fio2: search.fio || null, totalDebt: search.totalDebt || null, currentDebt: search.currentDebt || null, checkedAt: new Date(), error: search.success ? null : (search.message || null) },
+            data: { status: 'FAILED', fio2: search.fio || null, checkedAt: new Date(), error: search.message || 'Qidiruv muvaffaqiyatsiz' },
+          });
+        } else if (!search.cases || search.cases.length === 0) {
+          // Captcha yechildi, qidiruv o'tdi — lekin qarz yo'q → TOZA.
+          log(`PINFL ${client.pinfl}: qarz topilmadi (toza)`);
+          await prisma.mibClient.update({
+            where: { id: client.id },
+            data: { status: 'CLEAN', fio2: search.fio || null, totalDebt: search.totalDebt || null, currentDebt: search.currentDebt || null, checkedAt: new Date(), error: null },
           });
         } else {
           await prisma.mibClient.update({
@@ -209,12 +217,12 @@ export async function runMibReportJob(jobId: number): Promise<void> {
 /** One case: request SMS → wait for OTP → submit → fetch + persist Step 19 detail. */
 async function fetchCaseDetail(engine: MibEngine, caseId: number, pinfl: string, workNumber: string, monitoringUrl: string, phone: string): Promise<void> {
   const requestedAt = Date.now();
-  log(`ish ${workNumber}: SMS soʻralmoqda (+${phone})…`);
+  log(`PINFL ${pinfl} · ish ${workNumber}: SMS soʻralmoqda (+${phone})…`);
   const sms = await engine.prepareAndRequestSms(monitoringUrl, pinfl, workNumber, phone);
-  log(`ish ${workNumber}: SMS yuborildi, kod kutilmoqda (${SMS_TIMEOUT_MS / 1000}s)…`);
+  log(`PINFL ${pinfl} · ish ${workNumber}: SMS yuborildi, kod kutilmoqda (${SMS_TIMEOUT_MS / 1000}s)…`);
   const code = await waitForSms(requestedAt);
-  if (!code) { log(`ish ${workNumber}: SMS kod KELMADI (timeout ${SMS_TIMEOUT_MS / 1000}s) — telefon/forwarder/webhook tekshiring`); throw new Error('SMS kod kelmadi (timeout)'); }
-  log(`ish ${workNumber}: SMS kod keldi (${code}) — detal olinmoqda`);
+  if (!code) { log(`PINFL ${pinfl} · ish ${workNumber}: SMS kod KELMADI (timeout ${SMS_TIMEOUT_MS / 1000}s) — telefon/forwarder/webhook tekshiring`); throw new Error('SMS kod kelmadi (timeout)'); }
+  log(`PINFL ${pinfl} · ish ${workNumber}: SMS kod keldi (••••) — detal olinmoqda`);
   const step19Url = await engine.submitSmsCode(sms.verifyFormAction, code);
   const d = await engine.fetchExecutionDetails(step19Url);
   const firm = resolveCreditor(d.creditor);

@@ -17,24 +17,35 @@ const STATUS_LABEL: Record<string, string> = { PENDING: 'Navbatda', RUNNING: 'Te
 
 export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { reportId: number; clientId: number; backHref?: string; onBack?: () => void }) {
   const [client, setClient] = useState<ClientRow | null>(null);
+  const [running, setRunning] = useState(false); // reportда jonli run bormi
   const [loading, setLoading] = useState(true);
   const [missing, setMissing] = useState(false);
+  const [rechecking, setRechecking] = useState(false);
 
   const load = useCallback(async () => {
     const r = await fetch(`/api/mib/client/${clientId}`, { cache: 'no-store' });
     if (r.status === 404) { setMissing(true); setLoading(false); return; }
     const j = await r.json().catch(() => null);
-    setClient(j?.client ?? null); setLoading(false);
+    setClient(j?.client ?? null); setRunning(!!j?.running); setLoading(false);
   }, [clientId]);
   useEffect(() => { void load(); }, [load]);
 
-  // Tekshiruv ketayotganda jonli yangilanish.
-  const active = !!client && (client.status === 'PENDING' || client.status === 'RUNNING');
+  // Jonli yangilanish: RUNNING bo'lsa, yoki PENDING bo'lib run ham ketayotgan bo'lsa. PENDING lekin run
+  // yo'q bo'lsa (uzilgan) — cheksiz spinner bo'lmasin, «Qayta tekshirish» ko'rsatamiz.
+  const active = !!client && (client.status === 'RUNNING' || (client.status === 'PENDING' && running));
   useEffect(() => {
     if (!active) return;
     const t = setInterval(() => void load(), 3500);
     return () => clearInterval(t);
   }, [active, load]);
+
+  const recheck = async () => {
+    if (!client) return;
+    setRechecking(true);
+    await fetch(`/api/mib/${reportId}/add-pinfl`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pinfl: client.pinfl }) }).catch(() => {});
+    await load();
+    setRechecking(false);
+  };
 
   const back = backHref
     ? <Link href={backHref} className="btn-ghost"><Ico.chevronLeft size={16} /> Roʻyxatga qaytish</Link>
@@ -55,7 +66,12 @@ export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { rep
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         {back}
-        <a className="btn-ghost text-xs" href={`/api/mib/${reportId}/excel?client=${client.id}`}><Ico.download size={14} /> Shu mijoz — Excel</a>
+        <div className="flex items-center gap-2">
+          <button className="btn-ghost text-xs" disabled={rechecking || active} onClick={recheck}>
+            {rechecking ? <Spinner size={14} /> : <Ico.refresh size={14} />} Qayta tekshirish
+          </button>
+          <a className="btn-ghost text-xs" href={`/api/mib/${reportId}/excel?client=${client.id}`}><Ico.download size={14} /> Shu mijoz — Excel</a>
+        </div>
       </div>
 
       <div className="card p-4">
@@ -84,6 +100,11 @@ export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { rep
       {active && client.cases.length === 0 ? (
         <div className="card grid place-items-center gap-2 py-14 text-sm text-muted">
           <Spinner /> mib.uz dan tekshirilmoqda… natija shu yerda paydo boʻladi.
+        </div>
+      ) : !active && client.status === 'PENDING' && client.cases.length === 0 ? (
+        <div className="card grid place-items-center gap-3 py-12 text-sm text-muted">
+          <span>Hali tekshirilmagan (navbatda, jonli tekshiruv yoʻq).</span>
+          <button className="btn-primary" disabled={rechecking} onClick={recheck}>{rechecking ? <Spinner size={16} /> : <Ico.flash size={16} />} Qayta tekshirish</button>
         </div>
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
