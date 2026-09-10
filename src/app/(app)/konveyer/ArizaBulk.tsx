@@ -223,18 +223,33 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {!done && noFirm ? (
+        {/* Ish KETAYOTGANda (regen ham) progress HAR DOIM ko'rinsin — «Hamma firma» ko'rinishidagi
+            firma-tanlash banneri uni yashirmasin (aks holda «bosdim, hech nima bo'lmadi» deb ko'rinadi). */}
+        {running ? (
+          <span className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm">
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+            Tayyorlanmoqda… {job?.progress ?? 0}/{job?.total ?? ''}
+          </span>
+        ) : done ? (
+          <a
+            href={`/api/export/${jobId}/download`}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-700 outline-none transition-colors hover:bg-emerald-500/15 focus-visible:ring-2 focus-visible:ring-emerald-500/40 dark:text-emerald-300"
+          >
+            <Ico.download size={14} />
+            {n(job?.total ?? 0)} ta ariza tayyor — yuklab olish
+          </a>
+        ) : noFirm ? (
           // «Hamma firma» — sud biriktirib bo'lmaydi (sud firmaga bog'liq). Firmani tanlash shart.
           <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2 text-xs font-medium text-amber-700 dark:text-amber-300">
             <Ico.info size={14} className="shrink-0" />
-            <span>Ariza sudga bogʻlanadi — avval yuqoridan <b>firmani tanlang</b>.</span>
+            <span>Ariza sudga bogʻlanadi — avval yuqoridan <b>firmani tanlang</b>. (Pastdagi roʻyxatdan «Qayta chiqarish» esa firmasiz ham ishlaydi.)</span>
           </div>
-        ) : !done && firmNoCourt ? (
+        ) : firmNoCourt ? (
           <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2 text-xs font-medium text-amber-700 dark:text-amber-300">
             <Ico.info size={14} className="shrink-0" />
             <span>Bu firmaga sud biriktirilmagan — «Sudlar» boʻlimida biriktiring.</span>
           </div>
-        ) : !done && !running && total === 0 && doneCount > 0 ? (
+        ) : total === 0 && doneCount > 0 ? (
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.07] px-3 py-2 text-xs font-medium text-emerald-700 dark:text-emerald-300">
               <Ico.check size={14} className="shrink-0" />
@@ -252,27 +267,17 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
               Qaytadan chiqarish ({n(doneCount)})
             </button>
           </div>
-        ) : !done ? (
+        ) : (
           <button
             onClick={openModal}
-            disabled={!!running || starting || total === 0}
-            aria-busy={!!running || starting}
+            disabled={starting || total === 0}
+            aria-busy={starting}
             aria-haspopup="dialog"
             className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm outline-none transition-all hover:bg-brand-600 focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:cursor-wait disabled:opacity-60"
             title={`«${scopeLabel}» boʻyicha arizalarni yaratish`}
           >
-            {running
-              ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> Yaratilmoqda… {job?.progress ?? 0}/{job?.total ?? ''}</>
-              : <><Ico.flash size={14} /> Ariza yaratish</>}
+            <Ico.flash size={14} /> Ariza yaratish
           </button>
-        ) : (
-          <a
-            href={`/api/export/${jobId}/download`}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-700 outline-none transition-colors hover:bg-emerald-500/15 focus-visible:ring-2 focus-visible:ring-emerald-500/40 dark:text-emerald-300"
-          >
-            <Ico.download size={14} />
-            {n(job?.total ?? 0)} ta ariza tayyor — yuklab olish
-          </a>
         )}
         {done && (
           <button onClick={() => { setJobId(null); setJob(null); loadCount(); }} className="rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-2">Yana</button>
