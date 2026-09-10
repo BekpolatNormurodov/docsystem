@@ -118,7 +118,8 @@ export class CabinetSubmitEngine {
       const need: { kind: CaseFileToUpload['kind']; label: string; hint: string }[] = [
         { kind: 'ARIZA', label: 'imzolangan ariza', hint: 'palatadan kelgan imzolangan arizani skanerlab biriktiring' },
         { kind: 'OFERTA', label: 'oferta (mikroqarz shartnomasi)', hint: 'oferta portfel ma\'lumotidan yaratiladi — kredit yozuvlari va chromium borligini tekshiring' },
-        { kind: 'TALABNOMA', label: 'talabnoma (talab xati)', hint: 'talabnoma PDF portfel ma\'lumotidan yaratiladi — chromium va kredit yozuvlarini tekshiring' },
+        // TALABNOMANING O'ZI majburiy EMAS (2026-09-10 foydalanuvchi qarori): sudga xatning
+        // mazmuni emas, faqat YETKAZILGANLIK kvitansiyasi (TALABNOMA_CHECK) kerak.
         { kind: 'TALABNOMA_CHECK', label: 'talabnoma kvitansiyasi', hint: 'xat.hippo (UZPOST) yetkazish kvitansiyasini biriktiring' },
       ];
       const missing = need.filter((x) => !files.some((f) => f.kind === x.kind));
