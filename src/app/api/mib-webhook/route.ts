@@ -64,10 +64,10 @@ export async function POST(req: NextRequest) {
   candidates.push(rawBody); // oxirgi chora: butun tana matni
 
   const code = extractFromCandidates(candidates);
-  if (code) {
-    const ua = req.headers.get('user-agent') || '';
-    await prisma.mibSms.create({ data: { code, raw: rawBody.slice(0, 1000), source: ua.includes('Mozilla') ? 'web-test' : 'forwarder' } });
-  }
+  const ua = req.headers.get('user-agent') || '';
+  // HAR POST yoziladi (kodsiz test xabar ham) — «SMS ni tekshirish» forwarding ishlaganini
+  // tasdiqlay olsin. Kodsiz yozuvni real tekshiruv (waitForSms) OLMAYDI — u faqat kodli qatorni oladi.
+  await prisma.mibSms.create({ data: { code: code || '', raw: rawBody.slice(0, 1000), source: ua.includes('Mozilla') ? 'web-test' : 'forwarder' } });
   return NextResponse.json({ success: true, received: true, extractedCode: code });
 }
 

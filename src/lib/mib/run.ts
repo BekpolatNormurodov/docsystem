@@ -69,7 +69,8 @@ async function waitForSms(sinceMs: number, timeoutMs = SMS_TIMEOUT_MS): Promise<
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const row = await prisma.mibSms.findFirst({
-      where: { consumed: false, createdAt: { gte: new Date(sinceMs) } },
+      // Faqat KODLI qator (kodsiz test xabar yozuvlarini olmaymiz).
+      where: { consumed: false, createdAt: { gte: new Date(sinceMs) }, NOT: { code: '' } },
       orderBy: { id: 'desc' },
     });
     if (row) {

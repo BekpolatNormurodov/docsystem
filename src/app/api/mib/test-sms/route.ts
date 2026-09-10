@@ -33,5 +33,6 @@ export async function GET(req: NextRequest) {
   if (!row) return NextResponse.json({ waiting: true });
   await prisma.mibSms.update({ where: { id: row.id }, data: { consumed: true } });
   const confirmedPhone = await confirmPendingPhone().catch(() => null);
-  return NextResponse.json({ code: row.code, source: row.source, confirmedPhone });
+  // Kodsiz test xabar ham forwarding ishlaganini tasdiqlaydi — UI truthy `code` kutadi.
+  return NextResponse.json({ code: row.code || 'OK (kodsiz)', source: row.source, confirmedPhone });
 }
