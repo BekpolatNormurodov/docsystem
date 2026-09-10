@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico, Spinner, useConfirm, DateField, Modal } from '@/ui';
 
 // ── API shapes ────────────────────────────────────────────────────────────────
-interface CaseRow {
+export interface CaseRow {
   id: number; workNumber: string; monitoringUrl: string | null;
   personFullName: string | null; creditor: string | null; firmName: string | null; firmInn: string | null; isTargetFirm: boolean;
   executorName: string | null; executorPhone: string | null; executorDept: string | null;
@@ -15,7 +15,7 @@ interface CaseRow {
   decisions: { article: string; date: string }[] | null;
   detailFetchedAt: string | null; error: string | null;
 }
-interface ClientRow {
+export interface ClientRow {
   id: number; rowNo: number | null; pinfl: string; fio: string | null; firm: string | null; ishRaqami: string | null;
   holat: string | null; region: string | null; status: string; attempts: number; fio2: string | null;
   totalDebt: string | null; error: string | null; checkedAt: string | null; cases: CaseRow[];
@@ -537,14 +537,14 @@ export function ReportPanel({ reportId, confirm, onChanged, embedded = false, re
   );
 }
 
-const money = (s: string | null) => {
+export const money = (s: string | null) => {
   if (!s || s === 'Nomaʼlum') return '—';
   const v = Number(String(s).replace(/[^\d.-]/g, ''));
   return Number.isFinite(v) ? v.toLocaleString('ru-RU') : s;
 };
-const val = (v: string | null) => (v && v !== 'Nomaʼlum' ? v : '—');
+export const val = (v: string | null) => (v && v !== 'Nomaʼlum' ? v : '—');
 
-function ClientDetail({ client, hasDetail }: { client: ClientRow; hasDetail: boolean }) {
+export function ClientDetail({ client, hasDetail }: { client: ClientRow; hasDetail: boolean }) {
   const fullName = client.cases.map((k) => k.personFullName).find((nm) => nm && !nm.includes('***') && nm !== 'Nomaʼlum');
   return (
     <div className="space-y-3">

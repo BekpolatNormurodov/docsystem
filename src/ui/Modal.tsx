@@ -13,6 +13,8 @@ const SIZES = {
   md: 'max-w-md',
   lg: 'max-w-2xl',
   xl: 'max-w-4xl',
+  '2xl': 'max-w-6xl',
+  full: 'max-w-[92rem]',
 } as const;
 
 export function Modal({
