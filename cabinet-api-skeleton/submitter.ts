@@ -387,10 +387,32 @@ export class CabinetSubmitEngine {
       // STEP 7: Sudga topshirish — save-suit qaytargan CASE id bilan (draftId bilan EMAS).
       options.onStep?.('Sudga topshirilmoqda');
       console.log('▶ [7/7] Sudga topshirilmoqda (send-to-court)...');
-      const submitRes = await this.client.put<any>(
-        `${CABINET_ENDPOINTS.sendToCourt}${caseId}`,
-        options.pkcs7Signature ? { signature: options.pkcs7Signature } : {},
-      );
+      // SMART PACING (2026-09-10 foydalanuvchi qarori): ADOLAT save-suit'дан keyin ishni DARHOL
+      // indekslamasligi mumkin — send-to-court juda tez chaqirilса «Топилмади» (not found) yoki 502
+      // qaytaradi. Shuning uchun o'tkinchi xatoда ~2x oyna (120s) gacha backoff bilan QAYTA urinamiz;
+      // shu vaqtда ham bo'lmasa — ish ADOLAT'da YARATILGAN holida qoladi (auto-resume keyn davom etadi).
+      let submitRes: any;
+      {
+        const deadline = Date.now() + 120_000;
+        let att = 0;
+        for (;;) {
+          att++;
+          try {
+            submitRes = await this.client.put<any>(
+              `${CABINET_ENDPOINTS.sendToCourt}${caseId}`,
+              options.pkcs7Signature ? { signature: options.pkcs7Signature } : {},
+            );
+            break;
+          } catch (e: any) {
+            const m = `${e?.message || ''} ${e?.cause?.message || e?.cause?.code || ''}`;
+            const transient = /Топилмади|not[\s_-]?found|\b50[234]\b|timeout|ETIMEDOUT|ECONN|socket|network|fetch failed/i.test(m);
+            if (!transient || Date.now() >= deadline) throw e;
+            const wait = Math.min(15_000, 4_000 * att);
+            console.warn(`⚠ send-to-court ${att}-urinish (${m.slice(0, 50)}) — ${wait / 1000}s kutib qayta...`);
+            await new Promise((r) => setTimeout(r, wait));
+          }
+        }
+      }
 
       // Sud ish RAQAMI yuborish paytida berilmaydi — uni sud kantselyariyasi ro'yxatga
       // olgach beradi (masalan «2-1004-2612/44765»). Shu paytgacha ish portalda REGISTER
