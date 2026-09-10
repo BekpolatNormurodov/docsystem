@@ -30,7 +30,7 @@ export function MibReport() {
   const [selId, setSelId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [aggregate, setAggregate] = useState(false);
+  const [aggregate, setAggregate] = useState(true); // kirganda default «Umumiy»
 
   const refresh = useCallback(async () => {
     const j = await jget('/api/mib');
@@ -42,7 +42,7 @@ export function MibReport() {
   // To'liq detal sahifasidan qaytganda tanlangan hisobot tiklanadi (?report=<id>).
   useEffect(() => {
     const r = Number(new URLSearchParams(window.location.search).get('report'));
-    if (Number.isInteger(r) && r > 0) setSelId(r);
+    if (Number.isInteger(r) && r > 0) { setSelId(r); setAggregate(false); } // detal sahifadan qaytish
   }, []);
 
   const anyRunning = reports.some((r) => r.autoRun);
