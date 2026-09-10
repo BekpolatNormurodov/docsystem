@@ -67,7 +67,7 @@ const emptyFilters = { q: '', region: '', dept: '', bank: '', firm: '', ours: fa
 type Filters = typeof emptyFilters;
 
 // ── component ────────────────────────────────────────────────────────────────
-export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged, clientHrefBase }: {
+export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged, clientHrefBase, aggregate = false }: {
   reportId: number;
   reseed?: () => Promise<void>;
   variant?: 'standalone' | 'konveyer';
@@ -75,6 +75,8 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   // Berilsa — mijozni bosganda ALOHIDA TO'LIQ SAHIFAga o'tadi (`${clientHrefBase}/<id>`); aks holda
   // ichki ko'rinish (konveyer modal).
   clientHrefBase?: string;
+  // UMUMIY rejim — barcha hisobotlar birga (/api/mib/all), faqat o'qish (GO/build/PINFL yo'q).
+  aggregate?: boolean;
 }) {
   const router = useRouter();
   const [report, setReport] = useState<Report | null>(null);
@@ -98,12 +100,12 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   const [addMsg, setAddMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const load = useCallback(async () => {
-    const j = await jget(`/api/mib/${reportId}`);
+    const j = await jget(aggregate ? '/api/mib/all' : `/api/mib/${reportId}`);
     setReport(j.report ?? null); setClients(j.clients ?? []); setStats(j.stats ?? null);
     setHolatValues(j.holatValues ?? []);
     setSentRange(j.sentDateRange ?? { min: null, max: null });
     if (j.report?.statusFilter != null) setStatusFilter(j.report.statusFilter);
-  }, [reportId]);
+  }, [reportId, aggregate]);
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
@@ -218,7 +220,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   return (
     <div className="space-y-4">
       {/* ── standalone: «Holat» + sana → Ro'yxatni qurish ────────────────── */}
-      {variant === 'standalone' && !report.autoRun && !isManual && (
+      {variant === 'standalone' && !report.autoRun && !isManual && !aggregate && (
         <div className="card space-y-3 p-3">
           <div>
             <span className="field-label">«Holat» boʻyicha (Excel)</span>
@@ -242,6 +244,12 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
       )}
 
       {/* ── control bar ─────────────────────────────────────────────────── */}
+      {aggregate ? (
+        <div className="flex items-center gap-2 text-sm text-muted">
+          <Ico.layer size={16} className="text-brand-600 dark:text-brand-400" />
+          <span><b className="text-fg">Umumiy</b> · barcha hisobotlar birga · <b className="tabular-nums text-fg">{n(report.total)}</b> ta mijoz (PINFL bo‘yicha yagona)</span>
+        </div>
+      ) : (
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm text-muted">
           {report.autoRun ? (
@@ -269,8 +277,9 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
           )}
         </div>
       </div>
+      )}
       {note && <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-600 dark:text-amber-300">{note}</p>}
-      {variant === 'standalone' && !built && !report.autoRun && (
+      {variant === 'standalone' && !built && !report.autoRun && !aggregate && (
         <div className="rounded-xl border border-dashed border-line bg-surface-2/40 px-4 py-3 text-sm text-muted">
           Excel yuklandi. Yuqorida «Holat» (masalan <b className="text-fg">MIBda</b>) ni tanlab <b className="text-fg">Roʻyxatni qurish</b> bosing, soʻng <b className="text-fg">GO</b>.
         </div>
@@ -341,7 +350,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
               </button>
             ))}
           </div>
-          <a className="btn-ghost mr-1 shrink-0 text-xs" href={excelHref}><Ico.download size={14} /> Excel{tab !== 'mijozlar' ? ' (kesim)' : ''}</a>
+          {!aggregate && <a className="btn-ghost mr-1 shrink-0 text-xs" href={excelHref}><Ico.download size={14} /> Excel{tab !== 'mijozlar' ? ' (kesim)' : ''}</a>}
         </div>
 
         {/* summary line for the active view */}

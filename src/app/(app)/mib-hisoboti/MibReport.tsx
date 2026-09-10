@@ -30,6 +30,7 @@ export function MibReport() {
   const [selId, setSelId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [aggregate, setAggregate] = useState(false);
 
   const refresh = useCallback(async () => {
     const j = await jget('/api/mib');
@@ -79,14 +80,18 @@ export function MibReport() {
 
       <TekshirishCard onUploaded={(id) => { void refresh(); setSelId(id); }} />
 
-      <ReportChips reports={reports} loading={loading} selId={selId} onSelect={setSelId} onDelete={del} />
+      <ReportChips reports={reports} loading={loading} selId={aggregate ? -1 : selId}
+        onSelect={(id) => { setAggregate(false); setSelId(id); }}
+        onUmumiy={() => { setAggregate(true); setSelId(null); }} onDelete={del} />
 
-      {selId != null ? (
+      {aggregate ? (
+        <MibDashboard key="agg" reportId={0} aggregate variant="standalone" clientHrefBase="/mib-hisoboti/mijoz" />
+      ) : selId != null ? (
         <MibDashboard key={selId} reportId={selId} variant="standalone" onChanged={refresh} clientHrefBase="/mib-hisoboti/mijoz" />
       ) : (
         <div className="card grid place-items-center gap-2 p-12 text-center text-sm text-muted">
           <Ico.chart size={24} className="text-muted/60" />
-          Yuqorida <b className="text-fg">Tekshirish</b> (PINFL yoki Excel) qiling, yoki yuqoridagi tayyor hisobotni tanlang.
+          Yuqorida <b className="text-fg">Tekshirish</b> (PINFL yoki Excel) qiling, <b className="text-fg">Umumiy</b> yoki tayyor hisobotni tanlang.
         </div>
       )}
 
@@ -325,12 +330,19 @@ function ConfigCard() {
 }
 
 // ── Hisobotlar — gorizontal chiplar (tanlash + o'chirish) ─────────────────────────
-function ReportChips({ reports, loading, selId, onSelect, onDelete }: { reports: ListReport[]; loading: boolean; selId: number | null; onSelect: (id: number) => void; onDelete: (r: ListReport) => void }) {
+function ReportChips({ reports, loading, selId, onSelect, onUmumiy, onDelete }: { reports: ListReport[]; loading: boolean; selId: number | null; onSelect: (id: number) => void; onUmumiy: () => void; onDelete: (r: ListReport) => void }) {
   if (loading) return <div className="flex items-center gap-2 text-sm text-muted"><Spinner size={14} /> Hisobotlar…</div>;
   if (!reports.length) return null;
+  const umumiyActive = selId === -1;
   return (
     <div className="flex flex-wrap items-center gap-2">
       <span className="text-xs font-semibold uppercase tracking-wide text-muted">Hisobotlar:</span>
+      <button onClick={onUmumiy}
+        className={cx('inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-sm font-medium transition-colors',
+          umumiyActive ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line text-muted hover:bg-surface-2 hover:text-fg')}>
+        <Ico.layer size={14} /> Umumiy
+      </button>
+      <span className="mx-0.5 h-5 w-px bg-line" />
       {reports.map((r) => {
         const done = (r.statusCounts.DONE ?? 0) + (r.statusCounts.CLEAN ?? 0);
         const active = selId === r.id;
