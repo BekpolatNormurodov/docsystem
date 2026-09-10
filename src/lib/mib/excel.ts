@@ -1,17 +1,54 @@
-// Build the full MIB report as an .xlsx: sheet 1 = per-client summary, sheet 2 = per-case detail
-// (every Step 19 field). Money is written as real numbers so Excel can sum/filter.
+// Build the MIB report as an .xlsx. To'liq eksport: Mijozlar + Ishlar + kesim varaqlari (Firma /
+// Region / Hudud / Bank). `opts.tab` bir kesim varag'ini beradi (dashboard tabidan), `opts.clientId`
+// bitta mijozning ishlarini beradi. Kesim/region mantig'i src/lib/mib/breakdown.ts dan (dashboard
+// bilan bir xil). Pul haqiqiy son bo'lib yoziladi — Excel yig'a/filtrlay oladi.
 import ExcelJS from 'exceljs';
 import type { MibCase, MibClient, MibReport } from '@prisma/client';
 import { parseMoney } from './stats';
+import { groupBreakdown, type Dim } from './breakdown';
 
 type ClientWithCases = MibClient & { cases: MibCase[] };
 
 const num = (s: string | null) => (s ? parseMoney(s) : 0);
 const txt = (s: string | null) => (s && s !== 'Nomaʼlum' ? s : '');
 
-export async function buildMibExcel(report: MibReport, clients: ClientWithCases[]): Promise<Buffer> {
+const DIMS: Dim[] = ['firma', 'region', 'hudud', 'bank'];
+const DIM_SHEET: Record<Dim, string> = { firma: 'Firma boʻyicha', region: 'Region boʻyicha', hudud: 'Hudud (MIB)', bank: 'Bank boʻyicha' };
+const DIM_HEAD: Record<Dim, string> = { firma: 'Firma', region: 'Region', hudud: 'Hudud (MIB boʻlimi)', bank: 'Bank' };
+
+function addBreakdownSheet(wb: ExcelJS.Workbook, clients: ClientWithCases[], dim: Dim): void {
+  const ws = wb.addWorksheet(DIM_SHEET[dim]);
+  ws.columns = [
+    { header: DIM_HEAD[dim], key: 'label', width: 46 },
+    { header: 'Ijro ishi', key: 'cases', width: 12 },
+    { header: 'Bizniki (8 MMT)', key: 'ours', width: 16 },
+    { header: 'Mijoz', key: 'clients', width: 10 },
+    { header: 'Qoldiq qarz', key: 'debt', width: 20 },
+  ];
+  const rows = groupBreakdown(clients, dim);
+  for (const r of rows) ws.addRow(r);
+  const t = rows.reduce((a, r) => ({ cases: a.cases + r.cases, ours: a.ours + r.ours, debt: a.debt + r.debt }), { cases: 0, ours: 0, debt: 0 });
+  ws.addRow({ label: `Jami · ${rows.length} guruh`, cases: t.cases, ours: t.ours, clients: '', debt: t.debt });
+  ws.getRow(1).font = { bold: true };
+  ws.lastRow!.font = { bold: true };
+  ws.views = [{ state: 'frozen', ySplit: 1 }];
+  ws.getColumn('debt').numFmt = '#,##0';
+}
+
+export async function buildMibExcel(
+  report: MibReport,
+  clients: ClientWithCases[],
+  opts: { tab?: string; clientId?: number } = {},
+): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.created = new Date();
+
+  // Bitta kesim varag'i (dashboard tabidan «Excel»).
+  if (opts.tab && DIMS.includes(opts.tab as Dim)) {
+    addBreakdownSheet(wb, clients, opts.tab as Dim);
+    const out = await wb.xlsx.writeBuffer();
+    return Buffer.from(out);
+  }
 
   // ── Sheet 1: Mijozlar ─────────────────────────────────────────────────────
   const s1 = wb.addWorksheet('Mijozlar');
@@ -91,6 +128,9 @@ export async function buildMibExcel(report: MibReport, clients: ClientWithCases[
   }
   ['debt', 'remaining'].forEach((k) => { const col = s1.getColumn(k); col.numFmt = '#,##0'; });
   ['total', 'main', 'fee', 'fine', 'remaining'].forEach((k) => { const col = s2.getColumn(k); col.numFmt = '#,##0'; });
+
+  // To'liq hisobotga kesim varaqlarini ham qo'shamiz (bitta mijoz eksportida shart emas).
+  if (!opts.clientId) for (const d of DIMS) addBreakdownSheet(wb, clients, d);
 
   const out = await wb.xlsx.writeBuffer();
   return Buffer.from(out);
