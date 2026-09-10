@@ -17,7 +17,7 @@ import { ClientDetailFull } from '../mib-hisoboti/ClientDetailFull';
 import { MibLogPanel } from '../mib-hisoboti/MibLogPanel';
 import { regionOf, groupBreakdown, parseMoney, clean, shortFirm, type Dim } from '@/lib/mib/breakdown';
 
-interface Report { id: number; createdAt: string; label: string | null; total: number; autoRun: boolean; statusFilter: string | null }
+interface Report { id: number; createdAt: string; label: string | null; total: number; autoRun: boolean; statusFilter: string | null; sourceFileName?: string }
 interface Stats {
   total: number; status: Record<string, number>; withCases: number; totalCases: number; detailedCases: number;
   totalRemainingDebt: number; firms: { name: string; inn: string; cases: number; clients: number; remainingDebt: number }[];
@@ -57,9 +57,10 @@ function enrich(c: ClientRow): Enriched {
 }
 
 type Tab = 'mijozlar' | Dim;
+// Kesim (region/hudud/bank/firma) OLDINDA — default «Region»; «Mijozlar» ro'yxati oxirida.
 const TABS: { key: Tab; label: string }[] = [
-  { key: 'mijozlar', label: 'Mijozlar' }, { key: 'firma', label: 'Firma' },
   { key: 'region', label: 'Region' }, { key: 'hudud', label: 'Hudud (MIB)' }, { key: 'bank', label: 'Bank' },
+  { key: 'firma', label: 'Firma' }, { key: 'mijozlar', label: 'Mijozlar' },
 ];
 const PAGE_SIZES = [25, 50, 100];
 const emptyFilters = { q: '', region: '', dept: '', bank: '', firm: '', ours: false };
@@ -82,7 +83,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   const [busy, setBusy] = useState('');
   const [note, setNote] = useState('');
   const [filters, setFilters] = useState<Filters>(emptyFilters);
-  const [tab, setTab] = useState<Tab>('mijozlar');
+  const [tab, setTab] = useState<Tab>('region');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [detailId, setDetailId] = useState<number | null>(null);
@@ -157,6 +158,8 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   const checked = (stats?.status.DONE ?? 0) + (stats?.status.CLEAN ?? 0);
   const built = (report?.total ?? 0) > 0;
   const pulled = totalCases > 0 || (stats?.detailedCases ?? 0) > 0;
+  // «Qo'lda tekshiruvlar» (Excelsiz) — Excel «Holat» / «Ro'yxatni qurish» ko'rsatilmaydi.
+  const isManual = (report?.sourceFileName ?? '').startsWith('manual:') || (holatValues.length === 0 && (report?.statusFilter ?? '') === 'Qoʻlda');
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageClamped = Math.min(page, totalPages);
@@ -215,7 +218,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   return (
     <div className="space-y-4">
       {/* ── standalone: «Holat» + sana → Ro'yxatni qurish ────────────────── */}
-      {variant === 'standalone' && !report.autoRun && (
+      {variant === 'standalone' && !report.autoRun && !isManual && (
         <div className="card space-y-3 p-3">
           <div>
             <span className="field-label">«Holat» boʻyicha (Excel)</span>

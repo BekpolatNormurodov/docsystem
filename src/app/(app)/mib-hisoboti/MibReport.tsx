@@ -79,17 +79,16 @@ export function MibReport() {
 
       <TekshirishCard onUploaded={(id) => { void refresh(); setSelId(id); }} />
 
-      <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
-        <HistoryList reports={reports} loading={loading} selId={selId} onSelect={setSelId} onDelete={del} />
-        {selId != null ? (
-          <MibDashboard key={selId} reportId={selId} variant="standalone" onChanged={refresh} clientHrefBase="/mib-hisoboti/mijoz" />
-        ) : (
-          <div className="card grid place-items-center gap-2 p-10 text-center text-sm text-muted">
-            <Ico.chart size={22} className="text-muted/60" />
-            Yuqorida <b className="text-fg">Tekshirish</b> (PINFL yoki Excel) qiling, yoki chapdan tayyor hisobotni tanlang.
-          </div>
-        )}
-      </div>
+      <ReportChips reports={reports} loading={loading} selId={selId} onSelect={setSelId} onDelete={del} />
+
+      {selId != null ? (
+        <MibDashboard key={selId} reportId={selId} variant="standalone" onChanged={refresh} clientHrefBase="/mib-hisoboti/mijoz" />
+      ) : (
+        <div className="card grid place-items-center gap-2 p-12 text-center text-sm text-muted">
+          <Ico.chart size={24} className="text-muted/60" />
+          Yuqorida <b className="text-fg">Tekshirish</b> (PINFL yoki Excel) qiling, yoki yuqoridagi tayyor hisobotni tanlang.
+        </div>
+      )}
 
       <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} size="lg" title="MIB sozlamalari" description="Telefon (SMS OTP), interval, chuqur detal va webhook">
         <ConfigCard />
@@ -325,37 +324,30 @@ function ConfigCard() {
   );
 }
 
-// ── Upload ────────────────────────────────────────────────────────────────────
-// ── History ───────────────────────────────────────────────────────────────────
-function HistoryList({ reports, loading, selId, onSelect, onDelete }: { reports: ListReport[]; loading: boolean; selId: number | null; onSelect: (id: number) => void; onDelete: (r: ListReport) => void }) {
+// ── Hisobotlar — gorizontal chiplar (tanlash + o'chirish) ─────────────────────────
+function ReportChips({ reports, loading, selId, onSelect, onDelete }: { reports: ListReport[]; loading: boolean; selId: number | null; onSelect: (id: number) => void; onDelete: (r: ListReport) => void }) {
+  if (loading) return <div className="flex items-center gap-2 text-sm text-muted"><Spinner size={14} /> Hisobotlar…</div>;
+  if (!reports.length) return null;
   return (
-    <div className="card overflow-hidden">
-      <div className="border-b border-line px-4 py-3 text-sm font-semibold">Hisobotlar</div>
-      {loading ? <div className="grid place-items-center p-8"><Spinner /></div>
-        : !reports.length ? <p className="p-6 text-sm text-muted">Hali hisobot yo‘q.</p>
-          : (
-            <ul className="max-h-[520px] divide-y divide-line overflow-y-auto">
-              {reports.map((r) => {
-                const done = (r.statusCounts.DONE ?? 0) + (r.statusCounts.CLEAN ?? 0);
-                return (
-                  <li key={r.id} className={cx('group relative transition-colors hover:bg-surface-2', selId === r.id && 'bg-surface-2')}>
-                    <button onClick={() => onSelect(r.id)} className="flex w-full flex-col gap-1 px-4 py-3 pr-10 text-left">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-sm font-medium">{r.label || r.sourceFileName}</span>
-                        {r.autoRun ? <span className="badge border-emerald-500/30 text-emerald-600 dark:text-emerald-300">● ishlayapti</span>
-                          : r.statusFilter ? <span className="badge border-line text-muted">{r.statusFilter}</span> : null}
-                      </div>
-                      <div className="text-xs text-muted">{dt(r.createdAt)}</div>
-                      {r.total > 0 && <div className="text-xs text-muted">{n(done)} / {n(r.total)} tekshirildi</div>}
-                    </button>
-                    <button onClick={() => onDelete(r)} title="O‘chirish" className="absolute right-2 top-2.5 grid h-8 w-8 place-items-center rounded-lg text-muted opacity-0 transition-opacity hover:bg-rose-500/10 hover:text-rose-600 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:text-rose-300">
-                      <Ico.trash size={16} />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs font-semibold uppercase tracking-wide text-muted">Hisobotlar:</span>
+      {reports.map((r) => {
+        const done = (r.statusCounts.DONE ?? 0) + (r.statusCounts.CLEAN ?? 0);
+        const active = selId === r.id;
+        return (
+          <div key={r.id} className={cx('group inline-flex items-center gap-2 rounded-xl border py-1.5 pl-3 pr-1.5 text-sm transition-colors',
+            active ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line text-muted hover:bg-surface-2 hover:text-fg')}>
+            <button onClick={() => onSelect(r.id)} className="flex items-center gap-2">
+              {r.autoRun && <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />}
+              <span className="max-w-[220px] truncate font-medium">{r.label || r.sourceFileName}</span>
+              {r.total > 0 && <span className="tabular-nums text-xs opacity-70">{n(done)}/{n(r.total)}</span>}
+            </button>
+            <button onClick={() => onDelete(r)} title="O‘chirish" className="grid h-6 w-6 place-items-center rounded-lg text-muted opacity-0 transition-opacity hover:bg-rose-500/10 hover:text-rose-600 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:text-rose-300">
+              <Ico.trash size={13} />
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }
