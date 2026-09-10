@@ -160,6 +160,13 @@ function ConfigCard() {
     setCfg((c) => c ? { ...c, ...json } : c);
   };
 
+  // Kutayotgan raqamni test SMS'siz, qo'lда ishlaydigan qilib qo'yish.
+  const activatePending = async () => {
+    const { json } = await jpost('/api/mib/config', { activatePending: true });
+    setCfg((c) => c ? { ...c, ...json } : c);
+    setPhone9(toNational(json?.phone || ''));
+  };
+
   // Test the SMS pipeline: wait for a code to arrive at the webhook (operator sends a test SMS).
   const [testState, setTestState] = useState<'idle' | 'waiting' | 'ok' | 'timeout'>('idle');
   const [testCode, setTestCode] = useState('');
@@ -231,8 +238,11 @@ function ConfigCard() {
             <span className="badge border-amber-500/30 text-amber-600 dark:text-amber-300 tabular-nums">
               +{cfg.phonePending} · tasdiqlanmagan
             </span>
-            <span className="text-amber-600 dark:text-amber-300">
-              — shu raqamdan test SMS yuboring, shundan keyingina almashadi
+            <button className="btn-ghost px-2.5 py-1 text-xs" onClick={activatePending}>
+              <Ico.check size={13} /> Shu raqamga oʻtkazish
+            </button>
+            <span className="text-xs text-amber-600 dark:text-amber-300">
+              — yoki shu raqamdan test SMS yuboring
             </span>
           </>
         )}

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAccess } from '@/lib/auth';
-import { getMibConfig, setMibConfig, MIN_INTERVAL_SEC } from '@/lib/mib/config';
+import { getMibConfig, setMibConfig, confirmPendingPhone, MIN_INTERVAL_SEC } from '@/lib/mib/config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,6 +28,15 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   await requireAccess('mib-report');
   const body = await req.json().catch(() => ({}));
+
+  // Kutayotgan raqamni QO'LDA faollashtirish (test SMS'ni kutmasdan). SMS forwarding ishonchsiz
+  // bo'lganда operator to'g'ridan-to'g'ri almashtira olsin.
+  if (body?.activatePending) {
+    const promoted = await confirmPendingPhone().catch(() => null);
+    const cfg = await getMibConfig();
+    return NextResponse.json({ ...cfg, promoted, minIntervalSec: MIN_INTERVAL_SEC });
+  }
+
   const patch: { phonePending?: string; baseUrl?: string; intervalSec?: number; deepDetail?: boolean } = {};
   const current = await getMibConfig();
   if (typeof body?.deepDetail === 'boolean') patch.deepDetail = body.deepDetail;
