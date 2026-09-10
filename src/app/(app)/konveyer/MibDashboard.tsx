@@ -63,7 +63,8 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'firma', label: 'Firma' }, { key: 'mijozlar', label: 'Mijozlar' },
 ];
 const PAGE_SIZES = [25, 50, 100];
-const emptyFilters = { q: '', region: '', dept: '', bank: '', firm: '', ours: false };
+type Own = 'all' | 'ours' | 'others'; // Hammasi / Bizga tegishli / Bizga tegishli emas
+const emptyFilters = { q: '', region: '', dept: '', bank: '', firm: '', own: 'all' as Own };
 type Filters = typeof emptyFilters;
 
 // ── component ────────────────────────────────────────────────────────────────
@@ -137,7 +138,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
       (!filters.dept || c.depts.includes(filters.dept)) &&
       (!filters.bank || c.banks.includes(filters.bank)) &&
       (!filters.firm || c.ourFirms.includes(filters.firm)) &&
-      (!filters.ours || c.ours),
+      (filters.own === 'all' || (filters.own === 'ours' ? c.ours : !c.ours)),
     );
   }, [enriched, filters]);
 
@@ -167,7 +168,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   const pageClamped = Math.min(page, totalPages);
   const pageRows = filtered.slice((pageClamped - 1) * pageSize, pageClamped * pageSize);
 
-  const anyFilter = !!(filters.q || filters.region || filters.dept || filters.bank || filters.firm || filters.ours);
+  const anyFilter = !!(filters.q || filters.region || filters.dept || filters.bank || filters.firm || filters.own !== 'all');
   const setF = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
   const jumpFilter = (dim: Dim, label: string) => {
     const key = dim === 'region' ? 'region' : dim === 'hudud' ? 'dept' : dim === 'bank' ? 'bank' : 'firm';
@@ -329,12 +330,18 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
           <FilterSelect label="Hudud (MIB boʻlimi)" value={filters.dept} onChange={(v) => setF({ dept: v })} options={opts.depts} wide />
           <FilterSelect label="Bank" value={filters.bank} onChange={(v) => setF({ bank: v })} options={opts.banks} wide />
           <FilterSelect label="Firma" value={filters.firm} onChange={(v) => setF({ firm: v })} options={opts.firms} />
-          <button onClick={() => setF({ ours: !filters.ours })}
-            className={cx('h-[42px] shrink-0 rounded-xl border px-3 text-sm font-medium transition-colors',
-              filters.ours ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line text-muted hover:bg-surface-2 hover:text-fg')}>
-            <Ico.shield size={15} className="mr-1 inline" /> Faqat bizniki
-          </button>
-          {anyFilter && <button className="btn-ghost h-[42px] shrink-0 text-xs" onClick={() => setFilters(emptyFilters)}><Ico.close size={14} /> Tozalash</button>}
+          <div className="shrink-0">
+            <span className="field-label">Tegishlilik</span>
+            <div className="flex h-[42px] items-center gap-0.5 rounded-xl border border-line p-0.5">
+              {([['all', 'Hammasi'], ['ours', 'Bizniki'], ['others', 'Tegishli emas']] as [Own, string][]).map(([v, lbl]) => (
+                <button key={v} onClick={() => setF({ own: v })}
+                  className={cx('rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors', filters.own === v ? 'bg-brand-500 text-white shadow-sm' : 'text-muted hover:text-fg')}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
+          </div>
+          {anyFilter && <button className="btn-ghost h-[42px] shrink-0 self-end text-xs" onClick={() => setFilters(emptyFilters)}><Ico.close size={14} /> Tozalash</button>}
         </div>
       </div>
 
@@ -424,10 +431,33 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
 
 
 // ── breakdown table (Firma / Region / Hudud / Bank tabs) ────────────────────────
-function BreakdownTable({ rows, dim, activeLabel, onPick }: { rows: { label: string; cases: number; clients: number; ours: number; debt: number }[]; dim: Dim; activeLabel: string; onPick: (label: string) => void }) {
+type BRow = { label: string; cases: number; clients: number; ours: number; debt: number };
+function BreakdownTable({ rows, dim, activeLabel, onPick }: { rows: BRow[]; dim: Dim; activeLabel: string; onPick: (label: string) => void }) {
+  const [showOthers, setShowOthers] = useState(false);
   const head = dim === 'firma' ? 'Firma' : dim === 'region' ? 'Region' : dim === 'hudud' ? 'Hudud (MIB boʻlimi)' : 'Bank';
   const totals = rows.reduce((a, r) => ({ cases: a.cases + r.cases, ours: a.ours + r.ours, debt: a.debt + r.debt }), { cases: 0, ours: 0, debt: 0 });
   if (rows.length === 0) return <p className="px-4 py-10 text-center text-sm text-muted">Maʼlumot yoʻq — GO bosib tekshiring yoki filtrni oʻzgartiring.</p>;
+
+  // Firma kesimida: bizga tegishli (ours>0) YUQORIDA, tegishli emas (ours===0) PASTDA yopiq (default).
+  const isFirma = dim === 'firma';
+  const oursRows = isFirma ? rows.filter((r) => r.ours > 0) : rows;
+  const otherRows = isFirma ? rows.filter((r) => r.ours === 0) : [];
+  const otherTot = otherRows.reduce((a, r) => ({ cases: a.cases + r.cases, debt: a.debt + r.debt }), { cases: 0, debt: 0 });
+
+  const Row = (r: BRow) => {
+    const active = activeLabel === r.label;
+    return (
+      <tr key={r.label} onClick={() => onPick(r.label)}
+        className={cx('cursor-pointer border-b border-line/60 transition-colors hover:bg-surface-2', active && 'bg-brand-500/10')}>
+        <td className="px-3 py-2.5"><span className="line-clamp-2">{r.label}</span></td>
+        <td className="px-3 py-2.5 text-right tabular-nums font-medium">{n(r.cases)}</td>
+        <td className="px-3 py-2.5 text-right tabular-nums">{r.ours ? <span className="text-emerald-600 dark:text-emerald-300">{n(r.ours)}</span> : <span className="text-muted">0</span>}</td>
+        <td className="px-3 py-2.5 text-right tabular-nums text-muted">{n(r.clients)}</td>
+        <td className="px-3 py-2.5 text-right tabular-nums">{som(r.debt)}</td>
+      </tr>
+    );
+  };
+
   return (
     <div className="max-h-[52vh] overflow-auto">
       <table className="w-full text-sm">
@@ -441,19 +471,22 @@ function BreakdownTable({ rows, dim, activeLabel, onPick }: { rows: { label: str
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => {
-            const active = activeLabel === r.label;
-            return (
-              <tr key={r.label} onClick={() => onPick(r.label)}
-                className={cx('cursor-pointer border-b border-line/60 transition-colors hover:bg-surface-2', active && 'bg-brand-500/10')}>
-                <td className="px-3 py-2.5"><span className="line-clamp-2">{r.label}</span></td>
-                <td className="px-3 py-2.5 text-right tabular-nums font-medium">{n(r.cases)}</td>
-                <td className="px-3 py-2.5 text-right tabular-nums">{r.ours ? <span className="text-emerald-600 dark:text-emerald-300">{n(r.ours)}</span> : <span className="text-muted">0</span>}</td>
-                <td className="px-3 py-2.5 text-right tabular-nums text-muted">{n(r.clients)}</td>
-                <td className="px-3 py-2.5 text-right tabular-nums">{som(r.debt)}</td>
+          {oursRows.map(Row)}
+          {isFirma && otherRows.length > 0 && (
+            <>
+              <tr className="border-y border-line bg-surface-2/50">
+                <td colSpan={5} className="px-3 py-2">
+                  <button onClick={() => setShowOthers((v) => !v)} className="flex w-full items-center gap-2 text-left text-sm font-medium text-muted hover:text-fg">
+                    <svg className={cx('h-4 w-4 shrink-0 transition-transform', showOthers && 'rotate-90')} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+                    Bizga tegishli emas <span className="opacity-70">({n(otherRows.length)} ta · {n(otherTot.cases)} ish · qoldiq {som(otherTot.debt)})</span>
+                    <span className="ml-auto text-xs opacity-60">{showOthers ? 'yopish' : 'ochish'}</span>
+                  </button>
+                </td>
               </tr>
-            );
-          })}
+              {showOthers && otherRows.map(Row)}
+            </>
+          )}
+          {oursRows.length === 0 && !isFirma && null}
         </tbody>
         <tfoot className="sticky bottom-0 bg-surface">
           <tr className="border-t border-line font-semibold">
