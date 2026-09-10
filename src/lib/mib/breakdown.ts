@@ -28,6 +28,17 @@ export const parseMoney = (s: string | null | undefined): number => {
 export const clean = (s: string | null | undefined): string => (s && s !== 'Nomaʼlum' ? s.trim() : '');
 export const shortFirm = (s: string): string => s.replace(/ MIKROMOLIYA.*$/i, '').replace(/["«»]/g, '').trim();
 
+// Bank nomini FILIALSIZ bazaga keltiradi — «АТБ "Bank" Xorazm filiali» va «... Toshkent viloyat
+// filiali» BITTA bank sifatida guruhlansin (aks holda bir bank 4-5 xil ko'rinadi).
+export function normalizeBank(s: string | null | undefined): string {
+  const t = clean(s);
+  if (!t) return '';
+  const q = t.match(/^(.*?[«"“][^«"”»]+[»"”])/); // qo'shtirnoq ichidagi bank nomigacha
+  if (q) return q[1].replace(/\s+/g, ' ').trim();
+  // Qo'shtirnoqsiz — oxiridagi «<viloyat> filiali» ni olib tashlaymiz (Cyrillic uchun \S ishlatamiz).
+  return t.replace(/\s+\S+\s+(?:минтақавий\s+)?(?:филиал\S*|filial\S*)\s*$/iu, '').replace(/\s+/g, ' ').trim() || t;
+}
+
 // Regionni MIB bo'limi / sud organi matnidan aniqlaymiz (kirill + lotin). Toshkent SHAHRI
 // «Toshkent» dan OLDIN tekshiriladi — aks holda hammasi «viloyat»ga tushib qoladi.
 export const REGION_TOKENS: [RegExp, string][] = [
@@ -66,7 +77,7 @@ export function rowKey(c: BClient, k: BCase, dim: Dim): string {
   if (dim === 'firma') return k.firmName ? shortFirm(k.firmName) : 'Boshqa kreditorlar';
   if (dim === 'region') return regionOf(c) ?? UNKNOWN;
   if (dim === 'hudud') return clean(k.executorDept) || UNKNOWN;
-  return clean(k.bankName) || UNKNOWN;
+  return normalizeBank(k.bankName) || UNKNOWN;
 }
 
 /** Case-daraja group-by: har guruh uchun ijro ishi, bizniki, alohida mijoz, qoldiq qarz yig'indisi. */

@@ -15,7 +15,7 @@ import { Ico, Spinner, DateField } from '@/ui';
 import { type ClientRow } from '../mib-hisoboti/MibClientDetail';
 import { ClientDetailFull } from '../mib-hisoboti/ClientDetailFull';
 import { MibLogPanel } from '../mib-hisoboti/MibLogPanel';
-import { regionOf, groupBreakdown, parseMoney, clean, shortFirm, type Dim } from '@/lib/mib/breakdown';
+import { regionOf, groupBreakdown, parseMoney, clean, shortFirm, normalizeBank, type Dim } from '@/lib/mib/breakdown';
 
 interface Report { id: number; createdAt: string; label: string | null; total: number; autoRun: boolean; statusFilter: string | null; sourceFileName?: string }
 interface Stats {
@@ -48,7 +48,7 @@ function enrich(c: ClientRow): Enriched {
   let remainingSum = 0, ours = false;
   for (const k of c.cases) {
     const d = clean(k.executorDept); if (d) depts.add(d);
-    const b = clean(k.bankName); if (b) banks.add(b);
+    const b = normalizeBank(k.bankName); if (b) banks.add(b);
     if (k.isTargetFirm && k.firmName) { ours = true; ourFirms.add(shortFirm(k.firmName)); }
     remainingSum += parseMoney(k.remainingDebt);
   }
