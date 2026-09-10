@@ -7,8 +7,8 @@
 // Ma'lumot /api/mib/[id] dan keladi (report + clients + cases + stats) — barcha kesim/filtr
 // mijoz+case massividan MIJOZ TOMONDA hisoblanadi, qo'shimcha API kerak emas.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Ico, Spinner, Modal, useConfirm } from '@/ui';
-import { ClientDetail, money, type ClientRow, type CaseRow } from '../mib-hisoboti/MibReport';
+import { Ico, Spinner, Modal, DateField } from '@/ui';
+import { ClientDetail, type ClientRow } from '../mib-hisoboti/MibClientDetail';
 
 // ── shapes ──────────────────────────────────────────────────────────────────
 interface Report { id: number; createdAt: string; label: string | null; total: number; autoRun: boolean; statusFilter: string | null }
@@ -96,8 +96,12 @@ const emptyFilters = { q: '', region: '', dept: '', bank: '', firm: '', ours: fa
 type Filters = typeof emptyFilters;
 
 // ── component ────────────────────────────────────────────────────────────────
-export function MibDashboard({ reportId, reseed }: { reportId: number; reseed?: () => Promise<void> }) {
-  const confirm = useConfirm();
+export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged }: {
+  reportId: number;
+  reseed?: () => Promise<void>;
+  variant?: 'standalone' | 'konveyer';
+  onChanged?: () => void | Promise<void>;
+}) {
   const [report, setReport] = useState<Report | null>(null);
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -108,10 +112,19 @@ export function MibDashboard({ reportId, reseed }: { reportId: number; reseed?: 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [detailId, setDetailId] = useState<number | null>(null);
+  // standalone «Ro'yxatni qurish» — Excel «Holat» + yuborilgan sana bo'yicha
+  const [holatValues, setHolatValues] = useState<{ value: string; count: number }[]>([]);
+  const [sentRange, setSentRange] = useState<{ min: string | null; max: string | null }>({ min: null, max: null });
+  const [statusFilter, setStatusFilter] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   const load = useCallback(async () => {
     const j = await jget(`/api/mib/${reportId}`);
     setReport(j.report ?? null); setClients(j.clients ?? []); setStats(j.stats ?? null);
+    setHolatValues(j.holatValues ?? []);
+    setSentRange(j.sentDateRange ?? { min: null, max: null });
+    if (j.report?.statusFilter != null) setStatusFilter(j.report.statusFilter);
   }, [reportId]);
   useEffect(() => { void load(); }, [load]);
 
@@ -199,20 +212,50 @@ export function MibDashboard({ reportId, reseed }: { reportId: number; reseed?: 
   const setF = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
 
   // controls
+  const build = async () => {
+    setBusy('build'); setNote('');
+    const { ok, json } = await jpost(`/api/mib/${reportId}/build`, { statusFilter: statusFilter || null, dateFrom: dateFrom || null, dateTo: dateTo || null });
+    if (!ok) setNote(json.error || 'Xatolik'); else { await load(); await onChanged?.(); }
+    setBusy('');
+  };
   const go = async () => {
     setBusy('go'); setNote('');
     const { ok, json } = await jpost(`/api/mib/${reportId}/run`);
     if (!ok) { setNote(json.error || 'Xatolik'); setBusy(''); return; }
     if (!json.phoneConfigured) setNote('Diqqat: telefon raqami sozlanmagan — chuqur detal (SMS) olinmaydi, faqat ijro ishlari roʻyxati.');
-    await load(); setBusy('');
+    await load(); await onChanged?.(); setBusy('');
   };
-  const stop = async () => { setBusy('stop'); await jpost(`/api/mib/${reportId}/stop`); await load(); setBusy(''); };
-  const doReseed = async () => { setBusy('reseed'); await reseed?.(); await load(); setBusy(''); };
+  const stop = async () => { setBusy('stop'); await jpost(`/api/mib/${reportId}/stop`); await load(); await onChanged?.(); setBusy(''); };
+  const doReseed = async () => { setBusy('reseed'); await reseed?.(); await load(); await onChanged?.(); setBusy(''); };
 
   if (!report) return <div className="grid place-items-center py-16"><Spinner /></div>;
 
   return (
     <div className="space-y-4">
+      {/* ── standalone: «Holat» + sana → Ro'yxatni qurish ────────────────── */}
+      {variant === 'standalone' && !report.autoRun && (
+        <div className="card space-y-3 p-3">
+          <div>
+            <span className="field-label">«Holat» boʻyicha (Excel)</span>
+            <div className="flex flex-wrap gap-2">
+              <MiniChip active={statusFilter === ''} onClick={() => setStatusFilter('')}>Barchasi</MiniChip>
+              {holatValues.map((h) => (
+                <MiniChip key={h.value} active={statusFilter === h.value} onClick={() => setStatusFilter(h.value)}>
+                  {h.value} <span className="opacity-60">· {h.count}</span>
+                </MiniChip>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="w-[168px]"><DateField label="Yuborilgan sana — dan" value={dateFrom} onChange={setDateFrom} min={sentRange.min ?? undefined} max={sentRange.max ?? undefined} /></div>
+            <div className="w-[168px]"><DateField label="gacha" value={dateTo} onChange={setDateTo} min={sentRange.min ?? undefined} max={sentRange.max ?? undefined} /></div>
+            {(dateFrom || dateTo) && <button className="btn-ghost px-2.5 py-1.5 text-xs" onClick={() => { setDateFrom(''); setDateTo(''); }}>Sanani tozalash</button>}
+            <div className="flex-1" />
+            <button className="btn-ghost shrink-0" disabled={busy === 'build'} onClick={build}>{busy === 'build' ? <Spinner size={16} /> : <Ico.refresh size={16} />} Roʻyxatni qurish</button>
+          </div>
+        </div>
+      )}
+
       {/* ── control bar ─────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm text-muted">
@@ -222,7 +265,10 @@ export function MibDashboard({ reportId, reseed }: { reportId: number; reseed?: 
               Avtomator ishlayapti — {n(checked)}/{n(report.total)} tekshirildi
             </span>
           ) : (
-            <span>Konveyerdan <b className="tabular-nums text-fg">{n(report.total)}</b> ta mijoz · mib.uz dan tekshiriladi</span>
+            <span>
+              {variant === 'standalone' && <b className="text-fg">{statusFilter || 'Barchasi'}</b>}{variant === 'standalone' && ' · '}
+              {variant === 'konveyer' && 'Konveyerdan '}<b className="tabular-nums text-fg">{n(report.total)}</b> ta mijoz · mib.uz dan tekshiriladi
+            </span>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -240,6 +286,12 @@ export function MibDashboard({ reportId, reseed }: { reportId: number; reseed?: 
         </div>
       </div>
       {note && <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-600 dark:text-amber-300">{note}</p>}
+      {variant === 'standalone' && !built && !report.autoRun && (
+        <div className="rounded-xl border border-dashed border-line bg-surface-2/40 px-4 py-3 text-sm text-muted">
+          Excel yuklandi. Yuqorida «Holat» (masalan <b className="text-fg">MIBda</b>) ni tanlab <b className="text-fg">Roʻyxatni qurish</b> bosing —
+          tekshiriladigan mijozlar shakllanadi, soʻng <b className="text-fg">GO</b>.
+        </div>
+      )}
 
       {/* ── KPI: MIBda jami / bizniki / boshqa / summalar ───────────────── */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -255,7 +307,7 @@ export function MibDashboard({ reportId, reseed }: { reportId: number; reseed?: 
         <Kpi wide accent label="shundan bizning qoldiq qarz (soʻm)" value={som(oursDebt)} icon={<Ico.receipt size={18} />} />
       </div>
 
-      {!pulled && (
+      {built && !pulled && !report.autoRun && (
         <div className="rounded-xl border border-dashed border-line bg-surface-2/40 px-4 py-3 text-sm text-muted">
           Ijro ishlari hali mib.uz dan tortilmagan. <b className="text-fg">GO</b> bosilsa har mijoz ketma-ket tekshiriladi —
           region / hudud / bank kesimlari va summalar shundan keyin toʻladi.
@@ -436,6 +488,16 @@ function Kpi({ label, value, hint, icon, accent, big, wide }: { label: string; v
         {hint && <div className="truncate text-[11px] text-muted/80">{hint}</div>}
       </div>
     </div>
+  );
+}
+
+function MiniChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick}
+      className={cx('rounded-full border px-3 py-1.5 text-sm font-medium transition-colors',
+        active ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line text-muted hover:bg-surface-2 hover:text-fg')}>
+      {children}
+    </button>
   );
 }
 
