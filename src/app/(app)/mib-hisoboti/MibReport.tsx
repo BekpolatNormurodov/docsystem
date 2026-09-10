@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Ico, Spinner, useConfirm } from '@/ui';
+import { Ico, Spinner, useConfirm, Modal } from '@/ui';
 import { MibDashboard } from '../konveyer/MibDashboard';
 
 // ── API shapes ────────────────────────────────────────────────────────────────
@@ -29,6 +29,7 @@ export function MibReport() {
   const [reports, setReports] = useState<ListReport[]>([]);
   const [selId, setSelId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     const j = await jget('/api/mib');
@@ -69,60 +70,114 @@ export function MibReport() {
             <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">Alohida · stepga kirmaydi</span>
           </div>
           <p className="mt-1 max-w-2xl text-sm text-muted">
-            HISOBOT Excel yuklang, «Holat» ustuni (masalan «MIBda») bo‘yicha filtrlang. GO bosilsa har ~1 daqiqada
-            ketma-ket mib.uz dan tekshiradi (captcha + SMS), natijani saqlaydi. Statelar yo‘qolmaydi.
+            mib.uz dan ijro ishlarini tekshiring — bitta PINFL yoki Excel roʻyxat bilan. Natija (ijro ishlari, hudud,
+            bank, summa) saqlanadi; hudud/firma boʻyicha kesim va mijoz sahifasida batafsil koʻrasiz.
           </p>
         </div>
+        <button className="btn-ghost shrink-0" onClick={() => setSettingsOpen(true)}><Ico.settings size={16} /> Sozlamalar</button>
       </header>
 
-      <SinglePinflCheck />
-      <ConfigCard />
-      <UploadCard onDone={(id) => { void refresh(); setSelId(id); }} />
+      <TekshirishCard onUploaded={(id) => { void refresh(); setSelId(id); }} />
 
       <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
         <HistoryList reports={reports} loading={loading} selId={selId} onSelect={setSelId} onDelete={del} />
         {selId != null ? (
           <MibDashboard key={selId} reportId={selId} variant="standalone" onChanged={refresh} clientHrefBase="/mib-hisoboti/mijoz" />
         ) : (
-          <div className="card grid place-items-center p-10 text-sm text-muted">Chapdan hisobotni tanlang yoki Excel yuklang.</div>
+          <div className="card grid place-items-center gap-2 p-10 text-center text-sm text-muted">
+            <Ico.chart size={22} className="text-muted/60" />
+            Yuqorida <b className="text-fg">Tekshirish</b> (PINFL yoki Excel) qiling, yoki chapdan tayyor hisobotni tanlang.
+          </div>
         )}
       </div>
+
+      <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} size="lg" title="MIB sozlamalari" description="Telefon (SMS OTP), interval, chuqur detal va webhook">
+        <ConfigCard />
+      </Modal>
     </div>
   );
 }
 
-// ── Bitta PINFL tekshirish (Excelsiz) ─────────────────────────────────────────
-// PINFL kiritiladi → «Qo'lda tekshiruvlar» reportiga qo'shilib darhol mib.uz dan tekshiriladi,
-// natija sana bilan saqlanib, o'sha mijozning to'liq sahifasi ochiladi (jonli to'ladi).
-function SinglePinflCheck() {
+// ── Tekshirish: bitta PINFL yoki Excel ro'yxat (bitta karta, ikki rejim) ──────────
+function TekshirishCard({ onUploaded }: { onUploaded: (id: number) => void }) {
   const router = useRouter();
+  const [mode, setMode] = useState<'pinfl' | 'excel'>('pinfl');
+  // Bitta PINFL — «Qo'lda tekshiruvlar» reportiga qo'shilib darhol tekshiriladi, mijoz sahifasi ochiladi.
   const [pinfl, setPinfl] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const submit = async (e: React.FormEvent) => {
+  const [pBusy, setPBusy] = useState(false);
+  const [pMsg, setPMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const checkPinfl = async (e: React.FormEvent) => {
     e.preventDefault();
     const p = pinfl.replace(/\D/g, '');
-    if (p.length !== 14) { setMsg({ ok: false, text: 'PINFL 14 ta raqamdan iborat boʻlishi kerak' }); return; }
-    setBusy(true); setMsg(null);
+    if (p.length !== 14) { setPMsg({ ok: false, text: 'PINFL 14 ta raqamdan iborat boʻlishi kerak' }); return; }
+    setPBusy(true); setPMsg(null);
     const { ok, json } = await jpost('/api/mib/check-pinfl', { pinfl: p });
-    if (!ok) { setMsg({ ok: false, text: json.error || 'Xatolik' }); setBusy(false); return; }
+    if (!ok) { setPMsg({ ok: false, text: json.error || 'Xatolik' }); setPBusy(false); return; }
     router.push(`/mib-hisoboti/mijoz/${json.clientId}`);
   };
+  // Excel — HISOBOT ro'yxatini yuklab, «Holat» bo'yicha qurib GO qilinadi.
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [label, setLabel] = useState('');
+  const [uBusy, setUBusy] = useState(false);
+  const [uErr, setUErr] = useState('');
+  const upload = async () => {
+    if (!file) { setUErr('Fayl tanlang'); return; }
+    setUErr(''); setUBusy(true);
+    try {
+      const fd = new FormData(); fd.append('file', file); if (label.trim()) fd.append('label', label.trim());
+      const res = await fetch('/api/mib/upload', { method: 'POST', body: fd });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) { setUErr(j.error || 'Xatolik'); return; }
+      setFile(null); setLabel(''); onUploaded(j.reportId);
+    } finally { setUBusy(false); }
+  };
+
+  const Tab = ({ v, children }: { v: 'pinfl' | 'excel'; children: React.ReactNode }) => (
+    <button onClick={() => setMode(v)}
+      className={cx('rounded-lg px-3 py-1.5 text-sm font-medium transition-colors', mode === v ? 'bg-brand-500 text-white shadow-sm' : 'text-muted hover:text-fg')}>
+      {children}
+    </button>
+  );
+
   return (
     <div className="card p-4">
-      <div className="mb-2 flex flex-wrap items-center gap-2 text-sm font-semibold">
-        <Ico.qr size={16} className="text-brand-600 dark:text-brand-400" /> Bitta PINFL tekshirish
-        <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">Excel shart emas</span>
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-500/12 text-brand-600 dark:text-brand-300"><Ico.flash size={20} /></span>
+        <div className="min-w-0">
+          <div className="text-sm font-semibold">Tekshirish</div>
+          <div className="text-xs text-muted">mib.uz dan ijro ishlari — bitta PINFL yoki Excel roʻyxat bilan</div>
+        </div>
+        <div className="ml-auto flex gap-0.5 rounded-xl border border-line p-0.5"><Tab v="pinfl">Bitta PINFL</Tab><Tab v="excel">Excel roʻyxat</Tab></div>
       </div>
-      <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
-        <input className="field-input w-[220px] tabular-nums tracking-[0.1em]" inputMode="numeric" maxLength={14} placeholder="14 raqamli PINFL"
-          value={pinfl} onChange={(e) => { setPinfl(e.target.value.replace(/\D/g, '').slice(0, 14)); setMsg(null); }} />
-        <button type="submit" className="btn-primary shrink-0" disabled={busy || pinfl.replace(/\D/g, '').length !== 14}>
-          {busy ? <Spinner size={16} /> : <Ico.send size={16} />} Tekshirish
-        </button>
-        {msg && <span className={cx('text-sm', msg.ok ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300')}>{msg.text}</span>}
-        <span className="ml-auto text-xs text-muted">natija sana bilan saqlanadi · mijoz sahifasi ochiladi</span>
-      </form>
+
+      {mode === 'pinfl' ? (
+        <form onSubmit={checkPinfl} className="flex flex-wrap items-center gap-2">
+          <input className="field-input w-[220px] tabular-nums tracking-[0.1em]" inputMode="numeric" maxLength={14} placeholder="14 raqamli PINFL"
+            value={pinfl} onChange={(e) => { setPinfl(e.target.value.replace(/\D/g, '').slice(0, 14)); setPMsg(null); }} />
+          <button type="submit" className="btn-primary shrink-0" disabled={pBusy || pinfl.replace(/\D/g, '').length !== 14}>
+            {pBusy ? <Spinner size={16} /> : <Ico.send size={16} />} Tekshirish
+          </button>
+          {pMsg && <span className={cx('text-sm', pMsg.ok ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300')}>{pMsg.text}</span>}
+          <span className="ml-auto text-xs text-muted">Excel shart emas · natija sana bilan saqlanadi</span>
+        </form>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-[240px] flex-1">
+              <span className="field-label">HISOBOT Excel (.xlsx)</span>
+              <input ref={fileRef} type="file" accept=".xlsx" className="sr-only" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+              <button type="button" onClick={() => fileRef.current?.click()} className="btn-ghost w-full justify-start"><Ico.sheet size={16} /><span className="truncate">{file ? file.name : 'Fayl tanlang…'}</span></button>
+            </div>
+            <div className="min-w-[160px] flex-1">
+              <span className="field-label">Nom (ixtiyoriy)</span>
+              <input className="field-input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="masalan: HISOBOT 120" />
+            </div>
+            <button className="btn-primary shrink-0" disabled={uBusy || !file} onClick={upload}>{uBusy ? <Spinner size={16} /> : <Ico.filePlus size={16} />} Yuklash</button>
+          </div>
+          {uErr && <p className="mt-2 text-sm font-medium text-rose-600 dark:text-rose-300">{uErr}</p>}
+        </>
+      )}
     </div>
   );
 }
@@ -271,49 +326,6 @@ function ConfigCard() {
 }
 
 // ── Upload ────────────────────────────────────────────────────────────────────
-function UploadCard({ onDone }: { onDone: (id: number) => void }) {
-  const ref = useRef<HTMLInputElement>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const [label, setLabel] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-
-  const submit = async () => {
-    if (!file) { setErr('Fayl tanlang'); return; }
-    setErr(''); setBusy(true);
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      if (label.trim()) fd.append('label', label.trim());
-      const res = await fetch('/api/mib/upload', { method: 'POST', body: fd });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok) { setErr(j.error || 'Xatolik'); return; }
-      setFile(null); setLabel('');
-      onDone(j.reportId);
-    } finally { setBusy(false); }
-  };
-
-  return (
-    <div className="card p-4">
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="min-w-[240px] flex-1">
-          <span className="field-label">HISOBOT Excel (.xlsx)</span>
-          <input ref={ref} type="file" accept=".xlsx" className="sr-only" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          <button type="button" onClick={() => ref.current?.click()} className="btn-ghost w-full justify-start">
-            <Ico.sheet size={16} /><span className="truncate">{file ? file.name : 'Fayl tanlang…'}</span>
-          </button>
-        </div>
-        <div className="min-w-[160px] flex-1">
-          <span className="field-label">Nom (ixtiyoriy)</span>
-          <input className="field-input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="masalan: HISOBOT 120" />
-        </div>
-        <button className="btn-primary shrink-0" disabled={busy || !file} onClick={submit}>{busy ? <Spinner size={16} /> : <Ico.filePlus size={16} />} Yuklash</button>
-      </div>
-      {err && <p className="mt-2 text-sm font-medium text-rose-600 dark:text-rose-300">{err}</p>}
-    </div>
-  );
-}
-
 // ── History ───────────────────────────────────────────────────────────────────
 function HistoryList({ reports, loading, selId, onSelect, onDelete }: { reports: ListReport[]; loading: boolean; selId: number | null; onSelect: (id: number) => void; onDelete: (r: ListReport) => void }) {
   return (
