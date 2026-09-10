@@ -5,6 +5,7 @@ import { requireAccess } from '@/lib/auth';
 import { computeStats } from '@/lib/mib/stats';
 import { parseHisobot } from '@/lib/mib/parse';
 import { mibReportDir } from '@/lib/mib/store';
+import { reconcileZombieClients } from '@/lib/mib/run';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,6 +17,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'id noto‘g‘ri' }, { status: 400 });
   const report = await prisma.mibReport.findUnique({ where: { id } });
   if (!report) return NextResponse.json({ error: 'Hisobot topilmadi' }, { status: 404 });
+  // Jarayon restart bo'lsa qotib qolgan RUNNING mijozlarni tuzatamiz (holat noto'g'ri ko'rinmasin).
+  await reconcileZombieClients(id).catch(() => {});
   const clients = await prisma.mibClient.findMany({ where: { reportId: id }, orderBy: { id: 'asc' }, include: { cases: true } });
   const stats = computeStats(clients);
   // «Holat» + date-range filter options — re-parsed from the source only when idle.

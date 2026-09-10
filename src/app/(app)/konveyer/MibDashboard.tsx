@@ -14,6 +14,7 @@ import { useRouter } from 'next/navigation';
 import { Ico, Spinner, DateField } from '@/ui';
 import { type ClientRow } from '../mib-hisoboti/MibClientDetail';
 import { ClientDetailFull } from '../mib-hisoboti/ClientDetailFull';
+import { MibLogPanel } from '../mib-hisoboti/MibLogPanel';
 import { regionOf, groupBreakdown, parseMoney, clean, shortFirm, type Dim } from '@/lib/mib/breakdown';
 
 interface Report { id: number; createdAt: string; label: string | null; total: number; autoRun: boolean; statusFilter: string | null }
@@ -272,18 +273,21 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
         </div>
       )}
 
-      {/* ── bitta PINFL tekshirish (yig'ilib saqlanadi) ──────────────────── */}
-      <form onSubmit={addPinfl} className="card flex flex-wrap items-center gap-2 p-3">
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-500/12 text-brand-600 dark:text-brand-300"><Ico.qr size={16} /></span>
-        <span className="text-sm font-medium">Bitta PINFL tekshirish:</span>
-        <input className="field-input w-[190px] tabular-nums tracking-[0.1em]" inputMode="numeric" maxLength={14} placeholder="14 raqamli PINFL"
-          value={pinfl} onChange={(e) => { setPinfl(e.target.value.replace(/\D/g, '').slice(0, 14)); setAddMsg(null); }} />
-        <button type="submit" className="btn-primary shrink-0" disabled={busy === 'add' || pinfl.replace(/\D/g, '').length !== 14}>
-          {busy === 'add' ? <Spinner size={16} /> : <Ico.send size={16} />} Tekshirish
-        </button>
-        {addMsg && <span className={cx('text-sm', addMsg.ok ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300')}>{addMsg.text}</span>}
-        <span className="ml-auto text-xs text-muted">natija ijro ishlari + sana bilan shu roʻyxatga yigʻiladi</span>
-      </form>
+      {/* ── bitta PINFL tekshirish — FAQAT konveyer modalида (standalone sahifada tepada alohida
+             kartada turadi, shuning uchun bu yerda takror ko'rsatmaymiz) ────────────────── */}
+      {variant === 'konveyer' && (
+        <form onSubmit={addPinfl} className="card flex flex-wrap items-center gap-2 p-3">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-500/12 text-brand-600 dark:text-brand-300"><Ico.qr size={16} /></span>
+          <span className="text-sm font-medium">Bitta PINFL tekshirish:</span>
+          <input className="field-input w-[190px] tabular-nums tracking-[0.1em]" inputMode="numeric" maxLength={14} placeholder="14 raqamli PINFL"
+            value={pinfl} onChange={(e) => { setPinfl(e.target.value.replace(/\D/g, '').slice(0, 14)); setAddMsg(null); }} />
+          <button type="submit" className="btn-primary shrink-0" disabled={busy === 'add' || pinfl.replace(/\D/g, '').length !== 14}>
+            {busy === 'add' ? <Spinner size={16} /> : <Ico.send size={16} />} Tekshirish
+          </button>
+          {addMsg && <span className={cx('text-sm', addMsg.ok ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300')}>{addMsg.text}</span>}
+          <span className="ml-auto text-xs text-muted">natija ijro ishlari + sana bilan shu roʻyxatga yigʻiladi</span>
+        </form>
+      )}
 
       {/* ── KPI: MIBda jami / bizniki / summalar ─────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -399,6 +403,9 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
           <BreakdownTable rows={breakdown} dim={tab} activeLabel={filters[tab === 'region' ? 'region' : tab === 'hudud' ? 'dept' : tab === 'bank' ? 'bank' : 'firm']} onPick={(label) => jumpFilter(tab, label)} />
         )}
       </div>
+
+      {/* Avtomator logi — jonli (SMS, tekshiruv qadamlari, xatolar) */}
+      <MibLogPanel title="Avtomator logi" defaultOpen={report.autoRun} />
     </div>
   );
 }

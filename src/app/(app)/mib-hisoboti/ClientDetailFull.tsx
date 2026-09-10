@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Ico, Spinner } from '@/ui';
 import { money, val, type ClientRow, type CaseRow } from './MibClientDetail';
+import { MibLogPanel } from './MibLogPanel';
 import { regionOf, parseMoney, clean, shortFirm } from '@/lib/mib/breakdown';
 
 const cx = (...c: (string | false | undefined | null)[]) => c.filter(Boolean).join(' ');
@@ -51,7 +52,7 @@ export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { rep
   const ours = client.cases.filter((k) => k.isTargetFirm).length;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4">
+    <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         {back}
         <a className="btn-ghost text-xs" href={`/api/mib/${reportId}/excel?client=${client.id}`}><Ico.download size={14} /> Shu mijoz — Excel</a>
@@ -85,11 +86,14 @@ export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { rep
           <Spinner /> mib.uz dan tekshirilmoqda… natija shu yerda paydo boʻladi.
         </div>
       ) : (
-        <div className="grid gap-3 lg:grid-cols-2">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {client.cases.map((k) => <CaseBig key={k.id} c={k} />)}
           {client.cases.length === 0 && <div className="card p-6 text-center text-sm text-muted">Ijro ishi topilmadi (toza).</div>}
         </div>
       )}
+
+      {/* Shu PINFL bo'yicha avtomator logi (SMS, xatolar...) — jonli */}
+      <MibLogPanel q={client.pinfl} title="Shu PINFL — avtomator logi" defaultOpen={active} />
     </div>
   );
 }

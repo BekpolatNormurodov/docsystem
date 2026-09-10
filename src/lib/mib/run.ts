@@ -8,10 +8,12 @@ import { MibEngine } from './engine';
 import { CaptchaSolver } from './captcha';
 import { resolveCreditor } from './companies';
 import { getMibConfig } from './config';
+import { pushMibLog } from './log-buffer';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const SMS_TIMEOUT_MS = 120_000;
-const log = (m: string) => console.log(`[mib] ${m}`);
+// Konsolga HAM yozadi, HAM web log-buferiga (/api/mib/logs jonli ko'rsatadi).
+const log = (m: string) => { console.log(`[mib] ${m}`); pushMibLog(m); };
 
 // In-process guard: prevents a second GO from spawning a duplicate loop for the SAME report (which is
 // how two clients ended up RUNNING at once). Survives only within one web process — a restart clears it,
@@ -40,6 +42,27 @@ export async function startMibRun(reportId: number): Promise<{ jobId: number; pe
     await prisma.mibReport.update({ where: { id: reportId }, data: { autoRun: false, runJobId: null } }).catch(() => {});
   });
   return { jobId: job.id, pending };
+}
+
+/**
+ * «Zombi» RUNNING mijozlarni tuzatadi: jarayon restart bo'lsa (deploy) yoki run uzilsa, mijoz
+ * RUNNING holatida qotib qolishi mumkin. Jonli run YO'Q bo'lsa — natijaga qarab tiklaymiz
+ * (ishlari bor → DONE, aks holda → PENDING). Dashboard/detal GET'ida chaqiriladi (o'zini davolaydi).
+ */
+export async function reconcileZombieClients(reportId: number): Promise<number> {
+  if (ACTIVE.has(reportId)) return 0; // jonli run bor — tegmaymiz
+  const stuck = await prisma.mibClient.findMany({
+    where: { reportId, status: 'RUNNING' },
+    select: { id: true, checkedAt: true, _count: { select: { cases: true } } },
+  });
+  for (const c of stuck) {
+    const hasCases = c._count.cases > 0;
+    await prisma.mibClient.update({
+      where: { id: c.id },
+      data: { status: hasCases ? 'DONE' : 'PENDING', ...(hasCases && !c.checkedAt ? { checkedAt: new Date() } : {}) },
+    });
+  }
+  return stuck.length;
 }
 
 /** Poll the MibSms table for an OTP that arrived AFTER `sinceMs`, marking it consumed. */
@@ -186,9 +209,12 @@ export async function runMibReportJob(jobId: number): Promise<void> {
 /** One case: request SMS → wait for OTP → submit → fetch + persist Step 19 detail. */
 async function fetchCaseDetail(engine: MibEngine, caseId: number, pinfl: string, workNumber: string, monitoringUrl: string, phone: string): Promise<void> {
   const requestedAt = Date.now();
+  log(`ish ${workNumber}: SMS soʻralmoqda (+${phone})…`);
   const sms = await engine.prepareAndRequestSms(monitoringUrl, pinfl, workNumber, phone);
+  log(`ish ${workNumber}: SMS yuborildi, kod kutilmoqda (${SMS_TIMEOUT_MS / 1000}s)…`);
   const code = await waitForSms(requestedAt);
-  if (!code) throw new Error('SMS kod kelmadi (timeout)');
+  if (!code) { log(`ish ${workNumber}: SMS kod KELMADI (timeout ${SMS_TIMEOUT_MS / 1000}s) — telefon/forwarder/webhook tekshiring`); throw new Error('SMS kod kelmadi (timeout)'); }
+  log(`ish ${workNumber}: SMS kod keldi (${code}) — detal olinmoqda`);
   const step19Url = await engine.submitSmsCode(sms.verifyFormAction, code);
   const d = await engine.fetchExecutionDetails(step19Url);
   const firm = resolveCreditor(d.creditor);

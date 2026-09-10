@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Ico, Spinner, useConfirm } from '@/ui';
 import { MibDashboard } from '../konveyer/MibDashboard';
 
@@ -60,7 +61,7 @@ export function MibReport() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
@@ -74,6 +75,7 @@ export function MibReport() {
         </div>
       </header>
 
+      <SinglePinflCheck />
       <ConfigCard />
       <UploadCard onDone={(id) => { void refresh(); setSelId(id); }} />
 
@@ -85,6 +87,42 @@ export function MibReport() {
           <div className="card grid place-items-center p-10 text-sm text-muted">Chapdan hisobotni tanlang yoki Excel yuklang.</div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Bitta PINFL tekshirish (Excelsiz) ─────────────────────────────────────────
+// PINFL kiritiladi → «Qo'lda tekshiruvlar» reportiga qo'shilib darhol mib.uz dan tekshiriladi,
+// natija sana bilan saqlanib, o'sha mijozning to'liq sahifasi ochiladi (jonli to'ladi).
+function SinglePinflCheck() {
+  const router = useRouter();
+  const [pinfl, setPinfl] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const p = pinfl.replace(/\D/g, '');
+    if (p.length !== 14) { setMsg({ ok: false, text: 'PINFL 14 ta raqamdan iborat boʻlishi kerak' }); return; }
+    setBusy(true); setMsg(null);
+    const { ok, json } = await jpost('/api/mib/check-pinfl', { pinfl: p });
+    if (!ok) { setMsg({ ok: false, text: json.error || 'Xatolik' }); setBusy(false); return; }
+    router.push(`/mib-hisoboti/mijoz/${json.clientId}`);
+  };
+  return (
+    <div className="card p-4">
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-sm font-semibold">
+        <Ico.qr size={16} className="text-brand-600 dark:text-brand-400" /> Bitta PINFL tekshirish
+        <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">Excel shart emas</span>
+      </div>
+      <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
+        <input className="field-input w-[220px] tabular-nums tracking-[0.1em]" inputMode="numeric" maxLength={14} placeholder="14 raqamli PINFL"
+          value={pinfl} onChange={(e) => { setPinfl(e.target.value.replace(/\D/g, '').slice(0, 14)); setMsg(null); }} />
+        <button type="submit" className="btn-primary shrink-0" disabled={busy || pinfl.replace(/\D/g, '').length !== 14}>
+          {busy ? <Spinner size={16} /> : <Ico.send size={16} />} Tekshirish
+        </button>
+        {msg && <span className={cx('text-sm', msg.ok ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300')}>{msg.text}</span>}
+        <span className="ml-auto text-xs text-muted">natija sana bilan saqlanadi · mijoz sahifasi ochiladi</span>
+      </form>
     </div>
   );
 }
