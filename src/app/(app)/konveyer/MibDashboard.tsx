@@ -9,7 +9,7 @@
 //   • Mijozni bosish — ALOHIDA ICHKI SAHIFA (orqaga tugmasi bilan), tor modal emas: ijro ishlari
 //     keng va o'qilishi oson ko'rinadi + o'sha mijozning Excel'i.
 // Kesim/region mantig'i src/lib/mib/breakdown.ts dan (server Excel bilan bir xil).
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Ico, Spinner, DateField } from '@/ui';
 import { type ClientRow } from '../mib-hisoboti/MibClientDetail';
@@ -490,15 +490,56 @@ function MiniChip({ active, onClick, children }: { active: boolean; onClick: () 
   );
 }
 
+// Pro, qidiruvli dropdown — filtr uchun (native select o'rniga). Ko'p variant (hudud/bank) bo'lsa
+// qidiruv chiqadi; har variant yonida son; tanlangani belgilanadi; tashqariga bosilса yopiladi.
 function FilterSelect({ label, value, onChange, options, wide }: { label: string; value: string; onChange: (v: string) => void; options: [string, number][]; wide?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const box = useRef<HTMLDivElement>(null);
+  const disabled = options.length === 0;
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+  const needle = q.trim().toLowerCase();
+  const shown = needle ? options.filter(([v]) => v.toLowerCase().includes(needle)) : options;
+  const pick = (v: string) => { onChange(v); setOpen(false); setQ(''); };
+  const Row = ({ v, c, active }: { v: string; c?: number; active: boolean }) => (
+    <button type="button" onClick={() => pick(v)}
+      className={cx('flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors', active ? 'bg-brand-500/10 font-medium text-brand-700 dark:text-brand-300' : 'hover:bg-surface-2')}>
+      <span className="min-w-0 flex-1 truncate">{v || 'Barchasi'}</span>
+      {c != null && <span className="shrink-0 text-[11px] tabular-nums text-muted">{c}</span>}
+      {active && <Ico.check size={15} className="shrink-0 text-brand-600 dark:text-brand-400" />}
+    </button>
+  );
   return (
-    <label className={cx('shrink-0', wide ? 'w-[210px]' : 'w-[160px]')}>
+    <div ref={box} className={cx('relative shrink-0', wide ? 'w-[210px]' : 'w-[168px]')}>
       <span className="field-label">{label}</span>
-      <select className="field-input" value={value} onChange={(e) => onChange(e.target.value)} disabled={options.length === 0}>
-        <option value="">Barchasi{options.length ? ` (${options.length})` : ''}</option>
-        {options.map(([v, c]) => <option key={v} value={v}>{v.length > 34 ? v.slice(0, 33) + '…' : v} · {c}</option>)}
-      </select>
-    </label>
+      <button type="button" disabled={disabled} onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open}
+        className={cx('flex h-[42px] w-full items-center justify-between gap-2 rounded-xl border bg-surface px-3 text-sm transition-colors',
+          open ? 'border-brand-500 ring-2 ring-brand-500/15' : 'border-line hover:border-brand-500/60', disabled && 'cursor-not-allowed opacity-50')}>
+        <span className={cx('truncate', !value && 'text-muted')}>
+          {value || <>Barchasi{options.length ? <span className="opacity-70"> ({options.length})</span> : null}</>}
+        </span>
+        <svg className={cx('h-4 w-4 shrink-0 text-muted transition-transform', open && 'rotate-180')} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="6 9 12 15 18 9" /></svg>
+      </button>
+      {open && (
+        <div role="listbox" className="absolute left-0 right-0 z-50 mt-1.5 rounded-xl border border-line bg-surface p-1 shadow-2xl">
+          {options.length > 6 && (
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="qidirish…"
+              className="mb-1 w-full rounded-lg border border-line bg-surface-2 px-2.5 py-1.5 text-sm outline-none focus:border-brand-500" />
+          )}
+          <div className="max-h-64 overflow-auto">
+            <Row v="" active={!value} />
+            {shown.map(([v, c]) => <Row key={v} v={v} c={c} active={value === v} />)}
+            {shown.length === 0 && <div className="px-2 py-3 text-center text-xs text-muted">Topilmadi</div>}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
