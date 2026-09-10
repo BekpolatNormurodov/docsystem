@@ -5,7 +5,7 @@ import { Ico } from '@/ui';
 import { GeneratedList } from './GeneratedList';
 
 interface JobState { status: string; progress: number; total: number; message?: string | null }
-interface HistItem { id: number; total: number; createdAt: string; firmName: string; size: number }
+interface HistItem { id: number; total: number; createdAt: string; firmId: number | null; firmName: string; size: number }
 interface CourtOpt { id: number; shortName: string; dailyQuota: number; cutoffMinutes: number; remaining: number; open: boolean }
 const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 
@@ -162,6 +162,27 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
     finally { setStarting(false); inFlight.current = false; }
   };
 
+  // «Qaytadan chiqarish» — eskirib o'chgan (0 B → yuklab bo'lmaydigan) ZIPni qayta tuzadi: firma bo'yicha
+  // ALLAQACHON chiqarilgan arizalarni qaytadan yasab, yangi ZIP beradi (prepare route: regenerate).
+  // Hech nima o'chirilmaydi — ariza har case'ning o'z sudiga chiqadi, natija ilgarigidek bo'ladi.
+  const regen = async (targetFirmId?: number) => {
+    const fid = targetFirmId ?? firmId;
+    if (snapshotId == null || fid == null || inFlight.current) return;
+    inFlight.current = true;
+    setStarting(true); setErr(null); setJob(null); setJobId(null);
+    try {
+      const res = await fetch('/konveyer/prepare', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ snapshotId, firmId: fid, arizaOnly: true, regenerate: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setErr(data?.error || 'Xatolik'); return; }
+      setJob({ status: 'PENDING', progress: 0, total: data.total });
+      setJobId(data.jobId);
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Tarmoq xatosi'); }
+    finally { setStarting(false); inFlight.current = false; }
+  };
+
   const del = async (id: number) => {
     setDelId(id);
     try {
@@ -207,9 +228,22 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
             <span>Bu firmaga sud biriktirilmagan — «Sudlar» boʻlimida biriktiring.</span>
           </div>
         ) : !done && !running && total === 0 && doneCount > 0 ? (
-          <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.07] px-3 py-2 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-            <Ico.check size={14} className="shrink-0" />
-            <span>Hammasi tayyor — {n(doneCount)} ta arizaga ariza chiqarilgan. Yangi mijoz qoʻshilsa shu yerda chiqadi.</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.07] px-3 py-2 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+              <Ico.check size={14} className="shrink-0" />
+              <span>Hammasi tayyor — {n(doneCount)} ta arizaga ariza chiqarilgan. Yangi mijoz qoʻshilsa shu yerda chiqadi.</span>
+            </div>
+            {/* ZIP 7 kundan keyin o'chadi — «Qaytadan chiqarish» o'sha arizalarni qayta tuzib, yangi ZIP beradi. */}
+            <button
+              onClick={() => regen()}
+              disabled={starting || !!running}
+              aria-busy={starting}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-brand-500/40 bg-brand-500/10 px-3 py-1.5 text-xs font-semibold text-brand-700 outline-none transition-colors hover:bg-brand-500/15 focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:cursor-wait disabled:opacity-60 dark:text-brand-300"
+              title="Chiqarilgan arizalarni qaytadan tuzib, yangi ZIP olish (eskirib oʻchgan boʻlsa)"
+            >
+              {starting ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Ico.refresh size={14} />}
+              Qaytadan chiqarish ({n(doneCount)})
+            </button>
           </div>
         ) : !done ? (
           <button
@@ -264,15 +298,29 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
               {history.map((h) => (
                 <div key={h.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-xs">
                   <span className="font-semibold tabular-nums">{n(h.total)} ariza</span>
-                  <span className="text-muted">· {fmtSize(h.size)}</span>
+                  {/* 0 B = ZIP fayli o'chgan (7 kundan oshgan / disk tozalash). Yuklab bo'lmaydi — qayta chiqarish kerak. */}
+                  <span className={h.size === 0 ? 'font-medium text-amber-600 dark:text-amber-400' : 'text-muted'}>· {h.size === 0 ? 'muddati oʻtgan' : fmtSize(h.size)}</span>
                   <span className="max-w-[10rem] truncate text-muted" title={h.firmName}>· {h.firmName}</span>
                   <span className="ml-auto text-[11px] tabular-nums text-muted">{fmtWhen(h.createdAt)}</span>
-                  <a
-                    href={`/api/export/${h.id}/download`}
-                    className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[11px] font-medium text-brand-600 transition-colors hover:bg-brand-500/10 dark:text-brand-400"
-                  >
-                    <Ico.download size={12} /> Yuklab olish
-                  </a>
+                  {h.size === 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => regen(h.firmId ?? undefined)}
+                      disabled={starting || !!running || (h.firmId == null && firmId == null)}
+                      aria-busy={starting}
+                      title="Bu arizalarni qaytadan tuzib, yangi ZIP olish"
+                      className="inline-flex items-center gap-1 rounded-md border border-brand-500/40 bg-brand-500/10 px-2 py-1 text-[11px] font-semibold text-brand-700 transition-colors hover:bg-brand-500/15 disabled:cursor-wait disabled:opacity-50 dark:text-brand-300"
+                    >
+                      <Ico.refresh size={12} /> Qayta chiqarish
+                    </button>
+                  ) : (
+                    <a
+                      href={`/api/export/${h.id}/download`}
+                      className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[11px] font-medium text-brand-600 transition-colors hover:bg-brand-500/10 dark:text-brand-400"
+                    >
+                      <Ico.download size={12} /> Yuklab olish
+                    </a>
+                  )}
                   <button
                     type="button"
                     onClick={() => del(h.id)}

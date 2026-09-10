@@ -41,6 +41,7 @@ export async function GET(req: NextRequest) {
         id: j.id,
         total: j.total,
         createdAt: j.createdAt.toISOString(),
+        firmId: fid,
         firmName: fid != null ? (nameOf.get(fid) ?? `firma ${fid}`) : 'Hamma firma',
         size,
       };

@@ -27,7 +27,10 @@ const EXPORTS_DIR = path.join(process.cwd(), 'exports');
 // older than EXPORT_MAX_AGE, then, if the total still exceeds EXPORT_MAX_TOTAL, delete oldest-first
 // until under the cap. Best-effort — never throws, never blocks the job. History rows for a pruned ZIP
 // simply 404 on download (the work is regenerable); the size cap is what keeps the disk safe.
-const EXPORT_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000; // 3 kun
+// Yosh chegarasi 3→7 kun: eskirib o'chgan ZIP «Ariza yaratish»dagi «Qaytadan chiqarish» bilan qayta
+// tuziladi, lekin yaqinda olingan ZIP uzoqroq turgani ma'qul. Diskni himoya qiladigan asosiy chegara —
+// jami hajm (EXPORT_MAX_TOTAL) baribir eng eskisini birinchi tozalaydi.
+const EXPORT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 kun
 const EXPORT_MAX_TOTAL = 4 * 1024 * 1024 * 1024;   // 4 GB jami
 async function pruneOldExports(): Promise<void> {
   try {

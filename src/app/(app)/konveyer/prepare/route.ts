@@ -86,6 +86,12 @@ export async function POST(req: NextRequest) {
   const talabnomaPdf = body?.talabnomaPdf !== false;
   const limit = num(body?.limit);            // «belgilangan son» — build only the first N
   const arizaOnly = body?.arizaOnly === true; // «Arizani tayyorlash» — only the ariza per client
+  // «Qaytadan chiqarish» — ZIP eskirib (3+ kun → pruneOldExports o'chiradi) yuklab bo'lmay qolganда
+  // ALLAQACHON chiqarilgan arizalarni QAYTA tuzib beradi. Odatdagi «Ariza yaratish» faqat arizaAt=null
+  // (hali chiqmaganlar)ni oladi — regenerate esa aynan chiqarilganlarni (arizaAt!=null) qamrab, o'sha
+  // ZIPni qaytadan yasaydi. Hech nima o'chirilmaydi/qayta biriktirilmaydi: ariza har case'ning o'z
+  // courtId'siga chiqadi, shuning uchun natija ilgarigi bilan bir xil bo'ladi. Faqat arizaOnly'da.
+  const regenerate = arizaOnly && body?.regenerate === true;
 
   // Require a narrowing scope so a stray body can't queue the whole table.
   if (snapshotId === undefined && firmId === undefined && stages.length === 0) {
@@ -98,10 +104,23 @@ export async function POST(req: NextRequest) {
     ...(stages.length ? { stage: { in: stages } } : {}),
     // «Ariza yaratish»: allaqachon arizasi bor (arizaAt) yoki qarzi 0 bo'lgan case'lar chiqmaydi —
     // 0 qarz ariza bermaydi (debt gate), shuning uchun tanlashga ham kirmaydi (aks holda paket 0 chiqaradi).
-    ...(arizaOnly ? { arizaAt: null, totalDebt: { gt: 0 } } : {}),
+    // «Qaytadan chiqarish» esa arizaAt shartini olib tashlaydi (chiqarilgan+qolgan — hammasini qamraydi).
+    ...(arizaOnly ? { totalDebt: { gt: 0 }, ...(regenerate ? {} : { arizaAt: null }) } : {}),
   };
   const scopeTotal = await prisma.arizaCase.count({ where });
-  if (scopeTotal === 0) return NextResponse.json({ error: arizaOnly ? 'Yangi ariza yoʻq — hammasi tayyor' : 'Bu tanlovda case yoʻq' }, { status: 400 });
+  if (scopeTotal === 0) return NextResponse.json({ error: regenerate ? 'Qayta chiqarishga ariza yoʻq' : arizaOnly ? 'Yangi ariza yoʻq — hammasi tayyor' : 'Bu tanlovda case yoʻq' }, { status: 400 });
+
+  // «Qaytadan chiqarish»: aniq case ro'yxatini job'ga beramiz (sud taqsimlashsiz/limitsiz — to'liq
+  // to'plamni qaytaradi). Runner shu caseIds'ni qayta tuzib, o'sha arizalarni ZIP qiladi.
+  if (regenerate) {
+    const rows = await prisma.arizaCase.findMany({ where, orderBy: { id: 'asc' }, select: { id: true } });
+    const caseIds = rows.map((r) => r.id);
+    const job = await prisma.job.create({
+      data: { type: 'PACKET', status: 'PENDING', snapshotId: snapshotId ?? null, total: caseIds.length, params: { snapshotId, firmId, caseIds, talabnomaPdf: false, arizaOnly: true } as never },
+    });
+    enqueueJob(job.id);
+    return NextResponse.json({ jobId: job.id, total: caseIds.length });
+  }
 
   // ── Sud bo'yicha taqsimlash (ariza yaratishda sudni tanlab, son belgilash) ─────────────────────
   // courtCounts=[{courtId, count}] berilsa: eng eski case'larni tanlab, har sudga o'z sonicha
