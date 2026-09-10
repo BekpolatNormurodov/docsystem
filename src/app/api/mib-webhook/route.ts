@@ -11,10 +11,16 @@ export const dynamic = 'force-dynamic';
 function extractCode(text: string | null | undefined): string | null {
   if (!text) return null;
   const str = String(text);
-  const m1 = str.match(/Kod\s*[:\s-]?\s*(\d{4,6})/i); if (m1) return m1[1]!;
-  const m2 = str.match(/code\s*[:\s-]?\s*(\d{4,6})/i); if (m2) return m2[1]!;
-  const m3 = str.match(/пароль\s*[:\s-]?\s*(\d{4,6})/i); if (m3) return m3[1]!;
-  const m4 = str.match(/\b\d{4,6}\b/); if (m4) return m4[0]!;
+  // 1) Kalit so'zdan keyingi raqam — eng ishonchli (kod/kodi/kodingiz, code, пароль/код, tasdiqlash…).
+  //    \D{0,15}: kalit so'z bilan raqam orasida 15 tagacha raqamsiz belgi bo'lishi mumkin
+  //    («kodingiz: 483920», «Тасдиклаш коди 483920»).
+  const kw = str.match(/(?:код|kod|code|пароль|парол|tasdiqlash|passcode|otp)\D{0,15}(\d{4,7})/i);
+  if (kw) return kw[1]!;
+  // 2) Kalit so'z topilmasa — eng uzun raqam ketma-ketligini afzal ko'ramiz. OTP odatda 5-6 xonali,
+  //    shuning uchun «2026» kabi yil (4 xona) uzunroq kod bor bo'lsa tanlanmaydi (6→5→7→4).
+  for (const re of [/(?<!\d)\d{6}(?!\d)/, /(?<!\d)\d{5}(?!\d)/, /(?<!\d)\d{7}(?!\d)/, /(?<!\d)\d{4}(?!\d)/]) {
+    const m = str.match(re); if (m) return m[0]!;
+  }
   return null;
 }
 
