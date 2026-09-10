@@ -14,21 +14,32 @@ function keywordCode(str: string): string | null {
   const m = str.match(/(?:код|kod|code|пароль|парол|tasdiqlash|passcode|otp)\D{0,15}(\d{4,7})/i);
   return m ? m[1]! : null;
 }
+// ISO sana/vaqtni olib tashlaymiz — «2026-09-10T11:25:16» dagi «2026» kod deb olinmasin.
+function stripDates(str: string): string {
+  return str
+    .replace(/\d{4}-\d{2}-\d{2}[T\s][\d:.]+\s*Z?/gi, ' ') // 2026-09-10T11:25:16.740Z
+    .replace(/\d{4}-\d{2}-\d{2}/g, ' ')                    // 2026-09-10
+    .replace(/\d{1,2}:\d{2}(:\d{2})?/g, ' ');              // 11:25:16
+}
 // Kalit so'z bo'lmasa — eng uzun raqam ketma-ketligi (OTP odatda 5-6 xona; «2026» kabi yil emas).
 function digitCode(str: string): string | null {
+  const s = stripDates(str);
   for (const re of [/(?<!\d)\d{6}(?!\d)/, /(?<!\d)\d{5}(?!\d)/, /(?<!\d)\d{7}(?!\d)/, /(?<!\d)\d{4}(?!\d)/]) {
-    const m = str.match(re); if (m) return m[0]!;
+    const m = s.match(re); if (m) return m[0]!;
   }
   return null;
 }
 
-// JSON ichidagi BARCHA matn qiymatlarini (ichma-ich obyekt/massivdan) yig'ib olamiz.
-function collectStrings(v: unknown, acc: string[] = [], depth = 0): string[] {
+// JSON ichidagi BARCHA matn qiymatlarini (ichma-ich obyekt/massivdan) yig'ib olamiz. Sana/vaqt/id kabi
+// maydonlar TASHLAB ketiladi — ular OTP emas (masalan `timestamp`, `sentStamp`, `mrkdwn`).
+const SKIP_KEY = /time|stamp|date|^ts$|^id$|mrkdwn|^from$|^sender$|^phone$|^number$/i;
+function collectStrings(v: unknown, acc: string[] = [], depth = 0, key = ''): string[] {
   if (depth > 6 || acc.length > 200) return acc;
+  if (key && SKIP_KEY.test(key)) return acc;
   if (typeof v === 'string') { if (v) acc.push(v); }
   else if (typeof v === 'number') acc.push(String(v));
   else if (Array.isArray(v)) for (const x of v) collectStrings(x, acc, depth + 1);
-  else if (v && typeof v === 'object') for (const x of Object.values(v)) collectStrings(x, acc, depth + 1);
+  else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) collectStrings(x, acc, depth + 1, k);
   return acc;
 }
 
