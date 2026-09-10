@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
 import { parseHisobot } from '@/lib/mib/parse';
+import { MANUAL_HOLAT } from '@/lib/mib/run';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -29,15 +30,21 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return true;
   });
 
-  await prisma.mibClient.deleteMany({ where: { reportId: id } });
-  if (rows.length) {
+  // Qo'lda qo'shilgan (bitta PINFL) mijozlarni SAQLAB qolamiz — faqat Excel'dan qurilganlarini
+  // qayta quramiz. Excelda ham bor PINFL qo'lda qo'shilgan bo'lsa, dublikat bo'lmasin uchun chiqarib tashlaymiz.
+  const manual = await prisma.mibClient.findMany({ where: { reportId: id, holat: MANUAL_HOLAT }, select: { pinfl: true } });
+  const manualPinfls = new Set(manual.map((m) => m.pinfl));
+  await prisma.mibClient.deleteMany({ where: { reportId: id, OR: [{ holat: { not: MANUAL_HOLAT } }, { holat: null }] } });
+  const fresh = rows.filter((r) => !manualPinfls.has(r.pinfl));
+  if (fresh.length) {
     await prisma.mibClient.createMany({
-      data: rows.map((r) => ({
+      data: fresh.map((r) => ({
         reportId: id, rowNo: r.rowNo, pinfl: r.pinfl, fio: r.fio, phone: r.phone, firm: r.firm,
         ishRaqami: r.ishRaqami, holat: r.holat, region: r.region, address: r.address, totalDebtSrc: r.totalDebtSrc,
       })),
     });
   }
-  await prisma.mibReport.update({ where: { id }, data: { statusFilter, total: rows.length } });
-  return NextResponse.json({ total: rows.length, statusFilter });
+  const total = await prisma.mibClient.count({ where: { reportId: id } });
+  await prisma.mibReport.update({ where: { id }, data: { statusFilter, total } });
+  return NextResponse.json({ total, statusFilter });
 }

@@ -85,6 +85,9 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  // bitta PINFL tekshirish
+  const [pinfl, setPinfl] = useState('');
+  const [addMsg, setAddMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const load = useCallback(async () => {
     const j = await jget(`/api/mib/${reportId}`);
@@ -177,6 +180,16 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   };
   const stop = async () => { setBusy('stop'); await jpost(`/api/mib/${reportId}/stop`); await load(); await onChanged?.(); setBusy(''); };
   const doReseed = async () => { setBusy('reseed'); await reseed?.(); await load(); await onChanged?.(); setBusy(''); };
+  const addPinfl = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const p = pinfl.replace(/\D/g, '');
+    if (p.length !== 14) { setAddMsg({ ok: false, text: 'PINFL 14 ta raqam boʻlishi kerak' }); return; }
+    setBusy('add'); setAddMsg(null);
+    const { ok, json } = await jpost(`/api/mib/${reportId}/add-pinfl`, { pinfl: p });
+    if (!ok) setAddMsg({ ok: false, text: json.error || 'Xatolik' });
+    else { setPinfl(''); setAddMsg({ ok: true, text: json.running ? `${p} qoʻshildi — tekshirilmoqda…` : `${p} qoʻshildi (navbatda)` }); await load(); await onChanged?.(); }
+    setBusy('');
+  };
 
   if (!report) return <div className="grid place-items-center py-16"><Spinner /></div>;
 
@@ -246,6 +259,19 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
           Excel yuklandi. Yuqorida «Holat» (masalan <b className="text-fg">MIBda</b>) ni tanlab <b className="text-fg">Roʻyxatni qurish</b> bosing, soʻng <b className="text-fg">GO</b>.
         </div>
       )}
+
+      {/* ── bitta PINFL tekshirish (yig'ilib saqlanadi) ──────────────────── */}
+      <form onSubmit={addPinfl} className="card flex flex-wrap items-center gap-2 p-3">
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-500/12 text-brand-600 dark:text-brand-300"><Ico.qr size={16} /></span>
+        <span className="text-sm font-medium">Bitta PINFL tekshirish:</span>
+        <input className="field-input w-[190px] tabular-nums tracking-[0.1em]" inputMode="numeric" maxLength={14} placeholder="14 raqamli PINFL"
+          value={pinfl} onChange={(e) => { setPinfl(e.target.value.replace(/\D/g, '').slice(0, 14)); setAddMsg(null); }} />
+        <button type="submit" className="btn-primary shrink-0" disabled={busy === 'add' || pinfl.replace(/\D/g, '').length !== 14}>
+          {busy === 'add' ? <Spinner size={16} /> : <Ico.send size={16} />} Tekshirish
+        </button>
+        {addMsg && <span className={cx('text-sm', addMsg.ok ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300')}>{addMsg.text}</span>}
+        <span className="ml-auto text-xs text-muted">natija ijro ishlari + sana bilan shu roʻyxatga yigʻiladi</span>
+      </form>
 
       {/* ── KPI: MIBda jami / bizniki / summalar ─────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

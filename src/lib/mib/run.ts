@@ -19,6 +19,29 @@ const log = (m: string) => console.log(`[mib] ${m}`);
 const ACTIVE = new Set<number>();
 export const isMibRunActive = (reportId: number): boolean => ACTIVE.has(reportId);
 
+// Qo'lda qo'shilgan (bitta PINFL) mijozlar shu «holat» bilan belgilanadi — Excel qayta qurishda
+// (build) o'chirilmaydi, shuning uchun tekshiruvlar yig'ilib boradi.
+export const MANUAL_HOLAT = 'Qoʻlda';
+
+/**
+ * Reportning avtomatorini ishga tushiradi (agar hali ishlamayotgan bo'lsa) — GO va «bitta PINFL
+ * qo'shish» ham shuni chaqiradi. Faqat PENDING mijozlarni ishlaydi, shuning uchun jonli loop
+ * ketayotganda yangi qo'shilgan PINFL keyingi aylanishda o'zi olinadi (bu yerda null qaytadi).
+ * Qaytaradi: {jobId, pending} — yangi loop boshlansa; null — allaqachon ishlayapti yoki PENDING yo'q.
+ */
+export async function startMibRun(reportId: number): Promise<{ jobId: number; pending: number } | null> {
+  if (ACTIVE.has(reportId)) return null; // jonli loop bor — yangi PENDING'ni o'zi oladi
+  await prisma.mibClient.updateMany({ where: { reportId, status: 'RUNNING' }, data: { status: 'PENDING' } });
+  const pending = await prisma.mibClient.count({ where: { reportId, status: 'PENDING' } });
+  if (pending === 0) return null;
+  const job = await prisma.job.create({ data: { type: 'MIB_RUN', status: 'PENDING', total: pending, params: { reportId } } });
+  await prisma.mibReport.update({ where: { id: reportId }, data: { autoRun: true, runJobId: job.id } });
+  void runMibReportJob(job.id).catch(async () => {
+    await prisma.mibReport.update({ where: { id: reportId }, data: { autoRun: false, runJobId: null } }).catch(() => {});
+  });
+  return { jobId: job.id, pending };
+}
+
 /** Poll the MibSms table for an OTP that arrived AFTER `sinceMs`, marking it consumed. */
 async function waitForSms(sinceMs: number, timeoutMs = SMS_TIMEOUT_MS): Promise<string | null> {
   const deadline = Date.now() + timeoutMs;
