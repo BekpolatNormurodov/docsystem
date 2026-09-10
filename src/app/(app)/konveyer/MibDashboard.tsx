@@ -10,8 +10,10 @@
 //     keng va o'qilishi oson ko'rinadi + o'sha mijozning Excel'i.
 // Kesim/region mantig'i src/lib/mib/breakdown.ts dan (server Excel bilan bir xil).
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Ico, Spinner, DateField } from '@/ui';
-import { money, val, type ClientRow, type CaseRow } from '../mib-hisoboti/MibClientDetail';
+import { type ClientRow } from '../mib-hisoboti/MibClientDetail';
+import { ClientDetailFull } from '../mib-hisoboti/ClientDetailFull';
 import { regionOf, groupBreakdown, parseMoney, clean, shortFirm, type Dim } from '@/lib/mib/breakdown';
 
 interface Report { id: number; createdAt: string; label: string | null; total: number; autoRun: boolean; statusFilter: string | null }
@@ -63,12 +65,16 @@ const emptyFilters = { q: '', region: '', dept: '', bank: '', firm: '', ours: fa
 type Filters = typeof emptyFilters;
 
 // ── component ────────────────────────────────────────────────────────────────
-export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged }: {
+export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged, clientHrefBase }: {
   reportId: number;
   reseed?: () => Promise<void>;
   variant?: 'standalone' | 'konveyer';
   onChanged?: () => void | Promise<void>;
+  // Berilsa — mijozni bosganda ALOHIDA TO'LIQ SAHIFAga o'tadi (`${clientHrefBase}/<id>`); aks holda
+  // ichki ko'rinish (konveyer modal).
+  clientHrefBase?: string;
 }) {
+  const router = useRouter();
   const [report, setReport] = useState<Report | null>(null);
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -163,6 +169,8 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
     setF({ [key]: cur === label ? '' : label } as Partial<Filters>);
     setTab('mijozlar');
   };
+  // Standalone — alohida to'liq sahifa; konveyer modal — ichki ko'rinish.
+  const openClient = (cid: number) => { if (clientHrefBase) router.push(`${clientHrefBase}/${cid}`); else setDetailId(cid); };
 
   // controls
   const build = async () => {
@@ -187,15 +195,19 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
     setBusy('add'); setAddMsg(null);
     const { ok, json } = await jpost(`/api/mib/${reportId}/add-pinfl`, { pinfl: p });
     if (!ok) setAddMsg({ ok: false, text: json.error || 'Xatolik' });
-    else { setPinfl(''); setAddMsg({ ok: true, text: json.running ? `${p} qoʻshildi — tekshirilmoqda…` : `${p} qoʻshildi (navbatda)` }); await load(); await onChanged?.(); }
+    else {
+      setPinfl(''); setAddMsg({ ok: true, text: json.running ? `${p} qoʻshildi — tekshirilmoqda…` : `${p} qoʻshildi (navbatda)` });
+      await load(); await onChanged?.();
+      // Standalone: darhol o'sha PINFL sahifasini ochamiz — natija to'lishini kuzatasiz.
+      if (clientHrefBase && json.clientId) router.push(`${clientHrefBase}/${json.clientId}`);
+    }
     setBusy('');
   };
 
   if (!report) return <div className="grid place-items-center py-16"><Spinner /></div>;
 
-  // ── ALOHIDA ICHKI SAHIFA: mijoz detali ─────────────────────────────────────
-  const detail = detailId != null ? clients.find((c) => c.id === detailId) ?? null : null;
-  if (detail) return <ClientDetailPage client={detail} reportId={reportId} onBack={() => setDetailId(null)} />;
+  // ── Ichki ko'rinish (konveyer modal): mijoz detali ─────────────────────────
+  if (detailId != null) return <ClientDetailFull reportId={reportId} clientId={detailId} onBack={() => setDetailId(null)} />;
 
   const excelHref = tab === 'mijozlar' ? `/api/mib/${reportId}/excel` : `/api/mib/${reportId}/excel?tab=${tab}`;
 
@@ -356,7 +368,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
                   {pageRows.map((c) => (
                     <tr key={c.id}
                       className={cx('border-b border-line/60 transition-colors', c.status === 'RUNNING' && 'bg-amber-500/5', c.caseCount > 0 && 'cursor-pointer hover:bg-surface-2')}
-                      onClick={() => c.caseCount > 0 && setDetailId(c.id)}>
+                      onClick={() => c.caseCount > 0 && openClient(c.id)}>
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-1.5 font-medium tabular-nums">{c.caseCount > 0 && <Ico.eye size={13} className="shrink-0 text-brand-500" />}{c.pinfl}</div>
                         <div className="truncate text-xs text-muted">{clean(c.fio2) || clean(c.fio) || '—'}</div>
@@ -391,108 +403,6 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   );
 }
 
-// ── inner detail page ──────────────────────────────────────────────────────────
-function ClientDetailPage({ client, reportId, onBack }: { client: ClientRow; reportId: number; onBack: () => void }) {
-  const fullName = client.cases.map((k) => k.personFullName).find((nm) => nm && !nm.includes('***') && nm !== 'Nomaʼlum') || clean(client.fio2) || clean(client.fio) || client.pinfl;
-  const hasDetail = client.cases.some((k) => k.detailFetchedAt);
-  const region = regionOf(client);
-  const banks = [...new Set(client.cases.map((k) => clean(k.bankName)).filter(Boolean))];
-  const depts = [...new Set(client.cases.map((k) => clean(k.executorDept)).filter(Boolean))];
-  const remaining = client.cases.reduce((s, k) => s + parseMoney(k.remainingDebt), 0);
-  const ours = client.cases.filter((k) => k.isTargetFirm).length;
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <button onClick={onBack} className="btn-ghost"><Ico.chevronLeft size={16} /> Roʻyxatga qaytish</button>
-        <a className="btn-ghost text-xs" href={`/api/mib/${reportId}/excel?client=${client.id}`}><Ico.download size={14} /> Shu mijoz — Excel</a>
-      </div>
-
-      <div className="card p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h3 className="text-lg font-semibold">{fullName}</h3>
-            <div className="mt-0.5 text-sm text-muted tabular-nums">PINFL: {client.pinfl}{client.firm ? ` · ${client.firm}` : ''}</div>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {client.cases.length > 0 && <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">{client.cases.length} ijro ishi</span>}
-            {ours > 0 && <span className="badge border-emerald-500/30 text-emerald-600 dark:text-emerald-300">{ours} bizniki</span>}
-          </div>
-        </div>
-        {!hasDetail && <div className="mt-2 text-xs text-amber-600 dark:text-amber-300">Chuqur detal (SMS) hali olinmagan — faqat ijro ishlari roʻyxati.</div>}
-        <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3 lg:grid-cols-4">
-          <Field l="Region" v={region ?? '—'} />
-          <Field l="Hudud (MIB boʻlimi)" v={depts.join(', ') || '—'} />
-          <Field l="Bank" v={banks.join(', ') || '—'} />
-          <Field l="Umumiy qarz (mib)" v={money(client.totalDebt)} strong />
-          <Field l="Qoldiq qarz — jami" v={remaining > 0 ? som(remaining) : '—'} strong />
-        </dl>
-      </div>
-
-      <div className="grid gap-3 lg:grid-cols-2">
-        {client.cases.map((k) => <CaseBig key={k.id} c={k} />)}
-        {client.cases.length === 0 && <div className="card p-6 text-center text-sm text-muted">Ijro ishi topilmadi (toza).</div>}
-      </div>
-    </div>
-  );
-}
-
-function CaseBig({ c }: { c: CaseRow }) {
-  return (
-    <div className="card p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2.5">
-        <span className="text-base font-semibold tabular-nums">Ish № {c.workNumber}</span>
-        {c.firmName && <span className={cx('badge', c.isTargetFirm ? 'border-emerald-500/30 text-emerald-600 dark:text-emerald-300' : 'border-line text-muted')}>{shortFirm(c.firmName)}</span>}
-      </div>
-      {c.error && <div className="mb-2 text-xs text-rose-500">{c.error}</div>}
-      <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-        <Field l="Sud organi" v={val(c.courtOrgan)} span />
-        <Field l="Hujjat" v={`${val(c.courtDocType)}${c.courtDocNumber && c.courtDocNumber !== 'Nomaʼlum' ? ' № ' + c.courtDocNumber : ''}`} />
-        <Field l="Hujjat sanasi" v={val(c.courtDocDate)} />
-        <Field l="Kuchga kirgan" v={val(c.courtEffectiveDate)} />
-        <Field l="Davlat ijrochisi" v={val(c.executorName)} />
-        <Field l="Ijrochi tel" v={val(c.executorPhone)} />
-        <Field l="MIB boʻlimi" v={val(c.executorDept)} />
-        <Field l="MIBga kelgan" v={val(c.mibReceivedDate)} />
-        <Field l="Qoʻzgʻatilgan" v={val(c.mibInitiatedDate)} />
-      </dl>
-      <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-surface-2/50 p-3 text-sm sm:grid-cols-3">
-        <Money l="Umumiy summa" v={c.totalAmount} />
-        <Money l="Asosiy qarz" v={c.mainDebt} />
-        <Money l="Ijro yigʻimi" v={c.executionFee} />
-        <Money l="Jarima" v={c.fine} />
-        <Money l="Qoldiq qarz" v={c.remainingDebt} strong />
-      </div>
-      <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-        <Field l="Bank" v={val(c.bankName)} span />
-        <Field l="MFO / H/r" v={`${val(c.bankMfo)} · ${val(c.bankAccount)}`} span />
-      </dl>
-      {c.decisions && c.decisions.length > 0 && (
-        <div className="mt-3 border-t border-line pt-2.5 text-sm">
-          <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">Qarorlar</div>
-          <ul className="space-y-0.5">{c.decisions.map((d, i) => <li key={i}>· {d.article} <span className="text-muted">{d.date}</span></li>)}</ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Field({ l, v, strong, span }: { l: string; v: string; strong?: boolean; span?: boolean }) {
-  return (
-    <div className={cx('min-w-0', span && 'sm:col-span-2')}>
-      <dt className="text-xs text-muted">{l}</dt>
-      <dd className={cx('mt-0.5 break-words', strong ? 'font-semibold text-fg' : 'text-fg')}>{v}</dd>
-    </div>
-  );
-}
-function Money({ l, v, strong }: { l: string; v: string | null; strong?: boolean }) {
-  return (
-    <div>
-      <div className="text-xs text-muted">{l}</div>
-      <div className={cx('tabular-nums', strong ? 'text-base font-semibold text-fg' : 'font-medium')}>{money(v)}</div>
-    </div>
-  );
-}
 
 // ── breakdown table (Firma / Region / Hudud / Bank tabs) ────────────────────────
 function BreakdownTable({ rows, dim, activeLabel, onPick }: { rows: { label: string; cases: number; clients: number; ours: number; debt: number }[]; dim: Dim; activeLabel: string; onPick: (label: string) => void }) {

@@ -36,6 +36,12 @@ export function MibReport() {
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
 
+  // To'liq detal sahifasidan qaytganda tanlangan hisobot tiklanadi (?report=<id>).
+  useEffect(() => {
+    const r = Number(new URLSearchParams(window.location.search).get('report'));
+    if (Number.isInteger(r) && r > 0) setSelId(r);
+  }, []);
+
   const anyRunning = reports.some((r) => r.autoRun);
   useEffect(() => {
     if (!anyRunning) return;
@@ -74,7 +80,7 @@ export function MibReport() {
       <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
         <HistoryList reports={reports} loading={loading} selId={selId} onSelect={setSelId} onDelete={del} />
         {selId != null ? (
-          <MibDashboard key={selId} reportId={selId} variant="standalone" onChanged={refresh} />
+          <MibDashboard key={selId} reportId={selId} variant="standalone" onChanged={refresh} clientHrefBase="/mib-hisoboti/mijoz" />
         ) : (
           <div className="card grid place-items-center p-10 text-sm text-muted">Chapdan hisobotni tanlang yoki Excel yuklang.</div>
         )}
