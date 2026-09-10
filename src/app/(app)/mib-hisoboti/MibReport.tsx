@@ -12,7 +12,7 @@ interface Report {
   total: number; autoRun: boolean; runJobId: number | null;
 }
 interface ListReport extends Report { statusCounts: Record<string, number> }
-interface MibConfig { phone: string; phonePending: string; phoneConfirmedAt: string; baseUrl: string; intervalSec: number; webhookUrl: string }
+interface MibConfig { phone: string; phonePending: string; phoneConfirmedAt: string; baseUrl: string; intervalSec: number; webhookUrl: string; deepDetail: boolean }
 
 const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
 const n = (x: number) => (x || 0).toLocaleString('ru-RU');
@@ -153,6 +153,13 @@ function ConfigCard() {
     setSaved(true); setTimeout(() => setSaved(false), 1500);
   };
 
+  const toggleDeep = async () => {
+    const next = !(cfg?.deepDetail ?? true);
+    setCfg((c) => c ? { ...c, deepDetail: next } : c); // darhol ko'rinsin
+    const { json } = await jpost('/api/mib/config', { deepDetail: next });
+    setCfg((c) => c ? { ...c, ...json } : c);
+  };
+
   // Test the SMS pipeline: wait for a code to arrive at the webhook (operator sends a test SMS).
   const [testState, setTestState] = useState<'idle' | 'waiting' | 'ok' | 'timeout'>('idle');
   const [testCode, setTestCode] = useState('');
@@ -194,6 +201,22 @@ function ConfigCard() {
           <input className="field-input tabular-nums" inputMode="numeric" value={interval} onChange={(e) => setIntervalS(e.target.value.replace(/\D/g, ''))} />
         </label>
         <button className="btn-primary shrink-0" onClick={save}>{saved ? <><Ico.check size={16} /> Saqlandi</> : 'Saqlash'}</button>
+      </div>
+
+      {/* Chuqur detal (SMS) — o'chirilsa har ish uchun SMS so'ralmaydi, faqat ijro ishi ro'yxati (tez). */}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface-2/40 px-3 py-2.5">
+        <div className="min-w-0">
+          <div className="text-sm font-medium">Chuqur detal (SMS bilan)</div>
+          <div className="text-xs text-muted">
+            {(cfg?.deepDetail ?? true)
+              ? 'Yoqilgan — har ijro ishi uchun SMS-OTP so‘raladi (bank/sud/summa to‘ladi).'
+              : 'O‘chirilgan — SMS so‘ralmaydi, faqat ijro ishlari ro‘yxati olinadi (tez, «birdan»).'}
+          </div>
+        </div>
+        <button role="switch" aria-checked={cfg?.deepDetail ?? true} onClick={toggleDeep}
+          className={cx('relative h-6 w-11 shrink-0 rounded-full transition-colors', (cfg?.deepDetail ?? true) ? 'bg-brand-500' : 'bg-slate-300 dark:bg-slate-600')}>
+          <span className={cx('absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all', (cfg?.deepDetail ?? true) ? 'left-[22px]' : 'left-0.5')} />
+        </button>
       </div>
 
       {/* Raqam holati: saqlash o'zi raqamni ALMASHTIRMAYDI — faqat o'sha raqamdan test SMS

@@ -9,11 +9,22 @@ import { Ico } from '@/ui';
 interface Line { id: number; ts: number; msg: string }
 const hhmmss = (ms: number) => new Date(ms).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-export function MibLogPanel({ q, title = 'Avtomator logi', defaultOpen = true }: { q?: string; title?: string; defaultOpen?: boolean }) {
+export function MibLogPanel({ q, title = 'Avtomator logi', defaultOpen = true, manualOtp = true }: { q?: string; title?: string; defaultOpen?: boolean; manualOtp?: boolean }) {
   const [lines, setLines] = useState<Line[]>([]);
   const [open, setOpen] = useState(defaultOpen);
+  const [otp, setOtp] = useState('');
+  const [otpMsg, setOtpMsg] = useState('');
   const lastId = useRef(0);
   const box = useRef<HTMLDivElement>(null);
+
+  const sendOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = otp.replace(/\D/g, '');
+    if (code.length < 4) { setOtpMsg('4-7 raqamli kod'); return; }
+    // Webhook bilan bir xil manba — waitForSms shu kodni oladi (forwarder ishlamasa qo'lда).
+    await fetch('/api/mib-webhook', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: `Kod: ${code}` }) }).catch(() => {});
+    setOtp(''); setOtpMsg('✓ yuborildi'); setTimeout(() => setOtpMsg(''), 2500);
+  };
 
   const poll = useCallback(async () => {
     const url = `/api/mib/logs?after=${lastId.current}${q ? `&q=${encodeURIComponent(q)}` : ''}`;
@@ -51,6 +62,15 @@ export function MibLogPanel({ q, title = 'Avtomator logi', defaultOpen = true }:
           <svg className={`h-4 w-4 text-muted transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m9 6 6 6-6 6" /></svg>
         </span>
       </button>
+      {open && manualOtp && (
+        <form onSubmit={sendOtp} className="flex flex-wrap items-center gap-2 border-t border-line bg-surface-2/40 px-3 py-2 text-sm">
+          <span className="text-xs text-muted">SMS avtomat kelmasa — telefondagi kodni yozing:</span>
+          <input className="field-input h-9 w-[130px] tabular-nums tracking-[0.15em]" inputMode="numeric" maxLength={7} placeholder="masalan 49888"
+            value={otp} onChange={(e) => { setOtp(e.target.value.replace(/\D/g, '').slice(0, 7)); setOtpMsg(''); }} />
+          <button type="submit" className="btn-primary h-9 shrink-0 px-3 text-xs" disabled={otp.replace(/\D/g, '').length < 4}><Ico.send size={14} /> Yuborish</button>
+          {otpMsg && <span className={otpMsg.startsWith('✓') ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'}>{otpMsg}</span>}
+        </form>
+      )}
       {open && (
         <div ref={box} className="max-h-64 overflow-auto border-t border-line bg-slate-950 px-3 py-2 font-mono text-[12px] leading-relaxed text-slate-200">
           {lines.length === 0

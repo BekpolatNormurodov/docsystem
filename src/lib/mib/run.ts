@@ -170,15 +170,16 @@ export async function runMibReportJob(jobId: number): Promise<void> {
             const caseRow = await prisma.mibCase.create({
               data: { clientId: client.id, workNumber: c.workNumber, monitoringUrl: c.monitoringUrl ?? null },
             });
-            // Deep detail (SMS-gated). Needs a configured phone; otherwise leave the case at search level.
-            if (cfg.phone && c.monitoringUrl) {
+            // Chuqur detal (SMS-gated) — FAQAT deepDetail yoqilgan va telefon bo'lsa. O'chirilgan
+            // bo'lsa SMS so'ralmaydi, faqat ijro ishi ro'yxati qoladi (tez, «birdan»).
+            if (cfg.deepDetail && cfg.phone && c.monitoringUrl) {
               try {
                 await fetchCaseDetail(engine, caseRow.id, client.pinfl, c.workNumber, c.monitoringUrl, cfg.phone);
               } catch (e) {
                 // updateMany — case o'chirilgan bo'lsa ham yiqilmasin (aks holda butun mijoz XATO bo'lardi).
                 await prisma.mibCase.updateMany({ where: { id: caseRow.id }, data: { error: (e as Error).message } });
               }
-            } else if (!cfg.phone) {
+            } else if (cfg.deepDetail && !cfg.phone) {
               await prisma.mibCase.updateMany({ where: { id: caseRow.id }, data: { error: 'SMS telefon raqami sozlanmagan' } });
             }
           }

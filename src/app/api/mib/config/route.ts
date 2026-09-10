@@ -28,8 +28,9 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   await requireAccess('mib-report');
   const body = await req.json().catch(() => ({}));
-  const patch: { phonePending?: string; baseUrl?: string; intervalSec?: number } = {};
+  const patch: { phonePending?: string; baseUrl?: string; intervalSec?: number; deepDetail?: boolean } = {};
   const current = await getMibConfig();
+  if (typeof body?.deepDetail === 'boolean') patch.deepDetail = body.deepDetail;
 
   let phoneQueued: string | null = null;
   if (typeof body?.phone === 'string') {

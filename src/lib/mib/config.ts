@@ -9,6 +9,7 @@ const K = {
   phoneConfirmedAt: 'mib.phoneConfirmedAt',
   baseUrl: 'mib.baseUrl',
   intervalSec: 'mib.intervalSec',
+  deepDetail: 'mib.deepDetail',
 } as const;
 
 export interface MibConfig {
@@ -19,12 +20,15 @@ export interface MibConfig {
   phoneConfirmedAt: string;
   baseUrl: string;
   intervalSec: number;
+  /** Chuqur detal (SMS-OTP bilan har ish bo'yicha bank/sud/summa). O'chirilsa — faqat ijro ishi
+   *  ro'yxati olinadi (SMS so'ralmaydi, tez va «birdan»). */
+  deepDetail: boolean;
 }
 
 // Interval kamida 60 soniya: MIB avtomatori har mijoz uchun captcha + so'rovlar qiladi,
 // undan tez-tez urish bloklanishga olib keladi.
 export const MIN_INTERVAL_SEC = 60;
-const DEFAULTS: MibConfig = { phone: '', phonePending: '', phoneConfirmedAt: '', baseUrl: 'https://mib.uz', intervalSec: 60 };
+const DEFAULTS: MibConfig = { phone: '', phonePending: '', phoneConfirmedAt: '', baseUrl: 'https://mib.uz', intervalSec: 60, deepDetail: true };
 
 export async function getMibConfig(): Promise<MibConfig> {
   const rows = await prisma.setting.findMany({ where: { key: { in: Object.values(K) } } });
@@ -36,6 +40,7 @@ export async function getMibConfig(): Promise<MibConfig> {
     phoneConfirmedAt: map.get(K.phoneConfirmedAt) || DEFAULTS.phoneConfirmedAt,
     baseUrl: map.get(K.baseUrl) || DEFAULTS.baseUrl,
     intervalSec: Number.isFinite(intervalSec) && intervalSec >= MIN_INTERVAL_SEC ? intervalSec : DEFAULTS.intervalSec,
+    deepDetail: map.get(K.deepDetail) !== '0', // default yoqilgan; faqat '0' o'chiradi
   };
 }
 
@@ -46,6 +51,7 @@ export async function setMibConfig(patch: Partial<MibConfig>): Promise<void> {
   if (patch.phoneConfirmedAt !== undefined) entries.push([K.phoneConfirmedAt, patch.phoneConfirmedAt]);
   if (patch.baseUrl !== undefined) entries.push([K.baseUrl, patch.baseUrl]);
   if (patch.intervalSec !== undefined) entries.push([K.intervalSec, String(patch.intervalSec)]);
+  if (patch.deepDetail !== undefined) entries.push([K.deepDetail, patch.deepDetail ? '1' : '0']);
   for (const [key, value] of entries) {
     await prisma.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
   }
