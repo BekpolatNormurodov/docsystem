@@ -25,10 +25,10 @@ export async function addPinflAndCheck(reportId: number, pinflRaw: string, fio?:
 
   let client = await prisma.mibClient.findFirst({ where: { reportId, pinfl } });
   if (client) {
-    // MUHIM: shu mijoz AYNAN HOZIR tekshirilayotgan bo'lsa (jonli run uni RUNNING qilgan) — tegmaymiz.
-    // Aks holda uning ishlarini o'chirib yuborsak, ketayotgan run mibCase.update'da «record not found»
-    // xatosiga uchraydi. Allaqachon tekshirilmoqda — shunchaki qaytaramiz.
-    if (client.status === 'RUNNING' && isMibRunActive(reportId)) {
+    // MUHIM: shu reportда jonli avtomator ISHLAYOTGAN bo'lsa — hech narsani o'chirmaymiz/reset qilmaymiz.
+    // Aks holda ketayotgan run yaratgan ish o'chib, u mibCase.update'да «record not found»ga uchraydi.
+    // Mavjud mijozni shunchaki qaytaramiz (kerak bo'lsa loop uni PENDING navbatidан oladi).
+    if (isMibRunActive(reportId)) {
       return { ok: true, clientId: client.id, running: true };
     }
     // Qayta tekshirish — eski ishlarni o'chirib PENDING qilamiz (dublikat chiqmasin).

@@ -175,10 +175,11 @@ export async function runMibReportJob(jobId: number): Promise<void> {
               try {
                 await fetchCaseDetail(engine, caseRow.id, client.pinfl, c.workNumber, c.monitoringUrl, cfg.phone);
               } catch (e) {
-                await prisma.mibCase.update({ where: { id: caseRow.id }, data: { error: (e as Error).message } });
+                // updateMany — case o'chirilgan bo'lsa ham yiqilmasin (aks holda butun mijoz XATO bo'lardi).
+                await prisma.mibCase.updateMany({ where: { id: caseRow.id }, data: { error: (e as Error).message } });
               }
             } else if (!cfg.phone) {
-              await prisma.mibCase.update({ where: { id: caseRow.id }, data: { error: 'SMS telefon raqami sozlanmagan' } });
+              await prisma.mibCase.updateMany({ where: { id: caseRow.id }, data: { error: 'SMS telefon raqami sozlanmagan' } });
             }
           }
           await prisma.mibClient.update({ where: { id: client.id }, data: { status: 'DONE', checkedAt: new Date() } });
@@ -226,7 +227,9 @@ async function fetchCaseDetail(engine: MibEngine, caseId: number, pinfl: string,
   const step19Url = await engine.submitSmsCode(sms.verifyFormAction, code);
   const d = await engine.fetchExecutionDetails(step19Url);
   const firm = resolveCreditor(d.creditor);
-  await prisma.mibCase.update({
+  // updateMany — case qayta-tekshirish/reconcile tomonidan o'chirilgan bo'lsa ham «record not found»
+  // bilan yiqilmasin (count 0 qaytadi, throw yo'q).
+  await prisma.mibCase.updateMany({
     where: { id: caseId },
     data: {
       personFullName: d.personFullName, creditor: d.creditor, firmName: firm.name, firmInn: firm.inn, isTargetFirm: firm.isTarget,
