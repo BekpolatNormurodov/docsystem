@@ -794,3 +794,13 @@ model CaseDocument {
 
   @@index([caseId])
 }
+
+// Region → ijrochi (xodim) biriktirmasi. Boshliq hisobotidagi «Ijrochi» ustunini to'ldiradi:
+// har viloyatga bitta mas'ul ijrochi. region = kanonik viloyat nomi (REGION_TOKENS'dagi kabi).
+model RegionExecutor {
+  id           Int      @id @default(autoincrement())
+  region       String   @unique
+  executorName String
+  phone        String?
+  updatedAt    DateTime @updatedAt
+}

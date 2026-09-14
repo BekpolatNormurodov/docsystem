@@ -24,7 +24,7 @@ export interface BossFirmRow {
 export type BossTotals = Omit<BossFirmRow, 'firmId' | 'firmName'>;
 // Viloyat (14 ta) kesimi — mijozlar + MIBga + Sud (qanoatlantirilgan/qaytarilgan) + jami qarz.
 // Manba: portfel Excel (Loan.regionName), tuman→viloyatga yig'iladi (regionFromText). Rus/kirill/lotin.
-export interface BossRegionRow { region: string; clients: number; mib: number; sudTotal: number; granted: number; returned: number; debt: number }
+export interface BossRegionRow { region: string; clients: number; talabnoma: number; mib: number; sudTotal: number; granted: number; returned: number; debt: number; executor: string | null }
 export interface BossReportData { snapshotId: number | null; firms: BossFirmRow[]; totals: BossTotals; regions: BossRegionRow[] }
 
 // courtStatusBoard bucket kodini direktor guruhiga solamiz.
@@ -135,8 +135,8 @@ async function regionBreakdown(snapshotId?: number): Promise<BossRegionRow[]> {
   // qotib qolardi (snapshot almashtirib bo'lmasdi). Endi region FAQAT kerakli pinfl'lar uchun,
   // pinfl-indeks bilan (FORCE INDEX Loan_pinfl_snapshotId_idx) olinadi (~2s). ArizaCase/ClientCaseStatus
   // kichik va indeksli (~ms) — yig'ish JS'da. Uch so'rov ham parallel.
-  const [acRows, ccsRows, locRows] = await Promise.all([
-    prisma.arizaCase.findMany({ where: { snapshotId: regionSnapId, pinfl: { not: null } }, select: { pinfl: true, stage: true, totalDebt: true } }),
+  const [acRows, ccsRows, locRows, execRows] = await Promise.all([
+    prisma.arizaCase.findMany({ where: { snapshotId: regionSnapId, pinfl: { not: null } }, select: { pinfl: true, stage: true, totalDebt: true, talabnomaAt: true } }),
     prisma.clientCaseStatus.findMany({ where: { source: 'CABINET', pinfl: { not: null } }, select: { pinfl: true, status: true, statusLabel: true, caseResult: true } }),
     prisma.$queryRaw<{ pinfl: string; rn: string | null }[]>`
       SELECT l.pinfl AS pinfl, MAX(l.regionName) AS rn
@@ -146,7 +146,10 @@ async function regionBreakdown(snapshotId?: number): Promise<BossRegionRow[]> {
         UNION SELECT pinfl FROM ClientCaseStatus WHERE source = 'CABINET' AND pinfl IS NOT NULL
       ) AND l.snapshotId = ${regionSnapId}
       GROUP BY l.pinfl`,
+    // Region → ijrochi biriktirmalari (kichik jadval).
+    prisma.regionExecutor.findMany({ select: { region: true, executorName: true } }),
   ]);
+  const execByRegion = new Map(execRows.map((e) => [e.region, e.executorName]));
   const regByPinfl = new Map<string, string>();
   for (const r of locRows) regByPinfl.set(r.pinfl, canon(r.rn));
   const regOf = (p: string | null) => (p ? regByPinfl.get(p) : undefined) ?? 'Aniqlanmagan';
@@ -154,20 +157,24 @@ async function regionBreakdown(snapshotId?: number): Promise<BossRegionRow[]> {
   const map = new Map<string, BossRegionRow>();
   const row = (name: string) => {
     let r = map.get(name);
-    if (!r) { r = { region: name, clients: 0, mib: 0, sudTotal: 0, granted: 0, returned: 0, debt: 0 }; map.set(name, r); }
+    if (!r) { r = { region: name, clients: 0, talabnoma: 0, mib: 0, sudTotal: 0, granted: 0, returned: 0, debt: 0, executor: execByRegion.get(name) ?? null }; map.set(name, r); }
     return r;
   };
   // MIBga + jami qarz + mijozlar (region bo'yicha alohida PINFL) — ArizaCase'dan.
+  // Talabnoma = shu regionda talabnomasi ketgan alohida PINFL (kishi bo'yicha, ish bo'yicha emas).
   const EXEC = new Set(['MIB_SUBMITTED', 'CLOSED']);
   const seen = new Map<string, Set<string>>();
+  const talSeen = new Map<string, Set<string>>();
   for (const a of acRows) {
     const reg = regOf(a.pinfl);
     const r = row(reg);
     r.debt += Number(a.totalDebt ?? 0);
     if (EXEC.has(a.stage)) r.mib += 1;
     let s = seen.get(reg); if (!s) { s = new Set(); seen.set(reg, s); } if (a.pinfl) s.add(a.pinfl);
+    if (a.talabnomaAt && a.pinfl) { let ts = talSeen.get(reg); if (!ts) { ts = new Set(); talSeen.set(reg, ts); } ts.add(a.pinfl); }
   }
   for (const [reg, s] of seen) row(reg).clients = s.size;
+  for (const [reg, ts] of talSeen) row(reg).talabnoma = ts.size;
   // Sud (CABINET) — DRAFT/CREATED chiqarilmaydi; rad→qaytarilgan qoidasi sudBucketOf'da.
   for (const c of ccsRows) {
     const code = classifyStatus('CABINET', { status: c.status, statusLabel: c.statusLabel, caseResult: c.caseResult }).code;

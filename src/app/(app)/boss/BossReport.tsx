@@ -18,7 +18,7 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref }: { dat
   const t = useT();
   const { firms, totals, regions } = data;
   const [regOpen, setRegOpen] = useState(false); // default YOPIQ — bosib ochiladi
-  const rtot = regions.reduce((a, r) => ({ clients: a.clients + r.clients, mib: a.mib + r.mib, sudTotal: a.sudTotal + r.sudTotal, granted: a.granted + r.granted, returned: a.returned + r.returned, debt: a.debt + r.debt }), { clients: 0, mib: 0, sudTotal: 0, granted: 0, returned: 0, debt: 0 });
+  const rtot = regions.reduce((a, r) => ({ clients: a.clients + r.clients, talabnoma: a.talabnoma + r.talabnoma, mib: a.mib + r.mib, sudTotal: a.sudTotal + r.sudTotal, granted: a.granted + r.granted, returned: a.returned + r.returned, debt: a.debt + r.debt }), { clients: 0, talabnoma: 0, mib: 0, sudTotal: 0, granted: 0, returned: 0, debt: 0 });
 
   return (
     <div className="space-y-5">
@@ -116,11 +116,13 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref }: { dat
         </button>
         {regOpen && (
         <div className="overflow-x-auto border-t border-line">
-          <table className="w-full min-w-[680px] text-sm">
+          <table className="w-full min-w-[900px] text-sm">
             <thead className="bg-surface text-xs uppercase tracking-wide text-muted">
               <tr className="border-b border-line">
                 <th className="sticky left-0 z-10 bg-surface px-3 py-2 text-left">{t('Viloyat')}</th>
-                <th className="px-3 py-2 text-right">{t('Mijozlar')}</th>
+                <th className="border-l border-line px-3 py-2 text-left">{t('Ijrochi')}</th>
+                <th className="border-l border-line px-3 py-2 text-right">{t('Mijozlar')}</th>
+                <th className="px-3 py-2 text-right text-indigo-600 dark:text-indigo-300">{t('Talabnoma')}</th>
                 <th className="border-l border-line px-3 py-2 text-right">{t('MIBga')}</th>
                 <th className="border-l border-line px-3 py-2 text-right">{t('Sudga (jami)')}</th>
                 <th className="px-3 py-2 text-right text-emerald-600 dark:text-emerald-300">{t('Qanoatlantirilgan')}</th>
@@ -131,8 +133,10 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref }: { dat
             <tbody>
               {regions.map((r) => (
                 <tr key={r.region} className="border-b border-line/60 transition-colors hover:bg-surface-2">
-                  <td className="sticky left-0 z-10 bg-surface px-3 py-2.5 font-medium">{r.region}</td>
+                  <td className="sticky left-0 z-10 bg-surface px-3 py-2.5 font-medium">{t(r.region)}</td>
+                  <td className="border-l border-line px-3 py-1.5"><ExecutorCell region={r.region} initial={r.executor} /></td>
                   <td className="px-3 py-2.5 text-right tabular-nums font-medium">{r.clients > 0 ? n(r.clients) : <span className="text-muted/50">·</span>}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-indigo-600 dark:text-indigo-300">{r.talabnoma > 0 ? n(r.talabnoma) : <span className="text-muted/50">·</span>}</td>
                   <td className="border-l border-line px-3 py-2.5 text-right tabular-nums text-teal-600 dark:text-teal-300">{r.mib > 0 ? n(r.mib) : <span className="text-muted/50">·</span>}</td>
                   <td className="border-l border-line px-3 py-2.5 text-right tabular-nums">{r.sudTotal > 0 ? n(r.sudTotal) : <span className="text-muted/50">·</span>}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-emerald-600 dark:text-emerald-300">{r.granted > 0 ? n(r.granted) : <span className="text-muted/50">·</span>}</td>
@@ -140,13 +144,15 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref }: { dat
                   <td className="border-l border-line px-3 py-2.5 text-right tabular-nums">{r.debt > 0 ? som(r.debt) : <span className="text-muted/50">·</span>}</td>
                 </tr>
               ))}
-              {regions.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-muted">{t('Region maʼlumoti yoʻq.')}</td></tr>}
+              {regions.length === 0 && <tr><td colSpan={9} className="px-4 py-10 text-center text-muted">{t('Region maʼlumoti yoʻq.')}</td></tr>}
             </tbody>
             {regions.length > 0 && (
               <tfoot>
                 <tr className="border-t-2 border-line bg-surface-2/50 font-semibold">
                   <td className="sticky left-0 z-10 bg-surface-2/50 px-3 py-2.5">{t('JAMI')}</td>
+                  <td className="border-l border-line px-3 py-2.5 text-muted/50">·</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">{n(rtot.clients)}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-indigo-600 dark:text-indigo-300">{n(rtot.talabnoma)}</td>
                   <td className="border-l border-line px-3 py-2.5 text-right tabular-nums text-teal-600 dark:text-teal-300">{n(rtot.mib)}</td>
                   <td className="border-l border-line px-3 py-2.5 text-right tabular-nums">{n(rtot.sudTotal)}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-emerald-600 dark:text-emerald-300">{n(rtot.granted)}</td>
@@ -178,6 +184,43 @@ function Row({ f }: { f: BossFirmRow }) {
       <td className="border-l border-line px-3 py-2.5 text-right tabular-nums text-teal-600 dark:text-teal-300">{f.mib > 0 ? n(f.mib) : <span className="text-muted/50">·</span>}</td>
       <td className="px-3 py-2.5 text-right tabular-nums">{f.debt > 0 ? som(f.debt) : <span className="text-muted/50">·</span>}</td>
     </tr>
+  );
+}
+
+// Region qatoridagi tahrirlanadigan «Ijrochi» katagi — nom yozib, fokusdan chiqilganda (yoki Enter)
+// /boss/executor'ga saqlaydi (admin). Bo'sh qoldirilса biriktirma o'chiriladi.
+function ExecutorCell({ region, initial }: { region: string; initial: string | null }) {
+  const t = useT();
+  const [value, setValue] = useState(initial ?? '');
+  const savedRef = React.useRef(initial ?? '');
+  const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  async function save() {
+    const v = value.trim();
+    if (v === savedRef.current.trim()) return;
+    setStatus('saving');
+    try {
+      const res = await fetch('/boss/executor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ region, executorName: v }) });
+      if (!res.ok) throw new Error('save failed');
+      savedRef.current = v;
+      setStatus('saved');
+      setTimeout(() => setStatus('idle'), 1500);
+    } catch { setStatus('error'); }
+  }
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); }}
+        placeholder={t('Ijrochi biriktirilmagan')}
+        title={t('Ism familiya')}
+        className="w-40 rounded-md border border-line bg-surface px-2 py-1 text-xs outline-none transition-colors focus:border-brand-500 focus:ring-1 focus:ring-brand-500/20"
+      />
+      {status === 'saving' && <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" aria-hidden />}
+      {status === 'saved' && <span className="shrink-0 text-[11px] font-medium text-emerald-600 dark:text-emerald-300" title={t('Saqlandi')}>✓</span>}
+      {status === 'error' && <span className="shrink-0 text-[11px] font-medium text-rose-600 dark:text-rose-300" title={t('Saqlanmadi')}>!</span>}
+    </div>
   );
 }
 
