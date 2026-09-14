@@ -118,8 +118,11 @@ export class CabinetSubmitEngine {
       const need: { kind: CaseFileToUpload['kind']; label: string; hint: string }[] = [
         { kind: 'ARIZA', label: 'imzolangan ariza', hint: 'palatadan kelgan imzolangan arizani skanerlab biriktiring' },
         { kind: 'OFERTA', label: 'oferta (mikroqarz shartnomasi)', hint: 'oferta portfel ma\'lumotidan yaratiladi — kredit yozuvlari va chromium borligini tekshiring' },
-        // TALABNOMANING O'ZI majburiy EMAS (2026-09-10 foydalanuvchi qarori): sudga xatning
-        // mazmuni emas, faqat YETKAZILGANLIK kvitansiyasi (TALABNOMA_CHECK) kerak.
+        // TALABNOMA XATI (hippo YETKAZGAN) — 2026-09-14 foydalanuvchi qarori: sudga yetkazilgan
+        // talabnoma XATINING O'ZI (hippo shakllantirgan) MAJBURIY. collectCaseFiles uni
+        // ClientCaseStatus(source=HIPPO) uid → downloadMailPdf orqali oladi. Yo'q/olinmasa ish
+        // SKIPPED/FAILED bo'ladi — chala paket (talabnomasiz) sudga ketmaydi.
+        { kind: 'TALABNOMA', label: 'talabnoma xati (hippo yetkazgan)', hint: 'xat.hippo yetkazilgan talabnoma xatini biriktiring — avval jo\'natish/ingest kerak' },
         { kind: 'TALABNOMA_CHECK', label: 'talabnoma kvitansiyasi', hint: 'xat.hippo (UZPOST) yetkazish kvitansiyasini biriktiring' },
       ];
       const missing = need.filter((x) => !files.some((f) => f.kind === x.kind));
