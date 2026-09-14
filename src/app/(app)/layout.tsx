@@ -108,7 +108,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         // «Hisobot» (Boshliq paneli) — ENG TEPADA, ALOHIDA bo'lim (foydalanuvchi so'rovi): Hujjatlardan
         // ham yuqorida. Bo'limlar nav massividagi birinchi ko'rinishi tartibida chiqadi, shuning uchun
         // bu birinchi turadi → sidebar tepasida. FAQAT admin (isAdmin shoxida, grant qilinmaydi).
-        { href: '/boss', label: 'Boshliq hisoboti', icon: 'dashboard', section: 'Hisobot' },
+        { href: '/boss', label: 'Hisobot', icon: 'dashboard', section: 'Hisobot' },
         hujjatlarNav,
         ...withBadges(stepNav),
         { href: '/mijozlar', label: 'Mijozlar', icon: 'users', section: 'Menyu' },

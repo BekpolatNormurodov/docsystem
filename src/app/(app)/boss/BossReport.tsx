@@ -3,7 +3,7 @@
 // Boshliq (director) hisoboti — Firma × bosqich matritsasi. Har qatorda bitta firma; ustunlarda
 // 4 bosqich: Talabnoma · Sanoat palatasi · Sudga chiqarilgan (4 ADOLAT statusi) · MIBga. Pastda JAMI.
 // Snapshot filtri — sidebardagi umumiy sana (konv_s). Excel — /boss/excel.
-import React from 'react';
+import React, { useState } from 'react';
 import { Ico } from '@/ui';
 import type { BossReportData, BossFirmRow, BossTotals } from '@/lib/boss-report';
 
@@ -14,6 +14,7 @@ const cellNum = (x: number, cls?: string) => <td className={cx('px-3 py-2.5 text
 
 export function BossReport({ data, snapLabel }: { data: BossReportData; snapLabel: string | null }) {
   const { firms, totals, regions } = data;
+  const [regOpen, setRegOpen] = useState(true);
   const rtot = regions.reduce((a, r) => ({ clients: a.clients + r.clients, mib: a.mib + r.mib, sudTotal: a.sudTotal + r.sudTotal, granted: a.granted + r.granted, returned: a.returned + r.returned, debt: a.debt + r.debt }), { clients: 0, mib: 0, sudTotal: 0, granted: 0, returned: 0, debt: 0 });
 
   return (
@@ -21,7 +22,7 @@ export function BossReport({ data, snapLabel }: { data: BossReportData; snapLabe
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold">Boshliq hisoboti</h1>
+            <h1 className="text-xl font-semibold">Hisobot</h1>
             <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">Faqat admin</span>
           </div>
           <p className="mt-1 max-w-2xl text-sm text-muted">
@@ -94,13 +95,18 @@ export function BossReport({ data, snapLabel }: { data: BossReportData; snapLabe
         </div>
       </div>
 
-      {/* Viloyat kesimi — MIBga va Sud (portfel manzili bo‘yicha) */}
+      {/* Viloyat kesimi — MIBga va Sud (portfel manzili bo‘yicha) — ochilib-yopiladigan */}
       <div className="card overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
-          <span className="text-sm font-semibold">Viloyat bo‘yicha — MIBga va Sud</span>
-          <span className="text-xs text-muted">Manzil portfeldan · tumanlar viloyatga yig‘ilgan</span>
-        </div>
-        <div className="overflow-x-auto">
+        <button type="button" onClick={() => setRegOpen((v) => !v)}
+          className="flex w-full flex-wrap items-center justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-surface-2/50">
+          <span className="flex items-center gap-2 text-sm font-semibold">
+            <svg className={cx('h-4 w-4 shrink-0 text-muted transition-transform', regOpen && 'rotate-90')} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+            Viloyat bo‘yicha — MIBga va Sud
+          </span>
+          <span className="text-xs text-muted">{regOpen ? 'Manzil portfeldan · tumanlar viloyatga yig‘ilgan' : `${n(regions.length)} ta viloyat · ochish`}</span>
+        </button>
+        {regOpen && (
+        <div className="overflow-x-auto border-t border-line">
           <table className="w-full min-w-[680px] text-sm">
             <thead className="bg-surface text-xs uppercase tracking-wide text-muted">
               <tr className="border-b border-line">
@@ -142,6 +148,7 @@ export function BossReport({ data, snapLabel }: { data: BossReportData; snapLabe
             )}
           </table>
         </div>
+        )}
       </div>
     </div>
   );
