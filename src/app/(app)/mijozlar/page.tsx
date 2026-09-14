@@ -6,7 +6,7 @@ import { getT } from '@/lib/i18n/server';
 import { MijozlarFilters } from './MijozlarFilters';
 import { MijozlarTable } from './MijozlarTable';
 import { ClientStatusSearch } from '../_components/ClientStatusSearch';
-import { PHASES } from '@/lib/konveyer';
+import { PHASES, mijozlarStepSummary } from '@/lib/konveyer';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,6 +43,8 @@ export default async function MijozlarPage({
   const digitsOnly = /^\d+$/.test(q);
   // Bosqich (step) filtri — pipeline fazasi. Faqat mavjud PHASES kalitlari qabul qilinadi.
   const step = PHASES.some((p) => p.key === searchParams.step) ? (searchParams.step as string) : '';
+  // «Osilib qolgan» (muddati o'tgan) filtri — bosqichdan mustaqil, birga ishlashi mumkin.
+  const overdue = searchParams.overdue === '1';
   // Floor so a fractional ?page (e.g. 1.9) can't reach Prisma as a non-integer skip
   // / SQL OFFSET and 500 the listing; Math.floor(NaN)=NaN, NaN||1 → 1 for bad input.
   const page = Math.max(1, Math.floor(Number(searchParams.page)) || 1);
@@ -64,7 +66,10 @@ export default async function MijozlarPage({
   }
 
   // «Holat — Excel»: ekrandagi filtr (snapshot + bosqich + qidiruv) bilan bir xil scope.
-  const statusExcelHref = `/mijozlar/status-excel?s=${snapshot.id}${step ? `&step=${step}` : ''}${q ? `&q=${encodeURIComponent(q)}` : ''}`;
+  const statusExcelHref = `/mijozlar/status-excel?s=${snapshot.id}${step ? `&step=${step}` : ''}${overdue ? `&overdue=1` : ''}${q ? `&q=${encodeURIComponent(q)}` : ''}`;
+
+  // Tepadagi «soni bilan» xulosa: har bosqichda nechta kishi + osilib qolganlar (oxirgi bosqich — MIB).
+  const summary = await mijozlarStepSummary(snapshot.id);
 
   return (
     <div>
@@ -81,14 +86,14 @@ export default async function MijozlarPage({
           </div>
         }
       />
-      <MijozlarFilters dates={dates} date={date} initialQ={q} step={step} />
+      <MijozlarFilters dates={dates} date={date} initialQ={q} step={step} overdue={overdue} counts={summary} />
       {/* The client table (heavy top-debt groupBy) streams in — header + search
           paint instantly, so the operator can start typing immediately. */}
       <Suspense
-        key={`${snapshot.id}-${q}-${page}-${step}`}
+        key={`${snapshot.id}-${q}-${page}-${step}-${overdue}`}
         fallback={<div className="card mt-2 space-y-2 p-4">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-9 w-full rounded-lg" />)}</div>}
       >
-        <MijozlarTable snapshotId={snapshot.id} linkDate={linkDate} date={date} q={q} digitsOnly={digitsOnly} useFullText={useFullText} page={page} step={step} />
+        <MijozlarTable snapshotId={snapshot.id} linkDate={linkDate} date={date} q={q} digitsOnly={digitsOnly} useFullText={useFullText} page={page} step={step} overdue={overdue} />
       </Suspense>
     </div>
   );

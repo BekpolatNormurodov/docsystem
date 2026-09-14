@@ -34,8 +34,8 @@ function phaseInfo(stage: CaseStage) {
 // `step` set → the list is driven by the pipeline (konveyerPersons): only clients at
 // that bosqich, unified across firms. Empty → the full portfolio list (as before) with
 // a per-firm status column layered on for the shown page's clients.
-export async function MijozlarTable({ snapshotId, linkDate, date, q, digitsOnly, useFullText, page, step }: {
-  snapshotId: number; linkDate: string; date: string; q: string; digitsOnly: boolean; useFullText: boolean; page: number; step: string;
+export async function MijozlarTable({ snapshotId, linkDate, date, q, digitsOnly, useFullText, page, step, overdue }: {
+  snapshotId: number; linkDate: string; date: string; q: string; digitsOnly: boolean; useFullText: boolean; page: number; step: string; overdue: boolean;
 }) {
   const t = getT();
 
@@ -44,11 +44,11 @@ export async function MijozlarTable({ snapshotId, linkDate, date, q, digitsOnly,
   let totalPages: number;
   let countHeader = t('Shartnoma');
 
-  if (step) {
-    // ── Bosqich (step) rejimi: pipeline'dan (ArizaCase) haydab, faqat shu fazadagi mijozlar ──
+  if (step || overdue) {
+    // ── Pipeline rejimi (bosqich va/yoki «osilib qolgan»): ArizaCase'dan, firmalararo birlashtirilgan ──
     countHeader = t('Firma');
-    const phase = PHASES.find((p) => p.key === step)!;
-    const data = await konveyerPersons({ stages: phase.stages, snapshotId, q: q || undefined, page, pageSize: PAGE });
+    const stages = step ? PHASES.find((p) => p.key === step)!.stages : [];
+    const data = await konveyerPersons({ stages, overdue, snapshotId, q: q || undefined, page, pageSize: PAGE });
     totalClients = data.total;
     totalPages = data.pages;
     rows = data.persons.map((p) => {
@@ -170,7 +170,7 @@ export async function MijozlarTable({ snapshotId, linkDate, date, q, digitsOnly,
   };
 
   if (rows.length === 0) {
-    return <EmptyState title={t('Mijoz topilmadi')} hint={step ? t('Bu bosqichda mijoz yoʻq — boshqa bosqichni tanlang.') : t('Qidiruvni oʻzgartirib koʻring.')} />;
+    return <EmptyState title={t('Mijoz topilmadi')} hint={overdue ? t('Osilib qolgan (muddati oʻtган) mijoz yoʻq.') : step ? t('Bu bosqichda mijoz yoʻq — boshqa bosqichni tanlang.') : t('Qidiruvni oʻzgartirib koʻring.')} />;
   }
 
   return (
@@ -192,7 +192,7 @@ export async function MijozlarTable({ snapshotId, linkDate, date, q, digitsOnly,
                 <td className="px-4 py-2.5 font-mono text-xs text-muted">{r.pinfl}</td>
                 <td className="px-4 py-2.5">
                   <span className="font-medium">{r.clientName}</span>
-                  {r.excluded && !step && (
+                  {r.excluded && !step && !overdue && (
                     <span className="badge ml-2 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-300">{t('sud roʻyxatida')}</span>
                   )}
                 </td>

@@ -317,6 +317,25 @@ export async function konveyerFunnel(snapshotId?: number): Promise<KonveyerFunne
   return { total: prim.size, phases, talabnomaSent: talTotal, firms: firmsOut };
 }
 
+// Mijozlar sahifasi tepasidagi «soni bilan» xulosasi: har bosqichda nechta kishi
+// (konveyerFunnel — kishi bo'yicha, furthest-stage) + «osilib qolgan» (muddati o'tgan,
+// yopilmagan ishi bor alohida PINFL). Oxirgi bosqich — EXEC (Ijro/MIB).
+export interface MijozlarStepSummary { total: number; phases: Record<string, number>; overdue: number }
+export async function mijozlarStepSummary(snapshotId?: number): Promise<MijozlarStepSummary> {
+  let sid = snapshotId;
+  if (sid == null) {
+    const l = await prisma.snapshot.findFirst({ where: { status: 'READY' }, orderBy: { reportDate: 'desc' }, select: { id: true } });
+    sid = l?.id ?? undefined;
+  }
+  const [f, overdueRows] = await Promise.all([
+    konveyerFunnel(sid),
+    sid
+      ? prisma.arizaCase.findMany({ where: { snapshotId: sid, dueAt: { lt: new Date() }, stage: { notIn: TERMINAL }, pinfl: { not: null } }, select: { pinfl: true }, distinct: ['pinfl'] })
+      : Promise.resolve([]),
+  ]);
+  return { total: f.total, phases: f.phases, overdue: overdueRows.length };
+}
+
 // Advancement transitions that must NOT follow the STAGES display order (which
 // also lists alternative court OUTCOMES). An accepted case goes to execution
 // (MIB), never to the "sud qaytardi" reject bucket that sits next to it.
@@ -727,6 +746,7 @@ export async function konveyerPersons(opts: {
   snapshotId?: number;
   stages?: CaseStage[];
   talabnoma?: boolean;
+  overdue?: boolean; // «osilib qolgan» — muddati o'tgan, yopilmagan ishi bor kishilar
   q?: string;
   page?: number;
   pageSize?: number;
@@ -758,6 +778,7 @@ export async function konveyerPersons(opts: {
   if (opts.firmId) conds.push(Prisma.sql`primFirmId = ${opts.firmId}`);
   if (opts.stages && opts.stages.length) conds.push(Prisma.sql`primStage IN (${Prisma.join(opts.stages)})`);
   if (opts.talabnoma) conds.push(Prisma.sql`hasTal = 1`);
+  if (opts.overdue) conds.push(Prisma.sql`hasOverdue = 1`);
   if (q) { const like = `%${q}%`; conds.push(Prisma.sql`(LOWER(clientName) LIKE ${like} OR LOWER(kod) LIKE ${like} OR pinfl LIKE ${like})`); }
   const whereSql = conds.length ? Prisma.sql`WHERE ${Prisma.join(conds, ` AND `)}` : Prisma.empty;
 
@@ -765,12 +786,12 @@ export async function konveyerPersons(opts: {
   // (clientName/kod taken from the earliest case, matching the legacy behavior).
   const cte = Prisma.sql`
     WITH scoped AS (
-      SELECT id, pinfl, clientName, kod, firmId, stage, talabnomaAt,
+      SELECT id, pinfl, clientName, kod, firmId, stage, talabnomaAt, dueAt,
              ${rankCase} AS rnk, ${normCase} AS ns
       FROM ArizaCase WHERE pinfl IS NOT NULL ${snapCond}
     ),
     ranked AS (
-      SELECT id, pinfl, clientName, kod, firmId, stage, talabnomaAt, ns,
+      SELECT id, pinfl, clientName, kod, firmId, stage, talabnomaAt, dueAt, ns,
              ROW_NUMBER() OVER (PARTITION BY pinfl ORDER BY rnk DESC, firmId ASC) AS rnStage,
              ROW_NUMBER() OVER (PARTITION BY pinfl ORDER BY id ASC) AS rnFirst
       FROM scoped
@@ -781,7 +802,8 @@ export async function konveyerPersons(opts: {
              MAX(CASE WHEN rnStage = 1 THEN ns END) AS primStage,
              MAX(CASE WHEN rnFirst = 1 THEN clientName END) AS clientName,
              MAX(CASE WHEN rnFirst = 1 THEN kod END) AS kod,
-             MAX(talabnomaAt IS NOT NULL OR stage = 'TALABNOMA_SENT') AS hasTal
+             MAX(talabnomaAt IS NOT NULL OR stage = 'TALABNOMA_SENT') AS hasTal,
+             MAX(dueAt IS NOT NULL AND dueAt < NOW() AND stage <> 'CLOSED') AS hasOverdue
       FROM ranked GROUP BY pinfl
     )`;
 

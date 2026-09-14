@@ -16,7 +16,9 @@ const STEPS: { key: string; label: string; color: string }[] = [
   { key: 'EXEC', label: 'Ijro (MIB)', color: '#14b8a6' },
 ];
 
-export function MijozlarFilters({ dates, date, initialQ, step }: { dates: string[]; date: string; initialQ: string; step: string }) {
+interface StepCounts { total: number; phases: Record<string, number>; overdue: number }
+
+export function MijozlarFilters({ dates, date, initialQ, step, overdue, counts }: { dates: string[]; date: string; initialQ: string; step: string; overdue: boolean; counts: StepCounts }) {
   const t = useT();
   const router = useRouter();
   const [q, setQ] = useState(initialQ);
@@ -25,14 +27,16 @@ export function MijozlarFilters({ dates, date, initialQ, step }: { dates: string
   const box = useRef<HTMLDivElement>(null);
   const [pending, startTransition] = useTransition();
 
-  function go(nextDate: string, nextQ: string, nextStep: string = step) {
+  function go(nextDate: string, nextQ: string, nextStep: string = step, nextOverdue: boolean = overdue) {
     const p = new URLSearchParams();
     p.set('date', nextDate);
     if (nextQ.trim()) p.set('q', nextQ.trim());
     if (nextStep) p.set('step', nextStep);
+    if (nextOverdue) p.set('overdue', '1');
     p.set('page', '1');
     return `/mijozlar?${p.toString()}`;
   }
+  const nfmt = (n: number) => n.toLocaleString('ru-RU');
 
   // Real-time search — debounced, replace so typing doesn't flood history. Navigate only when the
   // typed value actually differs from what the URL already reflects (initialQ). Comparing against
@@ -43,7 +47,7 @@ export function MijozlarFilters({ dates, date, initialQ, step }: { dates: string
     const t = setTimeout(() => startTransition(() => router.replace(go(date, q))), 250);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, initialQ, date, step]);
+  }, [q, initialQ, date, step, overdue]);
 
   // Close the date dropdown on outside click.
   useEffect(() => {
@@ -146,20 +150,22 @@ export function MijozlarFilters({ dates, date, initialQ, step }: { dates: string
       </label>
     </div>
 
-    {/* Bosqich (step) filtri — pipeline fazasi bo'yicha. «Barcha» → portfelning to'liq ro'yxati. */}
+    {/* Bosqich (step) filtri — soni bilan. «Barcha» → portfelning to'liq ro'yxati. Oxirgi bosqich — Ijro (MIB). */}
     <div className="flex flex-wrap items-center gap-2">
       <span className="field-label mr-0.5 mb-0">{t('Bosqich')}:</span>
       <button
         type="button"
         onClick={() => router.push(go(date, q, ''))}
-        className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
           step === '' ? 'border-brand-500/40 bg-brand-500/10 text-brand-600 dark:text-brand-400' : 'border-line text-muted hover:bg-surface-2'
         }`}
       >
         {t('Barchasi')}
+        <span className="rounded bg-surface-2 px-1 text-[10px] font-semibold tabular-nums text-muted">{nfmt(counts.total)}</span>
       </button>
       {STEPS.map((s) => {
         const active = step === s.key;
+        const c = counts.phases[s.key] ?? 0;
         return (
           <button
             key={s.key}
@@ -172,9 +178,23 @@ export function MijozlarFilters({ dates, date, initialQ, step }: { dates: string
           >
             <span className="h-1.5 w-1.5 rounded-full" style={{ background: active ? '#fff' : s.color }} aria-hidden />
             {t(s.label)}
+            <span className={`rounded px-1 text-[10px] font-semibold tabular-nums ${active ? 'bg-white/25' : 'bg-surface-2 text-muted'}`}>{nfmt(c)}</span>
           </button>
         );
       })}
+      {/* «Osilib qolgan» — muddati o'tgan; bosqichdan mustaqil (birga ishlaydi). */}
+      <button
+        type="button"
+        onClick={() => router.push(go(date, q, step, !overdue))}
+        title={t('Muddati o‘tган (osilib qolган) ishlar')}
+        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+          overdue ? 'border-rose-500 bg-rose-500 text-white shadow-sm' : 'border-rose-500/30 text-rose-600 hover:bg-rose-500/10 dark:text-rose-300'
+        }`}
+      >
+        <span className={`h-1.5 w-1.5 rounded-full ${overdue ? 'bg-white' : 'bg-rose-500'}`} aria-hidden />
+        {t('Osilib qolgan')}
+        <span className={`rounded px-1 text-[10px] font-semibold tabular-nums ${overdue ? 'bg-white/25' : 'bg-rose-500/15 text-rose-600 dark:text-rose-300'}`}>{nfmt(counts.overdue)}</span>
+      </button>
     </div>
     </div>
   );
