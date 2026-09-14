@@ -495,7 +495,15 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
     // resolved eski ishlar ham to'sar va mijozning YANGI qarzi hech qachon yuborilmasdi.
     // Eski tugagan ish yangi qarzga dalil emas. Shuning uchun faqat AYNI PAYTDA ochiq/faol
     // da'vo (ariza berilgan, ro'yxatda, ko'rilmoqda) ikkinchi da'voga to'siq bo'ladi.
-    const OPEN_PORTAL_STATUSES = ['ALLOCATE', 'CREATED', 'REGISTER', 'PENDING', 'IN_PROCESS'];
+    // QORALAMA/SUIT rejimida CREATED to'sMAYDI. Sabab: CREATED = ADOLAT'da tayyorlangan, lekin
+    // HALI YUBORILMAGAN ish (rasmiy da'vo emas). Biz o'zimiz tayyorlagan suit-ish CREATED bo'ladi;
+    // arizani yangilab QAYTA tayyorlaganда o'sha eski CREATED «ikkinchi da'vo» deb noto'g'ri to'sardi
+    // (2026-09-14: 434 ta ish shu sabab qayta tayyorlanmadi). Qoralama sudga HECH NARSA yubormaydi,
+    // shuning uchun CREATED dublikat xavfi yo'q — eski CREATED keyin o'chiriladi. REAL YUBORISHDA esa
+    // CREATED baribir to'sadi (haqiqiy ikkinchi da'vo ochilmasin) — qat'iy qoladi.
+    const OPEN_PORTAL_STATUSES = (isSuitMode || isDraftMode)
+      ? ['ALLOCATE', 'REGISTER', 'PENDING', 'IN_PROCESS']
+      : ['ALLOCATE', 'CREATED', 'REGISTER', 'PENDING', 'IN_PROCESS'];
     const externalRows = casePinfls.length && firm.code
       ? await prisma.clientCaseStatus.findMany({
           where: {
