@@ -7,7 +7,11 @@
 //
 // Chegara sudning KUNLIK limitidan (Court.dailyQuota) alohida: bu bitta partiyaning hajmi,
 // kunlik limit esa sud bo'yicha hisoblanadi va allokatsiyada qo'llanadi.
-export const MAX_COURT_BATCH = 200;
+// 2026-09-14: 200 → 1000. Sabab: qoralama re-prep operatorga BITTA to'liq son bo'lib ko'rinsin
+// («N/434», «N/200» emas — 200 batch chegarasi chalkash edi). Portal yuki oshmaydi: ishlar
+// baribir ketma-ket (60s/ish) yuboriladi — bu partiya HAJMI, tezligi emas. REAL yuborishda esa
+// sud KUNLIK kvotasi (Court.dailyQuota) allokatsiyada kesadi, ya'ni real partiya baribir kichik.
+export const MAX_COURT_BATCH = 1000;
 
 /**
  * ZIP eksporti uchun chegara — sudga yuborishdan ALOHIDA va ancha katta.
