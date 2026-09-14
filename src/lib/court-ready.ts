@@ -227,6 +227,11 @@ async function portalCasePinfls(firmId: number, branchCode: string | null, firmS
     if (stir && r.pinfl === stir) continue;        // firma o'zi (da'vogar) — javobgar emas
     if (COURT_ACTIVE_STATUSES.includes(r.status)) courtActive.add(r.pinfl);
     if (ourSentPinfls.has(r.pinfl)) continue;      // biz yuborganmiz — «tashqi» emas
+    // CREATED (yuborilmagan) — «Sudda» EMAS: portalда tayyorlangan-u, hali yuborilmagan ish
+    // haqiqiy da'vo emas (memory: CREATED=«Qoralama tayyor»). Uni «Sudda»ga sanash mijozni
+    // noto'g'ri «bosilgan» ko'rsatib, qayta tayyorlashdan ham to'sardi (2026-09-14). Faqat
+    // HAQIQATAN sudga topshirilgan (COURT_ACTIVE) tashqi da'vo «Sudda +M» hisoblanadi.
+    if (!COURT_ACTIVE_STATUSES.includes(r.status)) continue;
     manual.add(r.pinfl);
   }
   return { portal: manual, manual, courtActive };
