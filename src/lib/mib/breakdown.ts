@@ -45,7 +45,7 @@ export function normalizeBank(s: string | null | undefined): string {
 // «к» ≠ «қ», shuning uchun alohida yozamiz). Toshkent SHAHRI «Toshkent»dan OLDIN tekshiriladi.
 // Ba'zi tumanlar viloyatga yig'iladi (Uchtepa → Toshkent shahri, Yuqorichirchiq → Toshkent viloyati).
 export const REGION_TOKENS: [RegExp, string][] = [
-  [/қорақалпоғ|qoraqalpog|karakalpak|каракалпак|қорақалпак/i, 'Qoraqalpogʻiston'],
+  [/қорақалпоғ|qoraqalpog|karakalpak|каракалпак|қорақалпак|нукус|nukus/i, 'Qoraqalpogʻiston'],
   [/андижон|andijon|андижан/i, 'Andijon'],
   [/бухоро|buxoro|bukhara|бухар/i, 'Buxoro'],
   [/жиззах|jizzax|джизак/i, 'Jizzax'],
@@ -53,15 +53,17 @@ export const REGION_TOKENS: [RegExp, string][] = [
   [/навоий|navoiy|навои/i, 'Navoiy'],
   [/наманган|namangan/i, 'Namangan'],
   [/самарқанд|samarqand|samarkand|самарканд/i, 'Samarqand'],
-  [/сурхондарё|surxondaryo|surkhandar|сурхандар/i, 'Surxondaryo'],
+  [/сурхондарё|surxondaryo|surkhandar|сурхандар|термиз|termiz|денов|denov/i, 'Surxondaryo'],
   [/сирдарё|sirdaryo|syrdar|сырдар/i, 'Sirdaryo'],
   [/фарғона|fargʻona|fargona|fergana|фергана/i, 'Fargʻona'],
   [/хоразм|xorazm|khorezm|хорезм/i, 'Xorazm'],
   // Tumanlar → viloyat (misol tariqasida foydalanuvchi so'ragan ikkisi). Generik «toshkent»dan OLDIN.
   [/учтепа|uchtepa/i, 'Toshkent shahri'],
   [/юқоричирчиқ|yuqorichirchiq|верхнечирчик/i, 'Toshkent viloyati'],
-  [/тошкент\s*шаҳ|toshkent\s*shah|tashkent\s*city|город\s*ташкент|ташкент\s*г/i, 'Toshkent shahri'],
-  [/тошкент|toshkent|tashkent|ташкент/i, 'Toshkent viloyati'],
+  // «Тошкент шаҳар» — portfelda «х» (U+0445) bilan: «шах», shuning uchun ша[ҳх].
+  [/тошкент\s*ша[ҳх]|toshkent\s*shah|tashkent\s*city|город\s*ташкент|ташкент\s*г/i, 'Toshkent shahri'],
+  // «Тош обл» = Toshkent viloyati qisqartmasi.
+  [/тош\s*обл|тошкент\s*вил|тошкент|toshkent|tashkent|ташкент/i, 'Toshkent viloyati'],
 ];
 export function regionFromText(t: string): string | null {
   for (const [re, name] of REGION_TOKENS) if (re.test(t)) return name;
