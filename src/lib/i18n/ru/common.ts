@@ -1,0 +1,62 @@
+// RU tarjimalar — UMUMIY (nav, bosqichlar, rollar, keng ishlatiladigan tugma/yorliqlar).
+// Kalit = manba (oʻzbek lotin) matni. Topilmasa — matn oʻzbekcha qoladi (buzilmaydi).
+export const common: Record<string, string> = {
+  // nav bo'limlari
+  'Boshqaruv': 'Управление',
+  'Menyu': 'Меню',
+  'Hisobot': 'Отчёт',
+  // bosqichlar (STEP_META)
+  'Talabnoma': 'Требование',
+  'Sanoat palatasi': 'Промышленная палата',
+  'Sud': 'Суд',
+  'MIB': 'МИБ',
+  // modullar (MODULE_META)
+  'Talabnoma shakllantirish': 'Формирование требований',
+  'MIB hisoboti': 'Отчёт МИБ',
+  'Invoice tekshiruvi': 'Проверка Invoice',
+  'Buxgalteriya': 'Бухгалтерия',
+  // sub-item'lar
+  'Arizani tayyorlash': 'Подготовка заявления',
+  'Arizalarni skanerlash': 'Сканирование заявлений',
+  'Invoice yaratish': 'Создание Invoice',
+  'Oferta tayyorlash': 'Подготовка оферты',
+  'Sudga yuborish': 'Отправка в суд',
+  'Qaytganlar': 'Возвраты',
+  'Buxgalteriya to‘lovi': 'Бухгалтерский платёж',
+  // asosiy menyu
+  'Boshliq hisoboti': 'Отчёт руководителя',
+  'Hujjatlar': 'Документы',
+  'Mijozlar': 'Клиенты',
+  'Firmalar': 'Фирмы',
+  'Sudlar': 'Суды',
+  'Foydalanuvchilar': 'Пользователи',
+  'Amaliyotlar': 'Действия',
+  // top actions
+  'Ulanishlar': 'Подключения',
+  'Sozlamalar': 'Настройки',
+  'Mening amaliyotlarim': 'Мои действия',
+  // rollar
+  'Admin': 'Админ',
+  'Yurist': 'Юрист',
+  'Buxgalter': 'Бухгалтер',
+  // keng ishlatiladigan
+  'Faqat admin': 'Только админ',
+  'Chiqish': 'Выход',
+  'Saqlash': 'Сохранить',
+  'Bekor': 'Отмена',
+  'Bekor qilish': 'Отменить',
+  'Yopish': 'Закрыть',
+  'Qidirish': 'Поиск',
+  'Yuklash': 'Загрузить',
+  'Yuklab olish': 'Скачать',
+  'Qayta urinish': 'Повторить',
+  'Tasdiqlash': 'Подтвердить',
+  'Ha': 'Да',
+  "Yo'q": 'Нет',
+  'Jami': 'Итого',
+  'Barchasi': 'Все',
+  'Sana': 'Дата',
+  'Holat': 'Статус',
+  'Firma': 'Фирма',
+  'Summa': 'Сумма',
+};
