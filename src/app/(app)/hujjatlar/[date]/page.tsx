@@ -127,7 +127,7 @@ export default async function HujjatlarDatePage({
     firmsByPinfl.set(p.pinfl, arr);
   }
 
-  const hrefPage = (n: number) => {
+  const hrefPage = (n: number | string) => {
     const sp = new URLSearchParams();
     if (q) sp.set('q', q);
     if (minDebt !== undefined) sp.set('minDebt', String(minDebt));
@@ -227,7 +227,7 @@ export default async function HujjatlarDatePage({
         </div>
       )}
 
-      <Pagination page={page} pages={totalPages} total={clientCount} perPage={PAGE} hrefFor={hrefPage} unit={t('mijoz')} />
+      <Pagination page={page} pages={totalPages} total={clientCount} perPage={PAGE} hrefTemplate={hrefPage('__P__')} unit={t('mijoz')} />
     </div>
   );
 }

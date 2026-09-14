@@ -20,7 +20,11 @@ function pageWindow(cur: number, total: number): (number | null)[] {
 
 /**
  * Ideal shared pager: a "showing X–Y of N" range on the left, numbered window with ‹ › arrows on the
- * right. Server component — takes an `hrefFor` function (functions can't cross the RSC boundary).
+ * right. CLIENT komponent (useT + @/ui barrel toza bo'lishi uchun). Sahifa havolasi ikki xil beriladi:
+ *   • `hrefFor` — FUNKSIYA, faqat CLIENT chaqiruvchilar uchun (funksiya RSC chegarasidan o'tolmaydi);
+ *   • `hrefTemplate` — SERIALIZATSIYALANADIGAN satr, SERVER chaqiruvchilar uchun: `__P__` o'rniga
+ *     sahifa raqami qo'yiladi (masalan `/mijozlar?date=..&page=__P__`).
+ * Kamida bittasi berilishi kerak.
  */
 export function Pagination({
   page,
@@ -28,18 +32,21 @@ export function Pagination({
   total,
   perPage,
   hrefFor,
+  hrefTemplate,
   unit,
 }: {
   page: number;
   pages: number;
   total: number;
   perPage: number;
-  hrefFor: (p: number) => string;
+  hrefFor?: (p: number) => string;
+  hrefTemplate?: string;
   /** Noun for the range summary, e.g. "mijoz". */
   unit?: string;
 }) {
   const t = useT();
   const u = unit ?? t('natija');
+  const linkFor = (p: number) => (hrefFor ? hrefFor(p) : (hrefTemplate ?? '#').split('__P__').join(String(p)));
   if (pages <= 1) {
     return (
       <p className="mt-4 text-center text-xs text-muted">
@@ -61,7 +68,7 @@ export function Pagination({
 
       <div className="flex items-center gap-1">
         {page > 1 ? (
-          <Link href={hrefFor(page - 1)} aria-label={t('Oldingi')} className={`${arrow} border-line hover:bg-surface-2`}>
+          <Link href={linkFor(page - 1)} aria-label={t('Oldingi')} className={`${arrow} border-line hover:bg-surface-2`}>
             ‹
           </Link>
         ) : (
@@ -76,7 +83,7 @@ export function Pagination({
           ) : (
             <Link
               key={n}
-              href={hrefFor(n)}
+              href={linkFor(n)}
               aria-current={n === page ? 'page' : undefined}
               className={`${arrow} tabular-nums ${
                 n === page ? 'border-brand-600 bg-brand-600 font-semibold text-white' : 'border-line hover:bg-surface-2'
@@ -88,7 +95,7 @@ export function Pagination({
         )}
 
         {page < pages ? (
-          <Link href={hrefFor(page + 1)} aria-label={t('Keyingi')} className={`${arrow} border-line hover:bg-surface-2`}>
+          <Link href={linkFor(page + 1)} aria-label={t('Keyingi')} className={`${arrow} border-line hover:bg-surface-2`}>
             ›
           </Link>
         ) : (

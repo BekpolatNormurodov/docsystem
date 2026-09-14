@@ -116,13 +116,14 @@ export default async function JurnalPage({ searchParams }: { searchParams: { act
   ]);
 
   const pages = Math.max(1, Math.ceil(total / PAGE));
-  const qs = (p: number) => {
+  const qs = (p: number | string) => {
     const sp = new URLSearchParams();
     if (action) sp.set('action', action);
     if (q) sp.set('q', q);
     if (from) sp.set('from', from);
     if (to) sp.set('to', to);
-    if (p > 1) sp.set('page', String(p));
+    // Template ('__P__') yoki 1-dan katta sahifa — page qo'yiladi (template'da har doim bo'lsin).
+    if (typeof p === 'string' || p > 1) sp.set('page', String(p));
     return sp.toString() ? `?${sp}` : '';
   };
 
@@ -206,7 +207,7 @@ export default async function JurnalPage({ searchParams }: { searchParams: { act
         </div>
       )}
 
-      <Pagination page={page} pages={pages} total={total} perPage={PAGE} hrefFor={(p) => `/jurnal${qs(p)}`} unit={t('yozuv')} />
+      <Pagination page={page} pages={pages} total={total} perPage={PAGE} hrefTemplate={`/jurnal${qs('__P__')}`} unit={t('yozuv')} />
     </div>
   );
 }

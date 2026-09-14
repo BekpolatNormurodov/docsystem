@@ -112,7 +112,7 @@ export default async function SnapshotBrowsePage({
             pages={pages}
             total={total}
             perPage={PER_PAGE}
-            hrefFor={(p) => loanPageHref(base, f, { page: p })}
+            hrefTemplate={loanPageHref(base, f, { page: '__P__' as unknown as number })}
           />
         </>
       )}

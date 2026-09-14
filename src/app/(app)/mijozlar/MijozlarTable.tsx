@@ -64,7 +64,7 @@ export async function MijozlarTable({ snapshotId, linkDate, date, q, digitsOnly,
     (await prisma.loan.findMany({ where: { pinfl: { in: pagePinfls }, excluded: true, snapshotId }, select: { pinfl: true }, distinct: ['pinfl'] })).map((r) => r.pinfl),
   );
 
-  const hrefPage = (n: number) => {
+  const hrefPage = (n: number | string) => {
     const p = new URLSearchParams();
     p.set('date', date);
     if (q) p.set('q', q);
@@ -103,7 +103,7 @@ export async function MijozlarTable({ snapshotId, linkDate, date, q, digitsOnly,
           </tbody>
         </table>
       </div>
-      <Pagination page={page} pages={totalPages} total={totalClients} perPage={PAGE} hrefFor={hrefPage} unit={t('mijoz')} />
+      <Pagination page={page} pages={totalPages} total={totalClients} perPage={PAGE} hrefTemplate={hrefPage('__P__')} unit={t('mijoz')} />
     </>
   );
 }
