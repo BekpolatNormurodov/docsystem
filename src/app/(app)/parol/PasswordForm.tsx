@@ -60,7 +60,7 @@ export function PasswordForm({ username, fullName, roleLabel }: { username: stri
         <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-brand-500 text-sm font-semibold text-white shadow-sm">{initials(fullName || username)}</div>
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold">{fullName || username}</div>
-          <div className="truncate text-xs text-muted">@{username} · {roleLabel}</div>
+          <div className="truncate text-xs text-muted">@{username} · {t(roleLabel)}</div>
         </div>
       </div>
 

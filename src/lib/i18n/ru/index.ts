@@ -4,10 +4,12 @@
 import { common } from './common';
 import { app } from './app';
 import { routes } from './routes';
+import { gaps } from './gaps';
 
 const SECTIONS: Record<string, string>[] = [
   app,      // avto-generatsiya (workflow) — sayt UI
   routes,   // avto-generatsiya (workflow) — API route xabarlari
+  gaps,     // avto-generatsiya (workflow) — yorliq-map render'lari + toast
   common,   // qo'lda yozilgan umumiy (ustun — app'dagini bekor qiladi)
 ];
 

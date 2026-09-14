@@ -62,7 +62,7 @@ const ReturnCard = React.memo(function ReturnCard({ r }: { r: Row }) {
         </div>
         {r.definitionDate && (
           <span className="hidden shrink-0 text-right text-[11px] text-muted sm:block">
-            <span className="block text-[10px] uppercase tracking-wide opacity-70">Ajrim</span>
+            <span className="block text-[10px] uppercase tracking-wide opacity-70">{t('Ajrim')}</span>
             <span className="tabular-nums">{dmy(r.definitionDate)}</span>
           </span>
         )}

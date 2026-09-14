@@ -43,7 +43,7 @@ function Row({ firmId, t }: { firmId: number; t: Transition }) {
   return (
     <div className="rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-muted" title={t.fromLabel}>{t.fromLabel} · <span className="tabular-nums font-medium text-fg">{t.count}</span></span>
+        <span className="min-w-0 flex-1 truncate text-muted" title={tr(t.fromLabel)}>{tr(t.fromLabel)} · <span className="tabular-nums font-medium text-fg">{t.count}</span></span>
         <input
           type="number"
           min={1}
@@ -51,7 +51,7 @@ function Row({ firmId, t }: { firmId: number; t: Transition }) {
           value={count}
           onChange={(e) => setCount(Math.max(1, Math.min(t.count, Number(e.target.value) || 0)))}
           className="w-16 shrink-0 rounded-md border border-line bg-surface px-2 py-1 tabular-nums outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15"
-          aria-label={`${t.fromLabel} ${tr('soni')}`}
+          aria-label={`${tr(t.fromLabel)} ${tr('soni')}`}
         />
         <button
           onClick={go}
@@ -61,7 +61,7 @@ function Row({ firmId, t }: { firmId: number; t: Transition }) {
           title={t.external ? tr('Tashqi yuborish — test uchun default 1 ta') : undefined}
         >
           {busy && <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />}
-          → {t.toLabel}
+          → {tr(t.toLabel)}
           {t.external && <span className="ml-1 text-[10px] opacity-70">{tr('(test 1)')}</span>}
         </button>
       </div>

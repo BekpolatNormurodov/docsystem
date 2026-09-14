@@ -228,7 +228,7 @@ export default async function PersonPage({
                         <span className="font-medium">{loan.ldId || '—'}</span>
                         {loan.dateToCr && <span className="ml-2 text-xs text-muted">{dmy(loan.dateToCr)}</span>}
                       </span>
-                      <span className="font-semibold tabular-nums">{formatSumDecimal(String(loan.totalDebt))} soʻm</span>
+                      <span className="font-semibold tabular-nums">{formatSumDecimal(String(loan.totalDebt))} {t('soʻm')}</span>
                     </li>
                   ))}
                 </ul>

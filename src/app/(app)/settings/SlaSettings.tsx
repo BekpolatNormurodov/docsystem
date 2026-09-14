@@ -55,7 +55,7 @@ export function SlaSettings() {
           <div className="space-y-2">
             {editable.map((e) => (
               <div key={e.key} className="flex items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2">
-                <span className="flex-1 text-sm">{e.label}</span>
+                <span className="flex-1 text-sm">{t(e.label)}</span>
                 <input
                   type="number" min={0} max={60} value={config[e.key] ?? 0}
                   onChange={(ev) => set(e.key, Number(ev.target.value))}

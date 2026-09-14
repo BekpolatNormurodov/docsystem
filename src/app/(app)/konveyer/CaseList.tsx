@@ -115,7 +115,7 @@ function CaseBlock({ c }: { c: PersonCase }) {
         {c.daysLeft !== null && <DueBadge d={c.daysLeft} />}
         {/* Sud qarori holati + real sud ish raqami — sud bosqichidan boshlab asosiy maʼlumot. */}
         {cb && (
-          <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium ${cb.tone}`} title={c.courtResult ? `Sud natijasi (xom): ${c.courtResult}` : undefined}>
+          <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium ${cb.tone}`} title={c.courtResult ? `${t('Sud natijasi (xom):')} ${c.courtResult}` : undefined}>
             {cb.label}
           </span>
         )}

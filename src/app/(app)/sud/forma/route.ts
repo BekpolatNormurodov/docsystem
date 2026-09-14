@@ -48,20 +48,30 @@ export async function GET(req: NextRequest) {
     orderBy: [{ branchCode: 'asc' }, { clientName: 'asc' }],
   });
 
-  const firms = await prisma.firm.findMany({ select: { code: true, shortName: true } });
+  const firms = await prisma.firm.findMany({ select: { id: true, code: true, shortName: true } });
   const firmByCode = new Map(firms.map((f) => [f.code, f.shortName]));
+  const firmIdByCode = new Map(firms.map((f) => [f.code, f.id]));
 
-  // Sud holati (ArizaCase bosqichi) — mijoz (PINFL) bo'yicha eng ilgarilagan bosqich.
+  // Sud holati (ArizaCase bosqichi) — (PINFL, FIRMA) bo'yicha eng ilgarilagan bosqich. MUHIM: mijoz
+  // bir necha firmada bo'lishi mumkin (bu portfelda 2202 kishi), shuning uchun bir firma ishi boshqa
+  // firma loanini «sudga chiqarilgan» deb noto'g'ri belgilamasin — kalit pinfl+firmId.
   const pinfls = [...new Set(loans.map((l) => l.pinfl).filter(Boolean) as string[])];
-  const stageByPinfl = new Map<string, string>();
+  const stageByKey = new Map<string, string>();
+  const keyOf = (pinfl: string, branchCode: string | null) => { const fid = firmIdByCode.get(branchCode ?? ''); return fid == null ? null : `${pinfl}|${fid}`; };
   if (pinfls.length) {
-    const acRows = await prisma.arizaCase.findMany({ where: { snapshotId: snapId, pinfl: { in: pinfls } }, select: { pinfl: true, stage: true } });
+    const acRows = await prisma.arizaCase.findMany({ where: { snapshotId: snapId, pinfl: { in: pinfls } }, select: { pinfl: true, firmId: true, stage: true } });
     for (const a of acRows) {
       if (!a.pinfl) continue;
-      const cur = stageByPinfl.get(a.pinfl);
-      if (!cur || rank(a.stage) > rank(cur)) stageByPinfl.set(a.pinfl, a.stage);
+      const k = `${a.pinfl}|${a.firmId}`;
+      const cur = stageByKey.get(k);
+      if (!cur || rank(a.stage) > rank(cur)) stageByKey.set(k, a.stage);
     }
   }
+  const stageOf = (pinfl: string | null, branchCode: string | null): string | undefined => {
+    if (!pinfl) return undefined;
+    const k = keyOf(pinfl, branchCode);
+    return k ? stageByKey.get(k) : undefined;
+  };
   const region = (rn: string | null) => regionFromText(rn ?? '') ?? t('Aniqlanmagan');
 
   // ── Workbook (professional styling) ──────────────────────────────────────────
@@ -135,7 +145,7 @@ export async function GET(req: NextRequest) {
   // Ma'lumot qatorlari (4-qatordan)
   let i = 0;
   for (const l of loans) {
-    const stage = l.pinfl ? stageByPinfl.get(l.pinfl) : undefined;
+    const stage = stageOf(l.pinfl, l.branchCode);
     s1.addRow({
       no: ++i,
       firma: firmByCode.get(l.branchCode ?? '') ?? l.branchCode ?? '',
@@ -189,7 +199,7 @@ export async function GET(req: NextRequest) {
     add(byKlass, l.klassName || '—', l);
     all.loans += 1; if (l.pinfl) all.clients.add(l.pinfl);
     all.principal += num(l.debtPrincipal); all.overdue += num(l.debtOverduePrincipal) + num(l.debtOverdueInterest); all.total += num(l.totalDebt);
-    const stage = l.pinfl ? stageByPinfl.get(l.pinfl) : undefined;
+    const stage = stageOf(l.pinfl, l.branchCode);
     if (l.pinfl && stage && SUBMITTED_STAGES.has(stage)) submittedClients.add(l.pinfl);
   }
 

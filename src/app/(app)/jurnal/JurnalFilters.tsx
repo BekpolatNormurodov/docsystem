@@ -46,7 +46,7 @@ export function JurnalFilters({ action, q, from, to, showUser = true }: { action
         <span className="mb-1 block text-xs font-medium text-muted">{t('Amaliyotlar')}</span>
         <Dropdown
           value={a}
-          options={[{ value: 'all', label: t('Barchasi') }, ...FILTERABLE_ACTIONS.map((x) => ({ value: x, label: actionLabel(x) }))]}
+          options={[{ value: 'all', label: t('Barchasi') }, ...FILTERABLE_ACTIONS.map((x) => ({ value: x, label: t(actionLabel(x)) }))]}
           onChange={(v) => { setA(v); apply(v); }}
           className="min-w-[210px]"
         />

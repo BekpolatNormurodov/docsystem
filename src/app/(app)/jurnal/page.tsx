@@ -180,7 +180,7 @@ export default async function JurnalPage({ searchParams }: { searchParams: { act
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-semibold">{actionLabel(r.action)}</span>
+                          <span className="text-sm font-semibold">{t(actionLabel(r.action))}</span>
                           {r.target && <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-muted">{r.target}</span>}
                           <span className="ml-auto shrink-0 text-xs tabular-nums text-muted" title={fmtFull(r.createdAt)}>{g.key === today ? rel(r.createdAt, t) : hhmm(r.createdAt)}</span>
                         </div>

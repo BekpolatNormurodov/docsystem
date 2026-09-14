@@ -58,17 +58,17 @@ const sum = (v: string) => Number(v).toLocaleString('ru-RU');
  * «Unexpected token '<', "<!DOCTYPE"... is not valid JSON» deb yiqiladi — operator
  * uchun umuman tushunarsiz xato. Endi content-type tekshiriladi va aniq sabab yoziladi.
  */
-async function getJson<T = any>(url: string, init?: RequestInit): Promise<T> {
+async function getJson<T = any>(url: string, init?: RequestInit, t: (s: string) => string = (s) => s): Promise<T> {
   const res = await fetch(url, init);
   const ct = res.headers.get('content-type') ?? '';
   if (!ct.includes('application/json')) {
     if (res.redirected || res.url.includes('/login')) {
-      throw new Error('Sessiya tugagan — sahifani yangilab, qaytadan kiring.');
+      throw new Error(t('Sessiya tugagan — sahifani yangilab, qaytadan kiring.'));
     }
-    throw new Error(`Server JSON qaytarmadi (${res.status}). Sahifani yangilab ko‘ring.`);
+    throw new Error(`${t('Server JSON qaytarmadi')} (${res.status}). ${t('Sahifani yangilab ko‘ring.')}`);
   }
   const data = await res.json();
-  if (!res.ok) throw new Error((data as any)?.error || `Server xatosi (${res.status})`);
+  if (!res.ok) throw new Error((data as any)?.error || `${t('Server xatosi')} (${res.status})`);
   return data as T;
 }
 
@@ -680,7 +680,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
     const qs = new URLSearchParams({ firmId: String(firmId) });
     if (snapshotId) qs.set('s', String(snapshotId));
     try {
-      const d = await getJson(`/konveyer/court-ready/clients?${qs.toString()}`, { cache: 'no-store' });
+      const d = await getJson(`/konveyer/court-ready/clients?${qs.toString()}`, { cache: 'no-store' }, t);
       if (my !== reqRef.current) return;
       setData(d); loadedOnce.current = true;
     } catch (e) {
@@ -1099,7 +1099,7 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
 
   const loadPause = useCallback(async () => {
     try {
-      const d = await getJson<{ pausedFirms?: number[] }>('/konveyer/court-queue/pause');
+      const d = await getJson<{ pausedFirms?: number[] }>('/konveyer/court-queue/pause', undefined, t);
       setFirmPaused((d?.pausedFirms ?? []).includes(firmId));
     } catch { /* holat belgisi — o'qilmasa tugma ko'rsatilmaydi */ }
   }, [firmId]);
@@ -1188,7 +1188,7 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
 
   const load = useCallback(async () => {
     try {
-      setData(await getJson(`/konveyer/court-queue?firmId=${firmId}`));
+      setData(await getJson(`/konveyer/court-queue?firmId=${firmId}`, undefined, t));
       setErr(null);
     } catch (e) {
       // Avval bu jimgina yutilardi — sessiya tugaganda panel eski raqamlarni ko'rsatib
@@ -1471,8 +1471,8 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
               {FIRM_DOCS_ALL.map((k) => {
                 const miss = docsMissing.includes(k);
                 return (
-                  <span key={k} className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium ${miss ? 'bg-rose-500/15 text-rose-600 dark:text-rose-300' : 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'}`} title={miss ? `${k} ${t('yetishmaydi')}` : `${k} ${t('bor')}`}>
-                    {miss ? '✕' : '✓'} {k}
+                  <span key={k} className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium ${miss ? 'bg-rose-500/15 text-rose-600 dark:text-rose-300' : 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'}`} title={miss ? `${t(k)} ${t('yetishmaydi')}` : `${t(k)} ${t('bor')}`}>
+                    {miss ? '✕' : '✓'} {t(k)}
                   </span>
                 );
               })}
@@ -1763,7 +1763,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     if (firmId) qs.set('firmId', String(firmId));
     if (selectedId) qs.set('s', String(selectedId));
     try {
-      const d = await getJson(`/konveyer/court-ready?${qs.toString()}`, { cache: 'no-store' });
+      const d = await getJson(`/konveyer/court-ready?${qs.toString()}`, { cache: 'no-store' }, t);
       if (my !== reqRef.current) return null;
       setData(d); setLastLoaded(new Date()); loadedOnce.current = true;
       return d as Data;
@@ -1825,7 +1825,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     let period = FAST_MS;
     const tick = async () => {
       try {
-        const s = await getJson(`/api/jobs/${jobId}`);
+        const s = await getJson(`/api/jobs/${jobId}`, undefined, t);
         const wasFailing = pollFails >= WARN_AFTER;
         pollFails = 0;
         if (period !== FAST_MS) { period = FAST_MS; schedule(); }
@@ -1917,7 +1917,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     let alive = true;
     (async () => {
       try {
-        const d = await getJson('/api/jobs?type=PACKET&limit=30');
+        const d = await getJson('/api/jobs?type=PACKET&limit=30', undefined, t);
         // `jobs` — API'ning HAQIQIY maydoni (route.ts: `NextResponse.json({ jobs: rows })`).
         // Bu yerda `d.rows` o'qilardi, ya'ni ro'yxat HAR DOIM bo'sh chiqib, tiklash kodi
         // hech qachon ishlamagan: F5 bosilsa ketayotgan ZIP kartasi butunlay yo'qolardi.

@@ -130,7 +130,7 @@ export function Calendar({
               {data && (
                 <div className="mt-1.5 space-y-1">
                   {Object.entries(data.counts).map(([st, n]) => (
-                    <div key={st} className="flex items-center gap-1.5" title={`${legendByKey[st]?.label ?? st}: ${n}`}>
+                    <div key={st} className="flex items-center gap-1.5" title={`${t(legendByKey[st]?.label ?? st)}: ${n}`}>
                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${legendByKey[st]?.dot ?? 'bg-slate-400'}`} />
                       <span className="truncate text-[11px] text-muted tabular-nums">{n}</span>
                     </div>
@@ -147,7 +147,7 @@ export function Calendar({
         {legend.map((l) => (
           <span key={l.key} className="flex items-center gap-1.5 text-[11px] text-muted">
             <span className={`h-2 w-2 rounded-full ${l.dot}`} />
-            {l.label}
+            {t(l.label)}
           </span>
         ))}
       </div>

@@ -47,10 +47,10 @@ const FIRM_KINDS = ['GUVOHNOMA', 'ISHONCHNOMA', 'SHARTNOMA'];
 
 // Fetch a URL and trigger a browser download from the blob, so we can show a
 // spinner while the server generates (a plain <a download> can't).
-async function downloadFrom(url: string, init?: RequestInit): Promise<{ ok: boolean; error?: string }> {
+async function downloadFrom(url: string, t: (s: string) => string, init?: RequestInit): Promise<{ ok: boolean; error?: string }> {
   try {
     const res = await fetch(url, init);
-    if (!res.ok) { let e = 'Xatolik'; try { e = (await res.json()).error || e; } catch {} return { ok: false, error: e }; }
+    if (!res.ok) { let e = t('Xatolik'); try { e = (await res.json()).error || e; } catch {} return { ok: false, error: e }; }
     const blob = await res.blob();
     const cd = res.headers.get('Content-Disposition') || '';
     const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd);
@@ -61,7 +61,7 @@ async function downloadFrom(url: string, init?: RequestInit): Promise<{ ok: bool
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     return { ok: true };
-  } catch (e) { return { ok: false, error: e instanceof Error ? e.message : 'Tarmoq xatosi' }; }
+  } catch (e) { return { ok: false, error: e instanceof Error ? e.message : t('Tarmoq xatosi') }; }
 }
 
 const BoltIcon = () => <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" /></svg>;
@@ -236,7 +236,7 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, 
 
   const genAll = async () => {
     setGenBusy(true); setGenErr(null);
-    const r = await downloadFrom(`/konveyer/gen-packet?caseId=${caseId}`);
+    const r = await downloadFrom(`/konveyer/gen-packet?caseId=${caseId}`, t);
     if (!r.ok) setGenErr(r.error || t('Xatolik')); else await load();
     setGenBusy(false);
   };
@@ -245,7 +245,7 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, 
   // via the blob helper so the row shows a spinner instead of nothing.
   const genRow = async (kind: string, href: string) => {
     setDlBusy(kind); setRowErr(null);
-    const r = await downloadFrom(href);
+    const r = await downloadFrom(href, t);
     if (!r.ok) setRowErr(kind);
     else { await load(); onChange?.(); } // refresh state (e.g. talabnomaAt flips after generating) + notify parent
     setDlBusy(null);

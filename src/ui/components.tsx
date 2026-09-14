@@ -1,7 +1,9 @@
+'use client';
 import React from 'react';
 import { CertStatus } from '../core/enums';
 import { STATUS_LABELS } from '../core/labels';
 import { dmy } from '../core/document';
+import { useT } from '@/lib/i18n/client';
 
 /** No-flash theme bootstrap — render inside <head> before paint. Defaults to dark. */
 export function ThemeScript() {
@@ -18,7 +20,8 @@ const TONE: Record<string, string> = {
 };
 
 export function StatusBadge({ status }: { status: string }) {
-  return <span className={`badge ${TONE[status] ?? TONE.DRAFT}`}>{STATUS_LABELS[status as CertStatus] ?? status}</span>;
+  const t = useT();
+  return <span className={`badge ${TONE[status] ?? TONE.DRAFT}`}>{t(STATUS_LABELS[status as CertStatus] ?? status)}</span>;
 }
 
 export function StatCard({
@@ -67,10 +70,11 @@ export function PageHeader({
 
 /** Shown when a certificate was sent back — carries the reviewer's reason. */
 export function ReturnNotice({ note, by, at }: { note: string; by: string; at: string }) {
+  const t = useT();
   return (
     <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
       <p className="text-sm font-semibold text-amber-600 dark:text-amber-300">
-        Qaytarildi — tuzatib qayta yuboring
+        {t('Qaytarildi — tuzatib qayta yuboring')}
       </p>
       <p className="mt-1.5 whitespace-pre-wrap text-sm text-fg">{note}</p>
       <p className="mt-2 text-xs text-muted">{by} · {at}</p>

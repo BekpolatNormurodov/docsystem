@@ -1,11 +1,15 @@
+'use client';
+
 import React from 'react';
 import { Logo } from './Logo';
+import { useT } from '@/lib/i18n/client';
 
 /**
  * Route-level splash. Next renders this from `loading.tsx` while a server component streams,
  * so it must not depend on session or data — just the mark, the app name and a quiet bar.
  */
 export function Splash({ appName }: { appName: string }) {
+  const t = useT();
   return (
     <div className="grid min-h-screen place-items-center bg-bg px-6">
       <div className="flex flex-col items-center gap-4">
@@ -19,7 +23,7 @@ export function Splash({ appName }: { appName: string }) {
         <div
           className="mt-1 h-1 w-32 overflow-hidden rounded-full bg-surface-2"
           role="progressbar"
-          aria-label="Yuklanmoqda"
+          aria-label={t('Yuklanmoqda')}
         >
           <div className="animate-splash-bar h-full w-1/2 rounded-full bg-brand-600 dark:bg-brand-400" />
         </div>

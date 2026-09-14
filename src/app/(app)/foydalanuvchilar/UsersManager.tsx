@@ -83,6 +83,7 @@ function AccessToggles({ keys, value, onChange, disabled, label, badge }: {
   label: (k: AccessKey) => string;
   badge?: (k: AccessKey) => number | null;
 }) {
+  const t = useT();
   const toggle = (k: AccessKey) => onChange(value.includes(k) ? value.filter((x) => x !== k) : [...value, k]);
   return (
     <div className="grid gap-2 sm:grid-cols-2">
@@ -106,7 +107,7 @@ function AccessToggles({ keys, value, onChange, disabled, label, badge }: {
               <Ico.check size={13} />
             </span>
             {bd != null && <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-surface-2 text-[10px] font-semibold tabular-nums">{bd}</span>}
-            <span className="truncate">{label(k)}</span>
+            <span className="truncate">{t(label(k))}</span>
           </button>
         );
       })}
@@ -234,7 +235,7 @@ function UserForm({ mode, initial, existingUsernames = [], onDone, onCancel }: {
                   // Ko'p sahifali bosqich — har sub-item alohida galochka.
                   return (
                     <div key={sk}>
-                      <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">{STEP_META[sk].label}</div>
+                      <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">{t(STEP_META[sk].label)}</div>
                       <AccessToggles keys={subs} value={steps} onChange={setSteps} disabled={busy} label={(k) => SUBITEM_META[k as SubItemKey].label} />
                     </div>
                   );
@@ -482,7 +483,7 @@ export function UsersManager({ users, meId }: { users: UserRow[]; meId: number }
                         const isMod = (MODULE_KEYS as readonly string[]).includes(k);
                         return (
                           <span key={k} className={cx('inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium', isMod ? 'bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'bg-surface-2')}>
-                            {accessLabel(k)}
+                            {t(accessLabel(k))}
                           </span>
                         );
                       })}

@@ -98,7 +98,7 @@ export function Filters({
             onChange={(v) => apply({ status: v })}
             options={[
               { value: '', label: t('Barcha holatlar') },
-              ...statuses.map<Option>((s) => ({ value: s, label: STATUS_LABELS[s], dot: STATUS_DOT[s] })),
+              ...statuses.map<Option>((s) => ({ value: s, label: t(STATUS_LABELS[s]), dot: STATUS_DOT[s] })),
             ]}
           />
         )}
@@ -124,7 +124,7 @@ export function Filters({
             onChange={(v) => apply({ docType: v })}
             options={[
               { value: '', label: t('Barcha turlar') },
-              ...docTypes.map<Option>((d) => ({ value: d, label: DOC_TYPE_SHORT[d] })),
+              ...docTypes.map<Option>((d) => ({ value: d, label: t(DOC_TYPE_SHORT[d]) })),
             ]}
           />
         )}
