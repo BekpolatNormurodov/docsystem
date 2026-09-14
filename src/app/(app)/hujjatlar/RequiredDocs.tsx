@@ -5,7 +5,7 @@
 // ext-badge + fayl nomi + hajmi (bosib yuklab olish) + almashtirish/o'chirish. Ochilib-yopiladigan emas.
 import React from 'react';
 import type { AppDocFile, AppDocKey } from '@/lib/app-docs';
-import { getT } from '@/lib/i18n/server';
+import { useT } from '@/lib/i18n/client';
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
 const KB = 1024;
@@ -24,7 +24,7 @@ type Files = { talabnoma: AppDocFile; sud: AppDocFile };
 export function ExtraDocs({ initial }: { initial: Files }) {
   // QULF: hujjat paketi faqat KO'RINADI (yuklab olish) — o'zgartirish/o'chirish YO'Q (admin ham).
   // O'zgartirish faqat kod/DB orqali. Filtrlar shu saqlangan fayllardan ishlaydi.
-  const t = getT();
+  const t = useT();
   return (
     <div className="card mb-8 max-w-md space-y-4 p-6">
       <div className="flex items-baseline justify-between">
@@ -40,7 +40,7 @@ export function ExtraDocs({ initial }: { initial: Files }) {
 // QULF: faqat ko'rinadi (yuklab olish). Yuklash/almashtirish/o'chirish YO'Q — o'zgartirish kod/DB orqali.
 function DocZone({ k, label, accent, file }: { k: AppDocKey; label: string; accent: Accent; file: AppDocFile }) {
   const a = ACCENT[accent];
-  const t = getT();
+  const t = useT();
   return (
     <div>
       <span className="field-label">{label}</span>
