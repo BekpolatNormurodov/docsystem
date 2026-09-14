@@ -33,15 +33,15 @@ export function BossReport({ data, snapLabel }: { data: BossReportData; snapLabe
         <a className="btn-ghost shrink-0" href="/boss/excel"><Ico.download size={16} /> Excel</a>
       </header>
 
-      {/* KPI: umumiy oqim */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+      {/* KPI: umumiy oqim. Jami qarz katta son (mlrd) — 2 ustun egallaydi, aks holda sig'maydi. */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
         <Kpi label="Mijozlar (kishi)" value={n(totals.clients)} icon={<Ico.users size={18} />} tone="slate" />
         <Kpi label="Talabnoma" value={n(totals.talabnoma)} icon={<Ico.send size={18} />} tone="indigo" />
         <Kpi label="Sanoat palatasi" value={n(totals.sanoat)} icon={<Ico.stamp size={18} />} tone="violet" />
         <Kpi label="Sudga chiqarilgan" value={n(totals.sud.total)} icon={<Ico.judge size={18} />} tone="sky" />
         <Kpi label="— qanoatlantirilgan" value={n(totals.sud.granted)} icon={<Ico.check size={18} />} tone="emerald" />
         <Kpi label="MIBga chiqarilgan" value={n(totals.mib)} icon={<Ico.building size={18} />} tone="teal" />
-        <Kpi label="Jami qarz (soʻm)" value={som(totals.debt)} icon={<Ico.receipt size={18} />} tone="slate" />
+        <Kpi label="Jami qarz (soʻm)" value={som(totals.debt)} icon={<Ico.receipt size={18} />} tone="slate" wide />
       </div>
 
       {/* Firma × bosqich matritsasi */}
@@ -177,12 +177,13 @@ const TONES: Record<string, string> = {
   sky: 'text-sky-600 dark:text-sky-300', emerald: 'text-emerald-600 dark:text-emerald-300',
   teal: 'text-teal-600 dark:text-teal-300', slate: 'text-fg',
 };
-function Kpi({ label, value, icon, tone }: { label: string; value: string; icon: React.ReactNode; tone: string }) {
+function Kpi({ label, value, icon, tone, wide }: { label: string; value: string; icon: React.ReactNode; tone: string; wide?: boolean }) {
   return (
-    <div className="card flex items-center gap-3 p-3">
+    <div className={cx('card flex items-center gap-3 p-3', wide && 'sm:col-span-2')}>
       <span className={cx('grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-surface-2', TONES[tone])}>{icon}</span>
       <div className="min-w-0">
-        <div className={cx('text-xl font-semibold tabular-nums', TONES[tone])}>{value}</div>
+        {/* Katta summalar (mlrd) sig'sin: lg font + sindirmasdan qisqartirish (title'da to'liq son). */}
+        <div className={cx('truncate font-semibold tabular-nums leading-tight', wide ? 'text-lg' : 'text-xl', TONES[tone])} title={value}>{value}</div>
         <div className="truncate text-xs text-muted">{label}</div>
       </div>
     </div>

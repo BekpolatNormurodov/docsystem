@@ -825,9 +825,14 @@ type Cls = { code: string; label: string; tone: string };
 // CABINET court OUTCOME (caseResult is ENGLISH — the decisive result when present).
 const CABINET_RESULT: Record<string, Cls> = {
   FULFILLED: { code: 'SATISFIED', label: 'Qanoatlantirilgan', tone: 'emerald' },
+  // Qisman qanoatlantirilgan — caseResult INGLIZCHA «PARTIALLY_FULFILLED» kelsa (kirill matn emas). Bu
+  // bo'lmasa qisman g'alaba «Ko'rib chiqishda»ga tushib, «Qanoatlantirilgan» KAM ko'rsatilardi.
+  PARTIALLY_FULFILLED: { code: 'PARTIAL', label: 'Qisman qanoatlantirilgan', tone: 'amber' },
   RETURNED: { code: 'RETURNED', label: 'Qaytarilgan', tone: 'rose' },
   REFUSED: { code: 'DECLINED', label: 'Rad etilgan', tone: 'rose' },
   UNCONSIDERED: { code: 'UNCONSIDERED', label: 'Ko‘rilmasdan qoldirilgan', tone: 'slate' },
+  // Da'vo qaytarib olingan — bu ADOLAT natijasi (BAD_RESULT), status'ga (FINISHED→g'alaba) tushmasin.
+  WITHDRAWN: { code: 'WITHDRAWN', label: 'Qaytarib olingan', tone: 'slate' },
 };
 // CABINET process status (English) — when no decisive result yet.
 const CABINET_STATUS: Record<string, Cls> = {

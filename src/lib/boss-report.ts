@@ -35,7 +35,7 @@ export interface BossReportData { snapshotId: number | null; firms: BossFirmRow[
 // «Qaytarilgan»ga qo'shiladi. «Rad qilingan» ustuni faqat mijoz sahifasida (LIVE ajrim) to'ladi.
 function sudBucketOf(code: string): keyof Omit<BossSud, 'total'> {
   if (code === 'SATISFIED' || code === 'PARTIAL' || code === 'FINISHED') return 'granted';
-  if (code === 'RETURNED' || code === 'DECLINED' || code === 'UNCONSIDERED') return 'returned';
+  if (code === 'RETURNED' || code === 'DECLINED' || code === 'UNCONSIDERED' || code === 'WITHDRAWN') return 'returned';
   return 'inReview'; // CREATED / PENDING / IN_PROCESS / DECIDED / DRAFT / boshqa jarayon
 }
 
@@ -142,7 +142,7 @@ async function regionBreakdown(snapshotId?: number): Promise<BossRegionRow[]> {
              COALESCE(SUM(CASE WHEN a.stage IN ('MIB_SUBMITTED','CLOSED') THEN 1 ELSE 0 END), 0) AS mib,
              COALESCE(SUM(a.totalDebt), 0) AS debt
       FROM ArizaCase a JOIN rgn ON rgn.pinfl = a.pinfl
-      WHERE 1=1 ${snapshotId ? Prisma.sql`AND a.snapshotId = ${snapshotId}` : Prisma.empty}
+      WHERE a.snapshotId = ${regionSnapId}
       GROUP BY rgn.rn`,
     // Sud statuslari — cabinet (snapshotsiz). DISTINCT c.id shart emas: rgn bir pinfl = bir qator.
     prisma.$queryRaw<{ rn: string | null; st: string; sl: string | null; cr: string | null; n: bigint }[]>`
