@@ -853,7 +853,7 @@ const HIPPO_STATUS: Record<string, Cls> = {
 
 // Source-aware so the same raw string never lands in the wrong vocabulary. Unknown
 // codes still surface (Uzbek statusLabel for CABINET, «Boshqa» for HIPPO) — nothing dropped.
-function classifyStatus(source: string, row: { status: string; statusLabel: string | null; caseResult: string | null }): Cls {
+export function classifyStatus(source: string, row: { status: string; statusLabel: string | null; caseResult: string | null }): Cls {
   const st = (row.status || '').trim();
   const stU = st.toUpperCase();
   if (source === 'CABINET') {

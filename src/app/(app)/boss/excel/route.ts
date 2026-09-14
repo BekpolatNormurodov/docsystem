@@ -19,6 +19,7 @@ function buildBossExcel(d: BossReportData, snapLabel: string): Buffer | Promise<
   const s1 = wb.addWorksheet('Firmalar');
   s1.columns = [
     { header: 'Firma', key: 'firma', width: 32 },
+    { header: 'Mijozlar', key: 'cli', width: 11 },
     { header: 'Talabnoma', key: 'tal', width: 12 },
     { header: 'Sanoat palatasi', key: 'san', width: 15 },
     { header: 'Sud: koʻrib chiqishda', key: 'sr', width: 18 },
@@ -29,8 +30,8 @@ function buildBossExcel(d: BossReportData, snapLabel: string): Buffer | Promise<
     { header: 'MIBga', key: 'mib', width: 10 },
     { header: 'Jami qarz', key: 'debt', width: 18 },
   ];
-  for (const f of d.firms) s1.addRow({ firma: f.firmName, tal: f.talabnoma, san: f.sanoat, sr: f.sud.inReview, sg: f.sud.granted, sret: f.sud.returned, srej: f.sud.rejected, sjami: f.sud.total, mib: f.mib, debt: f.debt });
-  s1.addRow({ firma: 'JAMI', tal: t.talabnoma, san: t.sanoat, sr: t.sud.inReview, sg: t.sud.granted, sret: t.sud.returned, srej: t.sud.rejected, sjami: t.sud.total, mib: t.mib, debt: t.debt });
+  for (const f of d.firms) s1.addRow({ firma: f.firmName, cli: f.clients, tal: f.talabnoma, san: f.sanoat, sr: f.sud.inReview, sg: f.sud.granted, sret: f.sud.returned, srej: f.sud.rejected, sjami: f.sud.total, mib: f.mib, debt: f.debt });
+  s1.addRow({ firma: 'JAMI', cli: t.clients, tal: t.talabnoma, san: t.sanoat, sr: t.sud.inReview, sg: t.sud.granted, sret: t.sud.returned, srej: t.sud.rejected, sjami: t.sud.total, mib: t.mib, debt: t.debt });
   bold1(s1); s1.lastRow!.font = { bold: true }; money(s1, 'debt');
 
   // 2) Sud statuslari — firma bo'yicha 4 holat
@@ -65,6 +66,7 @@ function buildBossExcel(d: BossReportData, snapLabel: string): Buffer | Promise<
   s4.columns = [{ header: 'Koʻrsatkich', key: 'k', width: 34 }, { header: 'Qiymat', key: 'v', width: 20 }];
   s4.addRow({ k: 'Snapshot (sana)', v: snapLabel });
   s4.addRow({ k: 'Firmalar soni', v: d.firms.length });
+  s4.addRow({ k: 'Mijozlar (kishi) soni', v: t.clients });
   s4.addRow({ k: 'Jami ishlar', v: t.total });
   s4.addRow({ k: 'Talabnoma yuborilgan', v: t.talabnoma });
   s4.addRow({ k: 'Sanoat palatasida', v: t.sanoat });
@@ -72,6 +74,22 @@ function buildBossExcel(d: BossReportData, snapLabel: string): Buffer | Promise<
   s4.addRow({ k: 'MIBga chiqarilgan', v: t.mib });
   s4.addRow({ k: 'Jami qarz (soʻm)', v: t.debt });
   bold1(s4); s4.getColumn('v').numFmt = '#,##0';
+
+  // 5) Viloyat kesimi — MIBga + Sud
+  const s5 = wb.addWorksheet('Viloyatlar');
+  s5.columns = [
+    { header: 'Viloyat', key: 'reg', width: 22 },
+    { header: 'Mijozlar', key: 'cli', width: 11 },
+    { header: 'MIBga', key: 'mib', width: 12 },
+    { header: 'Sudga (jami)', key: 'sud', width: 14 },
+    { header: 'Qanoatlantirilgan', key: 'gr', width: 18 },
+    { header: 'Qaytarilgan', key: 'ret', width: 14 },
+    { header: 'Jami qarz', key: 'debt', width: 18 },
+  ];
+  for (const r of d.regions) s5.addRow({ reg: r.region, cli: r.clients, mib: r.mib, sud: r.sudTotal, gr: r.granted, ret: r.returned, debt: r.debt });
+  const rt = d.regions.reduce((a, r) => ({ cli: a.cli + r.clients, mib: a.mib + r.mib, sud: a.sud + r.sudTotal, gr: a.gr + r.granted, ret: a.ret + r.returned, debt: a.debt + r.debt }), { cli: 0, mib: 0, sud: 0, gr: 0, ret: 0, debt: 0 });
+  s5.addRow({ reg: 'JAMI', cli: rt.cli, mib: rt.mib, sud: rt.sud, gr: rt.gr, ret: rt.ret, debt: rt.debt });
+  bold1(s5); s5.lastRow!.font = { bold: true }; money(s5, 'debt');
 
   return wb.xlsx.writeBuffer().then((b) => Buffer.from(b as ArrayBuffer));
 }

@@ -105,9 +105,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       (buxSoloNav ? [buxSoloNav] : [])
     : isAdmin
     ? [
-        // Hisobot (dashboard) — sidebardan olib turildi (foydalanuvchi so'rovi). Sahifa /konveyer'da
-        // qoladi, faqat menyuda ko'rinmaydi. Qaytarish: quyidagi qatorni oching.
-        // { href: '/konveyer', label: 'Hisobot', icon: 'dashboard', section: 'Boshqaruv' },
+        // «Hisobot» (Boshliq paneli) — ENG TEPADA, ALOHIDA bo'lim (foydalanuvchi so'rovi): Hujjatlardan
+        // ham yuqorida. Bo'limlar nav massividagi birinchi ko'rinishi tartibida chiqadi, shuning uchun
+        // bu birinchi turadi → sidebar tepasida. FAQAT admin (isAdmin shoxida, grant qilinmaydi).
+        { href: '/boss', label: 'Boshliq hisoboti', icon: 'dashboard', section: 'Hisobot' },
         hujjatlarNav,
         ...withBadges(stepNav),
         { href: '/mijozlar', label: 'Mijozlar', icon: 'users', section: 'Menyu' },
@@ -116,8 +117,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         { href: '/foydalanuvchilar', label: 'Foydalanuvchilar', icon: 'user', section: 'Menyu' },
         { href: '/jurnal', label: 'Amaliyotlar', icon: 'calendar', section: 'Menyu' },
         // «Alohida» modullar (bottom) — buxgalteriyasiz (u Sud ostida).
-        // Boshliq hisoboti — FAQAT admin (isAdmin shoxida, moduleNav'dan tashqarida — grant qilinmaydi).
-        { href: '/boss', label: 'Boshliq hisoboti', icon: 'dashboard', bottom: true },
         ...moduleNav,
       ]
     : [

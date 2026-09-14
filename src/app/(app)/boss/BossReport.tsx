@@ -13,7 +13,8 @@ const som = (x: number) => (x || 0).toLocaleString('ru-RU', { maximumFractionDig
 const cellNum = (x: number, cls?: string) => <td className={cx('px-3 py-2.5 text-right tabular-nums', cls)}>{x > 0 ? n(x) : <span className="text-muted/50">·</span>}</td>;
 
 export function BossReport({ data, snapLabel }: { data: BossReportData; snapLabel: string | null }) {
-  const { firms, totals } = data;
+  const { firms, totals, regions } = data;
+  const rtot = regions.reduce((a, r) => ({ clients: a.clients + r.clients, mib: a.mib + r.mib, sudTotal: a.sudTotal + r.sudTotal, granted: a.granted + r.granted, returned: a.returned + r.returned, debt: a.debt + r.debt }), { clients: 0, mib: 0, sudTotal: 0, granted: 0, returned: 0, debt: 0 });
 
   return (
     <div className="space-y-5">
@@ -32,7 +33,8 @@ export function BossReport({ data, snapLabel }: { data: BossReportData; snapLabe
       </header>
 
       {/* KPI: umumiy oqim */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+        <Kpi label="Mijozlar (kishi)" value={n(totals.clients)} icon={<Ico.users size={18} />} tone="slate" />
         <Kpi label="Talabnoma" value={n(totals.talabnoma)} icon={<Ico.send size={18} />} tone="indigo" />
         <Kpi label="Sanoat palatasi" value={n(totals.sanoat)} icon={<Ico.stamp size={18} />} tone="violet" />
         <Kpi label="Sudga chiqarilgan" value={n(totals.sud.total)} icon={<Ico.judge size={18} />} tone="sky" />
@@ -52,6 +54,7 @@ export function BossReport({ data, snapLabel }: { data: BossReportData; snapLabe
             <thead className="bg-surface text-xs uppercase tracking-wide text-muted">
               <tr className="border-b border-line">
                 <th rowSpan={2} className="sticky left-0 z-10 bg-surface px-3 py-2 text-left align-bottom">Firma</th>
+                <th rowSpan={2} className="px-3 py-2 text-right align-bottom">Mijozlar</th>
                 <th rowSpan={2} className="px-3 py-2 text-right align-bottom">Talabnoma</th>
                 <th rowSpan={2} className="px-3 py-2 text-right align-bottom">Sanoat palatasi</th>
                 <th colSpan={5} className="border-l border-line px-3 py-1.5 text-center">Sudga chiqarilgan</th>
@@ -68,12 +71,13 @@ export function BossReport({ data, snapLabel }: { data: BossReportData; snapLabe
             </thead>
             <tbody>
               {firms.map((f) => <Row key={f.firmId} f={f} />)}
-              {firms.length === 0 && <tr><td colSpan={10} className="px-4 py-10 text-center text-muted">Bu snapshotда maʼlumot yoʻq.</td></tr>}
+              {firms.length === 0 && <tr><td colSpan={11} className="px-4 py-10 text-center text-muted">Bu snapshotда maʼlumot yoʻq.</td></tr>}
             </tbody>
             {firms.length > 0 && (
               <tfoot>
                 <tr className="border-t-2 border-line bg-surface-2/50 font-semibold">
                   <td className="sticky left-0 z-10 bg-surface-2/50 px-3 py-2.5">JAMI</td>
+                  {cellNum(totals.clients)}
                   {cellNum(totals.talabnoma)}
                   {cellNum(totals.sanoat)}
                   <td className="border-l border-line px-3 py-2.5 text-right tabular-nums text-sky-600 dark:text-sky-300">{n(totals.sud.inReview)}</td>
@@ -89,6 +93,56 @@ export function BossReport({ data, snapLabel }: { data: BossReportData; snapLabe
           </table>
         </div>
       </div>
+
+      {/* Viloyat kesimi — MIBga va Sud (portfel manzili bo‘yicha) */}
+      <div className="card overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
+          <span className="text-sm font-semibold">Viloyat bo‘yicha — MIBga va Sud</span>
+          <span className="text-xs text-muted">Manzil portfeldan · tumanlar viloyatga yig‘ilgan</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[680px] text-sm">
+            <thead className="bg-surface text-xs uppercase tracking-wide text-muted">
+              <tr className="border-b border-line">
+                <th className="sticky left-0 z-10 bg-surface px-3 py-2 text-left">Viloyat</th>
+                <th className="px-3 py-2 text-right">Mijozlar</th>
+                <th className="border-l border-line px-3 py-2 text-right">MIBga</th>
+                <th className="border-l border-line px-3 py-2 text-right">Sudga (jami)</th>
+                <th className="px-3 py-2 text-right text-emerald-600 dark:text-emerald-300">Qanoatlantirilgan</th>
+                <th className="px-3 py-2 text-right text-amber-600 dark:text-amber-300">Qaytarilgan</th>
+                <th className="border-l border-line px-3 py-2 text-right">Jami qarz</th>
+              </tr>
+            </thead>
+            <tbody>
+              {regions.map((r) => (
+                <tr key={r.region} className="border-b border-line/60 transition-colors hover:bg-surface-2">
+                  <td className="sticky left-0 z-10 bg-surface px-3 py-2.5 font-medium">{r.region}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums font-medium">{r.clients > 0 ? n(r.clients) : <span className="text-muted/50">·</span>}</td>
+                  <td className="border-l border-line px-3 py-2.5 text-right tabular-nums text-teal-600 dark:text-teal-300">{r.mib > 0 ? n(r.mib) : <span className="text-muted/50">·</span>}</td>
+                  <td className="border-l border-line px-3 py-2.5 text-right tabular-nums">{r.sudTotal > 0 ? n(r.sudTotal) : <span className="text-muted/50">·</span>}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-emerald-600 dark:text-emerald-300">{r.granted > 0 ? n(r.granted) : <span className="text-muted/50">·</span>}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-amber-600 dark:text-amber-300">{r.returned > 0 ? n(r.returned) : <span className="text-muted/50">·</span>}</td>
+                  <td className="border-l border-line px-3 py-2.5 text-right tabular-nums">{r.debt > 0 ? som(r.debt) : <span className="text-muted/50">·</span>}</td>
+                </tr>
+              ))}
+              {regions.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-muted">Region maʼlumoti yoʻq.</td></tr>}
+            </tbody>
+            {regions.length > 0 && (
+              <tfoot>
+                <tr className="border-t-2 border-line bg-surface-2/50 font-semibold">
+                  <td className="sticky left-0 z-10 bg-surface-2/50 px-3 py-2.5">JAMI</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{n(rtot.clients)}</td>
+                  <td className="border-l border-line px-3 py-2.5 text-right tabular-nums text-teal-600 dark:text-teal-300">{n(rtot.mib)}</td>
+                  <td className="border-l border-line px-3 py-2.5 text-right tabular-nums">{n(rtot.sudTotal)}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-emerald-600 dark:text-emerald-300">{n(rtot.granted)}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-amber-600 dark:text-amber-300">{n(rtot.returned)}</td>
+                  <td className="border-l border-line px-3 py-2.5 text-right tabular-nums">{som(rtot.debt)}</td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
@@ -97,6 +151,7 @@ function Row({ f }: { f: BossFirmRow }) {
   return (
     <tr className="border-b border-line/60 transition-colors hover:bg-surface-2">
       <td className="sticky left-0 z-10 bg-surface px-3 py-2.5 font-medium">{f.firmName.replace(/ MIKROMOLIYA.*$/i, '')}</td>
+      {cellNum(f.clients, 'font-medium')}
       {cellNum(f.talabnoma, 'text-indigo-600 dark:text-indigo-300')}
       {cellNum(f.sanoat, 'text-violet-600 dark:text-violet-300')}
       <td className="border-l border-line px-3 py-2.5 text-right tabular-nums text-sky-600 dark:text-sky-300">{f.sud.inReview > 0 ? n(f.sud.inReview) : <span className="text-muted/50">·</span>}</td>

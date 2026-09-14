@@ -39,23 +39,29 @@ export function normalizeBank(s: string | null | undefined): string {
   return t.replace(/\s+\S+\s+(?:минтақавий\s+)?(?:филиал\S*|filial\S*)\s*$/iu, '').replace(/\s+/g, ' ').trim() || t;
 }
 
-// Regionni MIB bo'limi / sud organi matnidan aniqlaymiz (kirill + lotin). Toshkent SHAHRI
-// «Toshkent» dan OLDIN tekshiriladi — aks holda hammasi «viloyat»ga tushib qoladi.
+// Regionni MIB bo'limi / sud organi / portfel manzilidan aniqlaymiz. UCH yozuv turini QAMRAB oladi:
+// (1) o'zbek KIRILL, (2) LOTIN, (3) RUS KIRILL — chunki mib.uz/ADOLAT/portfel matni uch tilda ham
+// kelishi mumkin (masalan RU «Ташкентская область», «Ферганская», «Бухарская»: RU «а» ≠ UZ «о»,
+// «к» ≠ «қ», shuning uchun alohida yozamiz). Toshkent SHAHRI «Toshkent»dan OLDIN tekshiriladi.
+// Ba'zi tumanlar viloyatga yig'iladi (Uchtepa → Toshkent shahri, Yuqorichirchiq → Toshkent viloyati).
 export const REGION_TOKENS: [RegExp, string][] = [
-  [/қорақалпоғ|qoraqalpog|karakalpak/i, 'Qoraqalpogʻiston'],
-  [/андижон|andijon/i, 'Andijon'],
-  [/бухоро|buxoro|bukhara/i, 'Buxoro'],
-  [/жиззах|jizzax/i, 'Jizzax'],
-  [/қашқадарё|qashqadaryo|kashkadar/i, 'Qashqadaryo'],
-  [/навоий|navoiy/i, 'Navoiy'],
+  [/қорақалпоғ|qoraqalpog|karakalpak|каракалпак|қорақалпак/i, 'Qoraqalpogʻiston'],
+  [/андижон|andijon|андижан/i, 'Andijon'],
+  [/бухоро|buxoro|bukhara|бухар/i, 'Buxoro'],
+  [/жиззах|jizzax|джизак/i, 'Jizzax'],
+  [/қашқадарё|qashqadaryo|kashkadar|кашкадар/i, 'Qashqadaryo'],
+  [/навоий|navoiy|навои/i, 'Navoiy'],
   [/наманган|namangan/i, 'Namangan'],
-  [/самарқанд|samarqand|samarkand/i, 'Samarqand'],
-  [/сурхондарё|surxondaryo|surkhandar/i, 'Surxondaryo'],
-  [/сирдарё|sirdaryo|syrdar/i, 'Sirdaryo'],
-  [/фарғона|fargʻona|fargona|fergana/i, 'Fargʻona'],
-  [/хоразм|xorazm|khorezm/i, 'Xorazm'],
-  [/тошкент\s*шаҳ|toshkent\s*shah|tashkent\s*city/i, 'Toshkent shahri'],
-  [/тошкент|toshkent|tashkent/i, 'Toshkent viloyati'],
+  [/самарқанд|samarqand|samarkand|самарканд/i, 'Samarqand'],
+  [/сурхондарё|surxondaryo|surkhandar|сурхандар/i, 'Surxondaryo'],
+  [/сирдарё|sirdaryo|syrdar|сырдар/i, 'Sirdaryo'],
+  [/фарғона|fargʻona|fargona|fergana|фергана/i, 'Fargʻona'],
+  [/хоразм|xorazm|khorezm|хорезм/i, 'Xorazm'],
+  // Tumanlar → viloyat (misol tariqasida foydalanuvchi so'ragan ikkisi). Generik «toshkent»dan OLDIN.
+  [/учтепа|uchtepa/i, 'Toshkent shahri'],
+  [/юқоричирчиқ|yuqorichirchiq|верхнечирчик/i, 'Toshkent viloyati'],
+  [/тошкент\s*шаҳ|toshkent\s*shah|tashkent\s*city|город\s*ташкент|ташкент\s*г/i, 'Toshkent shahri'],
+  [/тошкент|toshkent|tashkent|ташкент/i, 'Toshkent viloyati'],
 ];
 export function regionFromText(t: string): string | null {
   for (const [re, name] of REGION_TOKENS) if (re.test(t)) return name;
