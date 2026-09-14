@@ -22,7 +22,11 @@ export default async function SudPage({ searchParams }: { searchParams: { s?: st
 
   return (
     <div className="space-y-5">
-      <h1 className="text-2xl font-bold tracking-tight">{t('Sud (adolat)')}</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold tracking-tight">{t('Sud (adolat)')}</h1>
+        {/* Sud roʻyxati (excluded=1) boʻyicha portfel-analitik forma (форма_суд) — tanlangan snapshot + til. */}
+        <a className="btn-ghost shrink-0" href="/sud/forma" download>{t('Sud formasi (Excel)')}</a>
+      </div>
 
       {/* Firma boʻyicha tayyorlik (xulosa) + har firma «Batafsil» → mijozlar drilldown + status board.
           Avvalgi 2-mijozlar-roʻyxati (StageView) olib tashlandi — CourtManager firma-statistikasi va
