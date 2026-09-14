@@ -130,51 +130,53 @@ async function regionBreakdown(snapshotId?: number): Promise<BossRegionRow[]> {
     ?? (await prisma.snapshot.findFirst({ orderBy: { reportDate: 'desc' }, select: { id: true } }))?.id
     ?? 0;
   if (!regionSnapId) return [];
-  // Har PINFL → bitta region (ko'paytirishning oldini oladi). Barcha so'rovlar shu CTE'dan foydalanadi.
-  const rgn = Prisma.sql`rgn AS (SELECT pinfl, MAX(regionName) AS rn FROM Loan WHERE snapshotId = ${regionSnapId} AND pinfl IS NOT NULL GROUP BY pinfl)`;
-
-  const [baseRows, sudRows] = await Promise.all([
-    // Mijozlar + MIBga + jami qarz — bitta o'tishda (ArizaCase → rgn, pinfl bo'yicha).
-    prisma.$queryRaw<{ rn: string | null; clients: bigint; mib: bigint; debt: unknown }[]>`
-      WITH ${rgn}
-      SELECT rgn.rn AS rn,
-             COUNT(DISTINCT a.pinfl) AS clients,
-             COALESCE(SUM(CASE WHEN a.stage IN ('MIB_SUBMITTED','CLOSED') THEN 1 ELSE 0 END), 0) AS mib,
-             COALESCE(SUM(a.totalDebt), 0) AS debt
-      FROM ArizaCase a JOIN rgn ON rgn.pinfl = a.pinfl
-      WHERE a.snapshotId = ${regionSnapId}
-      GROUP BY rgn.rn`,
-    // Sud statuslari — cabinet (snapshotsiz). DISTINCT c.id shart emas: rgn bir pinfl = bir qator.
-    prisma.$queryRaw<{ rn: string | null; st: string; sl: string | null; cr: string | null; n: bigint }[]>`
-      WITH ${rgn}
-      SELECT rgn.rn AS rn, c.status AS st, c.statusLabel AS sl, c.caseResult AS cr, COUNT(*) AS n
-      FROM ClientCaseStatus c JOIN rgn ON rgn.pinfl = c.pinfl
-      WHERE c.source = 'CABINET'
-      GROUP BY rgn.rn, c.status, c.statusLabel, c.caseResult`,
+  const canon = (rn: string | null) => regionFromText(rn ?? '') ?? 'Aniqlanmagan';
+  // TEZLIK: to'liq Loan'ni skanerlab region olish (regionName indekssiz) ~22s edi va Boshliq sahifasi
+  // qotib qolardi (snapshot almashtirib bo'lmasdi). Endi region FAQAT kerakli pinfl'lar uchun,
+  // pinfl-indeks bilan (FORCE INDEX Loan_pinfl_snapshotId_idx) olinadi (~2s). ArizaCase/ClientCaseStatus
+  // kichik va indeksli (~ms) — yig'ish JS'da. Uch so'rov ham parallel.
+  const [acRows, ccsRows, locRows] = await Promise.all([
+    prisma.arizaCase.findMany({ where: { snapshotId: regionSnapId, pinfl: { not: null } }, select: { pinfl: true, stage: true, totalDebt: true } }),
+    prisma.clientCaseStatus.findMany({ where: { source: 'CABINET', pinfl: { not: null } }, select: { pinfl: true, status: true, statusLabel: true, caseResult: true } }),
+    prisma.$queryRaw<{ pinfl: string; rn: string | null }[]>`
+      SELECT l.pinfl AS pinfl, MAX(l.regionName) AS rn
+      FROM Loan l FORCE INDEX (Loan_pinfl_snapshotId_idx)
+      WHERE l.pinfl IN (
+        SELECT pinfl FROM ArizaCase WHERE snapshotId = ${regionSnapId} AND pinfl IS NOT NULL
+        UNION SELECT pinfl FROM ClientCaseStatus WHERE source = 'CABINET' AND pinfl IS NOT NULL
+      ) AND l.snapshotId = ${regionSnapId}
+      GROUP BY l.pinfl`,
   ]);
+  const regByPinfl = new Map<string, string>();
+  for (const r of locRows) regByPinfl.set(r.pinfl, canon(r.rn));
+  const regOf = (p: string | null) => (p ? regByPinfl.get(p) : undefined) ?? 'Aniqlanmagan';
 
   const map = new Map<string, BossRegionRow>();
-  const canon = (rn: string | null) => regionFromText(rn ?? '') ?? 'Aniqlanmagan';
   const row = (name: string) => {
     let r = map.get(name);
     if (!r) { r = { region: name, clients: 0, mib: 0, sudTotal: 0, granted: 0, returned: 0, debt: 0 }; map.set(name, r); }
     return r;
   };
-  for (const b of baseRows) {
-    const r = row(canon(b.rn));
-    r.clients += Number(b.clients);
-    r.mib += Number(b.mib);
-    r.debt += Number(b.debt);
+  // MIBga + jami qarz + mijozlar (region bo'yicha alohida PINFL) — ArizaCase'dan.
+  const EXEC = new Set(['MIB_SUBMITTED', 'CLOSED']);
+  const seen = new Map<string, Set<string>>();
+  for (const a of acRows) {
+    const reg = regOf(a.pinfl);
+    const r = row(reg);
+    r.debt += Number(a.totalDebt ?? 0);
+    if (EXEC.has(a.stage)) r.mib += 1;
+    let s = seen.get(reg); if (!s) { s = new Set(); seen.set(reg, s); } if (a.pinfl) s.add(a.pinfl);
   }
-  for (const s of sudRows) {
-    const code = classifyStatus('CABINET', { status: s.st, statusLabel: s.sl, caseResult: s.cr }).code;
-    if (PRECOURT_CODES.has(code)) continue; // qoralama/CREATED — sudga chiqarilgan emas
-    const r = row(canon(s.rn));
-    const cnt = Number(s.n);
-    r.sudTotal += cnt;
+  for (const [reg, s] of seen) row(reg).clients = s.size;
+  // Sud (CABINET) — DRAFT/CREATED chiqarilmaydi; rad→qaytarilgan qoidasi sudBucketOf'da.
+  for (const c of ccsRows) {
+    const code = classifyStatus('CABINET', { status: c.status, statusLabel: c.statusLabel, caseResult: c.caseResult }).code;
+    if (PRECOURT_CODES.has(code)) continue;
+    const r = row(regOf(c.pinfl));
+    r.sudTotal += 1;
     const bucket = sudBucketOf(code);
-    if (bucket === 'granted') r.granted += cnt;
-    else if (bucket === 'returned') r.returned += cnt;
+    if (bucket === 'granted') r.granted += 1;
+    else if (bucket === 'returned') r.returned += 1;
   }
   // Aniqlanmagan har doim oxirida; qolganlari hajm bo'yicha (qarz + ish).
   return [...map.values()].sort((a, b) => {
