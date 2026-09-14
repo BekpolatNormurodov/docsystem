@@ -7,7 +7,16 @@ import { useT } from '@/lib/i18n/client';
 
 const pretty = (d: string) => d.split('-').reverse().join('.');
 
-export function MijozlarFilters({ dates, date, initialQ }: { dates: string[]; date: string; initialQ: string }) {
+// Pipeline bosqichlari (step) — konveyer.ts'dagi PHASES bilan bir xil (client-safe nusxa).
+const STEPS: { key: string; label: string; color: string }[] = [
+  { key: 'PREP', label: 'Tayyorlash', color: '#64748b' },
+  { key: 'SIGN', label: 'Ariza · palata', color: '#8b5cf6' },
+  { key: 'BOJ', label: 'Invoice', color: '#f59e0b' },
+  { key: 'COURT', label: 'Sud', color: '#3b82f6' },
+  { key: 'EXEC', label: 'Ijro (MIB)', color: '#14b8a6' },
+];
+
+export function MijozlarFilters({ dates, date, initialQ, step }: { dates: string[]; date: string; initialQ: string; step: string }) {
   const t = useT();
   const router = useRouter();
   const [q, setQ] = useState(initialQ);
@@ -16,10 +25,11 @@ export function MijozlarFilters({ dates, date, initialQ }: { dates: string[]; da
   const box = useRef<HTMLDivElement>(null);
   const [pending, startTransition] = useTransition();
 
-  function go(nextDate: string, nextQ: string) {
+  function go(nextDate: string, nextQ: string, nextStep: string = step) {
     const p = new URLSearchParams();
     p.set('date', nextDate);
     if (nextQ.trim()) p.set('q', nextQ.trim());
+    if (nextStep) p.set('step', nextStep);
     p.set('page', '1');
     return `/mijozlar?${p.toString()}`;
   }
@@ -33,7 +43,7 @@ export function MijozlarFilters({ dates, date, initialQ }: { dates: string[]; da
     const t = setTimeout(() => startTransition(() => router.replace(go(date, q))), 250);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, initialQ, date]);
+  }, [q, initialQ, date, step]);
 
   // Close the date dropdown on outside click.
   useEffect(() => {
@@ -47,7 +57,8 @@ export function MijozlarFilters({ dates, date, initialQ }: { dates: string[]; da
   const filtered = dates.filter((d) => pretty(d).includes(dq.trim()) || d.includes(dq.trim()));
 
   return (
-    <div className="mb-4 flex flex-wrap items-end gap-3">
+    <div className="mb-4 space-y-3">
+    <div className="flex flex-wrap items-end gap-3">
       <div className="relative" ref={box}>
         <span className="field-label">{t('Sana')}</span>
         <button
@@ -133,6 +144,38 @@ export function MijozlarFilters({ dates, date, initialQ }: { dates: string[]; da
           )}
         </div>
       </label>
+    </div>
+
+    {/* Bosqich (step) filtri — pipeline fazasi bo'yicha. «Barcha» → portfelning to'liq ro'yxati. */}
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="field-label mr-0.5 mb-0">{t('Bosqich')}:</span>
+      <button
+        type="button"
+        onClick={() => router.push(go(date, q, ''))}
+        className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+          step === '' ? 'border-brand-500/40 bg-brand-500/10 text-brand-600 dark:text-brand-400' : 'border-line text-muted hover:bg-surface-2'
+        }`}
+      >
+        {t('Barchasi')}
+      </button>
+      {STEPS.map((s) => {
+        const active = step === s.key;
+        return (
+          <button
+            key={s.key}
+            type="button"
+            onClick={() => router.push(go(date, q, s.key))}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+              active ? 'text-white shadow-sm' : 'border-line text-muted hover:bg-surface-2'
+            }`}
+            style={active ? { background: s.color, borderColor: s.color } : undefined}
+          >
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: active ? '#fff' : s.color }} aria-hidden />
+            {t(s.label)}
+          </button>
+        );
+      })}
+    </div>
     </div>
   );
 }

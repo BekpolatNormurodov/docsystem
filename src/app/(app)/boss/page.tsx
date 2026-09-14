@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 import { requireAdmin } from '@/lib/auth';
+import { prisma } from '@/lib/db';
 import { konveyerSnapshots } from '@/lib/konveyer';
 import { bossReport } from '@/lib/boss-report';
 import { BossReport } from './BossReport';
@@ -17,5 +18,10 @@ export default async function Page() {
   const selectedId = Number.isInteger(parsed) && parsed > 0 && snaps.some((s) => s.id === parsed) ? parsed : snaps[0]?.id;
   const data = await bossReport(selectedId);
   const snapLabel = snaps.find((s) => s.id === selectedId)?.label ?? null;
-  return <BossReport data={data} snapLabel={snapLabel} />;
+  // Mijoz-holati qidiruvidagi kartochka havolasi uchun (/s/<sana>/p/<pinfl>) — eng so'nggi portfel sanasi.
+  const latest = await prisma.snapshot.findFirst({ where: { status: 'READY' }, orderBy: { reportDate: 'desc' }, select: { reportDate: true } });
+  const linkDate = latest ? latest.reportDate.toISOString().slice(0, 10) : '';
+  // Mijoz-holati (firma · bosqich) eksporti — matritsa Excel'idan tashqari, kishi darajasida.
+  const statusExcelHref = `/mijozlar/status-excel${selectedId ? `?s=${selectedId}` : ''}`;
+  return <BossReport data={data} snapLabel={snapLabel} linkDate={linkDate} statusExcelHref={statusExcelHref} />;
 }

@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { Ico } from '@/ui';
 import { useT } from '@/lib/i18n/client';
+import { ClientStatusSearch } from '../_components/ClientStatusSearch';
 import type { BossReportData, BossFirmRow, BossTotals } from '@/lib/boss-report';
 
 const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
@@ -13,7 +14,7 @@ const n = (x: number) => (x || 0).toLocaleString('ru-RU');
 const som = (x: number) => (x || 0).toLocaleString('ru-RU', { maximumFractionDigits: 0 });
 const cellNum = (x: number, cls?: string) => <td className={cx('px-3 py-2.5 text-right tabular-nums', cls)}>{x > 0 ? n(x) : <span className="text-muted/50">·</span>}</td>;
 
-export function BossReport({ data, snapLabel }: { data: BossReportData; snapLabel: string | null }) {
+export function BossReport({ data, snapLabel, linkDate, statusExcelHref }: { data: BossReportData; snapLabel: string | null; linkDate: string; statusExcelHref: string }) {
   const t = useT();
   const { firms, totals, regions } = data;
   const [regOpen, setRegOpen] = useState(false); // default YOPIQ — bosib ochiladi
@@ -32,7 +33,13 @@ export function BossReport({ data, snapLabel }: { data: BossReportData; snapLabe
             {snapLabel ? <> {t('Snapshot')}: <b className="text-fg tabular-nums">{snapLabel}</b> ({t('sanani yuqoridan almashtiring')}).</> : ` ${t('Snapshot topilmadi.')}`}
           </p>
         </div>
-        <a className="btn-ghost shrink-0" href="/boss/excel"><Ico.download size={16} /> Excel</a>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          {linkDate && <ClientStatusSearch linkDate={linkDate} />}
+          <a className="btn-ghost shrink-0" href={statusExcelHref} title={t('Mijozlar holati (firma · bosqich) — Excel')}>
+            <Ico.download size={16} /> {t('Mijozlar Excel')}
+          </a>
+          <a className="btn-ghost shrink-0" href="/boss/excel" title={t('Firma × bosqich matritsasi — Excel')}><Ico.download size={16} /> {t('Matritsa Excel')}</a>
+        </div>
       </header>
 
       {/* KPI: umumiy oqim. Jami qarz katta son (mlrd) — 2 ustun egallaydi, aks holda sig'maydi. */}
