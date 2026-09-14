@@ -16,7 +16,7 @@ export default function SettingsPage() {
         <div className="card p-5">
           <div className="mb-1 text-sm font-semibold">{t('Hujjat standartlari')}</div>
           <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm text-muted">
-            <li>{t('Standart sud')}: <span className="font-medium text-fg">«Fuqarolik ishlari boʻyicha Uchtepa tumanlararo sudiga»</span></li>
+            <li>{t('Standart sud')}: <span className="font-medium text-fg">«{t('Fuqarolik ishlari boʻyicha Uchtepa tumanlararo sudiga')}»</span></li>
             <li>{t('Shartnoma turi')}: <span className="font-medium text-fg">«ONLAYN»</span></li>
             <li>{t('Palata imzolovchisi')}</li>
           </ul>

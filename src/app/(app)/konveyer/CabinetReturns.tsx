@@ -52,7 +52,7 @@ const ReturnCard = React.memo(function ReturnCard({ r }: { r: Row }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate text-sm font-medium">{r.clientName}</span>
-            <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${info.chip}`}>{info.label}</span>
+            <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${info.chip}`}>{t(info.label)}</span>
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted">
             {r.pinfl && <span className="font-mono tabular-nums">{r.pinfl}</span>}
@@ -109,14 +109,14 @@ const ReturnCard = React.memo(function ReturnCard({ r }: { r: Row }) {
           <div className="rounded-lg border border-line bg-surface px-3 py-2.5">
             <div className="mb-1.5 flex items-center gap-1.5">
               <span className={`inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${info.chip}`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${info.dot}`} aria-hidden /> {info.label}
+                <span className={`h-1.5 w-1.5 rounded-full ${info.dot}`} aria-hidden /> {t(info.label)}
               </span>
               <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">{t('Asosiy sabab')}</span>
             </div>
-            <p className="text-[12px] leading-relaxed">{info.what}</p>
+            <p className="text-[12px] leading-relaxed">{t(info.what)}</p>
             <p className="mt-1.5 flex items-start gap-1.5 text-[12px] leading-relaxed text-fg">
               <Ico.info size={14} className="mt-0.5 shrink-0 text-brand-500" />
-              <span><b className="font-semibold">{t('Tavsiya:')}</b> {info.action}</span>
+              <span><b className="font-semibold">{t('Tavsiya:')}</b> {t(info.action)}</span>
             </p>
           </div>
 
@@ -259,7 +259,7 @@ export function CabinetReturns({ snapshotId, firmId }: { snapshotId?: number; fi
                   className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-all ${active ? info.chipActive : `${info.chip} hover:brightness-95`}`}
                 >
                   <span className={`h-2 w-2 rounded-full ${active ? 'bg-white/80' : info.dot}`} aria-hidden />
-                  {info.label}
+                  {t(info.label)}
                   <span className="font-semibold tabular-nums">{n(byCode[code])}</span>
                 </button>
               );
@@ -274,7 +274,7 @@ export function CabinetReturns({ snapshotId, firmId }: { snapshotId?: number; fi
 
           {/* result-count line so a filtered view says how many it shows */}
           <div className="mb-2 text-[11px] text-muted">
-            {resultF === 'all' ? `${n(shown.length)} ${t('ta ish')}` : `${n(shown.length)} ${t('ta')} «${returnResultInfo(resultF).label}»`}{q && ` · «${q}» ${t('bo‘yicha')}`}
+            {resultF === 'all' ? `${n(shown.length)} ${t('ta ish')}` : `${n(shown.length)} ${t('ta')} «${t(returnResultInfo(resultF).label)}»`}{q && ` · «${q}» ${t('bo‘yicha')}`}
           </div>
 
           {/* search */}
