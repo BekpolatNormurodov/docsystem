@@ -14,7 +14,7 @@ const cellNum = (x: number, cls?: string) => <td className={cx('px-3 py-2.5 text
 
 export function BossReport({ data, snapLabel }: { data: BossReportData; snapLabel: string | null }) {
   const { firms, totals, regions } = data;
-  const [regOpen, setRegOpen] = useState(true);
+  const [regOpen, setRegOpen] = useState(false); // default YOPIQ — bosib ochiladi
   const rtot = regions.reduce((a, r) => ({ clients: a.clients + r.clients, mib: a.mib + r.mib, sudTotal: a.sudTotal + r.sudTotal, granted: a.granted + r.granted, returned: a.returned + r.returned, debt: a.debt + r.debt }), { clients: 0, mib: 0, sudTotal: 0, granted: 0, returned: 0, debt: 0 });
 
   return (
