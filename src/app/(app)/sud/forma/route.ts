@@ -64,39 +64,75 @@ export async function GET(req: NextRequest) {
   }
   const region = (rn: string | null) => regionFromText(rn ?? '') ?? t('Aniqlanmagan');
 
-  // ── Workbook ───────────────────────────────────────────────────────────────
+  // ── Workbook (professional styling) ──────────────────────────────────────────
   const wb = new ExcelJS.Workbook();
   wb.created = new Date();
-  const money = (ws: ExcelJS.Worksheet, keys: string[]) => keys.forEach((k) => { ws.getColumn(k).numFmt = '#,##0'; });
-  const headStyle = (ws: ExcelJS.Worksheet) => { ws.getRow(1).font = { bold: true }; ws.getRow(1).alignment = { vertical: 'middle', wrapText: true }; ws.views = [{ state: 'frozen', ySplit: 1 }]; };
+  wb.creator = 'Yurist Tizimi';
+  // Palitra
+  const C_TITLE = 'FF134E4A', C_HEAD = 'FF0F766E', C_SECT = 'FFD1EDE7', C_TOT = 'FFEEF2F6', C_BORDER = 'FFD1D5DB', C_ZEBRA = 'FFF7FAF9';
+  const thin = { style: 'thin' as const, color: { argb: C_BORDER } };
+  const box = { top: thin, left: thin, bottom: thin, right: thin };
+  const fill = (argb: string) => ({ type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } });
+  const colL = (nn: number) => { let s = ''; let n = nn; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = (n - m - 1) / 26; } return s; };
+  const MONEY = '#,##0';
 
   // 1) Sud roʻyxati — har qator bitta shartnoma
-  const s1 = wb.addWorksheet(t('Sud roʻyxati'));
-  s1.columns = [
-    { header: '№', key: 'no', width: 6 },
-    { header: t('МКО'), key: 'firma', width: 22 },
-    { header: t('PINFL'), key: 'pinfl', width: 16 },
-    { header: t('F.I.O.'), key: 'fio', width: 28 },
-    { header: t('Ssuda hisobi'), key: 'acc', width: 22 },
-    { header: t('Shartnoma'), key: 'ld', width: 14 },
-    { header: t('Mahsulot'), key: 'prod', width: 16 },
-    { header: t('Klassifikatsiya'), key: 'klass', width: 16 },
-    { header: t('Holati'), key: 'status', width: 14 },
-    { header: t('Kredit summasi'), key: 'summ', width: 16 },
-    { header: t('Stavka (%)'), key: 'rate', width: 10 },
-    { header: t('Berilgan sana'), key: 'd1', width: 13 },
-    { header: t('Yopilish sana'), key: 'd2', width: 13 },
-    { header: t('Asosiy qarz'), key: 'p', width: 16 },
-    { header: t('Muddati oʻtgan asosiy'), key: 'op', width: 18 },
-    { header: t('Foizlar'), key: 'i', width: 14 },
-    { header: t('Muddati oʻtgan foiz'), key: 'oi', width: 16 },
-    { header: t('Muddati oʻtgan jami'), key: 'od', width: 18 },
-    { header: t('Jami qarz (bankka)'), key: 'total', width: 18 },
-    { header: t('Viloyat'), key: 'reg', width: 16 },
-    { header: t('Telefon'), key: 'phone', width: 14 },
-    { header: t('Manzil'), key: 'addr', width: 34 },
-    { header: t('Sudga chiqarilgan'), key: 'sud', width: 15 },
+  const s1 = wb.addWorksheet(t('Sud roʻyxati'), { views: [{ state: 'frozen', ySplit: 3 }] });
+  type Col = { key: string; w: number; h: string; money?: boolean; date?: boolean; center?: boolean };
+  const COLS: Col[] = [
+    { key: 'no', w: 6, h: '№', center: true },
+    { key: 'firma', w: 22, h: t('МКО') },
+    { key: 'pinfl', w: 16, h: t('PINFL') },
+    { key: 'fio', w: 30, h: t('F.I.O.') },
+    { key: 'acc', w: 22, h: t('Ssuda hisobi') },
+    { key: 'ld', w: 12, h: t('Shartnoma'), center: true },
+    { key: 'prod', w: 16, h: t('Mahsulot') },
+    { key: 'klass', w: 16, h: t('Klassifikatsiya') },
+    { key: 'status', w: 14, h: t('Holati') },
+    { key: 'summ', w: 16, h: t('Kredit summasi'), money: true },
+    { key: 'rate', w: 9, h: t('Stavka (%)'), center: true },
+    { key: 'd1', w: 13, h: t('Berilgan sana'), date: true },
+    { key: 'd2', w: 13, h: t('Yopilish sana'), date: true },
+    { key: 'p', w: 16, h: t('Asosiy qarz'), money: true },
+    { key: 'op', w: 16, h: t('Muddati oʻtgan asosiy'), money: true },
+    { key: 'i', w: 14, h: t('Foizlar'), money: true },
+    { key: 'oi', w: 15, h: t('Muddati oʻtgan foiz'), money: true },
+    { key: 'od', w: 16, h: t('Muddati oʻtgan jami'), money: true },
+    { key: 'total', w: 18, h: t('Jami qarz (bankka)'), money: true },
+    { key: 'reg', w: 16, h: t('Viloyat') },
+    { key: 'phone', w: 14, h: t('Telefon') },
+    { key: 'addr', w: 34, h: t('Manzil') },
+    { key: 'sud', w: 15, h: t('Sudga chiqarilgan'), center: true },
   ];
+  const NC = COLS.length, last = colL(NC);
+  s1.columns = COLS.map((c) => ({ key: c.key, width: c.w }));
+
+  // Sarlavha bloki (1-2 qator)
+  s1.mergeCells(`A1:${last}1`);
+  const tc = s1.getCell('A1');
+  tc.value = t('SUD FORMASI').toUpperCase();
+  tc.font = { bold: true, size: 15, color: { argb: 'FFFFFFFF' } };
+  tc.fill = fill(C_TITLE); tc.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+  s1.getRow(1).height = 26;
+  s1.mergeCells(`A2:${last}2`);
+  const sc = s1.getCell('A2');
+  sc.value = `${t('Snapshot')}: ${snapLabel}   ·   ${t('Sud roʻyxati')}: ${loans.length.toLocaleString('ru-RU')} ${t('shartnoma')}`;
+  sc.font = { italic: true, size: 10, color: { argb: 'FF475569' } };
+  sc.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+  s1.getRow(2).height = 16;
+
+  // Sarlavha qatori (3-qator)
+  const hr = s1.getRow(3); hr.height = 30;
+  COLS.forEach((c, idx) => {
+    const cell = hr.getCell(idx + 1);
+    cell.value = c.h;
+    cell.font = { bold: true, size: 10, color: { argb: 'FFFFFFFF' } };
+    cell.fill = fill(C_HEAD);
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    cell.border = box;
+  });
+
+  // Ma'lumot qatorlari (4-qatordan)
   let i = 0;
   for (const l of loans) {
     const stage = l.pinfl ? stageByPinfl.get(l.pinfl) : undefined;
@@ -113,10 +149,28 @@ export async function GET(req: NextRequest) {
       sud: stage && SUBMITTED_STAGES.has(stage) ? t('Ha') : t('Yoʻq'),
     });
   }
-  headStyle(s1);
-  money(s1, ['summ', 'p', 'op', 'i', 'oi', 'od', 'total']);
-  ['d1', 'd2'].forEach((k) => { s1.getColumn(k).numFmt = 'dd.mm.yyyy'; });
-  s1.autoFilter = { from: 'A1', to: { row: 1, column: s1.columnCount } };
+  const dataFrom = 4, dataTo = 3 + loans.length;
+  // Ustun formatlari + tekislash (katta varaq: hujayra-chegara/zebra YO'Q — fayl shishmasin/tez).
+  COLS.forEach((c, idx) => {
+    const col = s1.getColumn(idx + 1);
+    if (c.money) col.numFmt = MONEY;
+    if (c.date) col.numFmt = 'dd.mm.yyyy';
+    if (c.center) col.alignment = { horizontal: 'center' };
+  });
+
+  // JAMI qatori — jonli SUM formulalari
+  if (loans.length) {
+    const tr = s1.getRow(dataTo + 1); tr.height = 18;
+    tr.getCell(2).value = t('JAMI');
+    for (let cidx = 1; cidx <= NC; cidx++) {
+      const cell = tr.getCell(cidx);
+      cell.font = { bold: true };
+      cell.fill = fill(C_TOT);
+      cell.border = { top: { style: 'medium', color: { argb: C_HEAD } }, bottom: thin, left: thin, right: thin };
+      if (COLS[cidx - 1].money) { cell.value = { formula: `SUM(${colL(cidx)}${dataFrom}:${colL(cidx)}${dataTo})` }; cell.numFmt = MONEY; }
+    }
+  }
+  s1.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: NC } };
 
   // ── Xulosa (qoʻshimcha analitika) ────────────────────────────────────────────
   type Agg = { loans: number; clients: Set<string>; principal: number; overdue: number; total: number };
@@ -140,30 +194,50 @@ export async function GET(req: NextRequest) {
   }
 
   const s2 = wb.addWorksheet(t('Xulosa'));
-  s2.columns = [{ header: '', key: 'k', width: 34 }, { header: '', key: 'v', width: 22 }];
-  const line = (k: string, v: string | number) => s2.addRow({ k, v });
-  line(t('Snapshot (sana)'), snapLabel);
-  line(t('Shartnomalar (kredit)'), all.loans);
-  line(t('Mijozlar (kishi)'), all.clients.size);
-  line(t('Sudga chiqarilgan (mijoz)'), submittedClients.size);
-  line(t('Asosiy qarz'), all.principal);
-  line(t('Muddati oʻtgan jami'), all.overdue);
-  line(t('Jami qarz (bankka)'), all.total);
-  s2.getRow(1).font = { bold: true };
-  s2.getColumn('v').numFmt = '#,##0';
+  s2.columns = [{ key: 'k', width: 32 }, { key: 'v', width: 16 }, { key: 'c', width: 14 }, { key: 'd', width: 20 }];
+  s2.mergeCells('A1:D1');
+  const x1 = s2.getCell('A1');
+  x1.value = t('XULOSA').toUpperCase(); x1.font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
+  x1.fill = fill(C_TITLE); x1.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+  s2.getRow(1).height = 24;
+
+  // KPI bloki
+  const kpi = (k: string, v: string | number, money = false) => {
+    const r = s2.addRow({ k, v });
+    r.getCell(1).font = { bold: true }; r.getCell(1).border = box; r.getCell(1).fill = fill(C_SECT);
+    const vc = r.getCell(2); vc.border = box; vc.alignment = { horizontal: 'right' }; if (money && typeof v === 'number') vc.numFmt = MONEY;
+  };
+  s2.addRow({});
+  kpi(t('Snapshot (sana)'), snapLabel);
+  kpi(t('Shartnomalar (kredit)'), all.loans);
+  kpi(t('Mijozlar (kishi)'), all.clients.size);
+  kpi(t('Sudga chiqarilgan (mijoz)'), submittedClients.size);
+  kpi(t('Asosiy qarz'), all.principal, true);
+  kpi(t('Muddati oʻtgan jami'), all.overdue, true);
+  kpi(t('Jami qarz (bankka)'), all.total, true);
 
   const table = (title: string, m: Map<string, Agg>) => {
-    s2.addRow({}); const hr = s2.addRow({ k: title, v: '' }); hr.font = { bold: true };
-    const cols = s2.addRow({ k: t('Nomi'), v: t('Shartnoma') }); cols.font = { bold: true };
-    cols.getCell('C').value = t('Mijoz'); cols.getCell('D').value = t('Jami qarz');
+    s2.addRow({});
+    const secR = s2.addRow({ k: title });
+    s2.mergeCells(`A${secR.number}:D${secR.number}`);
+    secR.getCell(1).font = { bold: true, size: 11, color: { argb: C_TITLE } };
+    secR.getCell(1).fill = fill(C_SECT); secR.getCell(1).alignment = { indent: 1 };
+    const hh = s2.addRow({ k: t('Nomi'), v: t('Shartnoma'), c: t('Mijoz'), d: t('Jami qarz') });
+    [1, 2, 3, 4].forEach((n) => { const cl = hh.getCell(n); cl.font = { bold: true, color: { argb: 'FFFFFFFF' } }; cl.fill = fill(C_HEAD); cl.border = box; cl.alignment = { horizontal: n === 1 ? 'left' : 'right' }; });
     const rows = [...m.entries()].sort((a, b) => b[1].total - a[1].total);
+    let zebra = false;
     for (const [key, a] of rows) {
-      const r = s2.addRow({ k: key, v: a.loans });
-      r.getCell('C').value = a.clients.size; r.getCell('D').value = a.total;
+      const r = s2.addRow({ k: key, v: a.loans, c: a.clients.size, d: a.total });
+      zebra = !zebra;
+      [1, 2, 3, 4].forEach((n) => { const cl = r.getCell(n); cl.border = box; if (n > 1) cl.alignment = { horizontal: 'right' }; if (zebra) cl.fill = fill(C_ZEBRA); });
+      r.getCell(4).numFmt = MONEY;
     }
+    // Bo'lim JAMI
+    const tot = [...m.values()].reduce((x, a) => ({ l: x.l + a.loans, t: x.t + a.total }), { l: 0, t: 0 });
+    const tr = s2.addRow({ k: t('JAMI'), v: tot.l, d: tot.t });
+    [1, 2, 3, 4].forEach((n) => { const cl = tr.getCell(n); cl.font = { bold: true }; cl.fill = fill(C_TOT); cl.border = box; if (n > 1) cl.alignment = { horizontal: 'right' }; });
+    tr.getCell(4).numFmt = MONEY;
   };
-  // C/D ustunlar sarlavhasi (qo'shimcha ustunlar table() ichida to'ladi).
-  s2.getCell('C1').value = ''; s2.getColumn('C').width = 14; s2.getColumn('D').width = 20; s2.getColumn('D').numFmt = '#,##0';
   table(t('Firma boʻyicha'), byFirm);
   table(t('Viloyat boʻyicha'), byRegion);
   table(t('Klassifikatsiya boʻyicha'), byKlass);
