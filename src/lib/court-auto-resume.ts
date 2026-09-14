@@ -22,8 +22,11 @@ import { isQueuePaused, isFirmPaused } from './cabinet/pacer';
 import { MAX_COURT_BATCH } from './court-batch';
 import { paidReceiptSet, unpaidQueueReason } from './court-ready';
 
-/** Blokdan keyingi kutish jadvali (daqiqa). Oxirgisi keyin ham takrorlanaveradi. */
-export const BACKOFF_MINUTES = [5, 5, 5, 30, 60, 120];
+/** Blokdan keyingi kutish jadvali (daqiqa). Oxirgisi keyin ham takrorlanaveradi.
+ *  2026-09-14: max 120→10 daqiqaga qisqartirildi — ADOLAT o'chib qolganда navbat soatlab
+ *  qotib turmasin, portal qaytishi bilan ~10 daq ichida o'zi davom etsin (operator qayta-qayta
+ *  qo'lda «davom» bosmasin). Qisqa oraliq portalni bosmaydi: baribir 3 blokdan keyin kutiladi. */
+export const BACKOFF_MINUTES = [3, 5, 5, 5, 10, 10];
 
 const LEVEL_KEY = 'court_queue_backoff_level';
 const NEXT_KEY = 'court_queue_next_attempt';
