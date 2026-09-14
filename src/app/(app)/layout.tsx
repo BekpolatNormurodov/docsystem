@@ -116,6 +116,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         { href: '/foydalanuvchilar', label: 'Foydalanuvchilar', icon: 'user', section: 'Menyu' },
         { href: '/jurnal', label: 'Amaliyotlar', icon: 'calendar', section: 'Menyu' },
         // «Alohida» modullar (bottom) — buxgalteriyasiz (u Sud ostida).
+        // Boshliq hisoboti — FAQAT admin (isAdmin shoxida, moduleNav'dan tashqarida — grant qilinmaydi).
+        { href: '/boss', label: 'Boshliq hisoboti', icon: 'dashboard', bottom: true },
         ...moduleNav,
       ]
     : [
