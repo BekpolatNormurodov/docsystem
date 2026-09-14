@@ -19,7 +19,7 @@ export function SyncButton() {
     try {
       const res = await fetch('/api/konveyer/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error ?? 'Xato');
+      if (!res.ok) throw new Error(data?.error ?? t('Xato'));
       setMsg(data.created > 0 ? `${data.created.toLocaleString('ru-RU')} ${t("yangi mijoz qo'shildi")}` : t('Yangilandi — hammasi joyida'));
       start(() => router.refresh());
     } catch (e: any) {

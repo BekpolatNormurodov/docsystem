@@ -2097,7 +2097,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     }
   }, [jobs, queue, queueActive, snapshotId, startJob, activeBatchByFirm]);
 
-  const firmOpts = [{ value: 'all', label: 'Hamma firma' }, ...firms.map((f) => ({ value: String(f.firmId), label: f.firmName, hint: n(f.total) }))];
+  const firmOpts = [{ value: 'all', label: t('Hamma firma') }, ...firms.map((f) => ({ value: String(f.firmId), label: f.firmName, hint: n(f.total) }))];
   const ov = data?.readiness.overall;
   const board = data?.statusBoard;
   const returns = data?.returns ?? [];
