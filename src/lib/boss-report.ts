@@ -134,19 +134,26 @@ async function regionBreakdown(snapshotId?: number): Promise<BossRegionRow[]> {
   // TEZLIK: to'liq Loan'ni skanerlab region olish (regionName indekssiz) ~22s edi va Boshliq sahifasi
   // qotib qolardi (snapshot almashtirib bo'lmasdi). Endi region FAQAT kerakli pinfl'lar uchun,
   // pinfl-indeks bilan (FORCE INDEX Loan_pinfl_snapshotId_idx) olinadi (~2s). ArizaCase/ClientCaseStatus
-  // kichik va indeksli (~ms) — yig'ish JS'da. Uch so'rov ham parallel.
-  const [acRows, ccsRows, locRows] = await Promise.all([
+  // kichik va indeksli — yig'ish JS'da. acRows/ccsRows parallel; region so'rovi ular topgan PINFL'lar bo'yicha.
+  const [acRows, ccsRows] = await Promise.all([
     prisma.arizaCase.findMany({ where: { snapshotId: regionSnapId, pinfl: { not: null } }, select: { pinfl: true, stage: true, totalDebt: true, talabnomaAt: true } }),
     prisma.clientCaseStatus.findMany({ where: { source: 'CABINET', pinfl: { not: null } }, select: { pinfl: true, status: true, statusLabel: true, caseResult: true } }),
-    prisma.$queryRaw<{ pinfl: string; rn: string | null }[]>`
-      SELECT l.pinfl AS pinfl, MAX(l.regionName) AS rn
-      FROM Loan l FORCE INDEX (Loan_pinfl_snapshotId_idx)
-      WHERE l.pinfl IN (
-        SELECT pinfl FROM ArizaCase WHERE snapshotId = ${regionSnapId} AND pinfl IS NOT NULL
-        UNION SELECT pinfl FROM ClientCaseStatus WHERE source = 'CABINET' AND pinfl IS NOT NULL
-      ) AND l.snapshotId = ${regionSnapId}
-      GROUP BY l.pinfl`,
   ]);
+  // Region FAQAT kerakli PINFL'lar uchun. ILGARI: `l.pinfl IN (SELECT … UNION SELECT …)` subquery +
+  // FORCE INDEX — MySQL buni DEPENDENT subquery qilib ~159k Loan qatoriga qayta bajarardi → ~46s va
+  // Boshliq sahifasi (sana almashtirilganda) qotib qolardi. Endi kerakli PINFL'larni JS'da (allaqachon
+  // o'qilgan acRows+ccsRows'dan) yig'ib, LITERAL IN-ro'yxat bilan bitta indeksli GROUP BY qilamiz (~2.5s).
+  const pinflSet = new Set<string>();
+  for (const a of acRows) if (a.pinfl) pinflSet.add(a.pinfl);
+  for (const c of ccsRows) if (c.pinfl) pinflSet.add(c.pinfl);
+  const pinfls = [...pinflSet];
+  const locRows = pinfls.length
+    ? await prisma.$queryRaw<{ pinfl: string; rn: string | null }[]>`
+        SELECT l.pinfl AS pinfl, MAX(l.regionName) AS rn
+        FROM Loan l
+        WHERE l.snapshotId = ${regionSnapId} AND l.pinfl IN (${Prisma.join(pinfls)})
+        GROUP BY l.pinfl`
+    : [];
   const regByPinfl = new Map<string, string>();
   for (const r of locRows) regByPinfl.set(r.pinfl, canon(r.rn));
   const regOf = (p: string | null) => (p ? regByPinfl.get(p) : undefined) ?? 'Aniqlanmagan';
