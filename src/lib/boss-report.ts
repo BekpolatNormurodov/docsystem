@@ -24,7 +24,7 @@ export interface BossFirmRow {
 export type BossTotals = Omit<BossFirmRow, 'firmId' | 'firmName'>;
 // Viloyat (14 ta) kesimi — mijozlar + MIBga + Sud (qanoatlantirilgan/qaytarilgan) + jami qarz.
 // Manba: portfel Excel (Loan.regionName), tuman→viloyatga yig'iladi (regionFromText). Rus/kirill/lotin.
-export interface BossRegionRow { region: string; clients: number; talabnoma: number; mib: number; sudTotal: number; granted: number; returned: number; debt: number; executor: string | null }
+export interface BossRegionRow { region: string; clients: number; talabnoma: number; mib: number; sudTotal: number; granted: number; returned: number; debt: number }
 export interface BossReportData { snapshotId: number | null; firms: BossFirmRow[]; totals: BossTotals; regions: BossRegionRow[] }
 
 // courtStatusBoard bucket kodini direktor guruhiga solamiz.
@@ -135,7 +135,7 @@ async function regionBreakdown(snapshotId?: number): Promise<BossRegionRow[]> {
   // qotib qolardi (snapshot almashtirib bo'lmasdi). Endi region FAQAT kerakli pinfl'lar uchun,
   // pinfl-indeks bilan (FORCE INDEX Loan_pinfl_snapshotId_idx) olinadi (~2s). ArizaCase/ClientCaseStatus
   // kichik va indeksli (~ms) — yig'ish JS'da. Uch so'rov ham parallel.
-  const [acRows, ccsRows, locRows, execRows] = await Promise.all([
+  const [acRows, ccsRows, locRows] = await Promise.all([
     prisma.arizaCase.findMany({ where: { snapshotId: regionSnapId, pinfl: { not: null } }, select: { pinfl: true, stage: true, totalDebt: true, talabnomaAt: true } }),
     prisma.clientCaseStatus.findMany({ where: { source: 'CABINET', pinfl: { not: null } }, select: { pinfl: true, status: true, statusLabel: true, caseResult: true } }),
     prisma.$queryRaw<{ pinfl: string; rn: string | null }[]>`
@@ -146,10 +146,7 @@ async function regionBreakdown(snapshotId?: number): Promise<BossRegionRow[]> {
         UNION SELECT pinfl FROM ClientCaseStatus WHERE source = 'CABINET' AND pinfl IS NOT NULL
       ) AND l.snapshotId = ${regionSnapId}
       GROUP BY l.pinfl`,
-    // Region → ijrochi biriktirmalari (kichik jadval).
-    prisma.regionExecutor.findMany({ select: { region: true, executorName: true } }),
   ]);
-  const execByRegion = new Map(execRows.map((e) => [e.region, e.executorName]));
   const regByPinfl = new Map<string, string>();
   for (const r of locRows) regByPinfl.set(r.pinfl, canon(r.rn));
   const regOf = (p: string | null) => (p ? regByPinfl.get(p) : undefined) ?? 'Aniqlanmagan';
@@ -157,7 +154,7 @@ async function regionBreakdown(snapshotId?: number): Promise<BossRegionRow[]> {
   const map = new Map<string, BossRegionRow>();
   const row = (name: string) => {
     let r = map.get(name);
-    if (!r) { r = { region: name, clients: 0, talabnoma: 0, mib: 0, sudTotal: 0, granted: 0, returned: 0, debt: 0, executor: execByRegion.get(name) ?? null }; map.set(name, r); }
+    if (!r) { r = { region: name, clients: 0, talabnoma: 0, mib: 0, sudTotal: 0, granted: 0, returned: 0, debt: 0 }; map.set(name, r); }
     return r;
   };
   // MIBga + jami qarz + mijozlar (region bo'yicha alohida PINFL) — ArizaCase'dan.
