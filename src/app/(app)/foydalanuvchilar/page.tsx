@@ -2,11 +2,13 @@ import { requireAdmin } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { PageHeader } from '@/ui';
 import { parseSteps } from '@/lib/access';
+import { getT } from '@/lib/i18n/server';
 import { UsersManager } from './UsersManager';
 
 export const dynamic = 'force-dynamic';
 
 export default async function UsersPage() {
+  const t = getT();
   const me = await requireAdmin();
   const [rows, logins] = await Promise.all([
     prisma.admin.findMany({
@@ -29,7 +31,7 @@ export default async function UsersPage() {
   }));
   return (
     <div>
-      <PageHeader title="Foydalanuvchilar" subtitle="Adminlar va yuristlar — bosqich ruxsatlarini shu yerdan boshqaring" />
+      <PageHeader title={t('Foydalanuvchilar')} subtitle={t('Adminlar va yuristlar — bosqich ruxsatlarini shu yerdan boshqaring')} />
       <UsersManager users={users} meId={me.id} />
     </div>
   );

@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Ico, Spinner, useConfirm, Modal } from '@/ui';
+import { useT } from '@/lib/i18n/client';
 import { MibDashboard } from '../konveyer/MibDashboard';
 
 // ── API shapes ────────────────────────────────────────────────────────────────
@@ -25,6 +26,7 @@ async function jpost(url: string, body?: unknown) {
 }
 
 export function MibReport() {
+  const t = useT();
   const confirm = useConfirm();
   const [reports, setReports] = useState<ListReport[]>([]);
   const [selId, setSelId] = useState<number | null>(null);
@@ -53,10 +55,10 @@ export function MibReport() {
   }, [anyRunning, refresh]);
 
   const del = async (r: ListReport) => {
-    const ok = await confirm({ title: 'Hisobotni o‘chirish', description: `«${r.label || r.sourceFileName}» va uning barcha natijalari o‘chiriladi. Davom etilsinmi?`, confirmLabel: 'O‘chirish', danger: true });
+    const ok = await confirm({ title: t('Hisobotni o‘chirish'), description: `«${r.label || r.sourceFileName}» ${t('va uning barcha natijalari o‘chiriladi. Davom etilsinmi?')}`, confirmLabel: t('O‘chirish'), danger: true });
     if (!ok) return;
     const res = await jpost(`/api/mib/${r.id}`);
-    if (res.status === 409) { alert('Avtomator ishlayapti — avval STOP bosing'); return; }
+    if (res.status === 409) { alert(t('Avtomator ishlayapti — avval STOP bosing')); return; }
     await fetch(`/api/mib/${r.id}`, { method: 'DELETE' });
     if (selId === r.id) setSelId(null);
     await refresh();
@@ -67,15 +69,14 @@ export function MibReport() {
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold">MIB hisoboti</h1>
-            <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">Alohida · stepga kirmaydi</span>
+            <h1 className="text-xl font-semibold">{t('MIB hisoboti')}</h1>
+            <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">{t('Alohida · stepga kirmaydi')}</span>
           </div>
           <p className="mt-1 max-w-2xl text-sm text-muted">
-            mib.uz dan ijro ishlarini tekshiring — bitta PINFL yoki Excel roʻyxat bilan. Natija (ijro ishlari, hudud,
-            bank, summa) saqlanadi; hudud/firma boʻyicha kesim va mijoz sahifasida batafsil koʻrasiz.
+            {t('mib.uz dan ijro ishlarini tekshiring — bitta PINFL yoki Excel roʻyxat bilan. Natija (ijro ishlari, hudud, bank, summa) saqlanadi; hudud/firma boʻyicha kesim va mijoz sahifasida batafsil koʻrasiz.')}
           </p>
         </div>
-        <button className="btn-ghost shrink-0" onClick={() => setSettingsOpen(true)}><Ico.settings size={16} /> Sozlamalar</button>
+        <button className="btn-ghost shrink-0" onClick={() => setSettingsOpen(true)}><Ico.settings size={16} /> {t('Sozlamalar')}</button>
       </header>
 
       <TekshirishCard onUploaded={(id) => { void refresh(); setSelId(id); }} />
@@ -91,11 +92,11 @@ export function MibReport() {
       ) : (
         <div className="card grid place-items-center gap-2 p-12 text-center text-sm text-muted">
           <Ico.chart size={24} className="text-muted/60" />
-          Yuqorida <b className="text-fg">Tekshirish</b> (PINFL yoki Excel) qiling, <b className="text-fg">Umumiy</b> yoki tayyor hisobotni tanlang.
+          {t('Yuqorida')} <b className="text-fg">{t('Tekshirish')}</b> {t('(PINFL yoki Excel) qiling,')} <b className="text-fg">{t('Umumiy')}</b> {t('yoki tayyor hisobotni tanlang.')}
         </div>
       )}
 
-      <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} size="lg" title="MIB sozlamalari" description="Telefon (SMS OTP), interval, chuqur detal va webhook">
+      <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} size="lg" title={t('MIB sozlamalari')} description={t('Telefon (SMS OTP), interval, chuqur detal va webhook')}>
         <ConfigCard />
       </Modal>
     </div>
@@ -104,6 +105,7 @@ export function MibReport() {
 
 // ── Tekshirish: bitta PINFL yoki Excel ro'yxat (bitta karta, ikki rejim) ──────────
 function TekshirishCard({ onUploaded }: { onUploaded: (id: number) => void }) {
+  const t = useT();
   const router = useRouter();
   const [mode, setMode] = useState<'pinfl' | 'excel'>('pinfl');
   // Bitta PINFL — «Qo'lda tekshiruvlar» reportiga qo'shilib darhol tekshiriladi, mijoz sahifasi ochiladi.
@@ -113,10 +115,10 @@ function TekshirishCard({ onUploaded }: { onUploaded: (id: number) => void }) {
   const checkPinfl = async (e: React.FormEvent) => {
     e.preventDefault();
     const p = pinfl.replace(/\D/g, '');
-    if (p.length !== 14) { setPMsg({ ok: false, text: 'PINFL 14 ta raqamdan iborat boʻlishi kerak' }); return; }
+    if (p.length !== 14) { setPMsg({ ok: false, text: t('PINFL 14 ta raqamdan iborat boʻlishi kerak') }); return; }
     setPBusy(true); setPMsg(null);
     const { ok, json } = await jpost('/api/mib/check-pinfl', { pinfl: p });
-    if (!ok) { setPMsg({ ok: false, text: json.error || 'Xatolik' }); setPBusy(false); return; }
+    if (!ok) { setPMsg({ ok: false, text: json.error || t('Xatolik') }); setPBusy(false); return; }
     router.push(`/mib-hisoboti/mijoz/${json.clientId}`);
   };
   // Excel — HISOBOT ro'yxatini yuklab, «Holat» bo'yicha qurib GO qilinadi.
@@ -126,13 +128,13 @@ function TekshirishCard({ onUploaded }: { onUploaded: (id: number) => void }) {
   const [uBusy, setUBusy] = useState(false);
   const [uErr, setUErr] = useState('');
   const upload = async () => {
-    if (!file) { setUErr('Fayl tanlang'); return; }
+    if (!file) { setUErr(t('Fayl tanlang')); return; }
     setUErr(''); setUBusy(true);
     try {
       const fd = new FormData(); fd.append('file', file); if (label.trim()) fd.append('label', label.trim());
       const res = await fetch('/api/mib/upload', { method: 'POST', body: fd });
       const j = await res.json().catch(() => ({}));
-      if (!res.ok) { setUErr(j.error || 'Xatolik'); return; }
+      if (!res.ok) { setUErr(j.error || t('Xatolik')); return; }
       setFile(null); setLabel(''); onUploaded(j.reportId);
     } finally { setUBusy(false); }
   };
@@ -149,35 +151,35 @@ function TekshirishCard({ onUploaded }: { onUploaded: (id: number) => void }) {
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-500/12 text-brand-600 dark:text-brand-300"><Ico.flash size={20} /></span>
         <div className="min-w-0">
-          <div className="text-sm font-semibold">Tekshirish</div>
-          <div className="text-xs text-muted">mib.uz dan ijro ishlari — bitta PINFL yoki Excel roʻyxat bilan</div>
+          <div className="text-sm font-semibold">{t('Tekshirish')}</div>
+          <div className="text-xs text-muted">{t('mib.uz dan ijro ishlari — bitta PINFL yoki Excel roʻyxat bilan')}</div>
         </div>
-        <div className="ml-auto flex gap-0.5 rounded-xl border border-line p-0.5"><Tab v="pinfl">Bitta PINFL</Tab><Tab v="excel">Excel roʻyxat</Tab></div>
+        <div className="ml-auto flex gap-0.5 rounded-xl border border-line p-0.5"><Tab v="pinfl">{t('Bitta PINFL')}</Tab><Tab v="excel">{t('Excel roʻyxat')}</Tab></div>
       </div>
 
       {mode === 'pinfl' ? (
         <form onSubmit={checkPinfl} className="flex flex-wrap items-center gap-2">
-          <input className="field-input w-[220px] tabular-nums tracking-[0.1em]" inputMode="numeric" maxLength={14} placeholder="14 raqamli PINFL"
+          <input className="field-input w-[220px] tabular-nums tracking-[0.1em]" inputMode="numeric" maxLength={14} placeholder={t('14 raqamli PINFL')}
             value={pinfl} onChange={(e) => { setPinfl(e.target.value.replace(/\D/g, '').slice(0, 14)); setPMsg(null); }} />
           <button type="submit" className="btn-primary shrink-0" disabled={pBusy || pinfl.replace(/\D/g, '').length !== 14}>
-            {pBusy ? <Spinner size={16} /> : <Ico.send size={16} />} Tekshirish
+            {pBusy ? <Spinner size={16} /> : <Ico.send size={16} />} {t('Tekshirish')}
           </button>
           {pMsg && <span className={cx('text-sm', pMsg.ok ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300')}>{pMsg.text}</span>}
-          <span className="ml-auto text-xs text-muted">Excel shart emas · natija sana bilan saqlanadi</span>
+          <span className="ml-auto text-xs text-muted">{t('Excel shart emas · natija sana bilan saqlanadi')}</span>
         </form>
       ) : (
         <>
           <div className="flex flex-wrap items-end gap-3">
             <div className="min-w-[240px] flex-1">
-              <span className="field-label">HISOBOT Excel (.xlsx)</span>
+              <span className="field-label">{t('HISOBOT Excel (.xlsx)')}</span>
               <input ref={fileRef} type="file" accept=".xlsx" className="sr-only" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-              <button type="button" onClick={() => fileRef.current?.click()} className="btn-ghost w-full justify-start"><Ico.sheet size={16} /><span className="truncate">{file ? file.name : 'Fayl tanlang…'}</span></button>
+              <button type="button" onClick={() => fileRef.current?.click()} className="btn-ghost w-full justify-start"><Ico.sheet size={16} /><span className="truncate">{file ? file.name : t('Fayl tanlang…')}</span></button>
             </div>
             <div className="min-w-[160px] flex-1">
-              <span className="field-label">Nom (ixtiyoriy)</span>
-              <input className="field-input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="masalan: HISOBOT 120" />
+              <span className="field-label">{t('Nom (ixtiyoriy)')}</span>
+              <input className="field-input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder={t('masalan: HISOBOT 120')} />
             </div>
-            <button className="btn-primary shrink-0" disabled={uBusy || !file} onClick={upload}>{uBusy ? <Spinner size={16} /> : <Ico.filePlus size={16} />} Yuklash</button>
+            <button className="btn-primary shrink-0" disabled={uBusy || !file} onClick={upload}>{uBusy ? <Spinner size={16} /> : <Ico.filePlus size={16} />} {t('Yuklash')}</button>
           </div>
           {uErr && <p className="mt-2 text-sm font-medium text-rose-600 dark:text-rose-300">{uErr}</p>}
         </>
@@ -191,6 +193,7 @@ function TekshirishCard({ onUploaded }: { onUploaded: (id: number) => void }) {
 const toNational = (raw: string) => { const d = (raw || '').replace(/\D/g, ''); return (d.startsWith('998') ? d.slice(3) : d).slice(0, 9); };
 
 function ConfigCard() {
+  const t = useT();
   const [cfg, setCfg] = useState<MibConfig | null>(null);
   const [phone9, setPhone9] = useState(''); // national 9 digits
   const [interval, setIntervalS] = useState('60');
@@ -252,10 +255,10 @@ function ConfigCard() {
 
   return (
     <div className="card p-4">
-      <div className="mb-3 flex items-center gap-2 text-sm font-semibold"><Ico.settings size={16} className="text-brand-600 dark:text-brand-400" /> Sozlamalar</div>
+      <div className="mb-3 flex items-center gap-2 text-sm font-semibold"><Ico.settings size={16} className="text-brand-600 dark:text-brand-400" /> {t('Sozlamalar')}</div>
       <div className="grid gap-3 sm:grid-cols-[1fr_150px_auto] sm:items-end">
         <label>
-          <span className="field-label">Telefon raqami (SMS shu raqamga keladi)</span>
+          <span className="field-label">{t('Telefon raqami (SMS shu raqamga keladi)')}</span>
           <div className="flex items-center rounded-xl border border-[var(--field-line)] bg-[var(--field)] pl-3.5 transition focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/25">
             <span className="select-none pr-2 text-sm font-medium tabular-nums text-muted">+998</span>
             <input className="w-full bg-transparent py-2.5 pr-3.5 text-sm tabular-nums tracking-[0.15em] text-fg outline-none placeholder:tracking-normal placeholder:text-muted/60" inputMode="numeric" maxLength={9} placeholder="901234567"
@@ -263,20 +266,20 @@ function ConfigCard() {
           </div>
         </label>
         <label>
-          <span className="field-label">Interval (sekund, eng kami 60)</span>
+          <span className="field-label">{t('Interval (sekund, eng kami 60)')}</span>
           <input className="field-input tabular-nums" inputMode="numeric" value={interval} onChange={(e) => setIntervalS(e.target.value.replace(/\D/g, ''))} />
         </label>
-        <button className="btn-primary shrink-0" onClick={save}>{saved ? <><Ico.check size={16} /> Saqlandi</> : 'Saqlash'}</button>
+        <button className="btn-primary shrink-0" onClick={save}>{saved ? <><Ico.check size={16} /> {t('Saqlandi')}</> : t('Saqlash')}</button>
       </div>
 
       {/* Chuqur detal (SMS) — o'chirilsa har ish uchun SMS so'ralmaydi, faqat ijro ishi ro'yxati (tez). */}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface-2/40 px-3 py-2.5">
         <div className="min-w-0">
-          <div className="text-sm font-medium">Chuqur detal (SMS bilan)</div>
+          <div className="text-sm font-medium">{t('Chuqur detal (SMS bilan)')}</div>
           <div className="text-xs text-muted">
             {(cfg?.deepDetail ?? true)
-              ? 'Yoqilgan — har ijro ishi uchun SMS-OTP so‘raladi (bank/sud/summa to‘ladi).'
-              : 'O‘chirilgan — SMS so‘ralmaydi, faqat ijro ishlari ro‘yxati olinadi (tez, «birdan»).'}
+              ? t('Yoqilgan — har ijro ishi uchun SMS-OTP so‘raladi (bank/sud/summa to‘ladi).')
+              : t('O‘chirilgan — SMS so‘ralmaydi, faqat ijro ishlari ro‘yxati olinadi (tez, «birdan»).')}
           </div>
         </div>
         <button role="switch" aria-checked={cfg?.deepDetail ?? true} onClick={toggleDeep}
@@ -288,30 +291,30 @@ function ConfigCard() {
       {/* Raqam holati: saqlash o'zi raqamni ALMASHTIRMAYDI — faqat o'sha raqamdan test SMS
           kelgach almashadi. Shunda xato terilgan raqam OTP oqimini jimgina sindirmaydi. */}
       <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-        <span className="text-muted">Ishlayotgan raqam:</span>
+        <span className="text-muted">{t('Ishlayotgan raqam:')}</span>
         {cfg?.phone
-          ? <span className="badge border-emerald-500/30 text-emerald-600 dark:text-emerald-300 tabular-nums">+{cfg.phone} · tasdiqlangan</span>
-          : <span className="badge border-line text-muted">hali yo‘q</span>}
+          ? <span className="badge border-emerald-500/30 text-emerald-600 dark:text-emerald-300 tabular-nums">+{cfg.phone} · {t('tasdiqlangan')}</span>
+          : <span className="badge border-line text-muted">{t('hali yo‘q')}</span>}
         {cfg?.phonePending && (
           <>
             <span className="badge border-amber-500/30 text-amber-600 dark:text-amber-300 tabular-nums">
-              +{cfg.phonePending} · tasdiqlanmagan
+              +{cfg.phonePending} · {t('tasdiqlanmagan')}
             </span>
             <button className="btn-ghost px-2.5 py-1 text-xs" onClick={activatePending}>
-              <Ico.check size={13} /> Shu raqamga oʻtkazish
+              <Ico.check size={13} /> {t('Shu raqamga oʻtkazish')}
             </button>
             <span className="text-xs text-amber-600 dark:text-amber-300">
-              — yoki shu raqamdan test SMS yuboring
+              {t('— yoki shu raqamdan test SMS yuboring')}
             </span>
           </>
         )}
       </div>
       {cfg?.webhookUrl && (
         <div className="mt-3 flex items-center gap-2 rounded-xl border border-line bg-surface-2 px-3 py-2">
-          <span className="text-xs text-muted">Webhook (Android forwarder shu manzilga POST qilsin):</span>
+          <span className="text-xs text-muted">{t('Webhook (Android forwarder shu manzilga POST qilsin):')}</span>
           <code className="flex-1 truncate text-xs">{cfg.webhookUrl}</code>
           <button className="btn-ghost px-2 py-1 text-xs" onClick={() => { navigator.clipboard?.writeText(cfg.webhookUrl); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>
-            {copied ? <Ico.check size={14} /> : <Ico.files size={14} />} {copied ? 'Nusxa olindi' : 'Nusxa'}
+            {copied ? <Ico.check size={14} /> : <Ico.files size={14} />} {copied ? t('Nusxa olindi') : t('Nusxa')}
           </button>
         </div>
       )}
@@ -319,11 +322,11 @@ function ConfigCard() {
       {/* Test the SMS pipeline (phone → forwarder → webhook) before running the automator. */}
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button className="btn-ghost" disabled={testState === 'waiting'} onClick={testSms}>
-          {testState === 'waiting' ? <Spinner size={16} /> : <Ico.send size={16} />} SMS ni tekshirish
+          {testState === 'waiting' ? <Spinner size={16} /> : <Ico.send size={16} />} {t('SMS ni tekshirish')}
         </button>
-        {testState === 'waiting' && <span className="text-sm text-amber-600 dark:text-amber-300">Telefondan test SMS yuboring — kelishi kutilmoqda…</span>}
-        {testState === 'ok' && <span className="text-sm font-medium text-emerald-600 dark:text-emerald-300">✓ Tasdiqlandi — kod keldi: <b className="tabular-nums">{testCode}</b>. Telefon + webhook ishlayapti.</span>}
-        {testState === 'timeout' && <span className="text-sm text-rose-600 dark:text-rose-300">⏱ 90s ichida SMS kelmadi — telefon/forwarder/webhook’ni tekshiring.</span>}
+        {testState === 'waiting' && <span className="text-sm text-amber-600 dark:text-amber-300">{t('Telefondan test SMS yuboring — kelishi kutilmoqda…')}</span>}
+        {testState === 'ok' && <span className="text-sm font-medium text-emerald-600 dark:text-emerald-300">{t('✓ Tasdiqlandi — kod keldi:')} <b className="tabular-nums">{testCode}</b>{t('. Telefon + webhook ishlayapti.')}</span>}
+        {testState === 'timeout' && <span className="text-sm text-rose-600 dark:text-rose-300">{t('⏱ 90s ichida SMS kelmadi — telefon/forwarder/webhook’ni tekshiring.')}</span>}
       </div>
     </div>
   );
@@ -331,16 +334,17 @@ function ConfigCard() {
 
 // ── Hisobotlar — gorizontal chiplar (tanlash + o'chirish) ─────────────────────────
 function ReportChips({ reports, loading, selId, onSelect, onUmumiy, onDelete }: { reports: ListReport[]; loading: boolean; selId: number | null; onSelect: (id: number) => void; onUmumiy: () => void; onDelete: (r: ListReport) => void }) {
-  if (loading) return <div className="flex items-center gap-2 text-sm text-muted"><Spinner size={14} /> Hisobotlar…</div>;
+  const t = useT();
+  if (loading) return <div className="flex items-center gap-2 text-sm text-muted"><Spinner size={14} /> {t('Hisobotlar…')}</div>;
   if (!reports.length) return null;
   const umumiyActive = selId === -1;
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="text-xs font-semibold uppercase tracking-wide text-muted">Hisobotlar:</span>
+      <span className="text-xs font-semibold uppercase tracking-wide text-muted">{t('Hisobotlar:')}</span>
       <button onClick={onUmumiy}
         className={cx('inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-sm font-medium transition-colors',
           umumiyActive ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line text-muted hover:bg-surface-2 hover:text-fg')}>
-        <Ico.layer size={14} /> Umumiy
+        <Ico.layer size={14} /> {t('Umumiy')}
       </button>
       <span className="mx-0.5 h-5 w-px bg-line" />
       {reports.map((r) => {
@@ -354,7 +358,7 @@ function ReportChips({ reports, loading, selId, onSelect, onUmumiy, onDelete }: 
               <span className="max-w-[220px] truncate font-medium">{r.label || r.sourceFileName}</span>
               {r.total > 0 && <span className="tabular-nums text-xs opacity-70">{n(done)}/{n(r.total)}</span>}
             </button>
-            <button onClick={() => onDelete(r)} title="O‘chirish" className="grid h-6 w-6 place-items-center rounded-lg text-muted opacity-0 transition-opacity hover:bg-rose-500/10 hover:text-rose-600 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:text-rose-300">
+            <button onClick={() => onDelete(r)} title={t('O‘chirish')} className="grid h-6 w-6 place-items-center rounded-lg text-muted opacity-0 transition-opacity hover:bg-rose-500/10 hover:text-rose-600 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:text-rose-300">
               <Ico.trash size={13} />
             </button>
           </div>

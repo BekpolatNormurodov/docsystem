@@ -8,6 +8,7 @@ import { prisma } from '@/lib/db';
 import { PageHeader, EmptyState, Pagination } from '@/ui';
 import { formatSumDecimal } from '@/core/document';
 import { buildLoanWhere } from '@/core/loan-filters';
+import { getT } from '@/lib/i18n/server';
 import { FilterExportBar } from './FilterExportBar';
 import { ExportsList, type ReadyExport } from './ExportsList';
 
@@ -37,6 +38,7 @@ export default async function HujjatlarDatePage({
   searchParams: Record<string, string | string[] | undefined>;
 }) {
   await requireUser();
+  const t = getT();
   const date = params.date;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) notFound();
   // Shape alone isn't enough: 2024-13-45 is an Invalid Date and 2024-02-30 rolls
@@ -156,13 +158,13 @@ export default async function HujjatlarDatePage({
       const p = (j.params ?? {}) as { branches?: string[]; q?: string; minDebt?: number; onlyExcluded?: boolean };
       const firms = p.branches && p.branches.length
         ? p.branches.map((c) => nameByCode.get(c) ?? c).join(', ')
-        : 'Hammasi';
+        : t('Hammasi');
       return {
         id: j.id,
         createdLabel: stamp(j.createdAt),
         count: j.total,
         sizeLabel: humanSize(size),
-        mode: p.onlyExcluded ? 'Sud roʻyxati' : 'Barchasi',
+        mode: p.onlyExcluded ? t('Sud roʻyxati') : t('Barchasi'),
         firms,
         q: p.q || undefined,
         minDebt: p.minDebt ? p.minDebt.toLocaleString('ru-RU') : undefined,
@@ -173,14 +175,14 @@ export default async function HujjatlarDatePage({
   return (
     <div>
       <Link href="/hujjatlar" className="mb-3 inline-block text-sm text-muted hover:text-fg">
-        ← Sanalar
+        ← {t('Sanalar')}
       </Link>
       <PageHeader
-        title={`Hujjatlar — ${pretty}`}
+        title={`${t('Hujjatlar')} — ${pretty}`}
         subtitle={
           onlyExcluded
-            ? `Faqat istisnodagilar: ${clientCount.toLocaleString('ru-RU')} mijoz · ${matchLoans.toLocaleString('ru-RU')} shartnoma`
-            : `${clientCount.toLocaleString('ru-RU')} mijoz · ${matchLoans.toLocaleString('ru-RU')} shartnoma — firmalarni tanlang yoki filtrlab ZIP oling`
+            ? `${t('Faqat istisnodagilar')}: ${clientCount.toLocaleString('ru-RU')} ${t('mijoz')} · ${matchLoans.toLocaleString('ru-RU')} ${t('shartnoma')}`
+            : `${clientCount.toLocaleString('ru-RU')} ${t('mijoz')} · ${matchLoans.toLocaleString('ru-RU')} ${t('shartnoma')} — ${t('firmalarni tanlang yoki filtrlab ZIP oling')}`
         }
       />
 
@@ -195,7 +197,7 @@ export default async function HujjatlarDatePage({
       <ExportsList items={readyExports} />
 
       {clients.length === 0 ? (
-        <EmptyState title="Mijoz topilmadi" hint="Filtr yoki qidiruvni oʻzgartirib koʻring." />
+        <EmptyState title={t('Mijoz topilmadi')} hint={t('Filtr yoki qidiruvni oʻzgartirib koʻring.')} />
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {clients.map((c) => {
@@ -216,8 +218,8 @@ export default async function HujjatlarDatePage({
                   ))}
                 </div>
                 <div className="mt-auto flex items-end justify-between border-t border-line pt-2">
-                  <span className="text-xs text-muted">{c._count} ta shartnoma</span>
-                  <span className="text-sm font-semibold">{formatSumDecimal(String(c._sum.totalDebt ?? 0))} soʻm</span>
+                  <span className="text-xs text-muted">{c._count} {t('ta shartnoma')}</span>
+                  <span className="text-sm font-semibold">{formatSumDecimal(String(c._sum.totalDebt ?? 0))} {t('soʻm')}</span>
                 </div>
               </Link>
             );
@@ -225,7 +227,7 @@ export default async function HujjatlarDatePage({
         </div>
       )}
 
-      <Pagination page={page} pages={totalPages} total={clientCount} perPage={PAGE} hrefFor={hrefPage} unit="mijoz" />
+      <Pagination page={page} pages={totalPages} total={clientCount} perPage={PAGE} hrefFor={hrefPage} unit={t('mijoz')} />
     </div>
   );
 }

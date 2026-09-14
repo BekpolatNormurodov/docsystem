@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { DocumentDownload, TickCircle, SearchNormal1 } from 'iconsax-react';
 import { Modal } from '@/ui';
+import { useT } from '@/lib/i18n/client';
 
 interface FirmChip {
   code: string;
@@ -35,6 +36,7 @@ export function FilterExportBar({
   matchClients: number;
   matchContracts: number;
 }) {
+  const t = useT();
   const router = useRouter();
   const [q, setQ] = useState(initial.q);
   const [minDebt, setMinDebt] = useState(initial.minDebt); // digits only
@@ -107,7 +109,7 @@ export function FilterExportBar({
           router.refresh();
         } else if (job.status === 'FAILED') {
           clearInterval(timer);
-          setError(job.message ?? 'Eksport muvaffaqiyatsiz tugadi');
+          setError(job.message ?? t('Eksport muvaffaqiyatsiz tugadi'));
           setPhase('failed');
         }
       } catch {
@@ -131,22 +133,22 @@ export function FilterExportBar({
       });
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));
-        setError(b.error ?? 'Boshlashda xatolik');
+        setError(b.error ?? t('Boshlashda xatolik'));
         setPhase('failed');
         return;
       }
-      const { jobId: id, total: t } = await res.json();
+      const { jobId: id, total: tot } = await res.json();
       setJobId(id);
-      setTotal(t);
-      if (t === 0) {
-        setError('Bu filtr boʻyicha ariza topilmadi');
+      setTotal(tot);
+      if (tot === 0) {
+        setError(t('Bu filtr boʻyicha ariza topilmadi'));
         setPhase('failed');
         return;
       }
       setPhase('running');
       poll(id);
     } catch {
-      setError('Boshlashda xatolik');
+      setError(t('Boshlashda xatolik'));
       setPhase('failed');
     }
   }
@@ -162,7 +164,7 @@ export function FilterExportBar({
 
   const busy = phase === 'starting' || phase === 'running';
   const pct = total > 0 ? Math.min(99, Math.round((progress / total) * 100)) : 0;
-  const selectedNames = allChecked ? 'Barcha firmalar' : firms.filter((f) => checked.has(f.code)).map((f) => f.name).join(', ');
+  const selectedNames = allChecked ? t('Barcha firmalar') : firms.filter((f) => checked.has(f.code)).map((f) => f.name).join(', ');
 
   return (
     <div className="card mb-5 space-y-4 p-5">
@@ -173,23 +175,23 @@ export function FilterExportBar({
           onClick={() => setMode(false)}
           className={`rounded-lg px-4 py-1.5 transition ${!onlyExcluded ? 'bg-brand-600 text-white shadow' : 'text-muted hover:text-fg'}`}
         >
-          Barchasi
+          {t('Barchasi')}
         </button>
         <button
           type="button"
           onClick={() => setMode(true)}
           className={`rounded-lg px-4 py-1.5 transition ${onlyExcluded ? 'bg-amber-600 text-white shadow' : 'text-muted hover:text-fg'}`}
         >
-          Sud roʻyxati
+          {t('Sud roʻyxati')}
         </button>
       </div>
 
       {/* Firm selection — pill checkboxes, all ticked by default. */}
       <div>
         <div className="mb-2 flex items-center justify-between">
-          <span className="field-label mb-0">Firmalar</span>
+          <span className="field-label mb-0">{t('Firmalar')}</span>
           <button type="button" onClick={toggleAll} className="text-xs font-medium text-brand-600 hover:underline">
-            {allChecked ? 'Hammasini olib tashlash' : 'Hammasini tanlash'}
+            {allChecked ? t('Hammasini olib tashlash') : t('Hammasini tanlash')}
           </button>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -233,19 +235,19 @@ export function FilterExportBar({
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="min-w-[220px] flex-1">
-          <span className="field-label">Qidiruv (F.I.Sh, PINFL, shartnoma)</span>
+          <span className="field-label">{t('Qidiruv (F.I.Sh, PINFL, shartnoma)')}</span>
           <div className="relative">
             <SearchNormal1 size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               className="field-input w-full pl-9"
-              placeholder="masalan: ABDULLAYEV yoki 3210…"
+              placeholder={t('masalan: ABDULLAYEV yoki 3210…')}
             />
           </div>
         </label>
         <label className="w-52">
-          <span className="field-label">Qarz ≥ (mijoz jami)</span>
+          <span className="field-label">{t('Qarz ≥ (mijoz jami)')}</span>
           <div className="relative">
             <input
               value={money(minDebt)}
@@ -254,27 +256,27 @@ export function FilterExportBar({
               className="field-input w-full pr-12 text-right"
               placeholder="0"
             />
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted">soʻm</span>
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted">{t('soʻm')}</span>
           </div>
         </label>
         <button
           type="button"
           onClick={openModal}
           disabled={none || !onlyExcluded}
-          title={!onlyExcluded ? 'ZIP faqat «Sud roʻyxati» rejimida' : undefined}
+          title={!onlyExcluded ? t('ZIP faqat «Sud roʻyxati» rejimida') : undefined}
           className="btn-primary disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <DocumentDownload size={16} /> ZIP yaratish
+          <DocumentDownload size={16} /> {t('ZIP yaratish')}
         </button>
       </div>
 
       {!onlyExcluded && (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
           <span className="text-amber-700 dark:text-amber-300">
-            ⚖ Ariza (ZIP) faqat <b>sud roʻyxatidagi</b> mijozlar uchun yaratiladi.
+            ⚖ {t('Ariza (ZIP) faqat')} <b>{t('sud roʻyxatidagi')}</b> {t('mijozlar uchun yaratiladi.')}
           </span>
           <button type="button" onClick={() => setMode(true)} className="btn-primary py-1.5 text-xs">
-            Sud roʻyxatiga oʻtish
+            {t('Sud roʻyxatiga oʻtish')}
           </button>
         </div>
       )}
@@ -286,18 +288,18 @@ export function FilterExportBar({
             <>
               <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-brand-600 border-t-transparent" />
               <span className="font-medium">
-                Eksport orqada ketyapti… {pct}% ({progress.toLocaleString('ru-RU')}/{total.toLocaleString('ru-RU')})
+                {t('Eksport orqada ketyapti…')} {pct}% ({progress.toLocaleString('ru-RU')}/{total.toLocaleString('ru-RU')})
               </span>
-              <span className="text-xs text-muted">Modalni yopsangiz ham davom etadi.</span>
+              <span className="text-xs text-muted">{t('Modalni yopsangiz ham davom etadi.')}</span>
             </>
           )}
           {phase === 'done' && jobId !== null && (
             <>
               <span className="font-medium text-accent-700 dark:text-accent-400">
-                Tayyor — {progress.toLocaleString('ru-RU')} ta ariza. «Tayyor exportlar» roʻyxatiga saqlandi.
+                {t('Tayyor')} — {progress.toLocaleString('ru-RU')} {t('ta ariza. «Tayyor exportlar» roʻyxatiga saqlandi.')}
               </span>
               <a href={`/api/export/${jobId}/download`} className="btn-primary py-1.5 text-xs">
-                <DocumentDownload size={14} /> ZIP yuklab olish
+                <DocumentDownload size={14} /> {t('ZIP yuklab olish')}
               </a>
             </>
           )}
@@ -308,20 +310,20 @@ export function FilterExportBar({
       <Modal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        title="Arizalarni ZIP qilish"
-        description="Tanlangan filtr boʻyicha har bir shartnoma uchun .docx ariza yaratiladi."
+        title={t('Arizalarni ZIP qilish')}
+        description={t('Tanlangan filtr boʻyicha har bir shartnoma uchun .docx ariza yaratiladi.')}
         footer={
           phase === 'done' && jobId !== null ? (
             <a href={`/api/export/${jobId}/download`} className="btn-primary">
-              <DocumentDownload size={16} /> ZIP yuklab olish
+              <DocumentDownload size={16} /> {t('ZIP yuklab olish')}
             </a>
           ) : phase === 'idle' || phase === 'failed' ? (
             <>
               <button type="button" onClick={() => setModalOpen(false)} className="btn-ghost">
-                Bekor
+                {t('Bekor')}
               </button>
               <button type="button" onClick={startExport} className="btn-primary">
-                <TickCircle size={16} /> Yaratish
+                <TickCircle size={16} /> {t('Yaratish')}
               </button>
             </>
           ) : null
@@ -329,25 +331,25 @@ export function FilterExportBar({
       >
         <div className="space-y-3 text-sm">
           <div className="flex justify-between gap-4">
-            <span className="text-muted">Firmalar</span>
+            <span className="text-muted">{t('Firmalar')}</span>
             <span className="text-right font-medium">{selectedNames}</span>
           </div>
           {q.trim() && (
             <div className="flex justify-between gap-4">
-              <span className="text-muted">Qidiruv</span>
+              <span className="text-muted">{t('Qidiruv')}</span>
               <span className="font-medium">{q.trim()}</span>
             </div>
           )}
           {minDebt && (
             <div className="flex justify-between gap-4">
-              <span className="text-muted">Qarz ≥</span>
-              <span className="font-medium">{money(minDebt)} soʻm</span>
+              <span className="text-muted">{t('Qarz ≥')}</span>
+              <span className="font-medium">{money(minDebt)} {t('soʻm')}</span>
             </div>
           )}
           {phase === 'idle' && (
             <p className="rounded-lg bg-surface-2 p-3 text-xs text-muted">
-              Joriy filtr boʻyicha: {matchClients.toLocaleString('ru-RU')} mijoz · {matchContracts.toLocaleString('ru-RU')} shartnoma.
-              «Yaratish»ni bosing.
+              {t('Joriy filtr boʻyicha')}: {matchClients.toLocaleString('ru-RU')} {t('mijoz')} · {matchContracts.toLocaleString('ru-RU')} {t('shartnoma')}.
+              {' '}{t('«Yaratish»ni bosing.')}
             </p>
           )}
           {busy && (
@@ -356,13 +358,13 @@ export function FilterExportBar({
                 <div className="h-full rounded-full bg-brand-600 transition-all" style={{ width: `${pct}%` }} />
               </div>
               <p className="mt-2 font-medium">
-                Yaratilmoqda… {progress.toLocaleString('ru-RU')}/{total.toLocaleString('ru-RU')} ({pct}%)
+                {t('Yaratilmoqda…')} {progress.toLocaleString('ru-RU')}/{total.toLocaleString('ru-RU')} ({pct}%)
               </p>
             </div>
           )}
           {phase === 'done' && (
             <p className="font-medium text-accent-700 dark:text-accent-400">
-              Tayyor — {progress.toLocaleString('ru-RU')} ta ariza. Pastdan yuklab oling — «Tayyor exportlar» roʻyxatida ham saqlanadi.
+              {t('Tayyor')} — {progress.toLocaleString('ru-RU')} {t('ta ariza. Pastdan yuklab oling — «Tayyor exportlar» roʻyxatida ham saqlanadi.')}
             </p>
           )}
           {phase === 'failed' && error && <p className="font-medium text-rose-600 dark:text-rose-300">{error}</p>}

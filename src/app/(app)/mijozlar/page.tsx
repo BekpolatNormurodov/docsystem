@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { PageHeader, EmptyState, Skeleton } from '@/ui';
+import { getT } from '@/lib/i18n/server';
 import { MijozlarFilters } from './MijozlarFilters';
 import { MijozlarTable } from './MijozlarTable';
 
@@ -13,6 +14,7 @@ export default async function MijozlarPage({
   searchParams: Record<string, string | undefined>;
 }) {
   await requireUser();
+  const t = getT();
 
   const snapshots = await prisma.snapshot.findMany({
     where: { status: 'READY' },
@@ -23,8 +25,8 @@ export default async function MijozlarPage({
   if (snapshots.length === 0) {
     return (
       <div>
-        <PageHeader title="Mijozlar" subtitle="Portfeldagi mijozlar (PINFL boʻyicha)" />
-        <EmptyState title="Hali portfel yuklanmagan" hint="Hujjatlar boʻlimidan portfel faylini yuklang." />
+        <PageHeader title={t('Mijozlar')} subtitle={t('Portfeldagi mijozlar (PINFL boʻyicha)')} />
+        <EmptyState title={t('Hali portfel yuklanmagan')} hint={t('Hujjatlar boʻlimidan portfel faylini yuklang.')} />
       </div>
     );
   }
@@ -51,15 +53,15 @@ export default async function MijozlarPage({
   if (!snapshot) {
     return (
       <div>
-        <PageHeader title="Mijozlar" subtitle="Portfeldagi mijozlar (PINFL boʻyicha)" />
-        <EmptyState title="Snapshot topilmadi" hint="Boshqa sanani tanlang." />
+        <PageHeader title={t('Mijozlar')} subtitle={t('Portfeldagi mijozlar (PINFL boʻyicha)')} />
+        <EmptyState title={t('Snapshot topilmadi')} hint={t('Boshqa sanani tanlang.')} />
       </div>
     );
   }
 
   return (
     <div>
-      <PageHeader title="Mijozlar" subtitle="Portfeldagi mijozlar (PINFL boʻyicha) — qidiring va kartasiga kiring" />
+      <PageHeader title={t('Mijozlar')} subtitle={t('Portfeldagi mijozlar (PINFL boʻyicha) — qidiring va kartasiga kiring')} />
       <MijozlarFilters dates={dates} date={date} initialQ={q} />
       {/* The client table (heavy top-debt groupBy) streams in — header + search
           paint instantly, so the operator can start typing immediately. */}

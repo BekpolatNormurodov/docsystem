@@ -2,6 +2,7 @@
 
 import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
 import { Modal } from './Modal';
+import { useT } from '@/lib/i18n/client';
 
 export interface ConfirmOptions {
   title: string;
@@ -28,6 +29,7 @@ export function useConfirm(): ConfirmFn {
 }
 
 export function ConfirmProvider({ children }: { children: React.ReactNode }) {
+  const t = useT();
   const [opts, setOpts] = useState<ConfirmOptions | null>(null);
   const resolver = useRef<((v: boolean) => void) | null>(null);
 
@@ -59,7 +61,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
               onClick={() => settle(false)}
               className="rounded-lg border border-line px-3.5 py-1.5 text-xs font-medium text-muted outline-none transition-colors hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-brand-500/30"
             >
-              {opts.cancelLabel ?? 'Bekor'}
+              {opts.cancelLabel ?? t('Bekor')}
             </button>
             <button
               type="button"
@@ -70,7 +72,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                 (opts.danger ? 'bg-rose-500 hover:bg-rose-600 focus-visible:ring-rose-500/40' : 'bg-brand-500 hover:bg-brand-600 focus-visible:ring-brand-500/40')
               }
             >
-              {opts.confirmLabel ?? 'Ha'}
+              {opts.confirmLabel ?? t('Ha')}
             </button>
           </>
         ) : null}

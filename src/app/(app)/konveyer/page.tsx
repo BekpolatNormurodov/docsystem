@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { requireAdmin } from '@/lib/auth';
 import { EmptyState } from '@/ui';
 import { konveyerSummary, konveyerFunnel, konveyerSnapshots, STAGES, PHASES } from '@/lib/konveyer';
+import { getT } from '@/lib/i18n/server';
 import { SyncButton } from './SyncButton';
 import { Explorer } from './Explorer';
 
@@ -9,6 +10,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function KonveyerPage({ searchParams }: { searchParams: { s?: string } }) {
   await requireAdmin();
+  const t = getT();
 
   const snaps = await konveyerSnapshots();
   // Snapshot = the sidebar picker's cookie (konv_s) only — the SAME source the layout uses for the
@@ -26,7 +28,7 @@ export default async function KonveyerPage({ searchParams }: { searchParams: { s
     <div>
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Hisobot</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{t('Hisobot')}</h1>
         </div>
         <div className="flex items-center gap-3">
           <SyncButton />
@@ -35,8 +37,8 @@ export default async function KonveyerPage({ searchParams }: { searchParams: { s
 
       {s.total === 0 ? (
         <EmptyState
-          title="Hali konveyerda ariza yo'q"
-          hint="«Snapshot'dan yangilash» tugmasi bilan sud ro'yxatidagi mijozlarni konveyerga oling."
+          title={t("Hali konveyerda ariza yo'q")}
+          hint={t("«Snapshot'dan yangilash» tugmasi bilan sud ro'yxatidagi mijozlarni konveyerga oling.")}
         />
       ) : (
         <>

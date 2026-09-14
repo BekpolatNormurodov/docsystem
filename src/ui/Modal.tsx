@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Ico } from './icons';
+import { useT } from '@/lib/i18n/client';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -34,6 +35,7 @@ export function Modal({
   onClose: () => void;
   size?: keyof typeof SIZES;
 }) {
+  const t = useT();
   const panel = useRef<HTMLDivElement>(null);
   const restoreTo = useRef<HTMLElement | null>(null);
   // createPortal needs a real document; the server render has none.
@@ -120,7 +122,7 @@ export function Modal({
         <button
           onClick={onClose}
           className="absolute right-4 top-4 cursor-pointer rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-fg"
-          aria-label="Yopish"
+          aria-label={t('Yopish')}
           type="button"
         >
           <Ico.close size={18} />

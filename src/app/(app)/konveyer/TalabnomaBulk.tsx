@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico } from '@/ui';
+import { useT } from '@/lib/i18n/client';
 
 interface JobState { status: string; progress: number; total: number; message?: string | null }
 interface Sum { count: number; sent: number; remaining: number; totalDebt: number; remainingDebt: number }
@@ -34,6 +35,7 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
   firms?: { firmId: number; firmName: string; total: number }[];
   onSelectFirm?: (id: number) => void;
 }) {
+  const t = useT();
   const n = (x: number) => x.toLocaleString('ru-RU');
 
   // Reyestr Excel state.
@@ -107,7 +109,7 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
         setJob(s);
         if (s.status === 'DONE' || s.status === 'FAILED') {
           if (timer.current) clearInterval(timer.current);
-          if (s.status === 'FAILED') setErr(s.message || 'Xatolik');
+          if (s.status === 'FAILED') setErr(s.message || t('Xatolik'));
         }
       } catch { /* transient poll error — keep polling */ }
     };
@@ -134,10 +136,10 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ snapshotId, firmId, ...(limit ? { limit } : {}) }),
       });
-      if (!res.ok) { let e = 'Excel yaratilmadi'; try { e = (await res.json()).error || e; } catch {} throw new Error(e); }
+      if (!res.ok) { let e = t('Excel yaratilmadi'); try { e = (await res.json()).error || e; } catch {} throw new Error(e); }
       await downloadFromResponse(res, 'Talabnoma_reyestr.xlsx');
       setModalOpen(false);
-    } catch (e) { setXlsErr(e instanceof Error ? e.message : 'Excel yaratilmadi'); }
+    } catch (e) { setXlsErr(e instanceof Error ? e.message : t('Excel yaratilmadi')); }
     finally { setXlsBusy(false); xlsInFlight.current = false; }
   };
 
@@ -151,24 +153,24 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
         body: JSON.stringify({ snapshotId, firmId, mode: real ? 'send' : 'draft', ...(real ? { confirm: true } : {}), ...(limit ? { limit } : {}) }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.ok) throw new Error(data?.error || 'xat.hippo ga yuborilmadi');
+      if (!res.ok || !data?.ok) throw new Error(data?.error || t('xat.hippo ga yuborilmadi'));
       setModalOpen(false);
-      const rem = typeof data.remaining === 'number' ? ` · ${n(data.remaining)} qoldi` : '';
-      const reg = data.registryId ? ` · reyestr #${data.registryId}` : '';
+      const rem = typeof data.remaining === 'number' ? ` · ${n(data.remaining)} ${t('qoldi')}` : '';
+      const reg = data.registryId ? ` · ${t('reyestr')} #${data.registryId}` : '';
       // Clear split: yangi (queued) / dublikat (already sent before) / xato (real failures).
       const parts: string[] = [];
-      if (data.queued) parts.push(`${n(data.queued)} yangi joʻnatildi`);
-      if (data.duplicates) parts.push(`${n(data.duplicates)} avval joʻnatilgan (dublikat)`);
-      if (data.failed) parts.push(`${n(data.failed)} xato`);
-      const head = parts.length ? parts.join(' · ') : `${n(data.count)} ta talabnoma ${real ? 'joʻnatildi' : 'yuklandi'}`;
+      if (data.queued) parts.push(`${n(data.queued)} ${t('yangi joʻnatildi')}`);
+      if (data.duplicates) parts.push(`${n(data.duplicates)} ${t('avval joʻnatilgan (dublikat)')}`);
+      if (data.failed) parts.push(`${n(data.failed)} ${t('xato')}`);
+      const head = parts.length ? parts.join(' · ') : `${n(data.count)} ${t('ta talabnoma')} ${real ? t('joʻnatildi') : t('yuklandi')}`;
       const fails = Array.isArray(data.failedMessages) && data.failedMessages.length
         ? ` — ${data.failedMessages.slice(0, 2).join('; ')}` : '';
       setSendMsg(real
         ? `${head}${reg}${rem}.${fails}`
-        : `${head} (qoralama${reg})${rem}. «Bekor / holat»ni pastdan koʻring.${fails}`);
+        : `${head} (${t('qoralama')}${reg})${rem}. ${t('«Bekor / holat»ni pastdan koʻring.')}${fails}`);
       // Refresh the summary + nudge the status panel (sibling) so the new reyestr / qoralama shows.
       window.dispatchEvent(new CustomEvent('hippo:refresh'));
-    } catch (e) { setSendErr(e instanceof Error ? e.message : 'xat.hippo ga yuborilmadi'); }
+    } catch (e) { setSendErr(e instanceof Error ? e.message : t('xat.hippo ga yuborilmadi')); }
     finally { setSendBusy(false); sendInFlight.current = false; }
   };
 
@@ -194,10 +196,10 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
         body: JSON.stringify({ snapshotId, firmId }),
       });
       const data = await res.json();
-      if (!res.ok) { setErr(data?.error || 'Xatolik'); return; }
+      if (!res.ok) { setErr(data?.error || t('Xatolik')); return; }
       setJob({ status: 'PENDING', progress: 0, total: data.total });
       setJobId(data.jobId);
-    } catch (e) { setErr(e instanceof Error ? e.message : 'Tarmoq xatosi'); }
+    } catch (e) { setErr(e instanceof Error ? e.message : t('Tarmoq xatosi')); }
     finally { setStarting(false); inFlight.current = false; }
   };
 
@@ -212,15 +214,15 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
     <div className="card p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
         <div>
-          <div className="text-sm font-semibold">Talabnoma tayyorlash</div>
-          <div className="mt-0.5 text-xs text-muted">Reyestr (Excel), xat.hippo ga joʻnatish va har mijozga PDF · {scopeLabel}</div>
+          <div className="text-sm font-semibold">{t('Talabnoma tayyorlash')}</div>
+          <div className="mt-0.5 text-xs text-muted">{t('Reyestr (Excel), xat.hippo ga joʻnatish va har mijozga PDF ·')} {scopeLabel}</div>
         </div>
       </div>
 
       {needFirm ? (
         <div className="space-y-2.5">
           <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.05] px-3 py-2.5 text-xs text-amber-700 dark:text-amber-300">
-            Talabnoma reyestri (yoki xat.hippo ga joʻnatish) firma boʻyicha tayyorlanadi. Firmani tanlang. Umumiy koʻrinish uchun pastdagi «Umumiy statistika».
+            {t('Talabnoma reyestri (yoki xat.hippo ga joʻnatish) firma boʻyicha tayyorlanadi. Firmani tanlang. Umumiy koʻrinish uchun pastdagi «Umumiy statistika».')}
           </div>
           {firms.length > 0 && onSelectFirm && (
             <div className="flex flex-wrap gap-1.5">
@@ -229,7 +231,7 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
                   key={f.firmId}
                   onClick={() => onSelectFirm(f.firmId)}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-medium outline-none transition-colors hover:border-brand-500/50 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-brand-500/30"
-                  title={`«${f.firmName}» boʻyicha talabnoma tayyorlash`}
+                  title={`«${f.firmName}» ${t('boʻyicha talabnoma tayyorlash')}`}
                 >
                   <span className="max-w-[14rem] truncate">{f.firmName}</span>
                   <span className="tabular-nums text-[11px] text-muted">{n(f.total)}</span>
@@ -243,12 +245,12 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
           {(sumBusy || sum) && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
               {!sum && sumBusy
-                ? <span className="inline-flex items-center gap-1.5 text-muted"><span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> Hisoblanmoqda…</span>
+                ? <span className="inline-flex items-center gap-1.5 text-muted"><span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> {t('Hisoblanmoqda…')}</span>
                 : sum ? (<>
-                    <span className="rounded-lg bg-surface-2 px-2 py-1 font-semibold tabular-nums">{n(total)} ta talabnoma</span>
-                    {sent > 0 && <span className="rounded-lg bg-emerald-500/12 px-2 py-1 font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">✓ {n(sent)} joʻnatilgan</span>}
-                    <span className="rounded-lg bg-surface-2 px-2 py-1 font-medium tabular-nums">{n(remaining)} qoldi</span>
-                    <span className="rounded-lg bg-surface-2 px-2 py-1 font-medium tabular-nums text-muted">{n(sum.totalDebt)} soʻm qarzdorlik</span>
+                    <span className="rounded-lg bg-surface-2 px-2 py-1 font-semibold tabular-nums">{n(total)} {t('ta talabnoma')}</span>
+                    {sent > 0 && <span className="rounded-lg bg-emerald-500/12 px-2 py-1 font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">✓ {n(sent)} {t('joʻnatilgan')}</span>}
+                    <span className="rounded-lg bg-surface-2 px-2 py-1 font-medium tabular-nums">{n(remaining)} {t('qoldi')}</span>
+                    <span className="rounded-lg bg-surface-2 px-2 py-1 font-medium tabular-nums text-muted">{n(sum.totalDebt)} {t('soʻm qarzdorlik')}</span>
                   </>) : null}
             </div>
           )}
@@ -259,10 +261,10 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
               disabled={remaining === 0}
               aria-haspopup="dialog"
               className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-fg outline-none transition-colors hover:border-brand-500/40 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50"
-              title={`«${firmName ?? 'firma'}» reyestrini Excel qilib olish (joʻnatilmaganlardan)`}
+              title={`«${firmName ?? t('firma')}» ${t('reyestrini Excel qilib olish (joʻnatilmaganlardan)')}`}
             >
               <Ico.sheet size={14} className="text-emerald-600 dark:text-emerald-400" />
-              Reyestr (Excel){remaining ? ` · ${n(remaining)}` : ''}
+              {t('Reyestr (Excel)')}{remaining ? ` · ${n(remaining)}` : ''}
             </button>
 
             {/* xat.hippo ga joʻnatish — modal: qoralama|darhol + hammasi|son. */}
@@ -271,10 +273,10 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
               disabled={remaining === 0}
               aria-haspopup="dialog"
               className="inline-flex items-center gap-1.5 rounded-lg border border-brand-500/40 bg-brand-500/10 px-3 py-1.5 text-xs font-semibold text-brand-700 outline-none transition-colors hover:bg-brand-500/15 focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:opacity-50 dark:text-brand-300"
-              title={`«${firmName ?? 'firma'}» reyestrini xat.hippo ga joʻnatish`}
+              title={`«${firmName ?? t('firma')}» ${t('reyestrini xat.hippo ga joʻnatish')}`}
             >
               <Ico.send size={14} />
-              xat.hippo ga joʻnatish
+              {t('xat.hippo ga joʻnatish')}
             </button>
 
             {/* Talabnoma PDF — background job → ZIP of one letter per client. */}
@@ -284,11 +286,11 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
                 disabled={!!running || starting}
                 aria-busy={!!running || starting}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm outline-none transition-all hover:bg-brand-600 focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:cursor-wait disabled:opacity-70"
-                title={`«${firmName ?? 'firma'}» har mijoziga talabnoma PDF (orqada)`}
+                title={`«${firmName ?? t('firma')}» ${t('har mijoziga talabnoma PDF (orqada)')}`}
               >
                 {running
-                  ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> Tayyorlanmoqda… {job?.progress ?? 0}/{job?.total ?? ''}</>
-                  : <><Ico.files size={14} /> Hamma talabnomalar (PDF){sum ? ` · ${n(total)}` : ''}</>}
+                  ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> {t('Tayyorlanmoqda…')} {job?.progress ?? 0}/{job?.total ?? ''}</>
+                  : <><Ico.files size={14} /> {t('Hamma talabnomalar (PDF)')}{sum ? ` · ${n(total)}` : ''}</>}
               </button>
             ) : (
               <>
@@ -300,14 +302,14 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
                       ? 'border-rose-500/40 bg-rose-500/10 text-rose-700 hover:bg-rose-500/15 focus-visible:ring-rose-500/40 dark:text-rose-300'
                       : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 focus-visible:ring-emerald-500/40 dark:text-emerald-300',
                   )}
-                  title={short ? `${n(expected - made)} ta talabnoma yuklanmadi — qolgani ZIP ichida` : undefined}
+                  title={short ? `${n(expected - made)} ${t('ta talabnoma yuklanmadi — qolgani ZIP ichida')}` : undefined}
                 >
                   <Ico.download size={14} />
-                  {n(made)} ta talabnoma tayyor — yuklab olish
+                  {n(made)} {t('ta talabnoma tayyor — yuklab olish')}
                 </a>
                 {short && (
                   <span role="alert" className="inline-flex items-center gap-1 rounded-md bg-rose-500/10 px-2 py-1 text-[11px] font-semibold text-rose-600 dark:text-rose-300">
-                    ⚠ {n(expected - made)} ta yuklanmadi ({n(made)}/{n(expected)})
+                    ⚠ {n(expected - made)} {t('ta yuklanmadi')} ({n(made)}/{n(expected)})
                   </span>
                 )}
               </>
@@ -326,13 +328,13 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
 
       {/* Shared modal — send (qoralama|darhol) or excel; hammasi | belgilangan son (unsent). */}
       {modalOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={modalKind === 'send' ? 'xat.hippo ga joʻnatish' : 'Reyestr Excel'}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={modalKind === 'send' ? t('xat.hippo ga joʻnatish') : t('Reyestr Excel')}>
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => { if (!modalBusy) setModalOpen(false); }} aria-hidden />
           <div className="animate-fade-in relative w-full max-w-sm rounded-2xl border border-line bg-surface p-5 shadow-2xl">
             <button
               onClick={() => setModalOpen(false)}
               disabled={modalBusy}
-              aria-label="Yopish"
+              aria-label={t('Yopish')}
               className="absolute right-3 top-3 grid h-7 w-7 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-fg disabled:opacity-40"
             >
               <Ico.close size={16} />
@@ -344,25 +346,25 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
                   ? <Ico.send size={16} />
                   : <Ico.sheet size={16} />}
               </span>
-              <div className="text-base font-semibold">{modalKind === 'send' ? 'Talabnoma joʻnatish' : 'Reyestr (Excel)'}</div>
+              <div className="text-base font-semibold">{modalKind === 'send' ? t('Talabnoma joʻnatish') : t('Reyestr (Excel)')}</div>
             </div>
 
             {modalKind === 'send' && (
               <div className="mb-3 grid grid-cols-2 gap-1.5 rounded-xl bg-surface-2 p-1">
-                <button onClick={() => setSendReal(false)} className={cx('rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors', !sendReal ? 'bg-surface text-fg shadow-sm' : 'text-muted hover:text-fg')}>Qoralama</button>
-                <button onClick={() => setSendReal(true)} className={cx('rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors', sendReal ? 'bg-brand-500 text-white shadow-sm' : 'text-muted hover:text-fg')}>Darhol joʻnatish</button>
+                <button onClick={() => setSendReal(false)} className={cx('rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors', !sendReal ? 'bg-surface text-fg shadow-sm' : 'text-muted hover:text-fg')}>{t('Qoralama')}</button>
+                <button onClick={() => setSendReal(true)} className={cx('rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors', sendReal ? 'bg-brand-500 text-white shadow-sm' : 'text-muted hover:text-fg')}>{t('Darhol joʻnatish')}</button>
               </div>
             )}
 
             <div className="mb-4 flex items-start gap-1.5 text-xs text-muted">
               <Ico.info size={14} className="mt-0.5 shrink-0" />
               <span>
-                «{firmName ?? 'firma'}» ·{' '}
+                «{firmName ?? t('firma')}» ·{' '}
                 {modalKind === 'excel'
-                  ? <>joʻnatilmagan {n(remaining)} tadan reyestr (Excel) yuklab olinadi.</>
+                  ? <>{t('joʻnatilmagan')} {n(remaining)} {t('tadan reyestr (Excel) yuklab olinadi.')}</>
                   : sendReal
-                    ? <><span className="font-medium text-rose-600 dark:text-rose-300">darhol joʻnatiladi</span> — notoʻgʻri boʻlsa «Bekor qilish»dan oʻchiriladi.</>
-                    : <><span className="font-medium text-fg">qoralama</span> sifatida yuklanadi — keyin darhol joʻnatish yoki bekor qilasiz.</>}
+                    ? <><span className="font-medium text-rose-600 dark:text-rose-300">{t('darhol joʻnatiladi')}</span> {t('— notoʻgʻri boʻlsa «Bekor qilish»dan oʻchiriladi.')}</>
+                    : <><span className="font-medium text-fg">{t('qoralama')}</span> {t('sifatida yuklanadi — keyin darhol joʻnatish yoki bekor qilasiz.')}</>}
               </span>
             </div>
 
@@ -378,8 +380,8 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
                   <Ico.layer size={16} />
                 </span>
                 <span className="flex-1">
-                  <span className="block text-sm font-semibold">Hammasi (qolgan)</span>
-                  <span className="block text-xs text-muted tabular-nums">{n(remaining)} ta talabnoma</span>
+                  <span className="block text-sm font-semibold">{t('Hammasi (qolgan)')}</span>
+                  <span className="block text-xs text-muted tabular-nums">{n(remaining)} {t('ta talabnoma')}</span>
                 </span>
                 <span className={cx('grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 transition-colors', sendAll ? 'border-brand-500' : 'border-line')}>
                   {sendAll && <span className="h-2.5 w-2.5 rounded-full bg-brand-500" />}
@@ -397,7 +399,7 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
                   <Ico.hashtag size={16} />
                 </span>
                 <span className="flex-1">
-                  <span className="block text-sm font-semibold">Belgilangan son</span>
+                  <span className="block text-sm font-semibold">{t('Belgilangan son')}</span>
                   <span className="mt-1.5 flex items-center gap-2">
                     <input
                       type="number" min={1} max={remaining || undefined} value={sendCount}
@@ -406,7 +408,7 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
                       onChange={(e) => setSendCount(e.target.value)}
                       className="w-24 rounded-lg border border-line bg-bg px-2.5 py-1.5 text-sm font-semibold tabular-nums outline-none transition-shadow focus-visible:border-brand-500/50 focus-visible:ring-2 focus-visible:ring-brand-500/25"
                     />
-                    <span className="text-xs text-muted tabular-nums">/ {n(remaining)} tadan</span>
+                    <span className="text-xs text-muted tabular-nums">/ {n(remaining)} {t('tadan')}</span>
                   </span>
                 </span>
                 <span className={cx('grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 transition-colors', !sendAll ? 'border-brand-500' : 'border-line')}>
@@ -415,12 +417,12 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
               </div>
             </div>
 
-            <div className="mt-2 text-[11px] text-muted">Bir mijoz ikki marta joʻnatilmaydi — keyingi «son» qolganlaridan oladi.</div>
+            <div className="mt-2 text-[11px] text-muted">{t('Bir mijoz ikki marta joʻnatilmaydi — keyingi «son» qolganlaridan oladi.')}</div>
 
             {modalErr && <div role="alert" className="mt-3 rounded-lg bg-rose-500/10 px-3 py-2 text-xs font-medium text-rose-600 dark:text-rose-300">{modalErr}</div>}
 
             <div className="mt-4 flex items-center justify-end gap-2">
-              <button onClick={() => setModalOpen(false)} disabled={modalBusy} className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-2 disabled:opacity-50">Bekor</button>
+              <button onClick={() => setModalOpen(false)} disabled={modalBusy} className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-2 disabled:opacity-50">{t('Bekor')}</button>
               <button
                 onClick={confirmModal}
                 disabled={modalBusy || !countValid || remaining === 0}
@@ -431,10 +433,10 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
                 )}
               >
                 {modalBusy
-                  ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> {modalKind === 'send' ? 'Joʻnatilmoqda…' : 'Tayyorlanmoqda…'}</>
+                  ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> {modalKind === 'send' ? t('Joʻnatilmoqda…') : t('Tayyorlanmoqda…')}</>
                   : modalKind === 'send'
-                    ? <><Ico.send size={14} /> {sendReal ? 'Darhol joʻnatish' : 'xat.hippo ga yuklash'} ({n(batchN)})</>
-                    : <><Ico.download size={14} /> Yuklab olish ({n(batchN)})</>}
+                    ? <><Ico.send size={14} /> {sendReal ? t('Darhol joʻnatish') : t('xat.hippo ga yuklash')} ({n(batchN)})</>
+                    : <><Ico.download size={14} /> {t('Yuklab olish')} ({n(batchN)})</>}
               </button>
             </div>
           </div>

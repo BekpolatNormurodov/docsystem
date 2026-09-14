@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Select, TextField, DateField } from '@/ui';
 import type { Option } from '@/ui/Select';
+import { useT } from '@/lib/i18n/client';
 
 export type FirmOpt = { code: string; shortName: string };
 
@@ -12,6 +13,7 @@ export type FirmOpt = { code: string; shortName: string };
  * fields `parseLoanFilters`/`buildLoanWhere` understand: q, branch, minDebt, fromDate.
  */
 export function LoanFilters({ firms }: { firms: FirmOpt[] }) {
+  const t = useT();
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
@@ -46,31 +48,31 @@ export function LoanFilters({ firms }: { firms: FirmOpt[] }) {
     <form onSubmit={apply} className="card mb-4 p-4">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         <TextField
-          label="Qidirish"
+          label={t('Qidirish')}
           value={q}
           onChange={setQ}
-          placeholder="PINFL, F.I.SH., shartnoma…"
+          placeholder={t('PINFL, F.I.SH., shartnoma…')}
         />
         <Select
-          label="Firma"
-          placeholder="Barcha firmalar"
+          label={t('Firma')}
+          placeholder={t('Barcha firmalar')}
           value={branch}
           onChange={setBranch}
           options={[
-            { value: '', label: 'Barcha firmalar' },
+            { value: '', label: t('Barcha firmalar') },
             ...firms.map<Option>((f) => ({ value: f.code, label: f.shortName })),
           ]}
         />
         <TextField
-          label="Qarz ≥"
+          label={t('Qarz ≥')}
           value={minDebt}
           onChange={setMinDebt}
           inputMode="numeric"
           placeholder="0"
         />
-        <DateField label="Sanadan" value={fromDate} onChange={setFromDate} />
+        <DateField label={t('Sanadan')} value={fromDate} onChange={setFromDate} />
         <div className="flex items-end gap-2">
-          <button type="submit" className="btn-primary w-full">Filtrlash</button>
+          <button type="submit" className="btn-primary w-full">{t('Filtrlash')}</button>
         </div>
       </div>
 
@@ -80,7 +82,7 @@ export function LoanFilters({ firms }: { firms: FirmOpt[] }) {
           type="button"
           className="mt-3 cursor-pointer text-xs font-medium text-brand-600 hover:underline dark:text-brand-400"
         >
-          Filtrlarni tozalash
+          {t('Filtrlarni tozalash')}
         </button>
       )}
     </form>

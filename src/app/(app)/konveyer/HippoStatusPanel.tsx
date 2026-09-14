@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useConfirm, Ico } from '@/ui';
+import { useT } from '@/lib/i18n/client';
 
 interface Reg { id: number; name: string; total: number; delivered: number; failed: number; pending: number; draft: number; createdAt?: string | null }
 interface OverallFirm { firmId: number; firmName: string; connected: boolean; balance: number; registries: number; sent: number }
@@ -29,6 +30,7 @@ function Bar({ r }: { r: Reg }) {
 }
 
 export function HippoStatusPanel({ firmId }: { firmId?: number }) {
+  const t = useT();
   const confirm = useConfirm();
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true); // hold the skeleton box from the first paint
@@ -49,7 +51,7 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
     setDlBusy(registryId); setDlErr(null);
     try {
       const res = await fetch(`/konveyer/hippo/receipts?firmId=${firmId}&registryId=${registryId}`);
-      if (!res.ok) { let e = 'Yuklab bo‘lmadi'; try { e = (await res.json()).error || e; } catch {} throw new Error(e); }
+      if (!res.ok) { let e = t('Yuklab bo‘lmadi'); try { e = (await res.json()).error || e; } catch {} throw new Error(e); }
       const blob = await res.blob();
       const cd = res.headers.get('Content-Disposition') || '';
       const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd);
@@ -57,7 +59,7 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
       a.href = URL.createObjectURL(blob); a.download = m ? decodeURIComponent(m[1]) : 'kvitansiya.zip';
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-    } catch (e) { setDlErr(e instanceof Error ? e.message : 'Kvitansiya yuklab bo‘lmadi'); } // inline, keeps the list
+    } catch (e) { setDlErr(e instanceof Error ? e.message : t('Kvitansiya yuklab bo‘lmadi')); } // inline, keeps the list
     finally { setDlBusy(null); }
   };
 
@@ -68,7 +70,7 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
     setDlLettersBusy(registryId); setDlErr(null);
     try {
       const res = await fetch(`/konveyer/hippo/letters?firmId=${firmId}&registryId=${registryId}`);
-      if (!res.ok) { let e = 'Yuklab bo‘lmadi'; try { e = (await res.json()).error || e; } catch {} throw new Error(e); }
+      if (!res.ok) { let e = t('Yuklab bo‘lmadi'); try { e = (await res.json()).error || e; } catch {} throw new Error(e); }
       const blob = await res.blob();
       const cd = res.headers.get('Content-Disposition') || '';
       const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd);
@@ -76,7 +78,7 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
       a.href = URL.createObjectURL(blob); a.download = m ? decodeURIComponent(m[1]) : 'talabnoma.zip';
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-    } catch (e) { setDlErr(e instanceof Error ? e.message : 'Talabnomalar yuklab bo‘lmadi'); }
+    } catch (e) { setDlErr(e instanceof Error ? e.message : t('Talabnomalar yuklab bo‘lmadi')); }
     finally { setDlLettersBusy(null); }
   };
 
@@ -85,9 +87,9 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
   const cancelRegistry = async (registryId: number) => {
     if (!firmId) return;
     const ok = await confirm({
-      title: 'Reyestrni bekor qilish',
-      description: 'Reyestr xat.hippo dan oʻchiriladi. Uning mijozlari qayta joʻnatishga ochiladi.',
-      confirmLabel: 'Oʻchirish', danger: true,
+      title: t('Reyestrni bekor qilish'),
+      description: t('Reyestr xat.hippo dan oʻchiriladi. Uning mijozlari qayta joʻnatishga ochiladi.'),
+      confirmLabel: t('Oʻchirish'), danger: true,
     });
     if (!ok) return;
     setCancelBusy(registryId); setDlErr(null);
@@ -96,10 +98,10 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ firmId, registryId }),
       });
-      if (!res.ok) { let e = 'Bekor qilib boʻlmadi'; try { e = (await res.json()).error || e; } catch {} throw new Error(e); }
+      if (!res.ok) { let e = t('Bekor qilib boʻlmadi'); try { e = (await res.json()).error || e; } catch {} throw new Error(e); }
       window.dispatchEvent(new CustomEvent('hippo:refresh')); // update the talabnoma summary (remaining count)
       await load();
-    } catch (e) { setDlErr(e instanceof Error ? e.message : 'Bekor qilib boʻlmadi'); }
+    } catch (e) { setDlErr(e instanceof Error ? e.message : t('Bekor qilib boʻlmadi')); }
     finally { setCancelBusy(null); }
   };
 
@@ -116,9 +118,9 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
     try {
       const res = await fetch(`/konveyer/hippo/status?refresh=1${firmId ? `&firmId=${firmId}` : ''}`, { cache: 'no-store' });
       if (my !== reqId.current) return;
-      if (!res.ok) throw new Error(`Server xatosi (${res.status})`);
+      if (!res.ok) throw new Error(`${t('Server xatosi')} (${res.status})`);
       setData(await res.json());
-    } catch (e) { if (my === reqId.current) setErr(e instanceof Error ? e.message : 'Yuklab bo‘lmadi'); }
+    } catch (e) { if (my === reqId.current) setErr(e instanceof Error ? e.message : t('Yuklab bo‘lmadi')); }
     finally { if (my === reqId.current) setLoading(false); }
   }, [firmId]);
   useEffect(() => { load(); }, [load]);
@@ -139,10 +141,10 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
     try {
       const res = await fetch('/konveyer/hippo/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ firmId }) });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok || !d?.ok) throw new Error(d?.error || 'Sinxronlab boʻlmadi');
-      setSyncMsg(`${n(d.matched ?? 0)} / ${n(d.totalMails ?? 0)} ta hippodan olindi — dedupe yangilandi`);
+      if (!res.ok || !d?.ok) throw new Error(d?.error || t('Sinxronlab boʻlmadi'));
+      setSyncMsg(`${n(d.matched ?? 0)} / ${n(d.totalMails ?? 0)} ${t('ta hippodan olindi — dedupe yangilandi')}`);
       window.dispatchEvent(new CustomEvent('hippo:refresh')); // refreshes this panel + the talabnoma summary
-    } catch (e) { setDlErr(e instanceof Error ? e.message : 'Sinxronlab boʻlmadi'); }
+    } catch (e) { setDlErr(e instanceof Error ? e.message : t('Sinxronlab boʻlmadi')); }
     finally { setSyncBusy(false); }
   };
 
@@ -168,22 +170,22 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
       if (!j) { setAttachBusy(false); return; }
       const live = j.status === 'RUNNING' || j.status === 'PENDING';
       setAttachBusy(live);
-      setSyncMsg(j.message || (live ? 'Cheklar biriktirilyapti…' : null));
+      setSyncMsg(j.message || (live ? t('Cheklar biriktirilyapti…') : null));
       if (live) { attachPoll.current = setTimeout(pollAttach, 1500); return; }
-      if (j.status === 'FAILED') setDlErr(j.message || 'Biriktirib boʻlmadi');
+      if (j.status === 'FAILED') setDlErr(j.message || t('Biriktirib boʻlmadi'));
       loadReceiptSum();
       window.dispatchEvent(new CustomEvent('hippo:refresh'));
     } catch { setAttachBusy(false); }
   }, [loadReceiptSum]);
   const attachReceipts = async () => {
     if (!firmId || attachBusy) return;
-    setAttachBusy(true); setDlErr(null); setSyncMsg('Cheklar biriktirilyapti…');
+    setAttachBusy(true); setDlErr(null); setSyncMsg(t('Cheklar biriktirilyapti…'));
     try {
       const res = await fetch('/konveyer/hippo/attach-receipts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ firmId }) });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d?.error || 'Biriktirib boʻlmadi');
+      if (!res.ok) throw new Error(d?.error || t('Biriktirib boʻlmadi'));
       pollAttach();
-    } catch (e) { setDlErr(e instanceof Error ? e.message : 'Biriktirib boʻlmadi'); setAttachBusy(false); }
+    } catch (e) { setDlErr(e instanceof Error ? e.message : t('Biriktirib boʻlmadi')); setAttachBusy(false); }
   };
   useEffect(() => () => { if (attachPoll.current) clearTimeout(attachPoll.current); }, []);
 
@@ -193,44 +195,44 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
     <div className="card p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
         <div>
-          <div className="text-sm font-semibold">Talabnoma — xat.hippo</div>
+          <div className="text-sm font-semibold">{t('Talabnoma — xat.hippo')}</div>
           <div className="mt-0.5 text-xs text-muted">
-            Yuborilgan reyestrlar va yetkazilish holati
-            {data?.checkedAt && <span className="tabular-nums"> · {asOf(data.checkedAt)} holatiga</span>}
+            {t('Yuborilgan reyestrlar va yetkazilish holati')}
+            {data?.checkedAt && <span className="tabular-nums"> · {asOf(data.checkedAt)} {t('holatiga')}</span>}
             {loading && data && (
               <span className="ml-1.5 inline-flex items-center gap-1 font-medium text-brand-600 dark:text-brand-400">
-                <span className="h-2.5 w-2.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> xat.hippo dan yangilanyapti…
+                <span className="h-2.5 w-2.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> {t('xat.hippo dan yangilanyapti…')}
               </span>
             )}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           {firmId ? (
-            <button onClick={syncHippo} disabled={syncBusy} aria-busy={syncBusy} title="xat.hippo dagi mavjud reyestrlarni (yuristlar qo'lda yuborganlar ham) tortib olish — dedupe/sanoq uchun" className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-muted outline-none transition-colors hover:border-brand-500/40 focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50">
+            <button onClick={syncHippo} disabled={syncBusy} aria-busy={syncBusy} title={t("xat.hippo dagi mavjud reyestrlarni (yuristlar qo'lda yuborganlar ham) tortib olish — dedupe/sanoq uchun")} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-muted outline-none transition-colors hover:border-brand-500/40 focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50">
               {syncBusy
                 ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
                 : <Ico.refresh size={14} />}
-              Sinxronlash
+              {t('Sinxronlash')}
             </button>
           ) : null}
           {firmId ? (
-            <button onClick={attachReceipts} disabled={attachBusy} aria-busy={attachBusy} title="Talabnoma cheklarini (UZPOST kvitansiya) xat.hippo'dan yuklab, har mijoz ishiga biriktirish — sudga ketadi" className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-muted outline-none transition-colors hover:border-brand-500/40 focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50">
+            <button onClick={attachReceipts} disabled={attachBusy} aria-busy={attachBusy} title={t("Talabnoma cheklarini (UZPOST kvitansiya) xat.hippo'dan yuklab, har mijoz ishiga biriktirish — sudga ketadi")} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-muted outline-none transition-colors hover:border-brand-500/40 focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50">
               {attachBusy
                 ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
                 : <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" /></svg>}
-              Cheklarni biriktirish
+              {t('Cheklarni biriktirish')}
             </button>
           ) : null}
           {firmId && receiptSum ? (
-            <span title="Chek (kvitansiya): biriktirilgan / nomzod (case+hippo bor) / qolgan" className="inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-[11px] font-medium text-muted">
-              chek: <b className="tabular-nums text-emerald-600 dark:text-emerald-400">{n(receiptSum.attached)}</b>
+            <span title={t('Chek (kvitansiya): biriktirilgan / nomzod (case+hippo bor) / qolgan')} className="inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-[11px] font-medium text-muted">
+              {t('chek:')} <b className="tabular-nums text-emerald-600 dark:text-emerald-400">{n(receiptSum.attached)}</b>
               <span className="text-muted">/</span><b className="tabular-nums text-fg">{n(receiptSum.candidates)}</b>
-              {receiptSum.remaining > 0 && <span className="text-amber-600 dark:text-amber-400">· {n(receiptSum.remaining)} qoldi</span>}
+              {receiptSum.remaining > 0 && <span className="text-amber-600 dark:text-amber-400">· {n(receiptSum.remaining)} {t('qoldi')}</span>}
             </span>
           ) : null}
-          <button onClick={load} disabled={loading} aria-busy={loading} title="Qo'lda yangilash (aks holda har 2 soatda avto)" className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-muted outline-none transition-colors hover:border-brand-500/40 focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50">
+          <button onClick={load} disabled={loading} aria-busy={loading} title={t("Qo'lda yangilash (aks holda har 2 soatda avto)")} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-muted outline-none transition-colors hover:border-brand-500/40 focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50">
             {loading ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> : null}
-            Yangilash
+            {t('Yangilash')}
           </button>
         </div>
       </div>
@@ -246,7 +248,7 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
       {((err && data) || dlErr) && (
         <div role="alert" className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-rose-500/25 bg-rose-500/[0.04] px-2.5 py-1.5 text-[11px]">
           <span className="text-rose-500">{dlErr || err}</span>
-          <button onClick={() => { setDlErr(null); if (err) load(); }} className="rounded border border-line px-1.5 py-0.5 font-medium text-muted hover:border-brand-500/40">Qayta</button>
+          <button onClick={() => { setDlErr(null); if (err) load(); }} className="rounded border border-line px-1.5 py-0.5 font-medium text-muted hover:border-brand-500/40">{t('Qayta')}</button>
         </div>
       )}
       {loading && !data ? (
@@ -254,53 +256,53 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
       ) : err && !data ? (
         <div role="alert" className="flex items-center justify-between gap-2 rounded-lg border border-rose-500/25 bg-rose-500/[0.04] px-3 py-2 text-xs">
           <span className="text-rose-500">{err}</span>
-          <button onClick={load} className="rounded border border-line px-2 py-0.5 font-medium text-muted hover:border-brand-500/40">Qayta</button>
+          <button onClick={load} className="rounded border border-line px-2 py-0.5 font-medium text-muted hover:border-brand-500/40">{t('Qayta')}</button>
         </div>
       ) : data?.overall ? (
         (data.totals?.firmCount ?? 0) > 0 ? (
           <>
             <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
-              <span className="rounded-lg bg-surface-2 px-2 py-1 font-medium tabular-nums">{n(data.totals!.firmCount)} firma ulangan</span>
-              <span className="rounded-lg bg-surface-2 px-2 py-1 font-medium tabular-nums">Jami balans: {n(data.totals!.balance)} so‘m</span>
-              <span className="rounded-lg bg-emerald-500/12 px-2 py-1 font-medium text-emerald-700 tabular-nums dark:text-emerald-300">Jami yuborilgan: {n(data.totals!.sent)}</span>
-              <span className="rounded-lg bg-surface-2 px-2 py-1 font-medium tabular-nums text-muted">{n(data.totals!.registries)} reyestr</span>
+              <span className="rounded-lg bg-surface-2 px-2 py-1 font-medium tabular-nums">{n(data.totals!.firmCount)} {t('firma ulangan')}</span>
+              <span className="rounded-lg bg-surface-2 px-2 py-1 font-medium tabular-nums">{t('Jami balans:')} {n(data.totals!.balance)} {t('so‘m')}</span>
+              <span className="rounded-lg bg-emerald-500/12 px-2 py-1 font-medium text-emerald-700 tabular-nums dark:text-emerald-300">{t('Jami yuborilgan:')} {n(data.totals!.sent)}</span>
+              <span className="rounded-lg bg-surface-2 px-2 py-1 font-medium tabular-nums text-muted">{n(data.totals!.registries)} {t('reyestr')}</span>
             </div>
             <ul className="space-y-1.5">
               {(data.firms ?? []).filter((f) => f.connected).map((f) => (
                 <li key={f.firmId} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-xl border border-line bg-surface px-3 py-2 text-xs">
                   <span className="min-w-[7rem] flex-1 truncate font-medium" title={f.firmName}>{f.firmName}</span>
                   <span className="flex flex-wrap items-center justify-end gap-x-3 gap-y-0.5 tabular-nums">
-                    <span className="text-muted">{n(f.balance)} so‘m</span>
-                    <span className="text-emerald-600 dark:text-emerald-400">{n(f.sent)} yuborilgan</span>
-                    <span className="text-muted">{n(f.registries)} reyestr</span>
+                    <span className="text-muted">{n(f.balance)} {t('so‘m')}</span>
+                    <span className="text-emerald-600 dark:text-emerald-400">{n(f.sent)} {t('yuborilgan')}</span>
+                    <span className="text-muted">{n(f.registries)} {t('reyestr')}</span>
                   </span>
                 </li>
               ))}
             </ul>
-            <div className="mt-2 text-[11px] text-muted">Batafsil (yetkazilgan / kutilmoqda / kvitansiya) uchun yuqoridan firmani tanlang.</div>
+            <div className="mt-2 text-[11px] text-muted">{t('Batafsil (yetkazilgan / kutilmoqda / kvitansiya) uchun yuqoridan firmani tanlang.')}</div>
           </>
         ) : (
-          <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.05] px-3 py-2.5 text-xs text-amber-700 dark:text-amber-300">Hali birorta firma xat.hippo ga ulanmagan. Yuqoridagi ulanish belgisidan «Ula» bosing.</div>
+          <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.05] px-3 py-2.5 text-xs text-amber-700 dark:text-amber-300">{t('Hali birorta firma xat.hippo ga ulanmagan. Yuqoridagi ulanish belgisidan «Ula» bosing.')}</div>
         )
       ) : data && !data.connected ? (
         <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.05] px-3 py-2.5 text-xs text-amber-700 dark:text-amber-300">
-          {data.error || 'Bu firma xat.hippo ga ulanmagan.'} Yuqoridagi ulanish belgisidan «Ula» bosing.
+          {data.error || t('Bu firma xat.hippo ga ulanmagan.')} {t('Yuqoridagi ulanish belgisidan «Ula» bosing.')}
         </div>
       ) : data ? (
         <>
           <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
-            <span className="rounded-lg bg-surface-2 px-2 py-1 font-medium tabular-nums">Balans: {n(data.balance ?? 0)} so‘m{data.free ? ' · bepul tarif' : ''}</span>
-            <span className="rounded-lg bg-emerald-500/12 px-2 py-1 font-medium text-emerald-700 tabular-nums dark:text-emerald-300">Yetkazilgan {n(totals.d)}</span>
-            <span className="rounded-lg bg-amber-500/12 px-2 py-1 font-medium text-amber-700 tabular-nums dark:text-amber-300">Kutilmoqda {n(totals.p)}</span>
-            <span className="rounded-lg bg-rose-500/12 px-2 py-1 font-medium text-rose-600 tabular-nums dark:text-rose-300">Muvaffaqiyatsiz {n(totals.f)}</span>
+            <span className="rounded-lg bg-surface-2 px-2 py-1 font-medium tabular-nums">{t('Balans:')} {n(data.balance ?? 0)} {t('so‘m')}{data.free ? t(' · bepul tarif') : ''}</span>
+            <span className="rounded-lg bg-emerald-500/12 px-2 py-1 font-medium text-emerald-700 tabular-nums dark:text-emerald-300">{t('Yetkazilgan')} {n(totals.d)}</span>
+            <span className="rounded-lg bg-amber-500/12 px-2 py-1 font-medium text-amber-700 tabular-nums dark:text-amber-300">{t('Kutilmoqda')} {n(totals.p)}</span>
+            <span className="rounded-lg bg-rose-500/12 px-2 py-1 font-medium text-rose-600 tabular-nums dark:text-rose-300">{t('Muvaffaqiyatsiz')} {n(totals.f)}</span>
           </div>
           {(data.registries ?? []).length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-line bg-surface-2/30 px-4 py-8 text-center">
               <span className="grid h-11 w-11 place-items-center rounded-full bg-surface-2 text-muted">
                 <Ico.send size={20} />
               </span>
-              <div className="text-sm font-medium text-fg">Hali reyestr yuborilmagan</div>
-              <div className="max-w-[22rem] text-xs text-muted">Yuqoridagi «Hammasini yuborish» tugmasi bilan talabnomani xat.hippo ga yuklang — yuborilgan reyestrlar shu yerda holati bilan chiqadi.</div>
+              <div className="text-sm font-medium text-fg">{t('Hali reyestr yuborilmagan')}</div>
+              <div className="max-w-[22rem] text-xs text-muted">{t('Yuqoridagi «Hammasini yuborish» tugmasi bilan talabnomani xat.hippo ga yuklang — yuborilgan reyestrlar shu yerda holati bilan chiqadi.')}</div>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -323,7 +325,7 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
                           onClick={() => downloadLetters(r.id)}
                           disabled={dlLettersBusy === r.id}
                           className="inline-flex items-center gap-0.5 rounded-md border border-line px-1 py-0.5 text-[10px] font-medium text-brand-600 outline-none transition-colors hover:border-brand-500/40 focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50 dark:text-brand-400"
-                          title={`Yuborilgan talabnomalarni (PDF) ZIP qilib olish (${n(r.total - r.draft)})`}
+                          title={`${t('Yuborilgan talabnomalarni (PDF) ZIP qilib olish')} (${n(r.total - r.draft)})`}
                         >
                           {dlLettersBusy === r.id
                             ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
@@ -336,7 +338,7 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
                           onClick={() => downloadReceipts(r.id)}
                           disabled={dlBusy === r.id}
                           className="inline-flex items-center gap-0.5 rounded-md border border-line px-1 py-0.5 text-[10px] font-medium text-emerald-600 outline-none transition-colors hover:border-emerald-500/40 focus-visible:ring-2 focus-visible:ring-emerald-500/30 disabled:opacity-50 dark:text-emerald-400"
-                          title={`Yetkazilgan kvitansiyalar ZIP — sudga isbot (${n(r.delivered)})`}
+                          title={`${t('Yetkazilgan kvitansiyalar ZIP — sudga isbot')} (${n(r.delivered)})`}
                         >
                           {dlBusy === r.id
                             ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
@@ -348,7 +350,7 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
                         onClick={() => cancelRegistry(r.id)}
                         disabled={cancelBusy === r.id}
                         className="grid h-[22px] w-[22px] place-items-center rounded-md border border-rose-500/30 text-rose-600 outline-none transition-colors hover:bg-rose-500/10 focus-visible:ring-2 focus-visible:ring-rose-500/30 disabled:opacity-50 dark:text-rose-300"
-                        title="Reyestrni bekor qilish (xat.hippo dan oʻchirish — mijozlari qayta joʻnatishga ochiladi)"
+                        title={t('Reyestrni bekor qilish (xat.hippo dan oʻchirish — mijozlari qayta joʻnatishga ochiladi)')}
                       >
                         {cancelBusy === r.id
                           ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />

@@ -3,11 +3,13 @@ import { requireAccess } from '@/lib/auth';
 import { konveyerSnapshots } from '@/lib/konveyer';
 import { buxgalteriyaData } from '@/lib/buxgalteriya';
 import { PageHeader } from '@/ui';
+import { getT } from '@/lib/i18n/server';
 import { BuxgalteriyaList } from './BuxgalteriyaList';
 
 export const dynamic = 'force-dynamic';
 
 export default async function BuxgalteriyaPage() {
+  const t = getT();
   await requireAccess('buxgalteriya');
 
   // Sana — sidebardagi bir xil snapshot cookie (konv_s), butun ilovadagidek.
@@ -22,8 +24,8 @@ export default async function BuxgalteriyaPage() {
   return (
     <div>
       <PageHeader
-        title="Buxgalteriya to‘lovi"
-        subtitle={`Yaratilgan boji invoice'lari — firmalar bo'yicha, holati bilan${sel ? ` · ${sel.label}` : ''}`}
+        title={t('Buxgalteriya to‘lovi')}
+        subtitle={`${t("Yaratilgan boji invoice'lari — firmalar bo'yicha, holati bilan")}${sel ? ` · ${sel.label}` : ''}`}
       />
       <BuxgalteriyaList data={data} snapshotId={selectedId} />
     </div>

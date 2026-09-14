@@ -5,6 +5,7 @@ import { Skeleton, Ico, Modal } from '@/ui';
 import { CaseDocs } from './CaseDocs';
 import { CourtDetail } from './CourtDetail';
 import { courtBadge } from '@/lib/court-result';
+import { useT } from '@/lib/i18n/client';
 
 interface PersonCase {
   caseId: number;
@@ -56,10 +57,11 @@ const avatarColor = (seed: string) => AVATAR[[...(seed || '0')].reduce((a, c) =>
 const initials = (name: string | null) => ((name || '—').trim().split(/\s+/).slice(0, 2).map((w) => w[0] || '').join('').toUpperCase() || '—');
 
 function DueBadge({ d }: { d: number | null }) {
+  const t = useT();
   if (d === null) return <span className="text-muted/50">—</span>;
-  if (d < 0) return <span className="rounded-md bg-rose-500/15 px-2 py-0.5 text-[11px] font-medium text-rose-600 dark:text-rose-300">{Math.abs(d)} kun kechikdi</span>;
-  if (d === 0) return <span className="rounded-md bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">bugun</span>;
-  return <span className="rounded-md bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-muted">{d} kun qoldi</span>;
+  if (d < 0) return <span className="rounded-md bg-rose-500/15 px-2 py-0.5 text-[11px] font-medium text-rose-600 dark:text-rose-300">{Math.abs(d)} {t('kun kechikdi')}</span>;
+  if (d === 0) return <span className="rounded-md bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">{t('bugun')}</span>;
+  return <span className="rounded-md bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-muted">{d} {t('kun qoldi')}</span>;
 }
 
 // Case stage → pipeline phase index (0..4), for the mini progress indicator.
@@ -79,10 +81,11 @@ const PHASE_META = [
 ];
 const TRACK = 'var(--line, rgba(120,120,120,0.22))';
 function MiniSteps({ stage }: { stage: string }) {
+  const t = useT();
   const idx = STAGE_PHASE[stage] ?? 0;
   const cur = PHASE_META[idx];
   return (
-    <span className="inline-flex items-center gap-1" title={`Bosqich: ${cur.label} (${idx + 1}/5)`} aria-label={`Bosqich: ${cur.label}, ${idx + 1} / 5`}>
+    <span className="inline-flex items-center gap-1" title={`${t('Bosqich')}: ${t(cur.label)} (${idx + 1}/5)`} aria-label={`${t('Bosqich')}: ${t(cur.label)}, ${idx + 1} / 5`}>
       {PHASE_META.map((_, i) => (
         <span key={i} className="h-1.5 rounded-full transition-all" style={{ width: i === idx ? 16 : 7, background: i <= idx ? cur.c : TRACK }} />
       ))}
@@ -93,6 +96,7 @@ function MiniSteps({ stage }: { stage: string }) {
 function CaseBlock({ c }: { c: PersonCase }) {
   // The heavy document packet lives behind a «Hujjatlar» icon → a modal, so the inline row stays
   // light (firm + step + due + debt) and readable, not a wall of document slots.
+  const t = useT();
   const [docsOpen, setDocsOpen] = useState(false);
   const [courtOpen, setCourtOpen] = useState(false);
   const late = LATE_STAGES.has(c.stage); // court+ → the sud maʼlumoti (ijrochi, qaror, modda…) is relevant
@@ -116,17 +120,17 @@ function CaseBlock({ c }: { c: PersonCase }) {
           </span>
         )}
         {c.courtCaseId && (
-          <span className="rounded-md bg-sky-500/12 px-1.5 py-0.5 font-mono text-[11px] font-medium text-sky-700 tabular-nums dark:text-sky-300" title="Sud ish raqami">{c.courtCaseId}</span>
+          <span className="rounded-md bg-sky-500/12 px-1.5 py-0.5 font-mono text-[11px] font-medium text-sky-700 tabular-nums dark:text-sky-300" title={t('Sud ish raqami')}>{c.courtCaseId}</span>
         )}
         {c.receiptNumber
           ? <span className="rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-300">№{c.receiptNumber}</span>
-          : !showCourt && <span className="rounded-md bg-rose-500/15 px-1.5 py-0.5 text-[11px] font-medium text-rose-600 dark:text-rose-300">invoice yo‘q</span>}
+          : !showCourt && <span className="rounded-md bg-rose-500/15 px-1.5 py-0.5 text-[11px] font-medium text-rose-600 dark:text-rose-300">{t('invoice yo‘q')}</span>}
         <span className="ml-auto text-sm font-semibold tabular-nums">{sum(c.totalDebt)}</span>
         {showCourt && (
           <button
             onClick={() => setCourtOpen((v) => !v)}
             aria-expanded={courtOpen}
-            title={cb?.bad ? 'Suddan qaytgan — sabab, ajrim sanasi, qayta topshirish' : 'Sud maʼlumoti (qaror, sudya, modda, ijrochi…)'}
+            title={cb?.bad ? t('Suddan qaytgan — sabab, ajrim sanasi, qayta topshirish') : t('Sud maʼlumoti (qaror, sudya, modda, ijrochi…)')}
             className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium outline-none transition-colors focus-visible:ring-2 ${
               cb?.bad
                 ? 'border-rose-500/30 bg-rose-500/[0.04] text-rose-600 hover:border-rose-500/50 hover:bg-rose-500/10 focus-visible:ring-rose-500/30 dark:text-rose-300'
@@ -134,21 +138,21 @@ function CaseBlock({ c }: { c: PersonCase }) {
             }`}
           >
             {cb?.bad ? <Ico.undo size={14} /> : <Ico.judge size={14} />}
-            {cb?.bad ? 'Qaytgan' : 'Sud'} {courtOpen ? '▲' : '▼'}
+            {cb?.bad ? t('Qaytgan') : t('Sud')} {courtOpen ? '▲' : '▼'}
           </button>
         )}
         <button
           onClick={() => setDocsOpen(true)}
           aria-haspopup="dialog"
-          title="Mijozning hujjatlari"
+          title={t('Mijozning hujjatlari')}
           className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-brand-600 outline-none transition-colors hover:border-brand-500/40 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-brand-500/30 dark:text-brand-400"
         >
           <Ico.files size={14} />
-          Hujjatlar
+          {t('Hujjatlar')}
         </button>
       </div>
       {courtOpen && showCourt && <div className="mt-2"><CourtDetail caseId={c.caseId} /></div>}
-      <Modal open={docsOpen} onClose={() => setDocsOpen(false)} title="Mijozning hujjatlari" description={`${c.firmName} · ${c.stageLabel}`} size="xl">
+      <Modal open={docsOpen} onClose={() => setDocsOpen(false)} title={t('Mijozning hujjatlari')} description={`${c.firmName} · ${c.stageLabel}`} size="xl">
         <CaseDocs caseId={c.caseId} firmId={c.firmId} stage={c.stage} receiptNumber={c.receiptNumber} talabnomaSent={c.talabnomaSent} />
       </Modal>
     </div>
@@ -156,6 +160,7 @@ function CaseBlock({ c }: { c: PersonCase }) {
 }
 
 function PersonCard({ p }: { p: Person }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const firms = [...new Set(p.cases.map((c) => c.firmName))];
   const hasLate = p.cases.some((c) => LATE_STAGES.has(c.stage)); // court+ → invoice is moot
@@ -172,7 +177,7 @@ function PersonCard({ p }: { p: Person }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate font-semibold leading-tight">{p.clientName || '—'}</span>
-            {p.cases.length > 1 && <span className="shrink-0 rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted">{p.cases.length} ish</span>}
+            {p.cases.length > 1 && <span className="shrink-0 rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted">{p.cases.length} {t('ish')}</span>}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
             <span className="tabular-nums text-muted">{p.pinfl}</span>
@@ -180,13 +185,13 @@ function PersonCard({ p }: { p: Person }) {
               <span key={fn} className="max-w-[10rem] truncate rounded bg-surface-2 px-1.5 py-0.5 font-medium text-muted" title={fn}>{fn}</span>
             ))}
             {cb && <span className={`rounded px-1.5 py-0.5 font-medium ${cb.tone}`}>{cb.label}</span>}
-            {!p.hasInvoice && !hasLate && !court && <span className="rounded bg-rose-500/15 px-1.5 py-0.5 font-medium text-rose-600 dark:text-rose-300">invoice yo‘q</span>}
+            {!p.hasInvoice && !hasLate && !court && <span className="rounded bg-rose-500/15 px-1.5 py-0.5 font-medium text-rose-600 dark:text-rose-300">{t('invoice yo‘q')}</span>}
           </div>
         </div>
 
         {/* debt (always visible) + due badge */}
         <div className="flex shrink-0 flex-col items-end gap-1">
-          <span className="text-sm font-bold leading-none tabular-nums">{sum(p.totalDebt)} <span className="text-[10px] font-normal text-muted">so‘m</span></span>
+          <span className="text-sm font-bold leading-none tabular-nums">{sum(p.totalDebt)} <span className="text-[10px] font-normal text-muted">{t('so‘m')}</span></span>
           {p.minDaysLeft !== null && <DueBadge d={p.minDaysLeft} />}
         </div>
         <svg className={`h-4 w-4 shrink-0 text-muted transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m9 6 6 6-6 6" /></svg>
@@ -201,6 +206,7 @@ function PersonCard({ p }: { p: Person }) {
 }
 
 export function CaseList({ firmId, snapshotId, stages, talabnoma, phaseLabel }: { firmId?: number; snapshotId?: number; stages: string[]; talabnoma?: boolean; phaseLabel?: string }) {
+  const t = useT();
   const [persons, setPersons] = useState<Person[]>([]);
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(1);
@@ -228,7 +234,7 @@ export function CaseList({ firmId, snapshotId, stages, talabnoma, phaseLabel }: 
     if (debouncedQ) qs.set('q', debouncedQ);
     try {
       const res = await fetch(`/konveyer/cases?${qs.toString()}`);
-      if (!res.ok) throw new Error(`Server xatosi (${res.status})`);
+      if (!res.ok) throw new Error(`${t('Server xatosi')} (${res.status})`);
       const data = await res.json();
       if (myReq !== reqRef.current) return; // a newer request superseded this one
       setTotal(data.total ?? 0);
@@ -236,7 +242,7 @@ export function CaseList({ firmId, snapshotId, stages, talabnoma, phaseLabel }: 
       setPersons(data.persons ?? []);
     } catch (e) {
       if (myReq !== reqRef.current) return;
-      setError(e instanceof Error ? e.message : 'Yuklab bo‘lmadi');
+      setError(e instanceof Error ? e.message : t('Yuklab bo‘lmadi'));
       setPersons([]); setTotal(0); setPages(1);
     } finally {
       if (myReq === reqRef.current) setLoading(false);
@@ -256,17 +262,17 @@ export function CaseList({ firmId, snapshotId, stages, talabnoma, phaseLabel }: 
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            aria-label="Mijoz qidirish (F.I.O, kod, PINFL)"
-            placeholder={`Mijoz qidirish (F.I.O, kod, PINFL)${phaseLabel ? ` · ${phaseLabel}` : ''}…`}
+            aria-label={t('Mijoz qidirish (F.I.O, kod, PINFL)')}
+            placeholder={`${t('Mijoz qidirish (F.I.O, kod, PINFL)')}${phaseLabel ? ` · ${phaseLabel}` : ''}…`}
             className="w-full rounded-xl border border-line bg-surface py-2.5 pl-10 pr-9 text-sm outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15"
           />
           {q && (
-            <button onClick={() => setQ('')} className="absolute right-2.5 top-1/2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-fg" aria-label="Tozalash">
+            <button onClick={() => setQ('')} className="absolute right-2.5 top-1/2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-fg" aria-label={t('Tozalash')}>
               <Ico.close size={13} />
             </button>
           )}
         </div>
-        <span className="shrink-0 rounded-lg bg-surface-2 px-2.5 py-1 text-xs font-medium tabular-nums text-muted">{total.toLocaleString('ru-RU')} mijoz</span>
+        <span className="shrink-0 rounded-lg bg-surface-2 px-2.5 py-1 text-xs font-medium tabular-nums text-muted">{total.toLocaleString('ru-RU')} {t('mijoz')}</span>
       </div>
 
       <div className="min-h-[15rem] space-y-2.5">
@@ -278,9 +284,9 @@ export function CaseList({ firmId, snapshotId, stages, talabnoma, phaseLabel }: 
               <div className="grid h-12 w-12 place-items-center rounded-2xl bg-rose-500/10 text-rose-500">
                 <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 9v4" /><path d="M12 17h.01" /><circle cx="12" cy="12" r="9" /></svg>
               </div>
-              <div className="text-sm font-medium">Ro‘yxatni yuklab bo‘lmadi</div>
+              <div className="text-sm font-medium">{t('Ro‘yxatni yuklab bo‘lmadi')}</div>
               <div className="max-w-xs text-xs text-muted">{error}</div>
-              <button onClick={() => load()} className="btn-ghost mt-1 text-xs">Qayta urinish</button>
+              <button onClick={() => load()} className="btn-ghost mt-1 text-xs">{t('Qayta urinish')}</button>
             </div>
           </div>
         ) : persons.length === 0 ? (
@@ -291,11 +297,11 @@ export function CaseList({ firmId, snapshotId, stages, talabnoma, phaseLabel }: 
                   <circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
                 </svg>
               </div>
-              <div className="text-sm font-medium">{q ? `«${q}» topilmadi` : 'Bu bosqichda mijoz yo‘q'}</div>
+              <div className="text-sm font-medium">{q ? `«${q}» ${t('topilmadi')}` : t('Bu bosqichda mijoz yo‘q')}</div>
               <div className="max-w-xs text-xs text-muted">
-                {q ? 'Boshqa ism, kod yoki PINFL bilan qidirib ko‘ring.' : phaseLabel ? `«${phaseLabel}» bosqichiga hali ariza yetib kelmagan.` : 'Bu firma/snapshot bo‘yicha mijoz yo‘q.'}
+                {q ? t('Boshqa ism, kod yoki PINFL bilan qidirib ko‘ring.') : phaseLabel ? `«${phaseLabel}» ${t('bosqichiga hali ariza yetib kelmagan.')}` : t('Bu firma/snapshot bo‘yicha mijoz yo‘q.')}
               </div>
-              {q && <button onClick={() => setQ('')} className="btn-ghost mt-1 text-xs">Qidiruvni tozalash</button>}
+              {q && <button onClick={() => setQ('')} className="btn-ghost mt-1 text-xs">{t('Qidiruvni tozalash')}</button>}
             </div>
           </div>
         ) : (
@@ -306,11 +312,11 @@ export function CaseList({ firmId, snapshotId, stages, talabnoma, phaseLabel }: 
       {pages > 1 && (
         <div className="mt-3 flex items-center justify-between">
           <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1 || loading} className="btn-ghost px-2 py-1 text-xs disabled:opacity-40">
-            <Ico.chevronLeft size={14} /> Oldingi
+            <Ico.chevronLeft size={14} /> {t('Oldingi')}
           </button>
           <span className="text-xs tabular-nums text-muted">{page} / {pages}</span>
           <button onClick={() => setPage((p) => Math.min(pages, p + 1))} disabled={page >= pages || loading} className="btn-ghost px-2 py-1 text-xs disabled:opacity-40">
-            Keyingi <span className="inline-block rotate-180"><Ico.chevronLeft size={14} /></span>
+            {t('Keyingi')} <span className="inline-block rotate-180"><Ico.chevronLeft size={14} /></span>
           </button>
         </div>
       )}

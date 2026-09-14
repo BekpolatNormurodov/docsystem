@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import { requireUser } from '@/lib/auth';
 import { konveyerPersons, type PersonRow } from '@/lib/konveyer';
 import type { CaseStage } from '@prisma/client';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -12,6 +13,7 @@ export const maxDuration = 120;
 // as the on-screen list (konveyerPersons), just all pages instead of one.
 export async function GET(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const sp = req.nextUrl.searchParams;
   const num = (raw: string | null): number | undefined => { const n = Number(raw); return raw != null && raw !== '' && Number.isFinite(n) ? n : undefined; };
   const firmId = num(sp.get('firmId'));
@@ -29,21 +31,21 @@ export async function GET(req: NextRequest) {
     }
   } catch (e) {
     console.error('cases-excel query failed', e);
-    return NextResponse.json({ error: 'Mijozlar yuklanmadi' }, { status: 500 });
+    return NextResponse.json({ error: t('Mijozlar yuklanmadi') }, { status: 500 });
   }
-  if (persons.length === 0) return NextResponse.json({ error: 'Bu tanlovda mijoz yoʻq' }, { status: 422 });
+  if (persons.length === 0) return NextResponse.json({ error: t('Bu tanlovda mijoz yoʻq') }, { status: 422 });
 
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('Mijozlar');
+  const ws = wb.addWorksheet(t('Mijozlar'));
   ws.columns = [
     { header: '№', key: 'i', width: 6 },
-    { header: 'F.I.O', key: 'name', width: 38 },
+    { header: t('F.I.O'), key: 'name', width: 38 },
     { header: 'PINFL', key: 'pinfl', width: 16 },
-    { header: 'Kod', key: 'kod', width: 12 },
-    { header: 'Firmalar', key: 'firms', width: 10 },
-    { header: 'Jami qarzdorlik (soʻm)', key: 'debt', width: 22 },
-    { header: 'Boji (invoice)', key: 'boji', width: 14 },
-    { header: 'Muddat (kun)', key: 'days', width: 13 },
+    { header: t('Kod'), key: 'kod', width: 12 },
+    { header: t('Firmalar'), key: 'firms', width: 10 },
+    { header: t('Jami qarzdorlik (soʻm)'), key: 'debt', width: 22 },
+    { header: t('Boji (invoice)'), key: 'boji', width: 14 },
+    { header: t('Muddat (kun)'), key: 'days', width: 13 },
   ];
   ws.getRow(1).font = { bold: true };
   ws.getColumn('pinfl').numFmt = '@';
@@ -55,7 +57,7 @@ export async function GET(req: NextRequest) {
       kod: p.kod ?? '',
       firms: p.firmCount,
       debt: Math.round(Number(p.totalDebt) || 0),
-      boji: p.hasInvoice ? 'bor' : '',
+      boji: p.hasInvoice ? t('bor') : '',
       days: p.minDaysLeft ?? '',
     });
   });

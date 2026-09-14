@@ -7,6 +7,7 @@ import { Ico, NAV_ICONS } from './icons';
 import { ThemeToggle } from './ThemeToggle';
 import { Logo } from './Logo';
 import { useConfirm } from './Confirm';
+import { useT } from '@/lib/i18n/client';
 
 export interface NavItem {
   href: string;
@@ -90,10 +91,11 @@ export function AppShell({
 }: AppShellProps) {
   const pathname = usePathname();
   const confirm = useConfirm();
+  const t = useT();
   // Logout via a detached form: the profile dropdown (which holds the button) unmounts when the
   // confirm modal steals focus, so submitting a form that lives in the dropdown would hit a null ref.
   const doLogout = async () => {
-    const ok = await confirm({ title: 'Tizimdan chiqish', description: 'Hisobingizdan chiqasizmi?', confirmLabel: 'Chiqish', danger: true });
+    const ok = await confirm({ title: t('Tizimdan chiqish'), description: t('Hisobingizdan chiqasizmi?'), confirmLabel: t('Chiqish'), danger: true });
     if (!ok) return;
     const f = document.createElement('form');
     f.method = 'post'; f.action = logoutAction;
@@ -129,7 +131,7 @@ export function AppShell({
   const bottomItems = nav.filter((i) => i.bottom);
   const sections: { label: string; items: NavItem[] }[] = [];
   for (const item of topItems) {
-    const label = item.section ?? 'Menyu';
+    const label = item.section ?? t('Menyu');
     const g = sections.find((s) => s.label === label);
     if (g) g.items.push(item);
     else sections.push({ label, items: [item] });
@@ -234,7 +236,7 @@ export function AppShell({
                         return (
                           <div
                             key={c.href}
-                            title="Ruxsat berilmagan"
+                            title={t('Ruxsat berilmagan')}
                             aria-disabled
                             className="flex cursor-not-allowed items-center gap-2.5 rounded-lg py-1.5 pl-2.5 pr-3 text-[13px] text-muted/45"
                           >
@@ -317,7 +319,7 @@ export function AppShell({
           <div className={cx('min-w-0', rail && 'lg:hidden')}>
             <div className="truncate text-sm font-semibold leading-tight">{appName}</div>
           </div>
-          <button onClick={() => setOpen(false)} className="ml-auto rounded-lg p-1.5 text-muted hover:bg-surface-2 lg:hidden" aria-label="Yopish">
+          <button onClick={() => setOpen(false)} className="ml-auto rounded-lg p-1.5 text-muted hover:bg-surface-2 lg:hidden" aria-label={t('Yopish')}>
             <Ico.close />
           </button>
         </div>
@@ -363,7 +365,7 @@ export function AppShell({
         {bottomItems.length > 0 && (
           <div className="mt-3 space-y-1 border-t border-line pt-3">
             <div className={cx('px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted/70', rail && 'lg:hidden')}>
-              Alohida · stepga kirmaydi
+              {t('Alohida · stepga kirmaydi')}
             </div>
             {bottomItems.map(renderItem)}
           </div>
@@ -373,14 +375,14 @@ export function AppShell({
 
       <div className={cx('transition-all duration-300', rail ? 'lg:pl-[88px]' : 'lg:pl-[312px]')}>
         <header className="sticky top-0 z-30 flex h-16 items-center gap-2 border-b border-line bg-bg/80 px-4 backdrop-blur-xl md:px-6">
-          <button onClick={() => setOpen(true)} className="rounded-lg p-2 text-muted hover:bg-surface-2 lg:hidden" aria-label="Menyu">
+          <button onClick={() => setOpen(true)} className="rounded-lg p-2 text-muted hover:bg-surface-2 lg:hidden" aria-label={t('Menyu')}>
             <Ico.menu />
           </button>
           <button
             onClick={() => setCollapsed((v) => !v)}
             className="hidden rounded-lg p-2 text-muted hover:bg-surface-2 lg:block"
-            aria-label={collapsed ? 'Panelni ochish' : 'Panelni yigʻish'}
-            title={collapsed ? 'Panelni ochish' : 'Panelni yigʻish'}
+            aria-label={collapsed ? t('Panelni ochish') : t('Panelni yigʻish')}
+            title={collapsed ? t('Panelni ochish') : t('Panelni yigʻish')}
           >
             <PanelToggle className="h-5 w-5" open={!collapsed} />
           </button>
@@ -413,7 +415,7 @@ export function AppShell({
                 onClick={() => setProfileOpen((o) => !o)}
                 aria-haspopup="menu"
                 aria-expanded={profileOpen}
-                aria-label="Profil"
+                aria-label={t('Profil')}
                 title={user.fullName}
                 className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-surface-2 text-xs font-semibold outline-none transition-shadow hover:ring-2 hover:ring-brand-500/30 focus-visible:ring-2 focus-visible:ring-brand-500/40"
               >
@@ -437,7 +439,7 @@ export function AppShell({
                     className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-300"
                   >
                     <Ico.logout size={18} />
-                    Chiqish
+                    {t('Chiqish')}
                   </button>
                 </div>
               )}

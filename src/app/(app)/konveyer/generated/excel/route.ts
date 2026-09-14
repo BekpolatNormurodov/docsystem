@@ -4,6 +4,7 @@ import type { CaseStage } from '@prisma/client';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { audit, AuditAction } from '@/lib/audit';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -11,12 +12,13 @@ const numArg = (v: unknown): number | undefined => { const n = Number(v); return
 
 const PAID_STAGES: CaseStage[] = ['INVOICE_PAID', 'COURT_SUBMITTED', 'COURT_ACCEPTED', 'COURT_RETURNED', 'MIB_SUBMITTED', 'CLOSED'];
 const PAID_BEYOND = new Set<string>(PAID_STAGES);
-const holatOf = (stage: string): string => (!PAID_BEYOND.has(stage) ? 'Toʻlanmagan' : stage === 'INVOICE_PAID' ? 'Toʻlandi' : 'Sudda');
+const holatOf = (stage: string, t: (s: string) => string): string => (!PAID_BEYOND.has(stage) ? t('Toʻlanmagan') : stage === 'INVOICE_PAID' ? t('Toʻlandi') : t('Sudda'));
 
 // GET ?snapshotId=&firmId=&type=ariza|oferta|invoice&q= — «Yaratilganlar» ro'yxatini (butun, sahifasiz)
 // Excel qilib beradi: №, F.I.O, PINFL, Firma, Sud (+ Kvitansiya), Sana. Umumiy skachat uchun.
 export async function GET(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const sp = req.nextUrl.searchParams;
   const snapshotId = numArg(sp.get('snapshotId'));
   const firmId = numArg(sp.get('firmId'));
@@ -50,15 +52,15 @@ export async function GET(req: NextRequest) {
 
   const wb = new Excel.Workbook();
   const sheetName = isInvoice ? 'Invoyslar' : isOferta ? 'Ofertalar' : 'Arizalar';
-  const ws = wb.addWorksheet(sheetName);
+  const ws = wb.addWorksheet(t(sheetName));
   ws.columns = [
     { header: '№', key: 'n', width: 6 },
-    { header: 'F.I.O', key: 'name', width: 42 },
+    { header: t('F.I.O'), key: 'name', width: 42 },
     { header: 'PINFL', key: 'pinfl', width: 18 },
-    { header: 'Firma', key: 'firm', width: 30 },
-    { header: 'Sud', key: 'court', width: 28 },
-    ...(isInvoice ? [{ header: 'Kvitansiya raqami', key: 'receipt', width: 20 }, { header: 'Holat', key: 'holat', width: 14 }] : []),
-    { header: 'Yaratilgan sana', key: 'at', width: 20 },
+    { header: t('Firma'), key: 'firm', width: 30 },
+    { header: t('Sud'), key: 'court', width: 28 },
+    ...(isInvoice ? [{ header: t('Kvitansiya raqami'), key: 'receipt', width: 20 }, { header: t('Holat'), key: 'holat', width: 14 }] : []),
+    { header: t('Yaratilgan sana'), key: 'at', width: 20 },
   ];
   ws.getRow(1).font = { bold: true };
   ws.getRow(1).alignment = { vertical: 'middle' };
@@ -73,7 +75,7 @@ export async function GET(req: NextRequest) {
       pinfl: r.pinfl ?? '',
       firm: r.firm?.shortName ?? r.kod ?? '',
       court: r.court?.shortName ?? '',
-      ...(isInvoice ? { receipt: r.receiptNumber ?? r.invoiceNo ?? '', holat: r.receiptNumber ? holatOf(r.stage) : 'Chiqarilmagan' } : {}),
+      ...(isInvoice ? { receipt: r.receiptNumber ?? r.invoiceNo ?? '', holat: r.receiptNumber ? holatOf(r.stage, t) : t('Chiqarilmagan') } : {}),
       at: fmt(at),
     });
   });

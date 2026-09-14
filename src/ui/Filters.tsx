@@ -8,6 +8,7 @@ import { Ico } from './icons';
 import { Select, type Option } from './Select';
 import { DatePicker } from './DatePicker';
 import { STATUS_DOT } from './tokens';
+import { useT } from '@/lib/i18n/client';
 
 export type FirmOpt = { id: string; name: string; shortName: string | null };
 
@@ -19,7 +20,7 @@ export function Filters({
   firms,
   statuses,
   docTypes,
-  searchPlaceholder = '№, F.I.SH., PINFL, passport, shartnoma…',
+  searchPlaceholder,
 }: {
   firms?: FirmOpt[];
   statuses?: readonly CertStatus[];
@@ -30,6 +31,7 @@ export function Filters({
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
+  const t = useT();
 
   const [q, setQ] = useState(sp.get('q') ?? '');
   const mounted = useRef(false);
@@ -83,19 +85,19 @@ export function Filters({
             className="field-input pl-9"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder={searchPlaceholder}
-            aria-label="Qidirish"
+            placeholder={searchPlaceholder ?? t('№, F.I.SH., PINFL, passport, shartnoma…')}
+            aria-label={t('Qidirish')}
           />
         </div>
 
         {statuses && (
           <Select
-            label="Holat"
-            placeholder="Barcha holatlar"
+            label={t('Holat')}
+            placeholder={t('Barcha holatlar')}
             value={status}
             onChange={(v) => apply({ status: v })}
             options={[
-              { value: '', label: 'Barcha holatlar' },
+              { value: '', label: t('Barcha holatlar') },
               ...statuses.map<Option>((s) => ({ value: s, label: STATUS_LABELS[s], dot: STATUS_DOT[s] })),
             ]}
           />
@@ -103,12 +105,12 @@ export function Filters({
 
         {firms && (
           <Select
-            label="Firma"
-            placeholder="Barcha firmalar"
+            label={t('Firma')}
+            placeholder={t('Barcha firmalar')}
             value={firm}
             onChange={(v) => apply({ firm: v })}
             options={[
-              { value: '', label: 'Barcha firmalar' },
+              { value: '', label: t('Barcha firmalar') },
               ...firms.map<Option>((f) => ({ value: f.id, label: f.shortName ?? f.name })),
             ]}
           />
@@ -116,12 +118,12 @@ export function Filters({
 
         {docTypes && (
           <Select
-            label="Hujjat turi"
-            placeholder="Barcha turlar"
+            label={t('Hujjat turi')}
+            placeholder={t('Barcha turlar')}
             value={docType}
             onChange={(v) => apply({ docType: v })}
             options={[
-              { value: '', label: 'Barcha turlar' },
+              { value: '', label: t('Barcha turlar') },
               ...docTypes.map<Option>((d) => ({ value: d, label: DOC_TYPE_SHORT[d] })),
             ]}
           />
@@ -132,15 +134,15 @@ export function Filters({
           value={from}
           onChange={(v) => apply({ from: v })}
           max={to || undefined}
-          ariaLabel="Sanadan"
-          placeholder="Sanadan"
+          ariaLabel={t('Sanadan')}
+          placeholder={t('Sanadan')}
         />
         <DatePicker
           value={to}
           onChange={(v) => apply({ to: v })}
           min={from || undefined}
-          ariaLabel="Sanagacha"
-          placeholder="Sanagacha"
+          ariaLabel={t('Sanagacha')}
+          placeholder={t('Sanagacha')}
         />
       </div>
 
@@ -150,7 +152,7 @@ export function Filters({
           className="mt-3 cursor-pointer text-xs font-medium text-brand-600 hover:underline dark:text-brand-400"
           type="button"
         >
-          Filtrlarni tozalash
+          {t('Filtrlarni tozalash')}
         </button>
       )}
     </div>

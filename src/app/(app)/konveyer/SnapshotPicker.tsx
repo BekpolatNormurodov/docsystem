@@ -4,6 +4,7 @@ import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from 
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { SidebarRailContext } from '@/ui/AppShell';
+import { useT } from '@/lib/i18n/client';
 
 export interface SnapOpt { id: number; label: string; cases: number }
 
@@ -31,6 +32,7 @@ function CalendarIcon({ className }: { className?: string }) {
  * trigger folds to a calendar icon + tiny date so the date never simply disappears.
  */
 export function SnapshotPicker({ options, value }: { options: SnapOpt[]; value: number }) {
+  const t = useT();
   const router = useRouter();
   const rail = useContext(SidebarRailContext);
   const [open, setOpen] = useState(false);
@@ -84,8 +86,8 @@ export function SnapshotPicker({ options, value }: { options: SnapOpt[]; value: 
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label="Hisobot sanasi"
-        title={`Hisobot sanasi: ${short(sel.label)}`}
+        aria-label={t('Hisobot sanasi')}
+        title={`${t('Hisobot sanasi')}: ${short(sel.label)}`}
         className={cx(
           'flex w-full items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-sm shadow-sm outline-none transition-all duration-200 hover:border-brand-500/50 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-brand-500/30',
           // Collapsed rail (lg only — mobile keeps the full chip): fold to a borderless icon + tiny date.
@@ -124,7 +126,7 @@ export function SnapshotPicker({ options, value }: { options: SnapOpt[]; value: 
                 )}
               >
                 <span className="tabular-nums">{short(o.label)}</span>
-                <span className="text-[11px] tabular-nums text-muted">{o.cases.toLocaleString('ru-RU')} ta</span>
+                <span className="text-[11px] tabular-nums text-muted">{o.cases.toLocaleString('ru-RU')} {t('ta')}</span>
               </button>
             );
           })}

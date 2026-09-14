@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from '@/ui';
+import { useT } from '@/lib/i18n/client';
 
 // One E-IMZO key file visible on the machine (from GET /konveyer/keys, or — in client
 // mode — from window.EimzoBrowser.listKeys() on the USER's machine).
@@ -112,6 +113,7 @@ export function KeyPicker({
   onSuccess: (result: any) => void;
   summary?: React.ReactNode; // «aniq so'roq» — nima tasdiqlanayotgani (kalit tanlash tepasida)
 }) {
+  const t = useT();
   const [phase, setPhase] = useState<Phase>('loading');
   const [keys, setKeys] = useState<EimzoKey[]>([]);
   const [sel, setSel] = useState<string | null>(null);
@@ -147,23 +149,23 @@ export function KeyPicker({
     const ctrl = new AbortController();
     // Healthy scan responds in ~1-2s; if nothing comes back in 25s it's genuinely stuck — abort and
     // show the error instead of spinning. (Cached keys, if any, stay on screen.)
-    const t = setTimeout(() => ctrl.abort(), 25_000);
+    const timer = setTimeout(() => ctrl.abort(), 25_000);
     try {
       const res = await fetch('/konveyer/keys?refresh=1', { cache: 'no-store', signal: ctrl.signal });
       const d = await res.json().catch(() => ({}));
       const list: EimzoKey[] = d.keys ?? [];
-      if (!res.ok && !list.length) throw new Error(d?.error || `Server xatosi (${res.status})`);
+      if (!res.ok && !list.length) throw new Error(d?.error || `${t('Server xatosi')} (${res.status})`);
       setDiag(d.debug ?? null);
       applyList(list);
       if (list.length) { setPhase('ready'); if (d.staleError) setSyncErr(d.staleError); }
-      else { setErr(d.staleError || d.error || 'Kalit topilmadi — DSKEYS boʻsh yoki kalit ulanmagan.'); setPhase('error'); }
+      else { setErr(d.staleError || d.error || t('Kalit topilmadi — DSKEYS boʻsh yoki kalit ulanmagan.')); setPhase('error'); }
     } catch (e) {
       const aborted = e instanceof Error && e.name === 'AbortError';
-      const m = aborted ? 'E-IMZO javob bermadi (juda sekin) — dastur ochiqligini tekshiring.' : (e instanceof Error ? e.message : 'E-IMZO dan yangilanmadi');
+      const m = aborted ? t('E-IMZO javob bermadi (juda sekin) — dastur ochiqligini tekshiring.') : (e instanceof Error ? e.message : t('E-IMZO dan yangilanmadi'));
       // Keep the cached keys usable if we have them; otherwise surface the error.
       if (keysCountRef.current > 0) setSyncErr(m);
       else { setErr(m); setPhase('error'); }
-    } finally { clearTimeout(t); setSyncing(false); }
+    } finally { clearTimeout(timer); setSyncing(false); }
   }, [applyList]);
 
   // CLIENT MODE: enumerate keys from the USER's own E-IMZO (window.EimzoBrowser), not the
@@ -173,15 +175,15 @@ export function KeyPicker({
     try {
       if (typeof window !== 'undefined') window.__EIMZO_API_KEY__ = process.env.NEXT_PUBLIC_EIMZO_API_KEY || '';
       // Bounded so a stuck script load surfaces an error phase instead of spinning forever.
-      await withTimeout(loadBrowserClient(), 20_000, 'E-IMZO brauzer klienti yuklanmadi (vaqt tugadi)');
+      await withTimeout(loadBrowserClient(), 20_000, t('E-IMZO brauzer klienti yuklanmadi (vaqt tugadi)'));
       const eb = typeof window !== 'undefined' ? window.EimzoBrowser : undefined;
-      if (!eb) throw new Error('E-IMZO brauzer klienti yuklanmadi');
+      if (!eb) throw new Error(t('E-IMZO brauzer klienti yuklanmadi'));
       const list = await eb.listKeys();
       applyList(list);
       if (list.length) setPhase('ready');
-      else { setErr('Kalit topilmadi — E-IMZO dasturini oching va kalitni (token/ID-karta) ulang.'); setPhase('error'); }
+      else { setErr(t('Kalit topilmadi — E-IMZO dasturini oching va kalitni (token/ID-karta) ulang.')); setPhase('error'); }
     } catch (e) {
-      const m = e instanceof Error ? e.message : 'E-IMZO dan oʻqib boʻlmadi';
+      const m = e instanceof Error ? e.message : t('E-IMZO dan oʻqib boʻlmadi');
       if (keysCountRef.current > 0) setSyncErr(m);
       else { setErr(m); setPhase('error'); }
     } finally { setSyncing(false); }
@@ -222,7 +224,7 @@ export function KeyPicker({
       if (clientMode) {
         // CLIENT MODE: sign on the USER's own machine, POST only the finished PKCS7.
         const eb = typeof window !== 'undefined' ? window.EimzoBrowser : undefined;
-        if (!eb) throw new Error('E-IMZO brauzer klienti yuklanmadi');
+        if (!eb) throw new Error(t('E-IMZO brauzer klienti yuklanmadi'));
         const cert = { cn: chosen.cn, org: chosen.org, tin: chosen.tin, pinfl: chosen.pinfl ?? null };
         let pkcs7: string;
         let challengeId: string | undefined;
@@ -236,7 +238,7 @@ export function KeyPicker({
             body: JSON.stringify({ firmId: firm.firmId, provider }),
           });
           const chD = await chRes.json().catch(() => ({}));
-          if (!chRes.ok || !chD?.challenge) throw new Error(chD?.error || `Challenge olinmadi (${chRes.status})`);
+          if (!chRes.ok || !chD?.challenge) throw new Error(chD?.error || `${t('Challenge olinmadi')} (${chRes.status})`);
           challengeId = chD.challengeId;
           pkcs7 = await eb.sign(chosen, chD.challenge, 'no');
         }
@@ -245,7 +247,7 @@ export function KeyPicker({
           body: JSON.stringify({ firmId: firm.firmId, provider, pkcs7, challengeId, cert }),
         });
         d = await res.json().catch(() => ({}));
-        if (!res.ok || d?.ok === false) throw new Error(d?.error || `Ulanmadi (${res.status})`);
+        if (!res.ok || d?.ok === false) throw new Error(d?.error || `${t('Ulanmadi')} (${res.status})`);
       } else {
         // SERVER MODE (unchanged): the server signs via its local E-IMZO.
         const res = await fetch(endpoint, {
@@ -254,12 +256,12 @@ export function KeyPicker({
           body: JSON.stringify({ firmId: firm.firmId, provider, key: chosen }),
         });
         d = await res.json().catch(() => ({}));
-        if (!res.ok || d?.ok === false) throw new Error(d?.error || `Ulanmadi (${res.status})`);
+        if (!res.ok || d?.ok === false) throw new Error(d?.error || `${t('Ulanmadi')} (${res.status})`);
       }
       setPhase('done');
       onSuccess(d);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Imzolanmadi');
+      setErr(e instanceof Error ? e.message : t('Imzolanmadi'));
       setPhase('ready'); // back to the list so they can retry or pick another key
     }
   }, [chosen, endpoint, firm.firmId, provider, onSuccess, clientMode]);
@@ -272,20 +274,20 @@ export function KeyPicker({
       onClose={busy ? () => {} : onClose}
       size="lg"
       title={title}
-      description={`${firm.firmName}${wantStir ? ` · STIR ${wantStir}` : ''} — ${provider === 'HIPPO' ? 'xat.hippo' : 'adolat (sud)'} kaliti`}
+      description={`${firm.firmName}${wantStir ? ` · STIR ${wantStir}` : ''} — ${provider === 'HIPPO' ? 'xat.hippo' : t('adolat (sud)')} ${t('kaliti')}`}
       footer={
         phase === 'done' ? (
-          <button onClick={onClose} className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600">Yopish</button>
+          <button onClick={onClose} className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600">{t('Yopish')}</button>
         ) : (
           <>
-            <button onClick={onClose} disabled={busy} className="btn-ghost text-sm disabled:opacity-40">Bekor</button>
+            <button onClick={onClose} disabled={busy} className="btn-ghost text-sm disabled:opacity-40">{t('Bekor')}</button>
             <button
               onClick={sign}
               disabled={busy || !chosen || phase === 'loading' || mismatch}
               className="inline-flex items-center gap-2 rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {busy ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" /> : <IcoShield />}
-              {busy ? 'E-IMZO…' : confirmLabel}
+              {busy ? t('E-IMZO…') : confirmLabel}
             </button>
           </>
         )
@@ -295,9 +297,9 @@ export function KeyPicker({
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-sm text-muted">
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            E-IMZO kalitlarni oʻqiyapti…
+            {t('E-IMZO kalitlarni oʻqiyapti…')}
           </div>
-          <div className="text-[12px] text-muted/80">Birinchi safar biroz sekin (barcha kalitlar tekshiriladi) — keyingi safar darrov ochiladi.</div>
+          <div className="text-[12px] text-muted/80">{t('Birinchi safar biroz sekin (barcha kalitlar tekshiriladi) — keyingi safar darrov ochiladi.')}</div>
           {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 animate-pulse rounded-xl bg-surface-2" />)}
         </div>
       ) : phase === 'error' ? (
@@ -305,30 +307,30 @@ export function KeyPicker({
           <div className="flex items-start gap-2 rounded-xl border border-rose-500/25 bg-rose-500/[0.05] px-3 py-2.5 text-sm text-rose-600 dark:text-rose-300">
             <span className="mt-0.5 shrink-0"><IcoWarn /></span>
             <div>
-              <div className="font-semibold">Kalitlar olinmadi</div>
+              <div className="font-semibold">{t('Kalitlar olinmadi')}</div>
               <div className="mt-0.5 text-[13px] opacity-90">{err}</div>
-              <div className="mt-1 text-[12px] text-muted">E-IMZO dasturi ishga tushganini va kalit (token/ID-karta) ulanganini tekshiring.</div>
+              <div className="mt-1 text-[12px] text-muted">{t('E-IMZO dasturi ishga tushganini va kalit (token/ID-karta) ulanganini tekshiring.')}</div>
             </div>
           </div>
           {diag && (
             <div className="rounded-lg border border-line bg-surface-2/40 px-3 py-2 text-[12px]">
-              <div className="mb-1 font-semibold text-muted">E-IMZO diagnostika</div>
+              <div className="mb-1 font-semibold text-muted">{t('E-IMZO diagnostika')}</div>
               <div className="text-muted">list_disks: <span className="font-mono text-fg">{JSON.stringify(diag.disks)}</span></div>
               {(diag.perDisk ?? []).length === 0
-                ? <div className="mt-0.5 text-amber-600 dark:text-amber-400">E-IMZO hech qanday disk qaytarmadi (DSKEYS'li disk topilmadi). C:\DSKEYS bo'lsa ham E-IMZO uni ko'rmayapti — E-IMZO'ni qayta ishga tushiring / yangilang.</div>
+                ? <div className="mt-0.5 text-amber-600 dark:text-amber-400">{t("E-IMZO hech qanday disk qaytarmadi (DSKEYS'li disk topilmadi). C:\\DSKEYS bo'lsa ham E-IMZO uni ko'rmayapti — E-IMZO'ni qayta ishga tushiring / yangilang.")}</div>
                 : (diag.perDisk ?? []).map((p) => (
-                  <div key={p.disk} className="mt-0.5 font-mono text-fg">{p.disk}: {p.error ? <span className="text-rose-500">xato — {p.error}</span> : `${p.count} ta sertifikat`}</div>
+                  <div key={p.disk} className="mt-0.5 font-mono text-fg">{p.disk}: {p.error ? <span className="text-rose-500">{t('xato —')} {p.error}</span> : `${p.count} ${t('ta sertifikat')}`}</div>
                 ))}
             </div>
           )}
           <button onClick={() => { setPhase('loading'); setErr(null); if (clientMode) loadKeysClient(); else refreshLive(); }} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-muted hover:border-brand-500/40 hover:text-fg">
-            Qayta urinish
+            {t('Qayta urinish')}
           </button>
         </div>
       ) : phase === 'done' ? (
         <div className="flex flex-col items-center gap-2 py-6 text-center">
           <span className="grid h-12 w-12 place-items-center rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"><IcoCheck /></span>
-          <div className="text-sm font-semibold">Imzolandi ✓</div>
+          <div className="text-sm font-semibold">{t('Imzolandi ✓')}</div>
           <div className="text-[13px] text-muted">{chosen?.org || chosen?.cn || chosen?.name}</div>
         </div>
       ) : (
@@ -341,25 +343,25 @@ export function KeyPicker({
           {syncing && !busy && (
             <div className="flex items-center gap-2 rounded-lg border border-sky-500/25 bg-sky-500/[0.05] px-3 py-2 text-[12px] font-medium text-sky-600 dark:text-sky-400">
               <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-              E-IMZO dan yangilanyapti…
+              {t('E-IMZO dan yangilanyapti…')}
             </div>
           )}
           {!syncing && syncErr && (
             <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.05] px-3 py-2 text-[12px] font-medium text-amber-700 dark:text-amber-300">
               <span className="mt-0.5 shrink-0"><IcoWarn /></span>
-              <span>Oxirgi (saqlangan) roʻyxat koʻrsatilyapti — E-IMZO dan yangilab boʻlmadi.</span>
+              <span>{t('Oxirgi (saqlangan) roʻyxat koʻrsatilyapti — E-IMZO dan yangilab boʻlmadi.')}</span>
             </div>
           )}
           {busy && (
             <div className="flex items-center gap-2 rounded-lg border border-brand-500/25 bg-brand-500/[0.05] px-3 py-2 text-[13px] font-medium text-brand-600 dark:text-brand-400">
               <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-              E-IMZO oynasida parolni kiriting… (oyna orqada qolishi mumkin)
+              {t('E-IMZO oynasida parolni kiriting… (oyna orqada qolishi mumkin)')}
             </div>
           )}
           {mismatch && !busy && (
             <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-[13px] font-medium text-amber-700 dark:text-amber-300">
               <span className="mt-0.5 shrink-0"><IcoWarn /></span>
-              <span>Tanlangan kalit {chosenStir ? `(STIR ${chosenStir})` : '(firma STIRi yoʻq)'} bu firmaga ({wantStir}) mos emas — {firm.firmName} kalitini tanlang.</span>
+              <span>{t('Tanlangan kalit')} {chosenStir ? `(STIR ${chosenStir})` : t('(firma STIRi yoʻq)')} {t('bu firmaga')} ({wantStir}) {t('mos emas —')} {firm.firmName} {t('kalitini tanlang.')}</span>
             </div>
           )}
           {summary && (
@@ -368,7 +370,7 @@ export function KeyPicker({
               <span>{summary}</span>
             </div>
           )}
-          <div className="text-[12px] text-muted">Kalitni tanlang — parol E-IMZO oynasida soʻraladi:</div>
+          <div className="text-[12px] text-muted">{t('Kalitni tanlang — parol E-IMZO oynasida soʻraladi:')}</div>
           <div className="max-h-[46vh] space-y-1.5 overflow-auto pr-0.5">
             {keys.map((k) => {
               const id = keyId(k);
@@ -386,7 +388,7 @@ export function KeyPicker({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm font-semibold" title={k.org || k.cn || k.name}>{k.org || k.cn || k.name}</span>
-                      {mine && <span className="shrink-0 rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">shu firma</span>}
+                      {mine && <span className="shrink-0 rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">{t('shu firma')}</span>}
                     </div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted">
                       {k.cn && k.cn !== k.org && <span className="truncate">{k.cn}</span>}

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
 import { dueForStage } from '@/lib/konveyer-sla';
 import { audit, AuditAction } from '@/lib/audit';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -11,10 +12,11 @@ export const runtime = 'nodejs';
 //   paid=false: INVOICE_PAID    → INVOICE_CREATED (qaytarish; keyingi bosqichga o'tgan bo'lsa — yo'q)
 export async function POST(req: NextRequest) {
   await requireAccess('buxgalteriya');
+  const t = getT();
   const body = await req.json().catch(() => ({}));
   const caseId = Number(body?.caseId);
   const paid = body?.paid === true;
-  if (!caseId) return NextResponse.json({ error: 'caseId kerak' }, { status: 400 });
+  if (!caseId) return NextResponse.json({ error: t('caseId kerak') }, { status: 400 });
 
   const target = paid ? 'INVOICE_PAID' : 'INVOICE_CREATED';
   const from = paid ? 'INVOICE_CREATED' : 'INVOICE_PAID';
@@ -28,7 +30,7 @@ export async function POST(req: NextRequest) {
     data: { stage: target, stageEnteredAt: now, dueAt },
   });
   if (upd.count === 0) {
-    return NextResponse.json({ error: 'Holatni o‘zgartirib bo‘lmadi (case allaqachon boshqa bosqichda)' }, { status: 409 });
+    return NextResponse.json({ error: t('Holatni o‘zgartirib bo‘lmadi (case allaqachon boshqa bosqichda)') }, { status: 409 });
   }
   await audit(AuditAction.STAGE_ADVANCE, { target: `case:${caseId}`, detail: { to: target, by: 'buxgalteriya' } });
   return NextResponse.json({ ok: true, paid });

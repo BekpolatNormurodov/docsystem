@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { getT } from '@/lib/i18n/server';
 
 /** Windowed page list: 1 … (cur-1) cur (cur+1) … last, with `null` marking an ellipsis gap. */
 function pageWindow(cur: number, total: number): (number | null)[] {
@@ -25,7 +26,7 @@ export function Pagination({
   total,
   perPage,
   hrefFor,
-  unit = 'natija',
+  unit,
 }: {
   page: number;
   pages: number;
@@ -35,10 +36,12 @@ export function Pagination({
   /** Noun for the range summary, e.g. "mijoz". */
   unit?: string;
 }) {
+  const t = getT();
+  const u = unit ?? t('natija');
   if (pages <= 1) {
     return (
       <p className="mt-4 text-center text-xs text-muted">
-        {total.toLocaleString('ru-RU')} {unit}
+        {total.toLocaleString('ru-RU')} {u}
       </p>
     );
   }
@@ -48,15 +51,15 @@ export function Pagination({
   const arrow = 'grid h-9 min-w-9 place-items-center rounded-lg border px-2 text-sm transition';
 
   return (
-    <nav className="mt-6 flex flex-col items-center justify-between gap-3 sm:flex-row" aria-label="Sahifalash">
+    <nav className="mt-6 flex flex-col items-center justify-between gap-3 sm:flex-row" aria-label={t('Sahifalash')}>
       <p className="text-xs tabular-nums text-muted">
         <span className="font-semibold text-fg">{from.toLocaleString('ru-RU')}</span>–
-        <span className="font-semibold text-fg">{to.toLocaleString('ru-RU')}</span> / {total.toLocaleString('ru-RU')} {unit}
+        <span className="font-semibold text-fg">{to.toLocaleString('ru-RU')}</span> / {total.toLocaleString('ru-RU')} {u}
       </p>
 
       <div className="flex items-center gap-1">
         {page > 1 ? (
-          <Link href={hrefFor(page - 1)} aria-label="Oldingi" className={`${arrow} border-line hover:bg-surface-2`}>
+          <Link href={hrefFor(page - 1)} aria-label={t('Oldingi')} className={`${arrow} border-line hover:bg-surface-2`}>
             ‹
           </Link>
         ) : (
@@ -83,7 +86,7 @@ export function Pagination({
         )}
 
         {page < pages ? (
-          <Link href={hrefFor(page + 1)} aria-label="Keyingi" className={`${arrow} border-line hover:bg-surface-2`}>
+          <Link href={hrefFor(page + 1)} aria-label={t('Keyingi')} className={`${arrow} border-line hover:bg-surface-2`}>
             ›
           </Link>
         ) : (

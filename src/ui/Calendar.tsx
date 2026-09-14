@@ -6,6 +6,7 @@ import { UZ_MONTHS_LAT, WEEKDAYS_LAT, monthGrid } from '../core/calendar';
 import { STATUS_DOT } from './tokens';
 // Named exports, not `Ico.*` — this file is a server component (see icons.tsx).
 import { IconChevronLeft, IconChevronRight } from './icons';
+import { getT } from '@/lib/i18n/server';
 
 export { UZ_MONTHS_LAT } from '../core/calendar';
 export { STATUS_DOT } from './tokens';
@@ -52,6 +53,7 @@ export function Calendar({
   /** Overrides the default cert-workflow legend/dot-colours — e.g. for a different day-status domain. */
   legend?: LegendItem[];
 }) {
+  const t = getT();
   const [y, m] = month.split('-').map(Number);
   const cells = monthGrid(month);
   const iso = (d: number) => `${month}-${String(d).padStart(2, '0')}`;
@@ -66,7 +68,7 @@ export function Calendar({
           {UZ_MONTHS_LAT[m! - 1]} <span className="text-muted tabular-nums">{y}</span>
         </h2>
         <div className="flex items-center gap-1">
-          <Link href={prevHref} aria-label="Oldingi oy" className="btn-ghost px-2 py-2" prefetch>
+          <Link href={prevHref} aria-label={t('Oldingi oy')} className="btn-ghost px-2 py-2" prefetch>
             <IconChevronLeft size={16} />
           </Link>
           {/* Disabled-looking but still a link: it re-selects today within the current month. */}
@@ -75,9 +77,9 @@ export function Calendar({
             className={`btn-ghost px-3 py-1.5 text-xs ${showsToday ? 'text-muted' : ''}`}
             prefetch
           >
-            Bugun
+            {t('Bugun')}
           </Link>
-          <Link href={nextHref} aria-label="Keyingi oy" className="btn-ghost px-2 py-2" prefetch>
+          <Link href={nextHref} aria-label={t('Keyingi oy')} className="btn-ghost px-2 py-2" prefetch>
             <IconChevronRight size={16} />
           </Link>
         </div>
@@ -109,7 +111,7 @@ export function Calendar({
             <Link
               key={key}
               href={hrefForDay(key)}
-              aria-label={`${d}-kun${data ? `, ${data.total} ta ariza` : ''}`}
+              aria-label={`${d}-${t('kun')}${data ? `, ${data.total} ${t('ta ariza')}` : ''}`}
               aria-current={isSel ? 'date' : undefined}
               className={`group relative min-h-[86px] border-b border-r border-line/60 p-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500/40 ${
                 isSel ? 'bg-brand-600/10 ring-1 ring-inset ring-brand-500/40' : 'hover:bg-surface-2'

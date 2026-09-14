@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import { prisma } from '@/lib/db';
 import { requireUser } from '@/lib/auth';
 import { actionLabel } from '@/lib/audit-labels';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -29,6 +30,7 @@ function detailText(detail: unknown): string {
 // A yurist can only export their OWN rows (username forced), same as the page.
 export async function GET(req: NextRequest) {
   const me = await requireUser();
+  const t = getT();
   const isAdmin = me.role === 'ADMIN';
   const sp = req.nextUrl.searchParams;
   const action = sp.get('action') && sp.get('action') !== 'all' ? String(sp.get('action')) : '';
@@ -58,14 +60,14 @@ export async function GET(req: NextRequest) {
   });
 
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('Jurnal');
+  const ws = wb.addWorksheet(t('Jurnal'));
   ws.columns = [
-    { header: 'Vaqt', key: 't', width: 20 },
-    { header: 'Foydalanuvchi', key: 'u', width: 20 },
-    { header: 'Rol', key: 'r', width: 10 },
-    { header: 'Amal', key: 'a', width: 24 },
-    { header: 'Obyekt', key: 'o', width: 18 },
-    { header: 'Tafsilot', key: 'd', width: 50 },
+    { header: t('Vaqt'), key: 't', width: 20 },
+    { header: t('Foydalanuvchi'), key: 'u', width: 20 },
+    { header: t('Rol'), key: 'r', width: 10 },
+    { header: t('Amal'), key: 'a', width: 24 },
+    { header: t('Obyekt'), key: 'o', width: 18 },
+    { header: t('Tafsilot'), key: 'd', width: 50 },
     { header: 'IP', key: 'ip', width: 16 },
   ];
   ws.getRow(1).font = { bold: true };
@@ -73,7 +75,7 @@ export async function GET(req: NextRequest) {
     ws.addRow({
       t: fmt(r.createdAt),
       u: r.username,
-      r: r.role === 'ADMIN' ? 'admin' : r.role === 'YURIST' ? 'yurist' : (r.role ?? ''),
+      r: r.role === 'ADMIN' ? t('admin') : r.role === 'YURIST' ? t('yurist') : (r.role ?? ''),
       a: actionLabel(r.action),
       o: r.target ?? '',
       d: detailText(r.detail),

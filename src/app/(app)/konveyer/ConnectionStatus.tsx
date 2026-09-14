@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Modal } from '@/ui';
 import { KeyPicker } from './KeyPicker';
+import { useT } from '@/lib/i18n/client';
 
 type State = 'ACTIVE' | 'EXPIRED' | 'NONE';
 interface Prov { state: State; since: string | null; expiresAt: string | null; balance?: number | null; name?: string | null }
@@ -22,17 +23,18 @@ const PILL: Record<State, string> = {
 };
 
 function Provider({ label, p, extra, onConnect, busy }: { label: string; p: Prov; extra?: string; onConnect: () => void; busy: boolean }) {
+  const t = useT();
   // "which time's data": show the session's validity/last-change time.
   const timeNote = p.state === 'ACTIVE'
-    ? (p.expiresAt ? `amal qiladi ${dtShort(p.expiresAt)} gacha` : (p.since ? `ulangan ${dtShort(p.since)}` : ''))
+    ? (p.expiresAt ? `${t('amal qiladi')} ${dtShort(p.expiresAt)} ${t('gacha')}` : (p.since ? `${t('ulangan')} ${dtShort(p.since)}` : ''))
     : p.state === 'EXPIRED'
-      ? (p.since ? `${dtShort(p.since)} da eskirgan` : 'muddati o‘tgan')
+      ? (p.since ? `${dtShort(p.since)} ${t('da eskirgan')}` : t('muddati o‘tgan'))
       : '';
   return (
     <div className="flex items-center gap-2 py-0.5">
       <span className="w-16 shrink-0 text-[11px] font-medium text-muted">{label}</span>
       <span className={`inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${PILL[p.state]}`}>
-        <span className={`h-1.5 w-1.5 rounded-full ${DOT[p.state]}`} />{LABEL[p.state]}
+        <span className={`h-1.5 w-1.5 rounded-full ${DOT[p.state]}`} />{t(LABEL[p.state])}
       </span>
       {extra && <span className="text-[11px] font-medium tabular-nums">{extra}</span>}
       {timeNote && <span className="truncate text-[10px] tabular-nums text-muted">{timeNote}</span>}
@@ -42,8 +44,8 @@ function Provider({ label, p, extra, onConnect, busy }: { label: string; p: Prov
       <button
         onClick={onConnect}
         disabled={busy}
-        aria-label={p.state === 'NONE' ? 'Ula' : 'Qayta ula'}
-        title={p.state === 'NONE' ? 'Kalitni ula (E-IMZO)' : p.state === 'EXPIRED' ? 'Qayta ula — token eskirgan (E-IMZO)' : 'Qayta ula — boshqa kalit/akkaunt bilan (E-IMZO)'}
+        aria-label={p.state === 'NONE' ? t('Ula') : t('Qayta ula')}
+        title={p.state === 'NONE' ? t('Kalitni ula (E-IMZO)') : p.state === 'EXPIRED' ? t('Qayta ula — token eskirgan (E-IMZO)') : t('Qayta ula — boshqa kalit/akkaunt bilan (E-IMZO)')}
         className={`ml-auto grid h-6 w-6 shrink-0 place-items-center rounded-md outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50 ${p.state === 'NONE' ? 'text-brand-600 hover:bg-brand-500/12 dark:text-brand-400' : p.state === 'EXPIRED' ? 'text-amber-600 hover:bg-amber-500/15 dark:text-amber-400' : 'text-muted hover:bg-surface-2 hover:text-brand-600 dark:hover:text-brand-400'}`}
       >
         {busy
@@ -65,6 +67,7 @@ function Provider({ label, p, extra, onConnect, busy }: { label: string; p: Prov
  *    no modal, with a page heading instead of the Modal's title.
  */
 export function ConnectionStatus({ inline = false }: { inline?: boolean }) {
+  const t = useT();
   const [rows, setRows] = useState<Row[]>([]);
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -82,12 +85,12 @@ export function ConnectionStatus({ inline = false }: { inline?: boolean }) {
     setErr(null);
     try {
       const res = await fetch(`/konveyer/connections${health ? '?health=1' : ''}`, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`Server xatosi (${res.status})`);
+      if (!res.ok) throw new Error(`${t('Server xatosi')} (${res.status})`);
       const data = await res.json();
       setRows(data.firms ?? []);
       setCheckedAt(data.checkedAt ?? null);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Yuklab bo‘lmadi');
+      setErr(e instanceof Error ? e.message : t('Yuklab bo‘lmadi'));
     } finally { setLoading(false); setHealthBusy(false); }
   }, []);
   useEffect(() => { load(false); }, [load]);
@@ -99,7 +102,7 @@ export function ConnectionStatus({ inline = false }: { inline?: boolean }) {
     setPicker({ firmId, firmName, stir, provider });
   };
   const onPickerSuccess = async (provider: 'HIPPO' | 'CABINET') => {
-    setNote(`${provider === 'HIPPO' ? 'xat.hippo' : 'adolat'} ulandi ✓`);
+    setNote(`${provider === 'HIPPO' ? 'xat.hippo' : 'adolat'} ${t('ulandi')} ✓`);
     await load(true);
   };
 
@@ -114,17 +117,17 @@ export function ConnectionStatus({ inline = false }: { inline?: boolean }) {
   const body = (
     <>
       <div className="mb-3 flex items-center justify-between gap-2">
-        <span className="text-[11px] tabular-nums text-muted">{checkedAt ? `Ma'lumot: ${timeOnly(checkedAt)} holatiga` : ''}</span>
+        <span className="text-[11px] tabular-nums text-muted">{checkedAt ? `${t("Ma'lumot:")} ${timeOnly(checkedAt)} ${t('holatiga')}` : ''}</span>
         <button onClick={() => load(true)} disabled={healthBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-muted outline-none transition-colors hover:border-brand-500/40 focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50">
           {healthBusy ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> : null}
-          Jonli tekshirish
+          {t('Jonli tekshirish')}
         </button>
       </div>
       {note && <div role="status" className="mb-2 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.04] px-2.5 py-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">{note}</div>}
       {err && (
         <div role="alert" className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-rose-500/25 bg-rose-500/[0.04] px-2.5 py-1.5 text-[11px] font-medium text-rose-500">
           <span>{err}</span>
-          <button onClick={() => load(false)} className="shrink-0 rounded border border-line px-1.5 py-0.5 text-muted hover:border-brand-500/40">Qayta urinish</button>
+          <button onClick={() => load(false)} className="shrink-0 rounded border border-line px-1.5 py-0.5 text-muted hover:border-brand-500/40">{t('Qayta urinish')}</button>
         </div>
       )}
 
@@ -132,13 +135,13 @@ export function ConnectionStatus({ inline = false }: { inline?: boolean }) {
         <div className="grid gap-2 sm:grid-cols-2">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-16 animate-pulse rounded-xl bg-surface-2" />)}</div>
       ) : err && list.length === 0 ? null /* error banner above covers it — no contradictory "nothing connected" */
       : list.length === 0 ? (
-        <div className="grid h-20 place-items-center text-center text-xs text-muted">Hali birorta firma kaliti ulanmagan.</div>
+        <div className="grid h-20 place-items-center text-center text-xs text-muted">{t('Hali birorta firma kaliti ulanmagan.')}</div>
       ) : (
         <div className={`grid gap-2 sm:grid-cols-2 ${inline ? '' : 'max-h-[55vh] overflow-auto'}`}>
           {list.map((r) => (
             <div key={r.firmId} className="rounded-xl border border-line bg-surface px-3 py-2">
               <div className="mb-1 truncate text-[13px] font-semibold" title={r.firmName}>{r.firmName}</div>
-              <Provider label="xat.hippo" p={r.hippo} extra={r.hippo.balance != null ? `${n(r.hippo.balance)} so‘m` : undefined} onConnect={() => openPicker(r.firmId, r.firmName, r.stir ?? null, 'HIPPO')} busy={picker?.firmId === r.firmId && picker?.provider === 'HIPPO'} />
+              <Provider label="xat.hippo" p={r.hippo} extra={r.hippo.balance != null ? `${n(r.hippo.balance)} ${t('so‘m')}` : undefined} onConnect={() => openPicker(r.firmId, r.firmName, r.stir ?? null, 'HIPPO')} busy={picker?.firmId === r.firmId && picker?.provider === 'HIPPO'} />
               <Provider label="adolat" p={r.cabinet} onConnect={() => openPicker(r.firmId, r.firmName, r.stir ?? null, 'CABINET')} busy={picker?.firmId === r.firmId && picker?.provider === 'CABINET'} />
             </div>
           ))}
@@ -146,10 +149,10 @@ export function ConnectionStatus({ inline = false }: { inline?: boolean }) {
       )}
       {!loading && rest.length > 0 && (
         <button onClick={() => setShowAll((v) => !v)} className="mt-2 text-[11px] font-medium text-muted hover:text-brand-600">
-          {showAll ? 'Faqat ulanganlar' : `Yana ${rest.length} ta ulanmagan firma`}
+          {showAll ? t('Faqat ulanganlar') : `${t('Yana')} ${rest.length} ${t('ta ulanmagan firma')}`}
         </button>
       )}
-      <div className="mt-2 text-[11px] text-muted">«Ula» — kalit roʻyxatidan firma kalitini tanlaysiz, soʻng E-IMZO oynasida parol soʻraladi (kalit ulangan boʻlishi shart).</div>
+      <div className="mt-2 text-[11px] text-muted">{t('«Ula» — kalit roʻyxatidan firma kalitini tanlaysiz, soʻng E-IMZO oynasida parol soʻraladi (kalit ulangan boʻlishi shart).')}</div>
     </>
   );
 
@@ -163,8 +166,8 @@ export function ConnectionStatus({ inline = false }: { inline?: boolean }) {
       firm={{ firmId: picker.firmId, firmName: picker.firmName, stir: picker.stir }}
       provider={picker.provider}
       endpoint="/konveyer/connect"
-      title={picker.provider === 'HIPPO' ? 'xat.hippo — kalitni ulash' : 'adolat (sud) — kalitni ulash'}
-      confirmLabel="Imzolab ulash"
+      title={picker.provider === 'HIPPO' ? t('xat.hippo — kalitni ulash') : t('adolat (sud) — kalitni ulash')}
+      confirmLabel={t('Imzolab ulash')}
       onSuccess={() => onPickerSuccess(picker.provider)}
     />
   );
@@ -173,8 +176,8 @@ export function ConnectionStatus({ inline = false }: { inline?: boolean }) {
     return (
       <div>
         <div className="mb-4">
-          <h1 className="text-2xl font-bold tracking-tight">Ulanishlar — E-IMZO</h1>
-          <p className="mt-1 text-sm text-muted">xat.hippo va adolat (cabinet.sud.uz) — firma kaliti bilan</p>
+          <h1 className="text-2xl font-bold tracking-tight">{t('Ulanishlar — E-IMZO')}</h1>
+          <p className="mt-1 text-sm text-muted">{t('xat.hippo va adolat (cabinet.sud.uz) — firma kaliti bilan')}</p>
         </div>
         <div className="card p-4 sm:p-5">{body}</div>
         {pickerEl}
@@ -187,14 +190,14 @@ export function ConnectionStatus({ inline = false }: { inline?: boolean }) {
       <button
         onClick={() => setOpen(true)}
         className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-medium outline-none transition-colors hover:border-brand-500/40 focus-visible:ring-2 focus-visible:ring-brand-500/30"
-        title="E-IMZO ulanishlari"
+        title={t('E-IMZO ulanishlari')}
       >
         <span className={`h-2 w-2 rounded-full ${DOT[overall]} ${overall === 'ACTIVE' ? 'animate-pulse' : ''}`} />
         <svg className="h-4 w-4 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" /><path d="M6 7h12l-1 9a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L6 7Z" /><path d="M12 12v3" /></svg>
         <span className="tabular-nums text-muted">hippo {hippoOk} · adolat {cabOk}</span>
       </button>
 
-      <Modal open={open} onClose={() => setOpen(false)} size="lg" title="Ulanishlar — E-IMZO" description="xat.hippo va adolat (cabinet.sud.uz) — firma kaliti bilan">
+      <Modal open={open} onClose={() => setOpen(false)} size="lg" title={t('Ulanishlar — E-IMZO')} description={t('xat.hippo va adolat (cabinet.sud.uz) — firma kaliti bilan')}>
         {body}
       </Modal>
       {pickerEl}

@@ -4,6 +4,7 @@ import React, { useRef, useState } from 'react';
 import Link from 'next/link';
 import { DateField, Ico } from '@/ui';
 import { DocInfo, ReqChip, type DocInfoKind } from './DocInfo';
+import { useT } from '@/lib/i18n/client';
 
 const KB = 1024;
 const fileSize = (b: number) =>
@@ -58,6 +59,7 @@ function Dropzone({
   const inputRef = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
   const a = ACCENT[accent];
+  const t = useT();
 
   return (
     <div className={required ? 'rounded-xl border border-emerald-500/25 bg-emerald-500/[0.03] p-3' : undefined}>
@@ -84,7 +86,7 @@ function Dropzone({
             <button
               type="button"
               onClick={onClear}
-              aria-label="Olib tashlash"
+              aria-label={t('Olib tashlash')}
               className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-rose-500/10 hover:text-rose-500"
             >
               ✕
@@ -114,7 +116,7 @@ function Dropzone({
             <Ico.add size={18} />
           </span>
           <span className="min-w-0">
-            <span className="block text-sm font-medium">Fayl tanlash yoki bu yerga tashlang</span>
+            <span className="block text-sm font-medium">{t('Fayl tanlash yoki bu yerga tashlang')}</span>
             <span className="block truncate text-xs text-muted">{hint}</span>
           </span>
         </button>
@@ -143,6 +145,7 @@ function Step({ n, done, last, children }: { n: number; done?: boolean; last?: b
  * `FilePicker` (which caps at 10 MB) because the portfolio spreadsheet regularly runs past 100 MB.
  */
 export function ImportForm({ children }: { children?: React.ReactNode }) {
+  const t = useT();
   const [file, setFile] = useState<File | null>(null);
   const [excludeFile, setExcludeFile] = useState<File | null>(null);
   const [date, setDate] = useState('');
@@ -189,7 +192,7 @@ export function ImportForm({ children }: { children?: React.ReactNode }) {
           setPhase('done');
         } else if (job.status === 'FAILED') {
           clearInterval(timer);
-          setError(job.message ?? 'Import muvaffaqiyatsiz tugadi');
+          setError(job.message ?? t('Import muvaffaqiyatsiz tugadi'));
           setPhase('failed');
         }
       } catch {
@@ -219,7 +222,7 @@ export function ImportForm({ children }: { children?: React.ReactNode }) {
       const res = await fetch('/api/import', { method: 'POST', body: form });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setError(body.error ?? 'Yuklashda xatolik');
+        setError(body.error ?? t('Yuklashda xatolik'));
         setPhase('failed');
         return;
       }
@@ -227,7 +230,7 @@ export function ImportForm({ children }: { children?: React.ReactNode }) {
       setPhase('running');
       poll(jobId);
     } catch {
-      setError('Yuklashda xatolik');
+      setError(t('Yuklashda xatolik'));
       setPhase('failed');
     }
   }
@@ -242,17 +245,17 @@ export function ImportForm({ children }: { children?: React.ReactNode }) {
     <div className="card max-w-lg space-y-4 p-6">
       {/* «Bitta hujjat — 3 qism»: raqamli qadamlar. Faqat 1-qism (Portfel) majburiy. */}
       <div className="flex items-center justify-between">
-        <div className="text-sm font-semibold">Fayllar</div>
+        <div className="text-sm font-semibold">{t('Fayllar')}</div>
         <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-muted">
-          {file ? <span className="text-emerald-600 dark:text-emerald-400">Majburiy tayyor ✓</span> : 'Majburiy: Portfel'}
+          {file ? <span className="text-emerald-600 dark:text-emerald-400">{t('Majburiy tayyor ✓')}</span> : t('Majburiy: Portfel')}
         </span>
       </div>
 
       <div>
         <Step n={1} done={!!file}>
           <Dropzone
-            label="Portfel fayli (.xlsx)"
-            hint="Ensay portfeli — .xlsx (100 MB dan katta boʻlishi mumkin) · majburiy"
+            label={t('Portfel fayli (.xlsx)')}
+            hint={t('Ensay portfeli — .xlsx (100 MB dan katta boʻlishi mumkin) · majburiy')}
             accent="brand"
             file={file}
             disabled={busy}
@@ -265,8 +268,8 @@ export function ImportForm({ children }: { children?: React.ReactNode }) {
 
         <Step n={2} done={!!excludeFile}>
           <Dropzone
-            label="Muammoli / istisno roʻyxati — sud roʻyxati (.xlsx)"
-            hint="«Pnfl» varagʻidagi mijozlar — ularga ariza yaratiladi · ixtiyoriy"
+            label={t('Muammoli / istisno roʻyxati — sud roʻyxati (.xlsx)')}
+            hint={t('«Pnfl» varagʻidagi mijozlar — ularga ariza yaratiladi · ixtiyoriy')}
             accent="amber"
             file={excludeFile}
             disabled={busy}
@@ -285,11 +288,11 @@ export function ImportForm({ children }: { children?: React.ReactNode }) {
 
       <div className="max-w-[220px]">
         <DateField
-          label="Hisobot sanasi"
+          label={t('Hisobot sanasi')}
           value={date}
           onChange={setDate}
           disabled={busy}
-          hint="Fayl nomidan avtomatik aniqlanadi — kerak boʻlsa tahrirlang"
+          hint={t('Fayl nomidan avtomatik aniqlanadi — kerak boʻlsa tahrirlang')}
         />
       </div>
 
@@ -299,16 +302,16 @@ export function ImportForm({ children }: { children?: React.ReactNode }) {
         disabled={!ready || busy}
         className="btn-primary w-full justify-center py-2.5 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {phase === 'uploading' ? 'Fayl yuklanmoqda…' : phase === 'running' ? 'Saqlanmoqda…' : 'Yuklash'}
+        {phase === 'uploading' ? t('Fayl yuklanmoqda…') : phase === 'running' ? t('Saqlanmoqda…') : t('Yuklash')}
       </button>
 
       {phase === 'idle' && !ready && (
-        <p className="text-center text-[11px] text-muted">Portfel fayli va sanani tanlang (sud roʻyxati ixtiyoriy).</p>
+        <p className="text-center text-[11px] text-muted">{t('Portfel fayli va sanani tanlang (sud roʻyxati ixtiyoriy).')}</p>
       )}
 
       {phase === 'uploading' && (
         <p className="text-xs text-muted">
-          Fayl serverga yuklanmoqda{file ? ` (${fileSize(file.size)})` : ''}… bir oz kuting.
+          {t('Fayl serverga yuklanmoqda')}{file ? ` (${fileSize(file.size)})` : ''}{t('… bir oz kuting.')}
         </p>
       )}
 
@@ -319,10 +322,9 @@ export function ImportForm({ children }: { children?: React.ReactNode }) {
           <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
             <div className="h-full rounded-full bg-brand-600 transition-all" style={{ width: `${pct}%` }} />
           </div>
-          <p className="mt-2 text-sm font-medium">Ma'lumotlar saqlanyapti (orqa fonda)… {pct}%</p>
+          <p className="mt-2 text-sm font-medium">{t("Ma'lumotlar saqlanyapti (orqa fonda)…")} {pct}%</p>
           <p className="mt-1 text-[11px] text-muted">
-            {progress.toLocaleString('ru-RU')} qator saqlandi. Bir necha daqiqa oladi — sahifani
-            yopsangiz ham import serverda davom etadi.
+            {progress.toLocaleString('ru-RU')} {t('qator saqlandi. Bir necha daqiqa oladi — sahifani yopsangiz ham import serverda davom etadi.')}
           </p>
         </div>
       )}
@@ -330,10 +332,10 @@ export function ImportForm({ children }: { children?: React.ReactNode }) {
       {phase === 'done' && (
         <div className="rounded-xl border border-accent-500/30 bg-accent-500/10 p-3">
           <p className="text-sm font-medium text-accent-700 dark:text-accent-400">
-            ✓ Tayyor — {progress.toLocaleString('ru-RU')} ta qator yuklandi
+            ✓ {t('Tayyor')} — {progress.toLocaleString('ru-RU')} {t('ta qator yuklandi')}
           </p>
           <Link href={`/s/${date}`} className="mt-1 inline-block text-sm font-medium underline">
-            Hisobotni koʻrish
+            {t('Hisobotni koʻrish')}
           </Link>
         </div>
       )}

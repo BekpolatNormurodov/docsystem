@@ -7,12 +7,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Ico, Spinner, Modal } from '@/ui';
 import { MibDashboard } from './MibDashboard';
+import { useT } from '@/lib/i18n/client';
 
 interface Scope { snapshotId?: number; reportId: number | null; mibCases: number; seeded: number }
 
 const n = (x: number) => (x || 0).toLocaleString('ru-RU');
 
 export function KonveyerMibMonitor({ snapshotId }: { snapshotId?: number }) {
+  const t = useT();
   const [scope, setScope] = useState<Scope | null>(null);
   const [busy, setBusy] = useState(false);
   const [openModal, setOpenModal] = useState(false);
@@ -49,14 +51,14 @@ export function KonveyerMibMonitor({ snapshotId }: { snapshotId?: number }) {
           </span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-semibold">MIB monitoring</span>
-              <span className="badge border-teal-500/30 text-teal-600 dark:text-teal-300">mib.uz · real</span>
+              <span className="text-sm font-semibold">{t('MIB monitoring')}</span>
+              <span className="badge border-teal-500/30 text-teal-600 dark:text-teal-300">mib.uz · {t('real')}</span>
             </div>
             <div className="mt-0.5 text-xs text-muted">
-              {scope === null ? 'Yuklanmoqda…'
-                : scope.mibCases === 0 ? 'Konveyerda MIBga chiqqan ish topilmadi.'
-                : hasReport ? <>Konveyerda <b className="text-fg tabular-nums">{n(scope.mibCases)}</b> ta · <b className="text-fg tabular-nums">{n(scope.seeded)}</b> tekshiruvga olingan{unseeded > 0 ? <> · <span className="text-amber-600 dark:text-amber-300">{n(unseeded)} yangi</span></> : ''}</>
-                : <>Konveyerda <b className="text-fg tabular-nums">{n(scope.mibCases)}</b> ta MIB ishi — tekshiruvga oling</>}
+              {scope === null ? t('Yuklanmoqda…')
+                : scope.mibCases === 0 ? t('Konveyerda MIBga chiqqan ish topilmadi.')
+                : hasReport ? <>{t('Konveyerda')} <b className="text-fg tabular-nums">{n(scope.mibCases)}</b> {t('ta')} · <b className="text-fg tabular-nums">{n(scope.seeded)}</b> {t('tekshiruvga olingan')}{unseeded > 0 ? <> · <span className="text-amber-600 dark:text-amber-300">{n(unseeded)} {t('yangi')}</span></> : ''}</>
+                : <>{t('Konveyerda')} <b className="text-fg tabular-nums">{n(scope.mibCases)}</b> {t('ta MIB ishi — tekshiruvga oling')}</>}
             </div>
           </div>
         </div>
@@ -67,18 +69,18 @@ export function KonveyerMibMonitor({ snapshotId }: { snapshotId?: number }) {
             : hasReport ? (
               <>
                 {unseeded > 0 && (
-                  <button className="btn-ghost" disabled={busy} onClick={() => void seed()} title="Yangi PINFL'larni qo'shish">
-                    {busy ? <Spinner size={16} /> : <Ico.refresh size={16} />} Yangilash
+                  <button className="btn-ghost" disabled={busy} onClick={() => void seed()} title={t("Yangi PINFL'larni qo'shish")}>
+                    {busy ? <Spinner size={16} /> : <Ico.refresh size={16} />} {t('Yangilash')}
                   </button>
                 )}
                 <button className="btn-primary" onClick={() => setOpenModal(true)}>
-                  <Ico.dashboard size={16} /> Ochish
+                  <Ico.dashboard size={16} /> {t('Ochish')}
                 </button>
               </>
             ) : (
               <button className="btn-primary" disabled={busy} onClick={() => void seed()}>
                 {busy ? <Spinner size={16} className="mr-1.5" /> : <Ico.download size={16} className="mr-1.5 inline" />}
-                Konveyerdan yuklash ({n(scope.mibCases)})
+                {t('Konveyerdan yuklash')} ({n(scope.mibCases)})
               </button>
             )}
         </div>
@@ -88,8 +90,8 @@ export function KonveyerMibMonitor({ snapshotId }: { snapshotId?: number }) {
         open={openModal && hasReport}
         onClose={() => setOpenModal(false)}
         size="full"
-        title="MIB monitoring — ijro ishlari"
-        description="Sudda yutib ijroga chiqqanlar · mib.uz dan real maʼlumot · region / hudud / bank boʻyicha filtr"
+        title={t('MIB monitoring — ijro ishlari')}
+        description={t('Sudda yutib ijroga chiqqanlar · mib.uz dan real maʼlumot · region / hudud / bank boʻyicha filtr')}
       >
         {hasReport && scope!.reportId != null && <MibDashboard reportId={scope!.reportId} reseed={seed} />}
       </Modal>

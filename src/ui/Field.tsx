@@ -3,6 +3,7 @@
 import React, { useId, useState } from 'react';
 import { Ico } from './icons';
 import { DatePicker } from './DatePicker';
+import { useT } from '@/lib/i18n/client';
 
 interface Base {
   label: string;
@@ -153,6 +154,7 @@ export function PasswordField({
   ...base
 }: Base & { value: string; onChange: (v: string) => void; placeholder?: string }) {
   const id = useId();
+  const t = useT();
   const [show, setShow] = useState(false);
   return (
     <Shell {...base} id={id}>
@@ -168,7 +170,7 @@ export function PasswordField({
         <button
           type="button"
           onClick={() => setShow((v) => !v)}
-          aria-label={show ? 'Parolni yashirish' : 'Parolni koʻrsatish'}
+          aria-label={show ? t('Parolni yashirish') : t('Parolni koʻrsatish')}
           className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer rounded-md p-1.5 text-muted hover:bg-surface-2 hover:text-fg"
         >
           <Ico.eye size={16} />

@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import { parseLoanFilters, buildLoanWhere, loanWhereSql, loanPageHref } from '@/core/loan-filters';
 import { formatSumDecimal, dmy } from '@/core/document';
 import { PageHeader, StatCard, Table, Pagination, EmptyState, ClickableRow } from '@/ui';
+import { getT } from '@/lib/i18n/server';
 import { LoanFilters } from './LoanFilters';
 import { FirmDebtChart } from './FirmDebtChart';
 
@@ -18,6 +19,7 @@ export default async function SnapshotBrowsePage({
   params: { date: string };
   searchParams: Record<string, string | undefined>;
 }) {
+  const t = getT();
   // Validate the date segment before it reaches Prisma — a malformed /s/garbage
   // must be a clean 404, not an Invalid-Date 500.
   if (!/^\d{4}-\d{2}-\d{2}$/.test(params.date)) notFound();
@@ -58,12 +60,12 @@ export default async function SnapshotBrowsePage({
 
   return (
     <div>
-      <PageHeader title={`Portfel — ${dmy(snapshot.reportDate)}`} subtitle={snapshot.sourceFileName} />
+      <PageHeader title={`${t('Portfel')} — ${dmy(snapshot.reportDate)}`} subtitle={snapshot.sourceFileName} />
 
       <div className="mb-4 grid gap-4 sm:grid-cols-3">
-        <StatCard label="Jami qarz" value={`${formatSumDecimal(String(sumAgg._sum.totalDebt ?? 0))} soʻm`} />
-        <StatCard label="Kreditlar" value={total.toLocaleString('uz')} />
-        <StatCard label="Odamlar" value={peopleTotal.toLocaleString('uz')} />
+        <StatCard label={t('Jami qarz')} value={`${formatSumDecimal(String(sumAgg._sum.totalDebt ?? 0))} ${t('soʻm')}`} />
+        <StatCard label={t('Kreditlar')} value={total.toLocaleString('uz')} />
+        <StatCard label={t('Odamlar')} value={peopleTotal.toLocaleString('uz')} />
       </div>
 
       <Suspense fallback={<div className="mb-4 h-40 w-full animate-pulse rounded-2xl bg-surface-2" />}>
@@ -73,17 +75,17 @@ export default async function SnapshotBrowsePage({
       <LoanFilters firms={firms.map((fr) => ({ code: fr.code, shortName: fr.shortName }))} />
 
       {loans.length === 0 ? (
-        <EmptyState title="Kreditlar topilmadi" hint="Filtrlarni oʻzgartirib koʻring" />
+        <EmptyState title={t('Kreditlar topilmadi')} hint={t('Filtrlarni oʻzgartirib koʻring')} />
       ) : (
         <>
           <Table
             head={
               <tr>
-                <th className="px-4 py-3 text-left font-medium">PINFL</th>
-                <th className="px-4 py-3 text-left font-medium">F.I.O.</th>
-                <th className="px-4 py-3 text-left font-medium">Firma</th>
-                <th className="px-4 py-3 text-left font-medium">Shartnoma</th>
-                <th className="px-4 py-3 text-right font-medium">Qarz</th>
+                <th className="px-4 py-3 text-left font-medium">{t('PINFL')}</th>
+                <th className="px-4 py-3 text-left font-medium">{t('F.I.O.')}</th>
+                <th className="px-4 py-3 text-left font-medium">{t('Firma')}</th>
+                <th className="px-4 py-3 text-left font-medium">{t('Shartnoma')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Qarz')}</th>
               </tr>
             }
           >
@@ -94,7 +96,7 @@ export default async function SnapshotBrowsePage({
                   {loan.clientName || '—'}
                   {loan.excluded && (
                     <span className="badge border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-300 text-[10px] ml-2">
-                      istisno
+                      {t('istisno')}
                     </span>
                   )}
                 </td>

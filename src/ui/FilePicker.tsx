@@ -3,6 +3,7 @@
 import React, { useRef, useState } from 'react';
 import { Ico } from './icons';
 import { ACCEPT_ATTR, attachmentError, isImageMime, MAX_PER_ARIZA } from '../attachments/rules';
+import { useT } from '@/lib/i18n/client';
 
 const KB = 1024;
 const fileSize = (b: number) =>
@@ -21,6 +22,7 @@ export function FilePicker({
   onChange: (files: File[]) => void;
   disabled?: boolean;
 }) {
+  const t = useT();
   const input = useRef<HTMLInputElement>(null);
   const [err, setErr] = useState('');
 
@@ -34,7 +36,7 @@ export function FilePicker({
         continue;
       }
       if (next.length >= MAX_PER_ARIZA) {
-        setErr(`Eng koʻpi ${MAX_PER_ARIZA} ta fayl`);
+        setErr(`${t('Eng koʻpi')} ${MAX_PER_ARIZA} ${t('ta fayl')}`);
         break;
       }
       if (!next.some((x) => x.name === f.name && x.size === f.size)) next.push(f);
@@ -51,7 +53,7 @@ export function FilePicker({
 
   return (
     <div>
-      <span className="field-label">Fayllar</span>
+      <span className="field-label">{t('Fayllar')}</span>
 
       <input
         ref={input}
@@ -69,9 +71,9 @@ export function FilePicker({
         disabled={disabled}
         className="btn-ghost w-full justify-center py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <Ico.add size={16} /> Fayl biriktirish
+        <Ico.add size={16} /> {t('Fayl biriktirish')}
       </button>
-      <p className="mt-1.5 text-xs text-muted">Rasm, PDF, Word yoki Excel · har biri 10 MB gacha</p>
+      <p className="mt-1.5 text-xs text-muted">{t('Rasm, PDF, Word yoki Excel · har biri 10 MB gacha')}</p>
 
       {err && <p role="alert" className="mt-1.5 text-xs font-medium text-rose-600 dark:text-rose-300">{err}</p>}
 
@@ -96,7 +98,7 @@ export function FilePicker({
                 onClick={() => remove(i)}
                 disabled={disabled}
                 className="shrink-0 cursor-pointer rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-rose-600 disabled:opacity-50 dark:hover:text-rose-400"
-                aria-label={`${f.name} — olib tashlash`}
+                aria-label={`${f.name} — ${t('olib tashlash')}`}
               >
                 <Ico.close size={16} />
               </button>

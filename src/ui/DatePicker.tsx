@@ -6,6 +6,7 @@ import {
 } from '../core/calendar';
 import { maskDmy } from '../core/mask';
 import { Ico } from './icons';
+import { useT } from '@/lib/i18n/client';
 
 const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
 
@@ -30,7 +31,7 @@ export function DatePicker({
   id,
   error,
   hint,
-  placeholder = 'kk.oo.yyyy',
+  placeholder,
   disabled,
   ariaLabel,
 }: {
@@ -46,6 +47,7 @@ export function DatePicker({
   /** For standalone use (filters), where there is no <Shell> label to point at. */
   ariaLabel?: string;
 }) {
+  const t = useT();
   const auto = useId();
   const inputId = id ?? auto;
   const gridId = `${inputId}-grid`;
@@ -163,7 +165,7 @@ export function DatePicker({
           onKeyDown={(e) => {
             if (e.key === 'ArrowDown' && !open) { e.preventDefault(); setOpen(true); }
           }}
-          placeholder={placeholder}
+          placeholder={placeholder ?? t('kk.oo.yyyy')}
           disabled={disabled}
           inputMode="numeric"
           autoComplete="off"
@@ -179,7 +181,7 @@ export function DatePicker({
           type="button"
           onClick={() => { setOpen((v) => !v); setFocusDay(isValidDay(value) ? value : today); }}
           disabled={disabled}
-          aria-label={open ? 'Kalendarni yopish' : 'Kalendarni ochish'}
+          aria-label={open ? t('Kalendarni yopish') : t('Kalendarni ochish')}
           aria-expanded={open}
           aria-controls={open ? gridId : undefined}
           className="absolute right-1.5 top-1/2 -translate-y-1/2 cursor-pointer rounded-md p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
@@ -192,7 +194,7 @@ export function DatePicker({
         <div
           id={gridId}
           role="dialog"
-          aria-label="Sana tanlash"
+          aria-label={t('Sana tanlash')}
           className="absolute left-0 top-full z-50 mt-2 w-[19rem] rounded-xl border border-line bg-surface p-3 shadow-xl shadow-slate-900/10 animate-fade-in dark:shadow-black/40"
         >
           <div className="mb-2 flex items-center justify-between gap-2">
@@ -202,7 +204,7 @@ export function DatePicker({
               // read the same stale `view` and advance a single month.
               onClick={() => setView((v) => shiftMonth(v, -1))}
               disabled={prevBlocked}
-              aria-label="Oldingi oy"
+              aria-label={t('Oldingi oy')}
               className="rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg disabled:pointer-events-none disabled:opacity-30"
             >
               <Ico.chevronLeft size={18} />
@@ -216,7 +218,7 @@ export function DatePicker({
               type="button"
               onClick={() => setView((v) => shiftMonth(v, 1))}
               disabled={nextBlocked}
-              aria-label="Keyingi oy"
+              aria-label={t('Keyingi oy')}
               className="rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg disabled:pointer-events-none disabled:opacity-30"
             >
               <Ico.chevron size={18} />
@@ -289,14 +291,14 @@ export function DatePicker({
               disabled={!inRange(today, min, max)}
               className="btn-ghost px-2.5 py-1 text-xs disabled:pointer-events-none disabled:opacity-40"
             >
-              Bugun
+              {t('Bugun')}
             </button>
             <button
               type="button"
               onClick={() => { onChange(''); setText(''); close(true); }}
               className="btn-ghost px-2.5 py-1 text-xs text-muted"
             >
-              Tozalash
+              {t('Tozalash')}
             </button>
           </div>
         </div>

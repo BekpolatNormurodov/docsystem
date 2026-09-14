@@ -7,6 +7,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Ico, Spinner } from '@/ui';
+import { useT } from '@/lib/i18n/client';
 import { money, val, type ClientRow, type CaseRow } from './MibClientDetail';
 import { MibLogPanel } from './MibLogPanel';
 import { regionOf, parseMoney, clean, shortFirm } from '@/lib/mib/breakdown';
@@ -16,6 +17,7 @@ const som = (x: number) => (x || 0).toLocaleString('ru-RU', { maximumFractionDig
 const STATUS_LABEL: Record<string, string> = { PENDING: 'Navbatda', RUNNING: 'Tekshirilmoqda', DONE: 'Topildi', CLEAN: 'Toza', FAILED: 'Xato' };
 
 export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { reportId: number; clientId: number; backHref?: string; onBack?: () => void }) {
+  const t = useT();
   const [client, setClient] = useState<ClientRow | null>(null);
   const [running, setRunning] = useState(false); // reportда jonli run bormi
   const [loading, setLoading] = useState(true);
@@ -48,11 +50,11 @@ export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { rep
   };
 
   const back = backHref
-    ? <Link href={backHref} className="btn-ghost"><Ico.chevronLeft size={16} /> Roʻyxatga qaytish</Link>
-    : <button onClick={onBack} className="btn-ghost"><Ico.chevronLeft size={16} /> Roʻyxatga qaytish</button>;
+    ? <Link href={backHref} className="btn-ghost"><Ico.chevronLeft size={16} /> {t('Roʻyxatga qaytish')}</Link>
+    : <button onClick={onBack} className="btn-ghost"><Ico.chevronLeft size={16} /> {t('Roʻyxatga qaytish')}</button>;
 
   if (loading) return <div className="space-y-4">{back}<div className="grid place-items-center py-20"><Spinner /></div></div>;
-  if (missing || !client) return <div className="space-y-4">{back}<div className="card p-10 text-center text-sm text-muted">Mijoz topilmadi.</div></div>;
+  if (missing || !client) return <div className="space-y-4">{back}<div className="card p-10 text-center text-sm text-muted">{t('Mijoz topilmadi.')}</div></div>;
 
   const fullName = client.cases.map((k) => k.personFullName).find((nm) => nm && !nm.includes('***') && nm !== 'Nomaʼlum') || clean(client.fio2) || clean(client.fio) || client.pinfl;
   const hasDetail = client.cases.some((k) => k.detailFetchedAt);
@@ -68,9 +70,9 @@ export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { rep
         {back}
         <div className="flex items-center gap-2">
           <button className="btn-ghost text-xs" disabled={rechecking || active} onClick={recheck}>
-            {rechecking ? <Spinner size={14} /> : <Ico.refresh size={14} />} Qayta tekshirish
+            {rechecking ? <Spinner size={14} /> : <Ico.refresh size={14} />} {t('Qayta tekshirish')}
           </button>
-          <a className="btn-ghost text-xs" href={`/api/mib/${reportId}/excel?client=${client.id}`}><Ico.download size={14} /> Shu mijoz — Excel</a>
+          <a className="btn-ghost text-xs" href={`/api/mib/${reportId}/excel?client=${client.id}`}><Ico.download size={14} /> {t('Shu mijoz — Excel')}</a>
         </div>
       </div>
 
@@ -78,38 +80,38 @@ export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { rep
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h3 className="text-lg font-semibold">{fullName}</h3>
-            <div className="mt-0.5 text-sm text-muted tabular-nums">PINFL: {client.pinfl}{client.firm ? ` · ${client.firm}` : ''}</div>
+            <div className="mt-0.5 text-sm text-muted tabular-nums">{t('PINFL:')} {client.pinfl}{client.firm ? ` · ${client.firm}` : ''}</div>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            {active && <span className="badge border-amber-500/30 text-amber-600 dark:text-amber-300"><Spinner size={11} className="mr-1" /> {STATUS_LABEL[client.status]}</span>}
-            {client.cases.length > 0 && <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">{client.cases.length} ijro ishi</span>}
-            {ours > 0 && <span className="badge border-emerald-500/30 text-emerald-600 dark:text-emerald-300">{ours} bizniki</span>}
+            {active && <span className="badge border-amber-500/30 text-amber-600 dark:text-amber-300"><Spinner size={11} className="mr-1" /> {t(STATUS_LABEL[client.status])}</span>}
+            {client.cases.length > 0 && <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">{client.cases.length} {t('ijro ishi')}</span>}
+            {ours > 0 && <span className="badge border-emerald-500/30 text-emerald-600 dark:text-emerald-300">{ours} {t('bizniki')}</span>}
           </div>
         </div>
         {client.error && <div className="mt-2 text-xs text-rose-500">{client.error}</div>}
-        {!hasDetail && client.cases.length > 0 && <div className="mt-2 text-xs text-amber-600 dark:text-amber-300">Chuqur detal (SMS) hali olinmagan — faqat ijro ishlari roʻyxati.</div>}
+        {!hasDetail && client.cases.length > 0 && <div className="mt-2 text-xs text-amber-600 dark:text-amber-300">{t('Chuqur detal (SMS) hali olinmagan — faqat ijro ishlari roʻyxati.')}</div>}
         <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3 lg:grid-cols-4">
-          <Field l="Region" v={region ?? '—'} />
-          <Field l="Hudud (MIB boʻlimi)" v={depts.join(', ') || '—'} />
-          <Field l="Bank" v={banks.join(', ') || '—'} />
-          <Field l="Umumiy qarz (mib)" v={money(client.totalDebt)} strong />
-          <Field l="Qoldiq qarz — jami" v={remaining > 0 ? som(remaining) : '—'} strong />
+          <Field l={t('Region')} v={region ?? '—'} />
+          <Field l={t('Hudud (MIB boʻlimi)')} v={depts.join(', ') || '—'} />
+          <Field l={t('Bank')} v={banks.join(', ') || '—'} />
+          <Field l={t('Umumiy qarz (mib)')} v={money(client.totalDebt)} strong />
+          <Field l={t('Qoldiq qarz — jami')} v={remaining > 0 ? som(remaining) : '—'} strong />
         </dl>
       </div>
 
       {active && client.cases.length === 0 ? (
         <div className="card grid place-items-center gap-2 py-14 text-sm text-muted">
-          <Spinner /> mib.uz dan tekshirilmoqda… natija shu yerda paydo boʻladi.
+          <Spinner /> {t('mib.uz dan tekshirilmoqda… natija shu yerda paydo boʻladi.')}
         </div>
       ) : !active && client.status === 'PENDING' && client.cases.length === 0 ? (
         <div className="card grid place-items-center gap-3 py-12 text-sm text-muted">
-          <span>Hali tekshirilmagan (navbatda, jonli tekshiruv yoʻq).</span>
-          <button className="btn-primary" disabled={rechecking} onClick={recheck}>{rechecking ? <Spinner size={16} /> : <Ico.flash size={16} />} Qayta tekshirish</button>
+          <span>{t('Hali tekshirilmagan (navbatda, jonli tekshiruv yoʻq).')}</span>
+          <button className="btn-primary" disabled={rechecking} onClick={recheck}>{rechecking ? <Spinner size={16} /> : <Ico.flash size={16} />} {t('Qayta tekshirish')}</button>
         </div>
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {client.cases.map((k) => <CaseBig key={k.id} c={k} />)}
-          {client.cases.length === 0 && <div className="card p-6 text-center text-sm text-muted">Ijro ishi topilmadi (toza).</div>}
+          {client.cases.length === 0 && <div className="card p-6 text-center text-sm text-muted">{t('Ijro ishi topilmadi (toza).')}</div>}
         </div>
       )}
 
@@ -120,38 +122,39 @@ export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { rep
 }
 
 function CaseBig({ c }: { c: CaseRow }) {
+  const t = useT();
   return (
     <div className="card p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2.5">
-        <span className="text-base font-semibold tabular-nums">Ish № {c.workNumber}</span>
+        <span className="text-base font-semibold tabular-nums">{t('Ish')} № {c.workNumber}</span>
         {c.firmName && <span className={cx('badge', c.isTargetFirm ? 'border-emerald-500/30 text-emerald-600 dark:text-emerald-300' : 'border-line text-muted')}>{shortFirm(c.firmName)}</span>}
       </div>
       {c.error && <div className="mb-2 text-xs text-rose-500">{c.error}</div>}
       <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-        <Field l="Sud organi" v={val(c.courtOrgan)} span />
-        <Field l="Hujjat" v={`${val(c.courtDocType)}${c.courtDocNumber && c.courtDocNumber !== 'Nomaʼlum' ? ' № ' + c.courtDocNumber : ''}`} />
-        <Field l="Hujjat sanasi" v={val(c.courtDocDate)} />
-        <Field l="Kuchga kirgan" v={val(c.courtEffectiveDate)} />
-        <Field l="Davlat ijrochisi" v={val(c.executorName)} />
-        <Field l="Ijrochi tel" v={val(c.executorPhone)} />
-        <Field l="MIB boʻlimi" v={val(c.executorDept)} />
-        <Field l="MIBga kelgan" v={val(c.mibReceivedDate)} />
-        <Field l="Qoʻzgʻatilgan" v={val(c.mibInitiatedDate)} />
+        <Field l={t('Sud organi')} v={val(c.courtOrgan)} span />
+        <Field l={t('Hujjat')} v={`${val(c.courtDocType)}${c.courtDocNumber && c.courtDocNumber !== 'Nomaʼlum' ? ' № ' + c.courtDocNumber : ''}`} />
+        <Field l={t('Hujjat sanasi')} v={val(c.courtDocDate)} />
+        <Field l={t('Kuchga kirgan')} v={val(c.courtEffectiveDate)} />
+        <Field l={t('Davlat ijrochisi')} v={val(c.executorName)} />
+        <Field l={t('Ijrochi tel')} v={val(c.executorPhone)} />
+        <Field l={t('MIB boʻlimi')} v={val(c.executorDept)} />
+        <Field l={t('MIBga kelgan')} v={val(c.mibReceivedDate)} />
+        <Field l={t('Qoʻzgʻatilgan')} v={val(c.mibInitiatedDate)} />
       </dl>
       <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-surface-2/50 p-3 text-sm sm:grid-cols-3">
-        <Money l="Umumiy summa" v={c.totalAmount} />
-        <Money l="Asosiy qarz" v={c.mainDebt} />
-        <Money l="Ijro yigʻimi" v={c.executionFee} />
-        <Money l="Jarima" v={c.fine} />
-        <Money l="Qoldiq qarz" v={c.remainingDebt} strong />
+        <Money l={t('Umumiy summa')} v={c.totalAmount} />
+        <Money l={t('Asosiy qarz')} v={c.mainDebt} />
+        <Money l={t('Ijro yigʻimi')} v={c.executionFee} />
+        <Money l={t('Jarima')} v={c.fine} />
+        <Money l={t('Qoldiq qarz')} v={c.remainingDebt} strong />
       </div>
       <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-        <Field l="Bank" v={val(c.bankName)} span />
-        <Field l="MFO / H/r" v={`${val(c.bankMfo)} · ${val(c.bankAccount)}`} span />
+        <Field l={t('Bank')} v={val(c.bankName)} span />
+        <Field l={t('MFO / H/r')} v={`${val(c.bankMfo)} · ${val(c.bankAccount)}`} span />
       </dl>
       {c.decisions && c.decisions.length > 0 && (
         <div className="mt-3 border-t border-line pt-2.5 text-sm">
-          <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">Qarorlar</div>
+          <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">{t('Qarorlar')}</div>
           <ul className="space-y-0.5">{c.decisions.map((d, i) => <li key={i}>· {d.article} <span className="text-muted">{d.date}</span></li>)}</ul>
         </div>
       )}

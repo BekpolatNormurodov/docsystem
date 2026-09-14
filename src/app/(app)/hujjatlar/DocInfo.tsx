@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useT } from '@/lib/i18n/client';
 
 /**
  * «Izoh» — har bir excel yuklash yonida bosiladigan kichik tugma; ochilganda o'sha fayl qaysi
@@ -55,15 +56,17 @@ const INFO: Record<DocInfoKind, { title: string; intro: string; rows: [string, s
 
 /** Kichik «majburiy» / «ixtiyoriy» yorlig'i — required va optional fayllar ko'zga farqli tursin. */
 export function ReqChip({ required }: { required: boolean }) {
+  const t = useT();
   return required ? (
-    <span className="rounded-full bg-emerald-500/12 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">majburiy</span>
+    <span className="rounded-full bg-emerald-500/12 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">{t('majburiy')}</span>
   ) : (
-    <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">ixtiyoriy</span>
+    <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">{t('ixtiyoriy')}</span>
   );
 }
 
 export function DocInfo({ kind }: { kind: DocInfoKind }) {
   const [open, setOpen] = useState(false);
+  const t = useT();
   const d = INFO[kind];
   return (
     <span className="relative inline-block align-middle">
@@ -74,15 +77,15 @@ export function DocInfo({ kind }: { kind: DocInfoKind }) {
         className="inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-[11px] font-medium text-muted transition-colors hover:border-brand-500/40 hover:text-fg"
       >
         <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
-        izoh
+        {t('izoh')}
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} aria-hidden />
           <div className="absolute left-0 top-full z-50 mt-1.5 flex max-h-[60vh] w-[32rem] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-xl">
             <div className="border-b border-line px-3 py-2">
-              <div className="text-xs font-semibold">{d.title}</div>
-              <p className="mt-1 text-[11px] leading-relaxed text-muted">{d.intro}</p>
+              <div className="text-xs font-semibold">{t(d.title)}</div>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted">{t(d.intro)}</p>
             </div>
             <div className="overflow-y-auto p-3">
             <div className="overflow-hidden rounded-lg border border-line">
@@ -91,13 +94,13 @@ export function DocInfo({ kind }: { kind: DocInfoKind }) {
                   {d.rows.map(([col, mean]) => (
                     <tr key={col}>
                       <td className="w-1/2 px-2 py-1 align-top font-mono font-medium text-fg">{col}</td>
-                      <td className="px-2 py-1 align-top text-muted">{mean}</td>
+                      <td className="px-2 py-1 align-top text-muted">{t(mean)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            {d.note && <p className="mt-2 text-[11px] leading-relaxed text-muted">{d.note}</p>}
+            {d.note && <p className="mt-2 text-[11px] leading-relaxed text-muted">{t(d.note)}</p>}
             </div>
           </div>
         </>

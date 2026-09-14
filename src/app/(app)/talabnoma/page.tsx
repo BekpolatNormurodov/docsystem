@@ -1,4 +1,5 @@
 import { requireStep } from '@/lib/auth';
+import { getT } from '@/lib/i18n/server';
 import { loadStageData } from '../konveyer/stage-data';
 import { StageView } from '../konveyer/StageView';
 import { StageDocBanner } from '../konveyer/StageDocBanner';
@@ -6,6 +7,7 @@ import { StageDocBanner } from '../konveyer/StageDocBanner';
 export const dynamic = 'force-dynamic';
 
 export default async function TalabnomaPage({ searchParams }: { searchParams: { s?: string } }) {
+  const t = getT();
   await requireStep('talabnoma');
   const d = await loadStageData('TALABNOMA', searchParams.s);
   return (
@@ -13,7 +15,7 @@ export default async function TalabnomaPage({ searchParams }: { searchParams: { 
       {/* Bosqich tepasida: talabnoma hujjati yuklanmagan bo'lsa ogohlantirish (ixtiyoriy). */}
       <StageDocBanner kind="talabnoma" />
       <StageView
-        title="Talabnoma"
+        title={t('Talabnoma')}
         phaseKey="TALABNOMA"
         talabnoma
         stages={d.stages}

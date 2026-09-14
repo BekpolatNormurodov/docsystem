@@ -4,6 +4,7 @@ import Excel from 'exceljs';
 import { requireAccess } from '@/lib/auth';
 import { konveyerSnapshots } from '@/lib/konveyer';
 import { buxgalteriyaData } from '@/lib/buxgalteriya';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -11,6 +12,7 @@ export const runtime = 'nodejs';
 // tanlangan snapshot uchun. Ustunlar: Firma · Mijoz · Kvitansiya raqami · Summa · Holat.
 export async function GET(req: NextRequest) {
   await requireAccess('buxgalteriya');
+  const t = getT();
 
   const snaps = await konveyerSnapshots().catch(() => []);
   const raw = cookies().get('konv_s')?.value;
@@ -25,16 +27,16 @@ export async function GET(req: NextRequest) {
   const firms = firmId ? data.firms.filter((f) => f.firmId === firmId) : data.firms;
 
   const wb = new Excel.Workbook();
-  const ws = wb.addWorksheet('Buxgalteriya');
+  const ws = wb.addWorksheet(t('Buxgalteriya'));
   ws.columns = [
     { header: '№', key: 'no', width: 5 },
-    { header: 'Firma', key: 'firm', width: 26 },
-    { header: 'Qarzdor F.I.O.', key: 'client', width: 34 },
-    { header: 'Kod', key: 'kod', width: 14 },
-    { header: 'Kvitansiya raqami', key: 'receipt', width: 20 },
-    { header: 'Invoice raqami', key: 'invoice', width: 18 },
-    { header: 'Summa', key: 'amount', width: 14 },
-    { header: 'Holat', key: 'status', width: 16 },
+    { header: t('Firma'), key: 'firm', width: 26 },
+    { header: t('Qarzdor F.I.O.'), key: 'client', width: 34 },
+    { header: t('Kod'), key: 'kod', width: 14 },
+    { header: t('Kvitansiya raqami'), key: 'receipt', width: 20 },
+    { header: t('Invoice raqami'), key: 'invoice', width: 18 },
+    { header: t('Summa'), key: 'amount', width: 14 },
+    { header: t('Holat'), key: 'status', width: 16 },
   ];
   const head = ws.getRow(1);
   head.font = { bold: true };
@@ -52,17 +54,17 @@ export async function GET(req: NextRequest) {
         receipt: r.receiptNumber ?? '',
         invoice: r.invoiceNo ?? '',
         amount: r.amount,
-        status: r.paid ? "To'langan" : "To'lanmagan",
+        status: r.paid ? t("To'langan") : t("To'lanmagan"),
       });
       row.getCell('amount').numFmt = '#,##0';
     }
     // Firma bo'yicha yakun (soni + summasi)
-    const sub = ws.addRow({ client: `${f.firmName} — jami`, receipt: `${f.total} ta`, amount: f.sum, status: `${f.paid} to'langan` });
+    const sub = ws.addRow({ client: `${f.firmName} — ${t('jami')}`, receipt: `${f.total} ${t('ta')}`, amount: f.sum, status: `${f.paid} ${t("to'langan")}` });
     sub.font = { bold: true };
     sub.getCell('amount').numFmt = '#,##0';
   }
   // Umumiy yakun
-  const grand = ws.addRow({ client: 'HAMMASI', receipt: `${data.total} ta`, amount: data.sum, status: `${data.paidCount} to'langan / ${data.unpaidCount} to'lanmagan` });
+  const grand = ws.addRow({ client: t('HAMMASI'), receipt: `${data.total} ${t('ta')}`, amount: data.sum, status: `${data.paidCount} ${t("to'langan")} / ${data.unpaidCount} ${t("to'lanmagan")}` });
   grand.font = { bold: true };
   grand.getCell('amount').numFmt = '#,##0';
 

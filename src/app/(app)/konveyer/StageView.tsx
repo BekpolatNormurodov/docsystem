@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { EmptyState } from '@/ui';
+import { useT } from '@/lib/i18n/client';
 import { Dropdown } from './Dropdown';
 import { AdvanceControls, type Transition } from './AdvanceControls';
 import { CaseList } from './CaseList';
@@ -50,6 +51,7 @@ export function StageView({
   total: number;
   hideHeader?: boolean;
 }) {
+  const t = useT();
   // Talabnoma opens on BRIGHT by default (the main firm) so the sums/reyestr are visible on entry;
   // other phases still open on «Hamma firma». null => Hamma firma.
   const [firmId, setFirmId] = useState<number | null>(
@@ -57,19 +59,19 @@ export function StageView({
   );
   const firm = firms.find((f) => f.firmId === firmId) ?? null;
   const firmOpts = [
-    { value: 'all', label: 'Hamma firma' },
+    { value: 'all', label: t('Hamma firma') },
     ...firms.map((f) => ({ value: String(f.firmId), label: f.firmName, hint: n(f.total) })),
   ];
   const transitions = firmId != null ? transitionsByFirm[firmId] ?? [] : [];
   // Talabnoma is a parallel track (talabnomaAt), not a stage — its packet/list use the flag, not stages.
   const listStages = talabnoma ? [] : stages;
-  const scopeLabel = `${firm ? firm.firmName : 'Hamma firma'} · ${title}`;
+  const scopeLabel = `${firm ? firm.firmName : t('Hamma firma')} · ${title}`;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         {hideHeader
-          ? <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Batafsil — mijozlar va bosqichlar</h2>
+          ? <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">{t('Batafsil — mijozlar va bosqichlar')}</h2>
           : <h1 className="text-2xl font-bold tracking-tight">{title}</h1>}
         <Dropdown
           value={firmId ? String(firmId) : 'all'}
@@ -81,8 +83,8 @@ export function StageView({
 
       {total === 0 ? (
         <EmptyState
-          title="Bu snapshotda konveyerda ariza yoʻq"
-          hint="Hisobot sahifasidagi «Snapshot'dan yangilash» tugmasi bilan sud roʻyxatidagilarni konveyerga oling."
+          title={t('Bu snapshotda konveyerda ariza yoʻq')}
+          hint={t("Hisobot sahifasidagi «Snapshot'dan yangilash» tugmasi bilan sud roʻyxatidagilarni konveyerga oling.")}
         />
       ) : (
         <>
@@ -98,11 +100,11 @@ export function StageView({
 
           <div className="card p-4">
             <div className="mb-3 flex flex-wrap items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-muted">Mijozlar</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted">{t('Mijozlar')}</span>
               <span className="inline-flex items-center gap-1.5 rounded-lg bg-surface-2 px-2 py-1 text-xs font-medium">
-                {firm ? firm.firmName : 'Hamma firma'}
+                {firm ? firm.firmName : t('Hamma firma')}
                 {firm && (
-                  <button onClick={() => setFirmId(null)} className="text-muted hover:text-rose-500" aria-label="Firma filtrini olib tashlash">
+                  <button onClick={() => setFirmId(null)} className="text-muted hover:text-rose-500" aria-label={t('Firma filtrini olib tashlash')}>
                     ✕
                   </button>
                 )}
@@ -125,7 +127,7 @@ export function StageView({
 
           {firmId != null && transitions.length > 0 && (
             <div className="card p-4">
-              <div className="mb-2 text-xs font-semibold text-muted">Bosqichni oʻtkazish · {title}</div>
+              <div className="mb-2 text-xs font-semibold text-muted">{t('Bosqichni oʻtkazish')} · {title}</div>
               <AdvanceControls firmId={firmId} transitions={transitions} />
             </div>
           )}

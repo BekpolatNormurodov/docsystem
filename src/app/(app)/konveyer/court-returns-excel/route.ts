@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
 import { requireUser } from '@/lib/auth';
 import { cabinetReturnedCases } from '@/lib/court-returns';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -11,6 +12,7 @@ const dmy = (iso?: string | null) => { if (!iso) return ''; const d = new Date(i
 // GET ?s=&firmId= — the cabinet-returned clients as an .xlsx (to work through re-filing).
 export async function GET(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const sp = req.nextUrl.searchParams;
   const num = (v: string | null): number | undefined => { const n = Number(v); return v != null && v !== '' && Number.isInteger(n) && n > 0 ? n : undefined; };
   const snapshotId = num(sp.get('s'));
@@ -18,19 +20,19 @@ export async function GET(req: NextRequest) {
 
   let returns;
   try { returns = await cabinetReturnedCases(snapshotId, firmId); }
-  catch (e) { console.error('court-returns-excel failed', e); return NextResponse.json({ error: 'Yuklanmadi' }, { status: 500 }); }
-  if (returns.length === 0) return NextResponse.json({ error: 'Qaytgan ish yoʻq' }, { status: 422 });
+  catch (e) { console.error('court-returns-excel failed', e); return NextResponse.json({ error: t('Yuklanmadi') }, { status: 500 }); }
+  if (returns.length === 0) return NextResponse.json({ error: t('Qaytgan ish yoʻq') }, { status: 422 });
 
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('Qaytganlar');
+  const ws = wb.addWorksheet(t('Qaytganlar'));
   ws.columns = [
     { header: '№', key: 'i', width: 6 },
-    { header: 'F.I.O', key: 'name', width: 36 },
+    { header: t('F.I.O'), key: 'name', width: 36 },
     { header: 'PINFL', key: 'pinfl', width: 16 },
-    { header: 'Firma', key: 'firm', width: 26 },
-    { header: 'Ish raqami', key: 'case', width: 22 },
-    { header: 'Natija', key: 'result', width: 20 },
-    { header: 'Ajrim sanasi', key: 'date', width: 14 },
+    { header: t('Firma'), key: 'firm', width: 26 },
+    { header: t('Ish raqami'), key: 'case', width: 22 },
+    { header: t('Natija'), key: 'result', width: 20 },
+    { header: t('Ajrim sanasi'), key: 'date', width: 14 },
   ];
   ws.getRow(1).font = { bold: true };
   ws.getColumn('pinfl').numFmt = '@';

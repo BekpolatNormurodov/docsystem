@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Ico } from './icons';
+import { useT } from '@/lib/i18n/client';
 
 export interface Option {
   value: string;
@@ -23,7 +24,7 @@ export function Select({
   value,
   options,
   onChange,
-  placeholder = 'Tanlang',
+  placeholder,
   label,
   className = '',
   searchAfter = 8,
@@ -37,6 +38,7 @@ export function Select({
   /** Show the search box once the list reaches this many options. 0 = always. */
   searchAfter?: number;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [q, setQ] = useState('');
@@ -123,7 +125,7 @@ export function Select({
       >
         <span className="flex min-w-0 items-center gap-2">
           {selected?.dot && <span className={`h-2 w-2 shrink-0 rounded-full ${selected.dot}`} />}
-          <span className={`truncate ${selected ? '' : 'text-muted'}`}>{selected?.label ?? placeholder}</span>
+          <span className={`truncate ${selected ? '' : 'text-muted'}`}>{selected?.label ?? placeholder ?? t('Tanlang')}</span>
         </span>
         <span className={`shrink-0 text-muted transition-transform ${open ? 'rotate-90' : ''}`}>
           <Ico.chevron size={14} />
@@ -138,8 +140,8 @@ export function Select({
                 ref={search}
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Qidirish…"
-                aria-label={label ? `${label} — qidirish` : 'Qidirish'}
+                placeholder={t('Qidirish…')}
+                aria-label={label ? `${label} — ${t('qidirish')}` : t('Qidirish')}
                 className="field-input h-9 py-0 text-sm"
               />
             </div>
@@ -147,7 +149,7 @@ export function Select({
 
           <ul ref={listRef} role="listbox" className="max-h-64 overflow-auto p-1">
             {filtered.length === 0 ? (
-              <li className="px-3 py-6 text-center text-sm text-muted">Topilmadi</li>
+              <li className="px-3 py-6 text-center text-sm text-muted">{t('Topilmadi')}</li>
             ) : (
               filtered.map((o, i) => {
                 const sel = o.value === value;

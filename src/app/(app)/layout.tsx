@@ -7,6 +7,8 @@ import { STEP_META, allowedSteps, allowedModules, MODULE_META, canAccess, SUBITE
 import { buxgalteriyaCounts } from '@/lib/buxgalteriya';
 import { SnapshotPicker } from './konveyer/SnapshotPicker';
 import { LanguageSwitcher } from './LanguageSwitcher';
+import { getT } from '@/lib/i18n/server';
+import { I18nProvider } from '@/lib/i18n/client';
 
 export const dynamic = 'force-dynamic';
 
@@ -139,14 +141,24 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       ]
     : [{ href: '/jurnal', label: 'Mening amaliyotlarim', icon: 'calendar' }];
   const lang = cookies().get('lang')?.value ?? 'uz';
+  // Nav yorliqlari/bo'lim nomlarini joriy tilга o'giramiz (sidebar hamma joyda ko'rinadi).
+  const t = getT();
+  const tr = (items: NavItem[]): NavItem[] =>
+    items.map((i) => ({
+      ...i,
+      label: t(i.label),
+      section: i.section ? t(i.section) : i.section,
+      children: i.children?.map((c) => ({ ...c, label: t(c.label) })),
+    }));
 
   return (
+    <I18nProvider lang={lang}>
     <ConfirmProvider>
       <AppShell
         appName="Yurist Tizimi"
-        nav={nav}
-        user={{ fullName: user.fullName, roleLabel: onlyBux ? 'Buxgalter' : roleLabel(user.role) }}
-        topActions={topActions}
+        nav={tr(nav)}
+        user={{ fullName: user.fullName, roleLabel: t(onlyBux ? 'Buxgalter' : roleLabel(user.role)) }}
+        topActions={tr(topActions)}
         headerExtra={
           <div className="flex items-center gap-1.5">
             {showPicker && <div className="w-[132px]"><SnapshotPicker options={snaps} value={selectedSnap} /></div>}
@@ -157,5 +169,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         {children}
       </AppShell>
     </ConfirmProvider>
+    </I18nProvider>
   );
 }

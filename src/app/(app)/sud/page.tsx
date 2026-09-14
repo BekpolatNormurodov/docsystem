@@ -1,4 +1,5 @@
 import { requireAccess } from '@/lib/auth';
+import { getT } from '@/lib/i18n/server';
 import { loadStageData } from '../konveyer/stage-data';
 import { CourtManager } from '../konveyer/CourtManager';
 import { courtReadiness, courtStatusBoard, courtReturns } from '@/lib/court-ready';
@@ -6,6 +7,7 @@ import { courtReadiness, courtStatusBoard, courtReturns } from '@/lib/court-read
 export const dynamic = 'force-dynamic';
 
 export default async function SudPage({ searchParams }: { searchParams: { s?: string } }) {
+  const t = getT();
   await requireAccess('sud:send');
   const d = await loadStageData('COURT', searchParams.s);
 
@@ -20,7 +22,7 @@ export default async function SudPage({ searchParams }: { searchParams: { s?: st
 
   return (
     <div className="space-y-5">
-      <h1 className="text-2xl font-bold tracking-tight">Sud (adolat)</h1>
+      <h1 className="text-2xl font-bold tracking-tight">{t('Sud (adolat)')}</h1>
 
       {/* Firma boʻyicha tayyorlik (xulosa) + har firma «Batafsil» → mijozlar drilldown + status board.
           Avvalgi 2-mijozlar-roʻyxati (StageView) olib tashlandi — CourtManager firma-statistikasi va

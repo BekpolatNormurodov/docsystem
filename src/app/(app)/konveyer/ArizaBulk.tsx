@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico } from '@/ui';
 import { GeneratedList } from './GeneratedList';
+import { useT } from '@/lib/i18n/client';
 
 interface JobState { status: string; progress: number; total: number; message?: string | null }
 interface HistItem { id: number; total: number; createdAt: string; firmId: number | null; firmName: string; size: number }
@@ -23,6 +24,7 @@ const fmtWhen = (iso: string) => { const d = new Date(iso); return Number.isNaN(
 export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
   firmId?: number; firmName?: string; snapshotId?: number; scopeLabel: string;
 }) {
+  const t = useT();
   const n = (x: number) => x.toLocaleString('ru-RU');
 
   const [count, setCount] = useState<number | null>(null); // hali ariza chiqmaganlar (generatsiya shularga)
@@ -100,7 +102,7 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
         setJob(s);
         if (s.status === 'DONE' || s.status === 'FAILED' || s.status === 'CANCELED') {
           if (timer.current) clearInterval(timer.current);
-          if (s.status === 'FAILED') setErr(s.message || 'Xatolik');
+          if (s.status === 'FAILED') setErr(s.message || t('Xatolik'));
           // «Bekor» → ZIP o'chirildi, hech narsa yuklab olinmaydi; idle holatga qaytamiz.
           if (s.status === 'CANCELED') { setJobId(null); setJob(null); loadCount(); }
         }
@@ -154,11 +156,11 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
         body: JSON.stringify({ snapshotId, firmId, arizaOnly: true, ...(all && !multiCourt ? {} : { limit: parsed }), ...(courtCounts.length ? { courtCounts } : {}) }),
       });
       const data = await res.json();
-      if (!res.ok) { setErr(data?.error || 'Xatolik'); setModalOpen(false); return; }
+      if (!res.ok) { setErr(data?.error || t('Xatolik')); setModalOpen(false); return; }
       setJob({ status: 'PENDING', progress: 0, total: data.total });
       setJobId(data.jobId);
       setModalOpen(false);
-    } catch (e) { setErr(e instanceof Error ? e.message : 'Tarmoq xatosi'); }
+    } catch (e) { setErr(e instanceof Error ? e.message : t('Tarmoq xatosi')); }
     finally { setStarting(false); inFlight.current = false; }
   };
 
@@ -176,7 +178,7 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
         body: JSON.stringify({ snapshotId, firmId: fid, arizaOnly: true, regenerate: true }),
       });
       const data = await res.json();
-      if (!res.ok) { setErr(data?.error || 'Xatolik'); return; }
+      if (!res.ok) { setErr(data?.error || t('Xatolik')); return; }
       setJob({ status: 'PENDING', progress: 0, total: data.total });
       setJobId(data.jobId);
       // Eski (fayli o'chgan, 0 B) qatorlar endi keraksiz — yangi to'liq ZIP ularning o'rnini bosadi.
@@ -186,7 +188,7 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
         setHistory((h) => h.filter((x) => !stale.includes(x.id)));
         for (const id of stale) fetch(`/api/export/${id}`, { method: 'DELETE' }).catch(() => {});
       }
-    } catch (e) { setErr(e instanceof Error ? e.message : 'Tarmoq xatosi'); }
+    } catch (e) { setErr(e instanceof Error ? e.message : t('Tarmoq xatosi')); }
     finally { setStarting(false); inFlight.current = false; }
   };
 
@@ -207,15 +209,15 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
     <div className="card p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
         <div>
-          <div className="text-sm font-semibold">Ariza yaratish</div>
-          <div className="mt-0.5 text-xs text-muted">Har mijozning <b className="font-medium text-fg">arizasini</b> (bitta hujjat) yaratadi → bitta ZIP · {scopeLabel}. Faqat ariza — palataga print qilib beriladi.</div>
+          <div className="text-sm font-semibold">{t('Ariza yaratish')}</div>
+          <div className="mt-0.5 text-xs text-muted">{t('Har mijozning')} <b className="font-medium text-fg">{t('arizasini')}</b> {t('(bitta hujjat) yaratadi → bitta ZIP ·')} {scopeLabel}. {t('Faqat ariza — palataga print qilib beriladi.')}</div>
         </div>
         {(countBusy || totalAll != null) && (
           <span className="shrink-0 rounded-lg bg-surface-2 px-2 py-1 text-xs font-semibold tabular-nums">
             {countBusy && totalAll == null ? '…' : (
               <>
-                {n(totalAll ?? 0)} mijoz
-                {doneCount > 0 && <span className="ml-1 font-normal text-emerald-600 dark:text-emerald-400">· {n(count ?? 0)} qoldi</span>}
+                {n(totalAll ?? 0)} {t('mijoz')}
+                {doneCount > 0 && <span className="ml-1 font-normal text-emerald-600 dark:text-emerald-400">· {n(count ?? 0)} {t('qoldi')}</span>}
               </>
             )}
           </span>
@@ -228,7 +230,7 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
         {running ? (
           <span className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm">
             <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-            Tayyorlanmoqda… {job?.progress ?? 0}/{job?.total ?? ''}
+            {t('Tayyorlanmoqda…')} {job?.progress ?? 0}/{job?.total ?? ''}
           </span>
         ) : done ? (
           <a
@@ -236,24 +238,24 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
             className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-700 outline-none transition-colors hover:bg-emerald-500/15 focus-visible:ring-2 focus-visible:ring-emerald-500/40 dark:text-emerald-300"
           >
             <Ico.download size={14} />
-            {n(job?.total ?? 0)} ta ariza tayyor — yuklab olish
+            {n(job?.total ?? 0)} {t('ta ariza tayyor — yuklab olish')}
           </a>
         ) : noFirm ? (
           // «Hamma firma» — sud biriktirib bo'lmaydi (sud firmaga bog'liq). Firmani tanlash shart.
           <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2 text-xs font-medium text-amber-700 dark:text-amber-300">
             <Ico.info size={14} className="shrink-0" />
-            <span>Ariza sudga bogʻlanadi — avval yuqoridan <b>firmani tanlang</b>. (Pastdagi roʻyxatdan «Qayta chiqarish» esa firmasiz ham ishlaydi.)</span>
+            <span>{t('Ariza sudga bogʻlanadi — avval yuqoridan')} <b>{t('firmani tanlang')}</b>. {t('(Pastdagi roʻyxatdan «Qayta chiqarish» esa firmasiz ham ishlaydi.)')}</span>
           </div>
         ) : firmNoCourt ? (
           <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2 text-xs font-medium text-amber-700 dark:text-amber-300">
             <Ico.info size={14} className="shrink-0" />
-            <span>Bu firmaga sud biriktirilmagan — «Sudlar» boʻlimida biriktiring.</span>
+            <span>{t('Bu firmaga sud biriktirilmagan — «Sudlar» boʻlimida biriktiring.')}</span>
           </div>
         ) : total === 0 && doneCount > 0 ? (
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.07] px-3 py-2 text-xs font-medium text-emerald-700 dark:text-emerald-300">
               <Ico.check size={14} className="shrink-0" />
-              <span>Hammasi tayyor — {n(doneCount)} ta arizaga ariza chiqarilgan. Yangi mijoz qoʻshilsa shu yerda chiqadi.</span>
+              <span>{t('Hammasi tayyor —')} {n(doneCount)} {t('ta arizaga ariza chiqarilgan. Yangi mijoz qoʻshilsa shu yerda chiqadi.')}</span>
             </div>
             {/* ZIP 7 kundan keyin o'chadi — «Qaytadan chiqarish» o'sha arizalarni qayta tuzib, yangi ZIP beradi. */}
             <button
@@ -261,10 +263,10 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
               disabled={starting || !!running}
               aria-busy={starting}
               className="inline-flex items-center gap-1.5 rounded-lg border border-brand-500/40 bg-brand-500/10 px-3 py-1.5 text-xs font-semibold text-brand-700 outline-none transition-colors hover:bg-brand-500/15 focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:cursor-wait disabled:opacity-60 dark:text-brand-300"
-              title="Chiqarilgan arizalarni qaytadan tuzib, yangi ZIP olish (eskirib oʻchgan boʻlsa)"
+              title={t('Chiqarilgan arizalarni qaytadan tuzib, yangi ZIP olish (eskirib oʻchgan boʻlsa)')}
             >
               {starting ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Ico.refresh size={14} />}
-              Qaytadan chiqarish ({n(doneCount)})
+              {t('Qaytadan chiqarish')} ({n(doneCount)})
             </button>
           </div>
         ) : (
@@ -274,13 +276,13 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
             aria-busy={starting}
             aria-haspopup="dialog"
             className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm outline-none transition-all hover:bg-brand-600 focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:cursor-wait disabled:opacity-60"
-            title={`«${scopeLabel}» boʻyicha arizalarni yaratish`}
+            title={`«${scopeLabel}» ${t('boʻyicha arizalarni yaratish')}`}
           >
-            <Ico.flash size={14} /> Ariza yaratish
+            <Ico.flash size={14} /> {t('Ariza yaratish')}
           </button>
         )}
         {done && (
-          <button onClick={() => { setJobId(null); setJob(null); loadCount(); }} className="rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-2">Yana</button>
+          <button onClick={() => { setJobId(null); setJob(null); loadCount(); }} className="rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-2">{t('Yana')}</button>
         )}
 
         {running && job && job.total > 0 && (
@@ -300,18 +302,18 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
             className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-2"
           >
             <Ico.archive size={14} className="text-brand-600 dark:text-brand-400" />
-            <span className="text-xs font-semibold">Tayyorlangan arizalar</span>
+            <span className="text-xs font-semibold">{t('Tayyorlangan arizalar')}</span>
             <span className="rounded-full bg-brand-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700 dark:text-brand-300">{history.length}</span>
-            <span className="ml-auto text-[11px] text-muted">{histOpen ? 'Yopish' : 'Koʻrish'}</span>
+            <span className="ml-auto text-[11px] text-muted">{histOpen ? t('Yopish') : t('Koʻrish')}</span>
             <Ico.chevron size={14} className={`text-muted transition-transform ${histOpen ? 'rotate-90' : ''}`} />
           </button>
           {histOpen && (
             <div className="divide-y divide-line border-t border-line">
               {history.map((h) => (
                 <div key={h.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-xs">
-                  <span className="font-semibold tabular-nums">{n(h.total)} ariza</span>
+                  <span className="font-semibold tabular-nums">{n(h.total)} {t('ariza')}</span>
                   {/* 0 B = ZIP fayli o'chgan (7 kundan oshgan / disk tozalash). Yuklab bo'lmaydi — qayta chiqarish kerak. */}
-                  <span className={h.size === 0 ? 'font-medium text-amber-600 dark:text-amber-400' : 'text-muted'}>· {h.size === 0 ? 'muddati oʻtgan' : fmtSize(h.size)}</span>
+                  <span className={h.size === 0 ? 'font-medium text-amber-600 dark:text-amber-400' : 'text-muted'}>· {h.size === 0 ? t('muddati oʻtgan') : fmtSize(h.size)}</span>
                   <span className="max-w-[10rem] truncate text-muted" title={h.firmName}>· {h.firmName}</span>
                   <span className="ml-auto text-[11px] tabular-nums text-muted">{fmtWhen(h.createdAt)}</span>
                   {h.size === 0 ? (
@@ -320,24 +322,24 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
                       onClick={() => regen(h.firmId ?? undefined)}
                       disabled={starting || !!running || (h.firmId == null && firmId == null)}
                       aria-busy={starting}
-                      title="Bu arizalarni qaytadan tuzib, yangi ZIP olish"
+                      title={t('Bu arizalarni qaytadan tuzib, yangi ZIP olish')}
                       className="inline-flex items-center gap-1 rounded-md border border-brand-500/40 bg-brand-500/10 px-2 py-1 text-[11px] font-semibold text-brand-700 transition-colors hover:bg-brand-500/15 disabled:cursor-wait disabled:opacity-50 dark:text-brand-300"
                     >
-                      <Ico.refresh size={12} /> Qayta chiqarish
+                      <Ico.refresh size={12} /> {t('Qayta chiqarish')}
                     </button>
                   ) : (
                     <a
                       href={`/api/export/${h.id}/download`}
                       className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[11px] font-medium text-brand-600 transition-colors hover:bg-brand-500/10 dark:text-brand-400"
                     >
-                      <Ico.download size={12} /> Yuklab olish
+                      <Ico.download size={12} /> {t('Yuklab olish')}
                     </a>
                   )}
                   <button
                     type="button"
                     onClick={() => del(h.id)}
                     disabled={delId === h.id}
-                    aria-label="Oʻchirish"
+                    aria-label={t('Oʻchirish')}
                     className="grid h-6 w-6 place-items-center rounded-md text-muted transition-colors hover:bg-rose-500/10 hover:text-rose-500 disabled:opacity-50"
                   >
                     {delId === h.id ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Ico.trash size={13} />}
@@ -353,32 +355,32 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
       <GeneratedList type="ariza" snapshotId={snapshotId} firmId={firmId} count={doneCount} />
 
       {modalOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Ariza yaratish">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={t('Ariza yaratish')}>
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => { if (!starting) setModalOpen(false); }} aria-hidden />
           <div className="animate-fade-in relative w-full max-w-sm rounded-2xl border border-line bg-surface p-5 shadow-2xl">
-            <button onClick={() => setModalOpen(false)} disabled={starting} aria-label="Yopish" className="absolute right-3 top-3 grid h-7 w-7 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-fg disabled:opacity-40">
+            <button onClick={() => setModalOpen(false)} disabled={starting} aria-label={t('Yopish')} className="absolute right-3 top-3 grid h-7 w-7 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-fg disabled:opacity-40">
               <Ico.close size={16} />
             </button>
             <div className="mb-1 flex items-center gap-2.5">
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-600 text-white shadow-sm">
                 <Ico.flash size={16} />
               </span>
-              <div className="text-base font-semibold">Ariza yaratish</div>
+              <div className="text-base font-semibold">{t('Ariza yaratish')}</div>
             </div>
             <div className="mb-4 flex items-start gap-1.5 text-xs text-muted">
               <Ico.info size={14} className="mt-0.5 shrink-0" />
-              <span>«{firmName ?? 'Hamma firma'}» · faqat ariza — orqada yaratiladi, tayyor boʻlgach ZIP yuklab olasiz.</span>
+              <span>«{firmName ?? t('Hamma firma')}» · {t('faqat ariza — orqada yaratiladi, tayyor boʻlgach ZIP yuklab olasiz.')}</span>
             </div>
 
             {multiCourt ? (
               <div className="space-y-2">
-                <div className="text-xs text-muted">Har sudga nechtadan ariza chiqarilsin — sonini belgilang. Tanlangan case'lar shu sud nomiga chiqadi va bitta ZIP'ga yig'iladi.</div>
+                <div className="text-xs text-muted">{t("Har sudga nechtadan ariza chiqarilsin — sonini belgilang. Tanlangan case'lar shu sud nomiga chiqadi va bitta ZIP'ga yig'iladi.")}</div>
                 {courts.map((c) => (
                   <div key={c.id} className="flex items-center gap-3 rounded-xl border border-line p-3">
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-semibold">{c.shortName}</span>
                       <span className="block text-[11px] tabular-nums text-muted">
-                        limit {n(c.dailyQuota)}/kun · {hhmm(c.cutoffMinutes)} gacha · {c.open ? `bugun ${n(c.remaining)} qoldi` : 'bugun yopiq'}
+                        {t('limit')} {n(c.dailyQuota)}/{t('kun')} · {hhmm(c.cutoffMinutes)} {t('gacha')} · {c.open ? `${t('bugun')} ${n(c.remaining)} ${t('qoldi')}` : t('bugun yopiq')}
                       </span>
                     </span>
                     <input type="number" min={0} value={courtNums[c.id] ?? ''} onChange={(e) => setCourtNums((m) => ({ ...m, [c.id]: e.target.value }))}
@@ -386,19 +388,19 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
                   </div>
                 ))}
                 <div className="flex items-center justify-between px-1 text-[11px] tabular-nums text-muted">
-                  <span>Jami: <b className={courtSum > total ? 'text-rose-500' : 'text-fg'}>{n(courtSum)}</b> / {n(total)} mijoz</span>
-                  {courtSum > total && <span className="text-rose-500">Scopedan oshib ketdi</span>}
+                  <span>{t('Jami')}: <b className={courtSum > total ? 'text-rose-500' : 'text-fg'}>{n(courtSum)}</b> / {n(total)} {t('mijoz')}</span>
+                  {courtSum > total && <span className="text-rose-500">{t('Scopedan oshib ketdi')}</span>}
                 </div>
               </div>
             ) : (
             <div className="space-y-2">
-              {courts.length === 1 && <div className="rounded-lg bg-surface-2 px-3 py-1.5 text-[11px] text-muted">Sud: <b className="text-fg">{courts[0].shortName}</b> · limit {n(courts[0].dailyQuota)}/kun, {hhmm(courts[0].cutoffMinutes)} gacha</div>}
+              {courts.length === 1 && <div className="rounded-lg bg-surface-2 px-3 py-1.5 text-[11px] text-muted">{t('Sud')}: <b className="text-fg">{courts[0].shortName}</b> · {t('limit')} {n(courts[0].dailyQuota)}/{t('kun')}, {hhmm(courts[0].cutoffMinutes)} {t('gacha')}</div>}
               <div role="radio" aria-checked={all} tabIndex={0} onClick={() => setAll(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setAll(true); } }}
                 className={cx('flex cursor-pointer items-center gap-3 rounded-xl border p-3 outline-none transition-all', all ? 'border-brand-500 bg-brand-500/[0.06] ring-1 ring-brand-500/30' : 'border-line hover:border-brand-500/30 hover:bg-surface-2')}>
                 <span className={cx('grid h-9 w-9 shrink-0 place-items-center rounded-lg transition-colors', all ? 'bg-brand-500 text-white' : 'bg-surface-2 text-muted')}>
                   <Ico.layer size={16} />
                 </span>
-                <span className="flex-1"><span className="block text-sm font-semibold">Hammasi</span><span className="block text-xs text-muted tabular-nums">{n(total)} mijoz</span></span>
+                <span className="flex-1"><span className="block text-sm font-semibold">{t('Hammasi')}</span><span className="block text-xs text-muted tabular-nums">{n(total)} {t('mijoz')}</span></span>
                 <span className={cx('grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 transition-colors', all ? 'border-brand-500' : 'border-line')}>{all && <span className="h-2.5 w-2.5 rounded-full bg-brand-500" />}</span>
               </div>
               <div role="radio" aria-checked={!all} tabIndex={0} onClick={() => setAll(false)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setAll(false); } }}
@@ -407,11 +409,11 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
                   <Ico.hashtag size={16} />
                 </span>
                 <span className="flex-1">
-                  <span className="block text-sm font-semibold">Belgilangan son</span>
+                  <span className="block text-sm font-semibold">{t('Belgilangan son')}</span>
                   <span className="mt-1.5 flex items-center gap-2">
                     <input type="number" min={1} max={total || undefined} value={num} onClick={(e) => e.stopPropagation()} onFocus={() => setAll(false)} onChange={(e) => setNum(e.target.value)}
                       className="w-24 rounded-lg border border-line bg-bg px-2.5 py-1.5 text-sm font-semibold tabular-nums outline-none transition-shadow focus-visible:border-brand-500/50 focus-visible:ring-2 focus-visible:ring-brand-500/25" />
-                    <span className="text-xs text-muted tabular-nums">/ {n(total)} tadan</span>
+                    <span className="text-xs text-muted tabular-nums">/ {n(total)} {t('tadan')}</span>
                   </span>
                 </span>
                 <span className={cx('grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 transition-colors', !all ? 'border-brand-500' : 'border-line')}>{!all && <span className="h-2.5 w-2.5 rounded-full bg-brand-500" />}</span>
@@ -420,12 +422,12 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
             )}
 
             <div className="mt-4 flex items-center justify-end gap-2">
-              <button onClick={() => setModalOpen(false)} disabled={starting} className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-2 disabled:opacity-50">Bekor</button>
+              <button onClick={() => setModalOpen(false)} disabled={starting} className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-2 disabled:opacity-50">{t('Bekor')}</button>
               <button onClick={start} disabled={starting || !valid || total === 0} aria-busy={starting}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm outline-none transition-all hover:bg-brand-600 focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:cursor-not-allowed disabled:opacity-60">
                 {starting
-                  ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> Boshlanmoqda…</>
-                  : <><Ico.flash size={14} /> Yaratish ({n(batchN)})</>}
+                  ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> {t('Boshlanmoqda…')}</>
+                  : <><Ico.flash size={14} /> {t('Yaratish')} ({n(batchN)})</>}
               </button>
             </div>
           </div>

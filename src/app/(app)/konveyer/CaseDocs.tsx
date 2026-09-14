@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { useT } from '@/lib/i18n/client';
 
 interface UpDoc { id: number; kind: string; fileName: string; size: number }
 
@@ -118,6 +119,7 @@ const MiniCheck = () => <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none"
 const MiniDash = () => <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round"><path d="M6 12h12" /></svg>;
 
 function CourtReadyBar({ flags }: { flags: CourtFlags }) {
+  const t = useT();
   const missing = COURT_DOCS.filter((d) => !flags[d.key]);
   const ready = missing.length === 0;
   return (
@@ -126,15 +128,15 @@ function CourtReadyBar({ flags }: { flags: CourtFlags }) {
         <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-md ${ready ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'}`}>
           {ready ? <CheckIcon /> : <ClockIcon />}
         </span>
-        <span className="text-sm font-semibold">{ready ? 'Sudga yuborishga tayyor' : `Sudga chiqishi uchun ${missing.length} ta hujjat yetishmayapti`}</span>
+        <span className="text-sm font-semibold">{ready ? t('Sudga yuborishga tayyor') : `${t('Sudga chiqishi uchun')} ${missing.length} ${t('ta hujjat yetishmayapti')}`}</span>
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {COURT_DOCS.map((d) => {
           const ok = flags[d.key];
           return (
-            <span key={d.key} className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium ${ok ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300' : 'bg-rose-500/12 text-rose-600 dark:text-rose-300'}`} title={ok ? `${d.label}: bor` : `${d.label}: yo'q`}>
+            <span key={d.key} className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium ${ok ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300' : 'bg-rose-500/12 text-rose-600 dark:text-rose-300'}`} title={ok ? `${t(d.label)}: ${t('bor')}` : `${t(d.label)}: ${t("yo'q")}`}>
               <span className="grid h-3.5 w-3.5 place-items-center">{ok ? <MiniCheck /> : <MiniDash />}</span>
-              {d.label}
+              {t(d.label)}
             </span>
           );
         })}
@@ -144,6 +146,7 @@ function CourtReadyBar({ flags }: { flags: CourtFlags }) {
 }
 
 export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, onChange, courtFlags }: { caseId: number; firmId: number; stage: string; receiptNumber: string | null; talabnomaSent: boolean; onChange?: () => void; courtFlags?: CourtFlags }) {
+  const t = useT();
   const [docs, setDocs] = useState<UpDoc[]>([]);
   const [contracts, setContracts] = useState(0); // shartnoma soni → «Oferta (N)»
   const [ofertaLoans, setOfertaLoans] = useState<{ ldId: string | null; account: string | null; summKr: string | null; dateToCr: string | null }[]>([]);
@@ -234,7 +237,7 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, 
   const genAll = async () => {
     setGenBusy(true); setGenErr(null);
     const r = await downloadFrom(`/konveyer/gen-packet?caseId=${caseId}`);
-    if (!r.ok) setGenErr(r.error || 'Xatolik'); else await load();
+    if (!r.ok) setGenErr(r.error || t('Xatolik')); else await load();
     setGenBusy(false);
   };
 
@@ -279,27 +282,27 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, 
           {genBusy ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" /> : <BoltIcon />}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-sm font-semibold text-brand-700 dark:text-brand-300">{genBusy ? 'Yaratilmoqda…' : 'Hammasini yarat'}</span>
-          <span className="block text-[11px] text-muted" role={genErr ? 'alert' : undefined}>{genErr ? <span className="text-rose-500">{genErr}</span> : 'Talabnoma, Ariza, Oferta (har shartnomaga), firma hujjatlari — bitta ZIP'}</span>
+          <span className="block text-sm font-semibold text-brand-700 dark:text-brand-300">{genBusy ? t('Yaratilmoqda…') : t('Hammasini yarat')}</span>
+          <span className="block text-[11px] text-muted" role={genErr ? 'alert' : undefined}>{genErr ? <span className="text-rose-500">{genErr}</span> : t('Talabnoma, Ariza, Oferta (har shartnomaga), firma hujjatlari — bitta ZIP')}</span>
         </span>
         <span className="shrink-0 text-muted transition-transform group-hover:translate-x-0.5"><DownIcon /></span>
       </button>
 
       {loadErr && (
         <div role="alert" className="flex items-center justify-between gap-2 rounded-lg border border-rose-500/25 bg-rose-500/[0.04] px-2.5 py-1.5 text-[11px] font-medium text-rose-500">
-          <span>Hujjatlar yuklanmadi</span>
-          <button onClick={() => { setLoading(true); Promise.all([load(), loadFirmLib()]).finally(() => setLoading(false)); }} className="rounded border border-line px-1.5 py-0.5 text-muted hover:border-brand-500/40">Qayta urinish</button>
+          <span>{t('Hujjatlar yuklanmadi')}</span>
+          <button onClick={() => { setLoading(true); Promise.all([load(), loadFirmLib()]).finally(() => setLoading(false)); }} className="rounded border border-line px-1.5 py-0.5 text-muted hover:border-brand-500/40">{t('Qayta urinish')}</button>
         </div>
       )}
 
       <div className="flex items-center justify-between border-b border-line/70 pb-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">Hujjatlar paketi</span>
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">{t('Hujjatlar paketi')}</span>
         <a
           href={uploadedCount > 0 ? `/konveyer/download-zip?caseId=${caseId}` : undefined}
           className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${uploadedCount > 0 ? 'border-line text-brand-600 hover:border-brand-500/40 dark:text-brand-400' : 'pointer-events-none border-line text-muted/40'}`}
-          title={uploadedCount > 0 ? 'Yuklangan hujjatlarni ZIP qilib olish' : 'Hali yuklangan hujjat yo‘q'}
+          title={uploadedCount > 0 ? t('Yuklangan hujjatlarni ZIP qilib olish') : t('Hali yuklangan hujjat yo‘q')}
         >
-          <DownIcon /> Yuklangan{uploadedCount > 0 ? ` · ${uploadedCount}` : ''}
+          <DownIcon /> {t('Yuklangan')}{uploadedCount > 0 ? ` · ${uploadedCount}` : ''}
         </a>
       </div>
       {loading ? (
@@ -340,7 +343,7 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, 
               <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${meta.accent}`} aria-hidden>{meta.icon}</span>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-[13px] font-semibold">{meta.label}</span>
+                  <span className="text-[13px] font-semibold">{t(meta.label)}</span>
                   <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${done ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300' : 'bg-surface-2 text-muted'}`}>{ready}/{items.length}</span>
                 </div>
                 <div className="mt-1 h-1 w-full max-w-[220px] overflow-hidden rounded-full bg-surface-2">
@@ -375,20 +378,20 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, 
                 const canDelete = !!up;
                 const canUpload = !up && (isFirm || s.bulk);   // ONLY firm library + palata scan are manual
                 const dling = dlBusy === s.kind;
-                const name = s.name + (s.kind === 'OFERTA' && contracts > 0 ? ` (${contracts})` : '');
+                const name = t(s.name) + (s.kind === 'OFERTA' && contracts > 0 ? ` (${contracts})` : '');
                 const subtitle = s.kind === 'INVOICE'
-                  ? (have ? 'Billing PDF · sudga ketmaydi' : 'Invoice hali yaratilmagan')
+                  ? (have ? t('Billing PDF · sudga ketmaydi') : t('Invoice hali yaratilmagan'))
                   : s.kind === 'TALABNOMA_HIPPO'
-                    ? 'xat.hippo — yuborilganlik (ko‘rsatkich)'
+                    ? t('xat.hippo — yuborilganlik (ko‘rsatkich)')
                   : s.kind === 'TALABNOMA_RECEIPT'
-                    ? 'xat.hippo — kvitansiya (UZPOST) · sudga ketadi'
+                    ? t('xat.hippo — kvitansiya (UZPOST) · sudga ketadi')
                     : up ? `${up.fileName}${up.size ? ` · ${fmtSize(up.size)}` : ''}`
-                    : fd ? 'Yuklangan fayl'
+                    : fd ? t('Yuklangan fayl')
                     // System yaratadigan hujjatlar (talabnoma/ariza/oferta) hech qachon
                     // «biriktirilmaydi» — on-demand yaratiladi. «bor» bo'lsa — yuklab olinadi.
-                    : isAutoGen ? (have ? 'System yaratadi · yuklab olish' : 'Avto — system yaratadi')
-                    : state === 'pending' ? 'Palatadan skan kutilmoqda'
-                    : 'Hali biriktirilmagan';
+                    : isAutoGen ? (have ? t('System yaratadi · yuklab olish') : t('Avto — system yaratadi'))
+                    : state === 'pending' ? t('Palatadan skan kutilmoqda')
+                    : t('Hali biriktirilmagan');
                 return (
                   <div key={s.kind} className="flex flex-col rounded-xl border border-line bg-surface p-3 transition-all hover:border-brand-500/40 hover:shadow-sm">
                     <div className="flex items-start gap-2.5">
@@ -396,30 +399,30 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, 
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-[13px] font-semibold" title={name}>{name}</div>
                         <div className="mt-0.5 truncate text-[11px] text-muted" title={subtitle}>
-                          {rowErr === s.kind ? <span className="font-medium text-rose-500">Xatolik — qayta urining</span> : subtitle}
+                          {rowErr === s.kind ? <span className="font-medium text-rose-500">{t('Xatolik — qayta urining')}</span> : subtitle}
                         </div>
                       </div>
-                      <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${ui.chip}`}>{ui.label}</span>
+                      <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${ui.chip}`}>{t(ui.label)}</span>
                     </div>
 
                     {/* footer — download (primary) + upload/delete */}
                     <div className="mt-2.5 flex items-center gap-1.5 border-t border-line/60 pt-2.5">
                       {dlHref ? (
                         isAutoGen ? (
-                          <button onClick={() => genRow(s.kind, dlHref)} disabled={dling} className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-1.5 text-[11px] font-medium text-brand-600 outline-none transition-colors hover:border-brand-500/40 hover:bg-brand-500/[0.06] focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50 dark:text-brand-400" title={have ? 'Yuklab olish' : 'System yaratib yuklab beradi'}>
+                          <button onClick={() => genRow(s.kind, dlHref)} disabled={dling} className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-1.5 text-[11px] font-medium text-brand-600 outline-none transition-colors hover:border-brand-500/40 hover:bg-brand-500/[0.06] focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50 dark:text-brand-400" title={have ? t('Yuklab olish') : t('System yaratib yuklab beradi')}>
                             {dling ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <DownIcon />}
-                            {have ? 'Yuklab olish' : 'Yaratish'}
+                            {have ? t('Yuklab olish') : t('Yaratish')}
                           </button>
                         ) : (
-                          <a href={dlHref} className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-1.5 text-[11px] font-medium text-brand-600 outline-none transition-colors hover:border-brand-500/40 hover:bg-brand-500/[0.06] focus-visible:ring-2 focus-visible:ring-brand-500/30 dark:text-brand-400" title="Yuklab olish"><DownIcon /> Yuklab olish</a>
+                          <a href={dlHref} className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-1.5 text-[11px] font-medium text-brand-600 outline-none transition-colors hover:border-brand-500/40 hover:bg-brand-500/[0.06] focus-visible:ring-2 focus-visible:ring-brand-500/30 dark:text-brand-400" title={t('Yuklab olish')}><DownIcon /> {t('Yuklab olish')}</a>
                         )
                       ) : (
-                        <span className="flex-1 text-[11px] text-muted/70">{canUpload ? 'Fayl biriktiring →' : '—'}</span>
+                        <span className="flex-1 text-[11px] text-muted/70">{canUpload ? t('Fayl biriktiring →') : '—'}</span>
                       )}
                       {canDelete ? (
-                        <button onClick={() => del(up!.id, s.kind)} aria-label="O'chirish" className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-line text-muted outline-none transition-colors hover:border-rose-500/40 hover:bg-rose-500/[0.08] hover:text-rose-500 focus-visible:ring-2 focus-visible:ring-rose-500/30" title="O'chirish"><TrashIcon /></button>
+                        <button onClick={() => del(up!.id, s.kind)} aria-label={t("O'chirish")} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-line text-muted outline-none transition-colors hover:border-rose-500/40 hover:bg-rose-500/[0.08] hover:text-rose-500 focus-visible:ring-2 focus-visible:ring-rose-500/30" title={t("O'chirish")}><TrashIcon /></button>
                       ) : canUpload ? (
-                        <button onClick={() => pickFor(s.kind)} disabled={busy} aria-label={fd ? 'Almashtirish' : 'Yuklash'} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-line text-muted outline-none transition-colors hover:border-brand-500/40 hover:bg-brand-500/[0.08] hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-40" title={fd ? 'Almashtirish' : 'Yuklash'}>{busy ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <UpIcon />}</button>
+                        <button onClick={() => pickFor(s.kind)} disabled={busy} aria-label={fd ? t('Almashtirish') : t('Yuklash')} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-line text-muted outline-none transition-colors hover:border-brand-500/40 hover:bg-brand-500/[0.08] hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-40" title={fd ? t('Almashtirish') : t('Yuklash')}>{busy ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <UpIcon />}</button>
                       ) : null}
                     </div>
                   </div>
@@ -436,15 +439,15 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, 
                 <div className="rounded-xl border border-line bg-surface">
                   <button type="button" onClick={() => setOfertaOpen((v) => !v)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] font-medium">
                     <svg className={`h-3.5 w-3.5 shrink-0 text-muted transition-transform ${ofertaOpen ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
-                    <span>Oferta shartnomalari — <b className="tabular-nums">{ofertaLoans.length}</b> ta</span>
-                    <span className="ml-auto tabular-nums text-muted">jami <b className="text-fg">{fmtSum(total)}</b> soʻm</span>
+                    <span>{t('Oferta shartnomalari —')} <b className="tabular-nums">{ofertaLoans.length}</b> {t('ta')}</span>
+                    <span className="ml-auto tabular-nums text-muted">{t('jami')} <b className="text-fg">{fmtSum(total)}</b> {t('soʻm')}</span>
                   </button>
                   {ofertaOpen && (
                     <div className="border-t border-line/60 px-3 py-2">
                       <div className="max-h-56 overflow-y-auto">
                         <table className="w-full text-[11px]">
                           <thead className="text-left text-muted">
-                            <tr><th className="py-1 pr-2 font-medium">#</th><th className="py-1 pr-2 font-medium">Shartnoma / hisob</th><th className="py-1 pr-2 font-medium">Sana</th><th className="py-1 text-right font-medium">Kredit summasi</th></tr>
+                            <tr><th className="py-1 pr-2 font-medium">#</th><th className="py-1 pr-2 font-medium">{t('Shartnoma / hisob')}</th><th className="py-1 pr-2 font-medium">{t('Sana')}</th><th className="py-1 text-right font-medium">{t('Kredit summasi')}</th></tr>
                           </thead>
                           <tbody>
                             {ofertaLoans.map((l, i) => (
@@ -457,13 +460,13 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, 
                             ))}
                           </tbody>
                           <tfoot>
-                            <tr className="border-t border-line"><td colSpan={3} className="py-1.5 pr-2 font-medium">Jami</td><td className="py-1.5 text-right font-bold tabular-nums">{fmtSum(total)} soʻm</td></tr>
+                            <tr className="border-t border-line"><td colSpan={3} className="py-1.5 pr-2 font-medium">{t('Jami')}</td><td className="py-1.5 text-right font-bold tabular-nums">{fmtSum(total)} {t('soʻm')}</td></tr>
                           </tfoot>
                         </table>
                       </div>
                       <button onClick={() => genRow('OFERTA', `/konveyer/gen-oferta?caseId=${caseId}`)} disabled={dlBusy === 'OFERTA'} className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-[11px] font-medium text-brand-600 outline-none transition-colors hover:border-brand-500/40 hover:bg-brand-500/[0.06] disabled:opacity-50 dark:text-brand-400">
                         {dlBusy === 'OFERTA' ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <DownIcon />}
-                        {ofertaLoans.length} ta ofertani ZIP qilib yuklab olish
+                        {ofertaLoans.length} {t('ta ofertani ZIP qilib yuklab olish')}
                       </button>
                     </div>
                   )}

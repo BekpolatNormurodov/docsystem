@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
 import { getBojiAmount, setBojiAmount, BOJI_AMOUNT_DEFAULT } from '@/lib/konveyer-buxgalter';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -14,10 +15,11 @@ export async function GET() {
 // POST { amount } — save the davlat-boji amount (soʻm).
 export async function POST(req: NextRequest) {
   await requireAdmin();
+  const t = getT();
   const body = await req.json().catch(() => ({}));
   const amount = Number(body?.amount);
   if (!Number.isFinite(amount) || amount < 0 || amount > 100_000_000) {
-    return NextResponse.json({ error: 'Summa 0–100 000 000 oraligʻida boʻlsin' }, { status: 400 });
+    return NextResponse.json({ error: t('Summa 0–100 000 000 oraligʻida boʻlsin') }, { status: 400 });
   }
   await setBojiAmount(amount);
   return NextResponse.json({ ok: true, amount: await getBojiAmount() });

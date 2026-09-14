@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Ico } from '@/ui';
+import { useT } from '@/lib/i18n/client';
 
 /**
  * Collapsible container that folds the portfolio import (upload form + history) into the Hujjatlar
@@ -18,6 +19,7 @@ export function ImportPanel({
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const t = useT();
 
   return (
     <section className="card mb-6 overflow-hidden p-0">
@@ -31,9 +33,9 @@ export function ImportPanel({
           <Ico.add size={18} />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-sm font-semibold">Portfel import</span>
+          <span className="block text-sm font-semibold">{t('Portfel import')}</span>
           <span className="block text-xs text-muted">
-            Yangi portfel + istisno faylini yuklang{count > 0 ? ` · ${count} ta yuklangan` : ''}
+            {t('Yangi portfel + istisno faylini yuklang')}{count > 0 ? ` · ${count} ${t('ta yuklangan')}` : ''}
           </span>
         </span>
         <Ico.chevron size={18} className={`shrink-0 text-muted transition-transform ${open ? 'rotate-90' : ''}`} />

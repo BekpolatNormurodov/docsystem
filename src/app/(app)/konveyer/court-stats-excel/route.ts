@@ -4,6 +4,7 @@ import ExcelJS from 'exceljs';
 import { requireStep } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { courtReadiness } from '@/lib/court-ready';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -14,6 +15,7 @@ const num = (v: string | null): number | undefined => { if (!v) return undefined
 // yuborilgan / navbatda + qaysi hujjat yetishmayotgani (talabnoma/skan/oferta/boji), + a JAMI row.
 export async function GET(req: NextRequest) {
   await requireStep('sud:send');
+  const t = getT();
   // Resolve snapshot: passed ?s= (validated), else konv_s cookie, else the latest with cases.
   let snapshotId = num(req.nextUrl.searchParams.get('s') ?? cookies().get('konv_s')?.value ?? null);
   if (snapshotId != null) {
@@ -28,18 +30,18 @@ export async function GET(req: NextRequest) {
   const { firms, overall } = await courtReadiness(snapshotId);
 
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('Firma statistikasi');
+  const ws = wb.addWorksheet(t('Firma statistikasi'));
   ws.columns = [
     { header: '№', key: 'i', width: 6 },
-    { header: 'Firma', key: 'firma', width: 32 },
-    { header: 'Jami', key: 'total', width: 10 },
-    { header: 'Toʻliq tayyor', key: 'ready', width: 14 },
-    { header: 'Yuborilgan', key: 'exported', width: 12 },
-    { header: 'Yuborishga tayyor', key: 'sendable', width: 18 },
-    { header: 'Talabnoma yoʻq', key: 'mtal', width: 15 },
-    { header: 'Skan yoʻq', key: 'mscan', width: 11 },
-    { header: 'Oferta yoʻq', key: 'mof', width: 12 },
-    { header: 'Boji yoʻq', key: 'mboji', width: 11 },
+    { header: t('Firma'), key: 'firma', width: 32 },
+    { header: t('Jami'), key: 'total', width: 10 },
+    { header: t('Toʻliq tayyor'), key: 'ready', width: 14 },
+    { header: t('Yuborilgan'), key: 'exported', width: 12 },
+    { header: t('Yuborishga tayyor'), key: 'sendable', width: 18 },
+    { header: t('Talabnoma yoʻq'), key: 'mtal', width: 15 },
+    { header: t('Skan yoʻq'), key: 'mscan', width: 11 },
+    { header: t('Oferta yoʻq'), key: 'mof', width: 12 },
+    { header: t('Boji yoʻq'), key: 'mboji', width: 11 },
   ];
   ws.getRow(1).font = { bold: true };
   // Most work-to-do first (navbatda desc, then not-ready).
@@ -49,7 +51,7 @@ export async function GET(req: NextRequest) {
     mtal: f.missing.talabnoma, mscan: f.missing.scan, mof: f.missing.oferta, mboji: f.missing.boji,
   }));
   const totalRow = ws.addRow({
-    i: '', firma: 'JAMI', total: overall.total, ready: overall.ready, exported: overall.exported, sendable: overall.sendable,
+    i: '', firma: t('JAMI'), total: overall.total, ready: overall.ready, exported: overall.exported, sendable: overall.sendable,
     mtal: overall.missing.talabnoma, mscan: overall.missing.scan, mof: overall.missing.oferta, mboji: overall.missing.boji,
   });
   totalRow.font = { bold: true };

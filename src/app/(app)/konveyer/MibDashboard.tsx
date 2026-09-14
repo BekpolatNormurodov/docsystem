@@ -16,6 +16,7 @@ import { type ClientRow } from '../mib-hisoboti/MibClientDetail';
 import { ClientDetailFull } from '../mib-hisoboti/ClientDetailFull';
 import { MibLogPanel } from '../mib-hisoboti/MibLogPanel';
 import { regionOf, groupBreakdown, parseMoney, clean, shortFirm, normalizeBank, type Dim } from '@/lib/mib/breakdown';
+import { useT } from '@/lib/i18n/client';
 
 interface Report { id: number; createdAt: string; label: string | null; total: number; autoRun: boolean; statusFilter: string | null; sourceFileName?: string }
 interface Stats {
@@ -79,6 +80,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   // UMUMIY rejim — barcha hisobotlar birga (/api/mib/all), faqat o'qish (GO/build/PINFL yo'q).
   aggregate?: boolean;
 }) {
+  const t = useT();
   const router = useRouter();
   const [report, setReport] = useState<Report | null>(null);
   const [clients, setClients] = useState<ClientRow[]>([]);
@@ -183,14 +185,14 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   const build = async () => {
     setBusy('build'); setNote('');
     const { ok, json } = await jpost(`/api/mib/${reportId}/build`, { statusFilter: statusFilter || null, dateFrom: dateFrom || null, dateTo: dateTo || null });
-    if (!ok) setNote(json.error || 'Xatolik'); else { await load(); await onChanged?.(); }
+    if (!ok) setNote(json.error || t('Xatolik')); else { await load(); await onChanged?.(); }
     setBusy('');
   };
   const go = async () => {
     setBusy('go'); setNote('');
     const { ok, json } = await jpost(`/api/mib/${reportId}/run`);
-    if (!ok) { setNote(json.error || 'Xatolik'); setBusy(''); return; }
-    if (!json.phoneConfigured) setNote('Diqqat: telefon raqami sozlanmagan — chuqur detal (SMS) olinmaydi, faqat ijro ishlari roʻyxati.');
+    if (!ok) { setNote(json.error || t('Xatolik')); setBusy(''); return; }
+    if (!json.phoneConfigured) setNote(t('Diqqat: telefon raqami sozlanmagan — chuqur detal (SMS) olinmaydi, faqat ijro ishlari roʻyxati.'));
     await load(); await onChanged?.(); setBusy('');
   };
   const stop = async () => { setBusy('stop'); await jpost(`/api/mib/${reportId}/stop`); await load(); await onChanged?.(); setBusy(''); };
@@ -198,12 +200,12 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   const addPinfl = async (e: React.FormEvent) => {
     e.preventDefault();
     const p = pinfl.replace(/\D/g, '');
-    if (p.length !== 14) { setAddMsg({ ok: false, text: 'PINFL 14 ta raqam boʻlishi kerak' }); return; }
+    if (p.length !== 14) { setAddMsg({ ok: false, text: t('PINFL 14 ta raqam boʻlishi kerak') }); return; }
     setBusy('add'); setAddMsg(null);
     const { ok, json } = await jpost(`/api/mib/${reportId}/add-pinfl`, { pinfl: p });
-    if (!ok) setAddMsg({ ok: false, text: json.error || 'Xatolik' });
+    if (!ok) setAddMsg({ ok: false, text: json.error || t('Xatolik') });
     else {
-      setPinfl(''); setAddMsg({ ok: true, text: json.running ? `${p} qoʻshildi — tekshirilmoqda…` : `${p} qoʻshildi (navbatda)` });
+      setPinfl(''); setAddMsg({ ok: true, text: json.running ? `${p} ${t('qoʻshildi — tekshirilmoqda…')}` : `${p} ${t('qoʻshildi (navbatda)')}` });
       await load(); await onChanged?.();
       // Standalone: darhol o'sha PINFL sahifasini ochamiz — natija to'lishini kuzatasiz.
       if (clientHrefBase && json.clientId) router.push(`${clientHrefBase}/${json.clientId}`);
@@ -224,9 +226,9 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
       {variant === 'standalone' && !report.autoRun && !isManual && !aggregate && (
         <div className="card space-y-3 p-3">
           <div>
-            <span className="field-label">«Holat» boʻyicha (Excel)</span>
+            <span className="field-label">{t('«Holat» boʻyicha (Excel)')}</span>
             <div className="flex flex-wrap gap-2">
-              <MiniChip active={statusFilter === ''} onClick={() => setStatusFilter('')}>Barchasi</MiniChip>
+              <MiniChip active={statusFilter === ''} onClick={() => setStatusFilter('')}>{t('Barchasi')}</MiniChip>
               {holatValues.map((h) => (
                 <MiniChip key={h.value} active={statusFilter === h.value} onClick={() => setStatusFilter(h.value)}>
                   {h.value} <span className="opacity-60">· {h.count}</span>
@@ -235,11 +237,11 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
             </div>
           </div>
           <div className="flex flex-wrap items-end gap-3">
-            <div className="w-[168px]"><DateField label="Yuborilgan sana — dan" value={dateFrom} onChange={setDateFrom} min={sentRange.min ?? undefined} max={sentRange.max ?? undefined} /></div>
-            <div className="w-[168px]"><DateField label="gacha" value={dateTo} onChange={setDateTo} min={sentRange.min ?? undefined} max={sentRange.max ?? undefined} /></div>
-            {(dateFrom || dateTo) && <button className="btn-ghost px-2.5 py-1.5 text-xs" onClick={() => { setDateFrom(''); setDateTo(''); }}>Sanani tozalash</button>}
+            <div className="w-[168px]"><DateField label={t('Yuborilgan sana — dan')} value={dateFrom} onChange={setDateFrom} min={sentRange.min ?? undefined} max={sentRange.max ?? undefined} /></div>
+            <div className="w-[168px]"><DateField label={t('gacha')} value={dateTo} onChange={setDateTo} min={sentRange.min ?? undefined} max={sentRange.max ?? undefined} /></div>
+            {(dateFrom || dateTo) && <button className="btn-ghost px-2.5 py-1.5 text-xs" onClick={() => { setDateFrom(''); setDateTo(''); }}>{t('Sanani tozalash')}</button>}
             <div className="flex-1" />
-            <button className="btn-ghost shrink-0" disabled={busy === 'build'} onClick={build}>{busy === 'build' ? <Spinner size={16} /> : <Ico.refresh size={16} />} Roʻyxatni qurish</button>
+            <button className="btn-ghost shrink-0" disabled={busy === 'build'} onClick={build}>{busy === 'build' ? <Spinner size={16} /> : <Ico.refresh size={16} />} {t('Roʻyxatni qurish')}</button>
           </div>
         </div>
       )}
@@ -248,7 +250,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
       {aggregate ? (
         <div className="flex items-center gap-2 text-sm text-muted">
           <Ico.layer size={16} className="text-brand-600 dark:text-brand-400" />
-          <span><b className="text-fg">Umumiy</b> · barcha hisobotlar birga · <b className="tabular-nums text-fg">{n(report.total)}</b> ta mijoz (PINFL bo‘yicha yagona)</span>
+          <span><b className="text-fg">{t('Umumiy')}</b> · {t('barcha hisobotlar birga')} · <b className="tabular-nums text-fg">{n(report.total)}</b> {t('ta mijoz (PINFL bo‘yicha yagona)')}</span>
         </div>
       ) : (
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -256,25 +258,25 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
           {report.autoRun ? (
             <span className="flex items-center gap-2 font-medium text-emerald-600 dark:text-emerald-300">
               <span className="relative flex h-2.5 w-2.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" /><span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" /></span>
-              Avtomator ishlayapti — {n(checked)}/{n(report.total)} tekshirildi
+              {t('Avtomator ishlayapti')} — {n(checked)}/{n(report.total)} {t('tekshirildi')}
             </span>
           ) : (
             <span>
-              {variant === 'standalone' && <b className="text-fg">{statusFilter || 'Barchasi'}</b>}{variant === 'standalone' && ' · '}
-              {variant === 'konveyer' && 'Konveyerdan '}<b className="tabular-nums text-fg">{n(report.total)}</b> ta mijoz · mib.uz dan tekshiriladi
+              {variant === 'standalone' && <b className="text-fg">{statusFilter || t('Barchasi')}</b>}{variant === 'standalone' && ' · '}
+              {variant === 'konveyer' && t('Konveyerdan ')}<b className="tabular-nums text-fg">{n(report.total)}</b> {t('ta mijoz · mib.uz dan tekshiriladi')}
             </span>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {reseed && !report.autoRun && (
             <button className="btn-ghost shrink-0" disabled={busy === 'reseed'} onClick={doReseed}>
-              {busy === 'reseed' ? <Spinner size={16} /> : <Ico.refresh size={16} />} Konveyerdan yangilash
+              {busy === 'reseed' ? <Spinner size={16} /> : <Ico.refresh size={16} />} {t('Konveyerdan yangilash')}
             </button>
           )}
           {report.autoRun ? (
             <button className="btn-danger shrink-0" disabled={busy === 'stop'} onClick={stop}>{busy === 'stop' ? <Spinner size={16} /> : <Ico.minus size={16} />} STOP</button>
           ) : (
-            <button className="btn-primary shrink-0" disabled={!built || busy === 'go'} onClick={go}>{busy === 'go' ? <Spinner size={16} /> : <Ico.flash size={16} />} GO — tekshirish</button>
+            <button className="btn-primary shrink-0" disabled={!built || busy === 'go'} onClick={go}>{busy === 'go' ? <Spinner size={16} /> : <Ico.flash size={16} />} GO — {t('tekshirish')}</button>
           )}
         </div>
       </div>
@@ -282,7 +284,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
       {note && <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-600 dark:text-amber-300">{note}</p>}
       {variant === 'standalone' && !built && !report.autoRun && !aggregate && (
         <div className="rounded-xl border border-dashed border-line bg-surface-2/40 px-4 py-3 text-sm text-muted">
-          Excel yuklandi. Yuqorida «Holat» (masalan <b className="text-fg">MIBda</b>) ni tanlab <b className="text-fg">Roʻyxatni qurish</b> bosing, soʻng <b className="text-fg">GO</b>.
+          {t('Excel yuklandi. Yuqorida «Holat» (masalan')} <b className="text-fg">{t('MIBda')}</b>{t(') ni tanlab')} <b className="text-fg">{t('Roʻyxatni qurish')}</b> {t('bosing, soʻng')} <b className="text-fg">GO</b>.
         </div>
       )}
 
@@ -291,31 +293,30 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
       {variant === 'konveyer' && (
         <form onSubmit={addPinfl} className="card flex flex-wrap items-center gap-2 p-3">
           <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-500/12 text-brand-600 dark:text-brand-300"><Ico.qr size={16} /></span>
-          <span className="text-sm font-medium">Bitta PINFL tekshirish:</span>
-          <input className="field-input w-[190px] tabular-nums tracking-[0.1em]" inputMode="numeric" maxLength={14} placeholder="14 raqamli PINFL"
+          <span className="text-sm font-medium">{t('Bitta PINFL tekshirish:')}</span>
+          <input className="field-input w-[190px] tabular-nums tracking-[0.1em]" inputMode="numeric" maxLength={14} placeholder={t('14 raqamli PINFL')}
             value={pinfl} onChange={(e) => { setPinfl(e.target.value.replace(/\D/g, '').slice(0, 14)); setAddMsg(null); }} />
           <button type="submit" className="btn-primary shrink-0" disabled={busy === 'add' || pinfl.replace(/\D/g, '').length !== 14}>
-            {busy === 'add' ? <Spinner size={16} /> : <Ico.send size={16} />} Tekshirish
+            {busy === 'add' ? <Spinner size={16} /> : <Ico.send size={16} />} {t('Tekshirish')}
           </button>
           {addMsg && <span className={cx('text-sm', addMsg.ok ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300')}>{addMsg.text}</span>}
-          <span className="ml-auto text-xs text-muted">natija ijro ishlari + sana bilan shu roʻyxatga yigʻiladi</span>
+          <span className="ml-auto text-xs text-muted">{t('natija ijro ishlari + sana bilan shu roʻyxatga yigʻiladi')}</span>
         </form>
       )}
 
       {/* ── KPI: MIBda jami / bizniki / summalar ─────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Kpi big icon={<Ico.layer size={18} />} label="MIBda jami ijro ishlari" value={n(totalCases)} hint={`${n(stats?.withCases ?? 0)} mijozda topildi`} />
-        <Kpi big accent icon={<Ico.shield size={18} />} label="Bizga tegishli (8 MMT)" value={n(oursCases)} hint={totalCases ? `jamining ${Math.round((oursCases / totalCases) * 100)}%` : '—'} />
-        <Kpi icon={<Ico.users size={18} />} label="Boshqa kreditorlar" value={n(Math.max(0, totalCases - oursCases))} hint="davlat boji / bank / boshqa" />
-        <Kpi icon={<Ico.check size={18} />} label="Tekshirildi" value={`${n(checked)} / ${n(report.total)}`} hint={`${n(stats?.status.PENDING ?? 0)} navbatda · ${n(stats?.status.FAILED ?? 0)} xato`} />
-        <Kpi wide label="Qoldiq qarz — jami (soʻm)" value={som(stats?.totalRemainingDebt ?? 0)} icon={<Ico.receipt size={18} />} />
-        <Kpi wide accent label="shundan bizning qoldiq qarz (soʻm)" value={som(oursDebt)} icon={<Ico.receipt size={18} />} />
+        <Kpi big icon={<Ico.layer size={18} />} label={t('MIBda jami ijro ishlari')} value={n(totalCases)} hint={`${n(stats?.withCases ?? 0)} ${t('mijozda topildi')}`} />
+        <Kpi big accent icon={<Ico.shield size={18} />} label={t('Bizga tegishli (8 MMT)')} value={n(oursCases)} hint={totalCases ? `${t('jamining')} ${Math.round((oursCases / totalCases) * 100)}%` : '—'} />
+        <Kpi icon={<Ico.users size={18} />} label={t('Boshqa kreditorlar')} value={n(Math.max(0, totalCases - oursCases))} hint={t('davlat boji / bank / boshqa')} />
+        <Kpi icon={<Ico.check size={18} />} label={t('Tekshirildi')} value={`${n(checked)} / ${n(report.total)}`} hint={`${n(stats?.status.PENDING ?? 0)} ${t('navbatda')} · ${n(stats?.status.FAILED ?? 0)} ${t('xato')}`} />
+        <Kpi wide label={t('Qoldiq qarz — jami (soʻm)')} value={som(stats?.totalRemainingDebt ?? 0)} icon={<Ico.receipt size={18} />} />
+        <Kpi wide accent label={t('shundan bizning qoldiq qarz (soʻm)')} value={som(oursDebt)} icon={<Ico.receipt size={18} />} />
       </div>
 
       {built && !pulled && !report.autoRun && (
         <div className="rounded-xl border border-dashed border-line bg-surface-2/40 px-4 py-3 text-sm text-muted">
-          Ijro ishlari hali mib.uz dan tortilmagan. <b className="text-fg">GO</b> bosilsa har mijoz ketma-ket tekshiriladi —
-          region / hudud / bank kesimlari va summalar shundan keyin toʻladi.
+          {t('Ijro ishlari hali mib.uz dan tortilmagan.')} <b className="text-fg">GO</b> {t('bosilsa har mijoz ketma-ket tekshiriladi — region / hudud / bank kesimlari va summalar shundan keyin toʻladi.')}
         </div>
       )}
 
@@ -323,25 +324,25 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
       <div className="card p-3">
         <div className="flex flex-wrap items-end gap-2.5">
           <label className="min-w-[190px] flex-1">
-            <span className="field-label">Qidiruv (PINFL / F.I.O / ish №)</span>
-            <input className="field-input" value={filters.q} onChange={(e) => setF({ q: e.target.value })} placeholder="qidirish…" />
+            <span className="field-label">{t('Qidiruv (PINFL / F.I.O / ish №)')}</span>
+            <input className="field-input" value={filters.q} onChange={(e) => setF({ q: e.target.value })} placeholder={t('qidirish…')} />
           </label>
-          <FilterSelect label="Region" value={filters.region} onChange={(v) => setF({ region: v })} options={opts.regions} />
-          <FilterSelect label="Hudud (MIB boʻlimi)" value={filters.dept} onChange={(v) => setF({ dept: v })} options={opts.depts} wide />
-          <FilterSelect label="Bank" value={filters.bank} onChange={(v) => setF({ bank: v })} options={opts.banks} wide />
-          <FilterSelect label="Firma" value={filters.firm} onChange={(v) => setF({ firm: v })} options={opts.firms} />
+          <FilterSelect label={t('Region')} value={filters.region} onChange={(v) => setF({ region: v })} options={opts.regions} />
+          <FilterSelect label={t('Hudud (MIB boʻlimi)')} value={filters.dept} onChange={(v) => setF({ dept: v })} options={opts.depts} wide />
+          <FilterSelect label={t('Bank')} value={filters.bank} onChange={(v) => setF({ bank: v })} options={opts.banks} wide />
+          <FilterSelect label={t('Firma')} value={filters.firm} onChange={(v) => setF({ firm: v })} options={opts.firms} />
           <div className="shrink-0">
-            <span className="field-label">Tegishlilik</span>
+            <span className="field-label">{t('Tegishlilik')}</span>
             <div className="flex h-[42px] items-center gap-0.5 rounded-xl border border-line p-0.5">
               {([['all', 'Hammasi'], ['ours', 'Bizniki'], ['others', 'Tegishli emas']] as [Own, string][]).map(([v, lbl]) => (
                 <button key={v} onClick={() => setF({ own: v })}
                   className={cx('rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors', filters.own === v ? 'bg-brand-500 text-white shadow-sm' : 'text-muted hover:text-fg')}>
-                  {lbl}
+                  {t(lbl)}
                 </button>
               ))}
             </div>
           </div>
-          {anyFilter && <button className="btn-ghost h-[42px] shrink-0 self-end text-xs" onClick={() => setFilters(emptyFilters)}><Ico.close size={14} /> Tozalash</button>}
+          {anyFilter && <button className="btn-ghost h-[42px] shrink-0 self-end text-xs" onClick={() => setFilters(emptyFilters)}><Ico.close size={14} /> {t('Tozalash')}</button>}
         </div>
       </div>
 
@@ -349,27 +350,27 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
       <div className="card overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-2 py-2">
           <div className="flex flex-wrap items-center gap-1">
-            {TABS.map((t) => (
-              <button key={t.key} onClick={() => setTab(t.key)}
+            {TABS.map((tb) => (
+              <button key={tb.key} onClick={() => setTab(tb.key)}
                 className={cx('rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
-                  tab === t.key ? 'bg-brand-500/12 text-brand-700 dark:text-brand-300' : 'text-muted hover:bg-surface-2 hover:text-fg')}>
-                {t.label}
+                  tab === tb.key ? 'bg-brand-500/12 text-brand-700 dark:text-brand-300' : 'text-muted hover:bg-surface-2 hover:text-fg')}>
+                {t(tb.label)}
               </button>
             ))}
           </div>
-          {!aggregate && <a className="btn-ghost mr-1 shrink-0 text-xs" href={excelHref}><Ico.download size={14} /> Excel{tab !== 'mijozlar' ? ' (kesim)' : ''}</a>}
+          {!aggregate && <a className="btn-ghost mr-1 shrink-0 text-xs" href={excelHref}><Ico.download size={14} /> Excel{tab !== 'mijozlar' ? t(' (kesim)') : ''}</a>}
         </div>
 
         {/* summary line for the active view */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface-2/30 px-3 py-2 text-sm">
           <div>
-            <span className="font-semibold">{n(fsum.clients)}</span> <span className="text-muted">mijoz{anyFilter ? ' (filtrlangan)' : ''}</span>
-            <span className="text-muted"> · </span><span className="tabular-nums font-medium">{n(fsum.cases)}</span> <span className="text-muted">ijro ishi</span>
-            {fsum.ours > 0 && <><span className="text-muted"> · </span><span className="tabular-nums font-medium text-emerald-600 dark:text-emerald-300">{n(fsum.ours)}</span> <span className="text-muted">bizniki</span></>}
-            <span className="text-muted"> · qoldiq </span><span className="tabular-nums font-medium">{som(fsum.debt)}</span>
+            <span className="font-semibold">{n(fsum.clients)}</span> <span className="text-muted">{t('mijoz')}{anyFilter ? t(' (filtrlangan)') : ''}</span>
+            <span className="text-muted"> · </span><span className="tabular-nums font-medium">{n(fsum.cases)}</span> <span className="text-muted">{t('ijro ishi')}</span>
+            {fsum.ours > 0 && <><span className="text-muted"> · </span><span className="tabular-nums font-medium text-emerald-600 dark:text-emerald-300">{n(fsum.ours)}</span> <span className="text-muted">{t('bizniki')}</span></>}
+            <span className="text-muted"> · {t('qoldiq')} </span><span className="tabular-nums font-medium">{som(fsum.debt)}</span>
           </div>
-          {tab !== 'mijozlar' && <span className="text-xs text-muted">{n(breakdown.length)} ta guruh · qatordan bosib filtrlang</span>}
-          {tab === 'mijozlar' && report.autoRun && <span className="flex items-center gap-1.5 text-xs text-muted"><Spinner size={12} /> jonli</span>}
+          {tab !== 'mijozlar' && <span className="text-xs text-muted">{n(breakdown.length)} {t('ta guruh · qatordan bosib filtrlang')}</span>}
+          {tab === 'mijozlar' && report.autoRun && <span className="flex items-center gap-1.5 text-xs text-muted"><Spinner size={12} /> {t('jonli')}</span>}
         </div>
 
         {tab === 'mijozlar' ? (
@@ -378,13 +379,13 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
               <table className="w-full text-sm">
                 <thead className="sticky top-0 z-10 bg-surface text-xs uppercase tracking-wide text-muted">
                   <tr className="border-b border-line">
-                    <th className="px-3 py-2 text-left">PINFL / F.I.O</th>
-                    <th className="px-3 py-2 text-left">Firma</th>
-                    <th className="px-3 py-2 text-left">Hudud (MIB)</th>
-                    <th className="px-3 py-2 text-left">Bank</th>
-                    <th className="px-3 py-2 text-right">Ijro</th>
-                    <th className="px-3 py-2 text-right">Qoldiq qarz</th>
-                    <th className="px-3 py-2 text-center">Holati</th>
+                    <th className="px-3 py-2 text-left">{t('PINFL / F.I.O')}</th>
+                    <th className="px-3 py-2 text-left">{t('Firma')}</th>
+                    <th className="px-3 py-2 text-left">{t('Hudud (MIB)')}</th>
+                    <th className="px-3 py-2 text-left">{t('Bank')}</th>
+                    <th className="px-3 py-2 text-right">{t('Ijro')}</th>
+                    <th className="px-3 py-2 text-right">{t('Qoldiq qarz')}</th>
+                    <th className="px-3 py-2 text-center">{t('Holati')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -407,12 +408,12 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
                       <td className="px-3 py-2 text-right tabular-nums">{c.remainingSum > 0 ? som(c.remainingSum) : '—'}</td>
                       <td className="px-3 py-2 text-center">
                         <span className={cx('badge', STATUS_STYLE[c.status] ?? 'border-line text-muted')}>
-                          {c.status === 'RUNNING' ? <Spinner size={11} className="mr-1" /> : null}{STATUS_LABEL[c.status] ?? c.status}
+                          {c.status === 'RUNNING' ? <Spinner size={11} className="mr-1" /> : null}{t(STATUS_LABEL[c.status] ?? c.status)}
                         </span>
                       </td>
                     </tr>
                   ))}
-                  {pageRows.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-muted">{anyFilter ? 'Filtрga mos mijoz yoʻq.' : 'Roʻyxat boʻsh.'}</td></tr>}
+                  {pageRows.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-muted">{anyFilter ? t('Filtрga mos mijoz yoʻq.') : t('Roʻyxat boʻsh.')}</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -424,7 +425,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
       </div>
 
       {/* Avtomator logi — jonli (SMS, tekshiruv qadamlari, xatolar) */}
-      <MibLogPanel title="Avtomator logi" defaultOpen={report.autoRun} />
+      <MibLogPanel title={t('Avtomator logi')} defaultOpen={report.autoRun} />
     </div>
   );
 }
@@ -433,10 +434,11 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
 // ── breakdown table (Firma / Region / Hudud / Bank tabs) ────────────────────────
 type BRow = { label: string; cases: number; clients: number; ours: number; debt: number };
 function BreakdownTable({ rows, dim, activeLabel, onPick }: { rows: BRow[]; dim: Dim; activeLabel: string; onPick: (label: string) => void }) {
+  const t = useT();
   const [showOthers, setShowOthers] = useState(false);
-  const head = dim === 'firma' ? 'Firma' : dim === 'region' ? 'Region' : dim === 'hudud' ? 'Hudud (MIB boʻlimi)' : 'Bank';
+  const head = dim === 'firma' ? t('Firma') : dim === 'region' ? t('Region') : dim === 'hudud' ? t('Hudud (MIB boʻlimi)') : t('Bank');
   const totals = rows.reduce((a, r) => ({ cases: a.cases + r.cases, ours: a.ours + r.ours, debt: a.debt + r.debt }), { cases: 0, ours: 0, debt: 0 });
-  if (rows.length === 0) return <p className="px-4 py-10 text-center text-sm text-muted">Maʼlumot yoʻq — GO bosib tekshiring yoki filtrni oʻzgartiring.</p>;
+  if (rows.length === 0) return <p className="px-4 py-10 text-center text-sm text-muted">{t('Maʼlumot yoʻq — GO bosib tekshiring yoki filtrni oʻzgartiring.')}</p>;
 
   // Firma kesimida: bizga tegishli (ours>0) YUQORIDA, tegishli emas (ours===0) PASTDA yopiq (default).
   const isFirma = dim === 'firma';
@@ -464,10 +466,10 @@ function BreakdownTable({ rows, dim, activeLabel, onPick }: { rows: BRow[]; dim:
         <thead className="sticky top-0 z-10 bg-surface text-xs uppercase tracking-wide text-muted">
           <tr className="border-b border-line">
             <th className="px-3 py-2 text-left">{head}</th>
-            <th className="px-3 py-2 text-right">Ijro ishi</th>
-            <th className="px-3 py-2 text-right">Bizniki</th>
-            <th className="px-3 py-2 text-right">Mijoz</th>
-            <th className="px-3 py-2 text-right">Qoldiq qarz</th>
+            <th className="px-3 py-2 text-right">{t('Ijro ishi')}</th>
+            <th className="px-3 py-2 text-right">{t('Bizniki')}</th>
+            <th className="px-3 py-2 text-right">{t('Mijoz')}</th>
+            <th className="px-3 py-2 text-right">{t('Qoldiq qarz')}</th>
           </tr>
         </thead>
         <tbody>
@@ -478,8 +480,8 @@ function BreakdownTable({ rows, dim, activeLabel, onPick }: { rows: BRow[]; dim:
                 <td colSpan={5} className="px-3 py-2">
                   <button onClick={() => setShowOthers((v) => !v)} className="flex w-full items-center gap-2 text-left text-sm font-medium text-muted hover:text-fg">
                     <svg className={cx('h-4 w-4 shrink-0 transition-transform', showOthers && 'rotate-90')} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="m9 6 6 6-6 6" /></svg>
-                    Bizga tegishli emas <span className="opacity-70">({n(otherRows.length)} ta · {n(otherTot.cases)} ish · qoldiq {som(otherTot.debt)})</span>
-                    <span className="ml-auto text-xs opacity-60">{showOthers ? 'yopish' : 'ochish'}</span>
+                    {t('Bizga tegishli emas')} <span className="opacity-70">({n(otherRows.length)} {t('ta')} · {n(otherTot.cases)} {t('ish')} · {t('qoldiq')} {som(otherTot.debt)})</span>
+                    <span className="ml-auto text-xs opacity-60">{showOthers ? t('yopish') : t('ochish')}</span>
                   </button>
                 </td>
               </tr>
@@ -490,7 +492,7 @@ function BreakdownTable({ rows, dim, activeLabel, onPick }: { rows: BRow[]; dim:
         </tbody>
         <tfoot className="sticky bottom-0 bg-surface">
           <tr className="border-t border-line font-semibold">
-            <td className="px-3 py-2.5">Jami · {n(rows.length)} guruh</td>
+            <td className="px-3 py-2.5">{t('Jami')} · {n(rows.length)} {t('guruh')}</td>
             <td className="px-3 py-2.5 text-right tabular-nums">{n(totals.cases)}</td>
             <td className="px-3 py-2.5 text-right tabular-nums text-emerald-600 dark:text-emerald-300">{n(totals.ours)}</td>
             <td className="px-3 py-2.5 text-right tabular-nums text-muted">—</td>
@@ -535,6 +537,7 @@ function MiniChip({ active, onClick, children }: { active: boolean; onClick: () 
 // Pro, qidiruvli dropdown — filtr uchun (native select o'rniga). Ko'p variant (hudud/bank) bo'lsa
 // qidiruv chiqadi; har variant yonida son; tanlangani belgilanadi; tashqariga bosilса yopiladi.
 function FilterSelect({ label, value, onChange, options, wide }: { label: string; value: string; onChange: (v: string) => void; options: [string, number][]; wide?: boolean }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const box = useRef<HTMLDivElement>(null);
@@ -552,7 +555,7 @@ function FilterSelect({ label, value, onChange, options, wide }: { label: string
   const Row = ({ v, c, active }: { v: string; c?: number; active: boolean }) => (
     <button type="button" onClick={() => pick(v)}
       className={cx('flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors', active ? 'bg-brand-500/10 font-medium text-brand-700 dark:text-brand-300' : 'hover:bg-surface-2')}>
-      <span className="min-w-0 flex-1 truncate">{v || 'Barchasi'}</span>
+      <span className="min-w-0 flex-1 truncate">{v || t('Barchasi')}</span>
       {c != null && <span className="shrink-0 text-[11px] tabular-nums text-muted">{c}</span>}
       {active && <Ico.check size={15} className="shrink-0 text-brand-600 dark:text-brand-400" />}
     </button>
@@ -564,20 +567,20 @@ function FilterSelect({ label, value, onChange, options, wide }: { label: string
         className={cx('flex h-[42px] w-full items-center justify-between gap-2 rounded-xl border bg-surface px-3 text-sm transition-colors',
           open ? 'border-brand-500 ring-2 ring-brand-500/15' : 'border-line hover:border-brand-500/60', disabled && 'cursor-not-allowed opacity-50')}>
         <span className={cx('truncate', !value && 'text-muted')}>
-          {value || <>Barchasi{options.length ? <span className="opacity-70"> ({options.length})</span> : null}</>}
+          {value || <>{t('Barchasi')}{options.length ? <span className="opacity-70"> ({options.length})</span> : null}</>}
         </span>
         <svg className={cx('h-4 w-4 shrink-0 text-muted transition-transform', open && 'rotate-180')} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="6 9 12 15 18 9" /></svg>
       </button>
       {open && (
         <div role="listbox" className="absolute left-0 right-0 z-50 mt-1.5 rounded-xl border border-line bg-surface p-1 shadow-2xl">
           {options.length > 6 && (
-            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="qidirish…"
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('qidirish…')}
               className="mb-1 w-full rounded-lg border border-line bg-surface-2 px-2.5 py-1.5 text-sm outline-none focus:border-brand-500" />
           )}
           <div className="max-h-64 overflow-auto">
             <Row v="" active={!value} />
             {shown.map(([v, c]) => <Row key={v} v={v} c={c} active={value === v} />)}
-            {shown.length === 0 && <div className="px-2 py-3 text-center text-xs text-muted">Topilmadi</div>}
+            {shown.length === 0 && <div className="px-2 py-3 text-center text-xs text-muted">{t('Topilmadi')}</div>}
           </div>
         </div>
       )}
@@ -586,6 +589,7 @@ function FilterSelect({ label, value, onChange, options, wide }: { label: string
 }
 
 function Pager({ page, totalPages, total, pageSize, onPage, onPageSize }: { page: number; totalPages: number; total: number; pageSize: number; onPage: (p: number) => void; onPageSize: (s: number) => void }) {
+  const t = useT();
   const from = (page - 1) * pageSize + 1;
   const to = Math.min(page * pageSize, total);
   const nums: (number | '…')[] = [];
@@ -601,16 +605,16 @@ function Pager({ page, totalPages, total, pageSize, onPage, onPageSize }: { page
       <div className="flex items-center gap-2 text-xs text-muted">
         <span className="tabular-nums">{n(from)}–{n(to)} / {n(total)}</span>
         <select className="rounded-lg border border-line bg-surface px-2 py-1 text-xs" value={pageSize} onChange={(e) => onPageSize(Number(e.target.value))}>
-          {PAGE_SIZES.map((s) => <option key={s} value={s}>{s} / sahifa</option>)}
+          {PAGE_SIZES.map((s) => <option key={s} value={s}>{s} / {t('sahifa')}</option>)}
         </select>
       </div>
       <div className="flex items-center gap-1">
-        <button className="grid h-8 w-8 place-items-center rounded-lg border border-line text-muted transition-colors hover:bg-surface-2 disabled:opacity-40" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Oldingi"><Ico.chevron size={16} className="rotate-180" /></button>
+        <button className="grid h-8 w-8 place-items-center rounded-lg border border-line text-muted transition-colors hover:bg-surface-2 disabled:opacity-40" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label={t('Oldingi')}><Ico.chevron size={16} className="rotate-180" /></button>
         {nums.map((x, i) => x === '…'
           ? <span key={`d${i}`} className="px-1 text-muted">…</span>
           : <button key={x} onClick={() => onPage(x)} aria-current={x === page}
               className={cx('h-8 min-w-8 rounded-lg px-2 text-sm tabular-nums transition-colors', x === page ? 'bg-brand-500 text-white' : 'border border-line text-muted hover:bg-surface-2')}>{x}</button>)}
-        <button className="grid h-8 w-8 place-items-center rounded-lg border border-line text-muted transition-colors hover:bg-surface-2 disabled:opacity-40" disabled={page >= totalPages} onClick={() => onPage(page + 1)} aria-label="Keyingi"><Ico.chevron size={16} /></button>
+        <button className="grid h-8 w-8 place-items-center rounded-lg border border-line text-muted transition-colors hover:bg-surface-2 disabled:opacity-40" disabled={page >= totalPages} onClick={() => onPage(page + 1)} aria-label={t('Keyingi')}><Ico.chevron size={16} /></button>
       </div>
     </div>
   );

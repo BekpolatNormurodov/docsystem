@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico, Select } from '@/ui';
+import { useT } from '@/lib/i18n/client';
 
 type InvStatus = 'created' | 'paid' | 'court' | 'notmade';
 interface GenItem { caseId: number; pinfl: string | null; clientName: string | null; firmName: string | null; courtName: string | null; receiptNumber?: string | null; status?: InvStatus | null; at: string | null }
@@ -22,6 +23,7 @@ const fmtWhen = (iso: string | null) => { if (!iso) return ''; const d = new Dat
  * mijoz uchun alohida yuklab olish (ariza .docx / oferta .zip). `count` — «N ta chiqdi» sarlavhasi.
  */
 export function GeneratedList({ type, snapshotId, firmId, firms, count }: { type: 'ariza' | 'oferta' | 'invoice'; snapshotId?: number; firmId?: number; firms?: { id: number; name: string }[]; count: number }) {
+  const t = useT();
   const isInvoice = type === 'invoice';
   const label = isInvoice ? 'invoyslar' : type === 'oferta' ? 'ofertalar' : 'arizalar';
   const [open, setOpen] = useState(false);
@@ -98,7 +100,7 @@ export function GeneratedList({ type, snapshotId, firmId, firms, count }: { type
   const dlUrl = (it: GenItem) => (type === 'invoice' ? `/konveyer/invoice-pdf?caseId=${it.caseId}` : type === 'oferta' ? `/konveyer/gen-oferta?caseId=${it.caseId}` : `/konveyer/gen-ariza?caseId=${it.caseId}`);
   const dlKind = type === 'invoice' ? 'kvitansiya (.pdf)' : type === 'oferta' ? 'oferta (.zip)' : 'ariza (.docx)';
   // Ochilganda sarlavha soni JONLI filtr (firma/to'lov/chiqarilgan) natijasini ko'rsatadi.
-  const invSuffix = flt === 'notmade' ? 'chiqarilmagan' : flt === 'all' ? 'jami' : fltPaid === 'paid' ? 'toʻlangan' : fltPaid === 'unpaid' ? 'toʻlanmagan' : 'chiqarilgan';
+  const invSuffix = flt === 'notmade' ? t('chiqarilmagan') : flt === 'all' ? t('jami') : fltPaid === 'paid' ? t('toʻlangan') : fltPaid === 'unpaid' ? t('toʻlanmagan') : t('chiqarilgan');
   const filtered = open && (flt !== 'made' || fltPaid !== 'all' || fltFirm !== '' || q.trim() !== '');
 
   if (count <= 0 && !isInvoice) return null;
@@ -108,13 +110,13 @@ export function GeneratedList({ type, snapshotId, firmId, firms, count }: { type
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
         className={`flex w-full items-center gap-2 ${open ? 'rounded-t-lg' : 'rounded-lg'} px-3 py-2 text-left transition-colors hover:bg-surface-2`}>
         <Ico.check size={14} className="text-emerald-600 dark:text-emerald-400" />
-        <span className="text-xs font-semibold">{isInvoice ? 'Invoyslar' : `Yaratilgan ${label}`}</span>
+        <span className="text-xs font-semibold">{isInvoice ? t('Invoyslar') : `${t('Yaratilgan')} ${t(label)}`}</span>
         <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${filtered ? 'bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'}`}
-          title={filtered ? 'Filtr boʻyicha natija soni' : undefined}>
-          {isInvoice ? `${n(filtered ? total : count)} ${filtered ? invSuffix : 'chiqarilgan'}` : n(count)}
+          title={filtered ? t('Filtr boʻyicha natija soni') : undefined}>
+          {isInvoice ? `${n(filtered ? total : count)} ${filtered ? invSuffix : t('chiqarilgan')}` : n(count)}
         </span>
-        {flash && <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">✓ yangilandi</span>}
-        <span className="ml-auto text-[11px] text-muted">{open ? 'Yopish' : 'Koʻrish'}</span>
+        {flash && <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">✓ {t('yangilandi')}</span>}
+        <span className="ml-auto text-[11px] text-muted">{open ? t('Yopish') : t('Koʻrish')}</span>
         <Ico.chevron size={14} className={`text-muted transition-transform ${open ? 'rotate-90' : ''}`} />
       </button>
 
@@ -125,30 +127,30 @@ export function GeneratedList({ type, snapshotId, firmId, firms, count }: { type
               <div className="flex items-center gap-1">
                 {INV_FILTERS.map(([v, l]) => (
                   <button key={v} type="button" onClick={() => setFlt(v)} aria-pressed={flt === v}
-                    className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors ${flt === v ? 'bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'text-muted hover:bg-surface-2'}`}>{l}</button>
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors ${flt === v ? 'bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'text-muted hover:bg-surface-2'}`}>{t(l)}</button>
                 ))}
               </div>
               <div className="ml-auto flex items-center gap-1.5">
                 {firms && firms.length > 0 && (
-                  <Select className="w-40" searchAfter={6} label="Firma" value={fltFirm !== '' ? String(fltFirm) : ''}
-                    options={[{ value: '', label: 'Barcha firma' }, ...firms.map((f) => ({ value: String(f.id), label: f.name }))]}
+                  <Select className="w-40" searchAfter={6} label={t('Firma')} value={fltFirm !== '' ? String(fltFirm) : ''}
+                    options={[{ value: '', label: t('Barcha firma') }, ...firms.map((f) => ({ value: String(f.id), label: f.name }))]}
                     onChange={(v) => setFltFirm(v ? Number(v) : '')} />
                 )}
-                <Select className="w-36" searchAfter={99} label="Toʻlov holati" value={fltPaid}
-                  options={[{ value: 'all', label: 'Barcha toʻlov' }, { value: 'paid', label: 'Toʻlangan' }, { value: 'unpaid', label: 'Toʻlanmagan' }]}
+                <Select className="w-36" searchAfter={99} label={t('Toʻlov holati')} value={fltPaid}
+                  options={[{ value: 'all', label: t('Barcha toʻlov') }, { value: 'paid', label: t('Toʻlangan') }, { value: 'unpaid', label: t('Toʻlanmagan') }]}
                   onChange={(v) => setFltPaid(v as 'all' | 'paid' | 'unpaid')} />
               </div>
             </div>
           )}
           <div className="flex items-center gap-2 border-b border-line px-3 py-2">
             <svg className="h-3.5 w-3.5 shrink-0 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="PINFL yoki F.I.O bo'yicha qidirish…"
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("PINFL yoki F.I.O bo'yicha qidirish…")}
               className="w-full bg-transparent text-xs outline-none placeholder:text-muted" />
             {loading && <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent text-muted" />}
             {/* Umumiy Excel skachat — hozirgi filtr (qidiruv/firma) bo'yicha butun ro'yxat. */}
             <a href={`/konveyer/generated/excel?${params({})}`}
               className="inline-flex shrink-0 items-center gap-1 rounded-md border border-line px-2 py-1 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-500/10 dark:text-emerald-400"
-              title="Butun ro'yxatni Excel qilib yuklab olish">
+              title={t("Butun ro'yxatni Excel qilib yuklab olish")}>
               <Ico.sheet size={12} /> Excel
             </a>
           </div>
@@ -156,7 +158,7 @@ export function GeneratedList({ type, snapshotId, firmId, firms, count }: { type
           {items === null ? (
             <div className="space-y-1 p-2">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-8 animate-pulse rounded bg-surface-2" />)}</div>
           ) : items.length === 0 ? (
-            <div className="px-3 py-6 text-center text-xs text-muted">{q ? 'Topilmadi' : 'Boʻsh'}</div>
+            <div className="px-3 py-6 text-center text-xs text-muted">{q ? t('Topilmadi') : t('Boʻsh')}</div>
           ) : (
             <>
               <div className="divide-y divide-line">
@@ -168,14 +170,14 @@ export function GeneratedList({ type, snapshotId, firmId, firms, count }: { type
                       <span className="block truncate text-[11px] tabular-nums text-muted">{it.pinfl || '—'}{it.firmName ? ` · ${it.firmName}` : ''}{type === 'invoice' && it.receiptNumber ? ` · №${it.receiptNumber}` : ''}</span>
                     </span>
                     {type === 'invoice' && it.status && (
-                      <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${STATUS[it.status].cls}`}>{STATUS[it.status].label}</span>
+                      <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${STATUS[it.status].cls}`}>{t(STATUS[it.status].label)}</span>
                     )}
                     {it.courtName && <span className="hidden shrink-0 rounded-full border border-line px-1.5 py-0.5 text-[10px] text-muted sm:inline">{it.courtName}</span>}
                     <span className="hidden shrink-0 text-[11px] tabular-nums text-muted sm:inline">{fmtWhen(it.at)}</span>
                     {isInvoice && it.status === 'notmade' ? (
-                      <span className="grid h-6 w-6 shrink-0 place-items-center text-[11px] text-muted/50" title="Invoice hali chiqarilmagan">—</span>
+                      <span className="grid h-6 w-6 shrink-0 place-items-center text-[11px] text-muted/50" title={t('Invoice hali chiqarilmagan')}>—</span>
                     ) : (
-                      <a href={dlUrl(it)} title={`${it.clientName || 'mijoz'} — ${dlKind} yuklab olish`}
+                      <a href={dlUrl(it)} title={`${it.clientName || t('mijoz')} — ${t(dlKind)} ${t('yuklab olish')}`}
                         className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-muted transition-colors hover:bg-brand-500/10 hover:text-brand-600 dark:hover:text-brand-400">
                         <Ico.download size={13} />
                       </a>
@@ -186,7 +188,7 @@ export function GeneratedList({ type, snapshotId, firmId, firms, count }: { type
 
               {/* Pagination */}
               <div className="flex items-center justify-between gap-2 border-t border-line px-3 py-2">
-                <span className="text-[11px] tabular-nums text-muted">Jami {n(total)} · {page}/{pages}-bet</span>
+                <span className="text-[11px] tabular-nums text-muted">{t('Jami')} {n(total)} · {page}/{pages}-{t('bet')}</span>
                 <div className="flex items-center gap-1">
                   <button onClick={() => go(page - 1)} disabled={page <= 1 || loading}
                     className="grid h-6 w-6 place-items-center rounded-md border border-line text-muted transition-colors hover:bg-surface-2 disabled:opacity-40">

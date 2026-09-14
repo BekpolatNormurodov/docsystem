@@ -9,6 +9,7 @@ import { ImportForm } from './ImportForm';
 import { ImportHistory, type HistoryRow } from './ImportHistory';
 import { AppDocDropzone } from './AppDocDropzone';
 import { appDocsStatus } from '@/lib/app-docs';
+import { getT } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,6 +29,7 @@ export default async function HujjatlarPage() {
   // ruxsatli user (masalan Toirov Bilol).
   const user = await requireUser();
   const canManage = canManageDocs(user);
+  const t = getT();
 
   // One fetch drives both sections: every snapshot feeds the import history (any status),
   // and the READY ones also become the date cards below.
@@ -105,10 +107,10 @@ export default async function HujjatlarPage() {
   return (
     <div>
       <PageHeader
-        title="Hujjatlar"
+        title={t('Hujjatlar')}
         subtitle={canManage
-          ? 'Portfel yuklang, soʻng sanani tanlab sud roʻyxatidagilarga ariza (.docx) ZIP qilib oling'
-          : 'Sana boʻyicha portfel va sud roʻyxati — koʻrish uchun sanani tanlang'}
+          ? t('Portfel yuklang, soʻng sanani tanlab sud roʻyxatidagilarga ariza (.docx) ZIP qilib oling')
+          : t('Sana boʻyicha portfel va sud roʻyxati — koʻrish uchun sanani tanlang')}
       />
 
       {/* Yuklash/o'zgartirish — admin YOKI «Hujjatlar boshqaruvi» ruxsatli user. Qolganlar quyidagi
@@ -118,8 +120,8 @@ export default async function HujjatlarPage() {
           <ImportForm>
             <AppDocDropzone
               k="talabnoma"
-              label="Talabnoma roʻyxati (.xlsx)"
-              hint="Talabnoma yuboriladigan mijozlar roʻyxati · ixtiyoriy"
+              label={t('Talabnoma roʻyxati (.xlsx)')}
+              hint={t('Talabnoma yuboriladigan mijozlar roʻyxati · ixtiyoriy')}
               accent="brand"
               initial={docs.talabnoma}
               info="talabnoma"
@@ -130,12 +132,12 @@ export default async function HujjatlarPage() {
         </ImportPanel>
       )}
 
-      <h2 className="mb-3 mt-8 text-sm font-semibold text-muted">Sana boʻyicha hujjatlar</h2>
+      <h2 className="mb-3 mt-8 text-sm font-semibold text-muted">{t('Sana boʻyicha hujjatlar')}</h2>
 
       {cards.length === 0 ? (
         <EmptyState
-          title="Hali portfel yuklanmagan"
-          hint="Yuqoridagi «Portfel import» panelidan portfel + istisno faylini yuklang, keyin shu yerda sana kartalari paydo boʻladi."
+          title={t('Hali portfel yuklanmagan')}
+          hint={t('Yuqoridagi «Portfel import» panelidan portfel + istisno faylini yuklang, keyin shu yerda sana kartalari paydo boʻladi.')}
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -152,26 +154,26 @@ export default async function HujjatlarPage() {
 
               <div className="grid grid-cols-2 gap-2 border-t border-line pt-3">
                 <div>
-                  <div className="text-[11px] text-muted">Portfel — kreditlar</div>
+                  <div className="text-[11px] text-muted">{t('Portfel — kreditlar')}</div>
                   <div className="text-sm font-semibold">{c.rowCount.toLocaleString('ru-RU')}</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-[11px] text-muted">Jami qarz</div>
-                  <div className="text-sm font-semibold">{formatSumDecimal(String(c.totalDebt))} soʻm</div>
+                  <div className="text-[11px] text-muted">{t('Jami qarz')}</div>
+                  <div className="text-sm font-semibold">{formatSumDecimal(String(c.totalDebt))} {t('soʻm')}</div>
                 </div>
               </div>
 
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
                 <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
-                  ⚖ Sud roʻyxati (ariza chiqadi)
+                  ⚖ {t('Sud roʻyxati (ariza chiqadi)')}
                 </div>
                 <div className="flex flex-wrap items-end justify-between gap-2">
                   <span className="text-sm">
-                    <span className="font-bold">{c.exClients.toLocaleString('ru-RU')}</span> mijoz ·{' '}
-                    <span className="font-bold">{c.exLoans.toLocaleString('ru-RU')}</span> shartnoma
+                    <span className="font-bold">{c.exClients.toLocaleString('ru-RU')}</span> {t('mijoz')} ·{' '}
+                    <span className="font-bold">{c.exLoans.toLocaleString('ru-RU')}</span> {t('shartnoma')}
                   </span>
                   <span className="text-sm font-bold text-amber-700 dark:text-amber-300">
-                    {formatSumDecimal(String(c.exDebt))} soʻm
+                    {formatSumDecimal(String(c.exDebt))} {t('soʻm')}
                   </span>
                 </div>
               </div>

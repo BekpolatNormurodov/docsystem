@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Trash } from 'iconsax-react';
 import { Modal } from '@/ui';
 import { formatSumDecimal } from '@/core/document';
+import { useT } from '@/lib/i18n/client';
 
 export interface HistoryRow {
   id: number;
@@ -25,6 +26,7 @@ const BADGE: Record<string, string> = {
 };
 
 export function ImportHistory({ rows }: { rows: HistoryRow[] }) {
+  const t = useT();
   const router = useRouter();
   const [deleting, setDeleting] = useState<number | null>(null);
   const [confirm, setConfirm] = useState<HistoryRow | null>(null);
@@ -50,19 +52,19 @@ export function ImportHistory({ rows }: { rows: HistoryRow[] }) {
     }
   }
 
-  if (rows.length === 0) return <p className="text-sm text-muted">Hali hech narsa yuklanmagan.</p>;
+  if (rows.length === 0) return <p className="text-sm text-muted">{t('Hali hech narsa yuklanmagan.')}</p>;
 
   return (
     <div className="card overflow-x-auto">
       <table className="w-full text-sm">
         <thead className="border-b border-line text-left text-xs text-muted">
           <tr>
-            <th className="px-4 py-3 font-medium">Sana</th>
-            <th className="px-4 py-3 font-medium">Fayl</th>
-            <th className="px-4 py-3 font-medium">Holat</th>
-            <th className="px-4 py-3 text-right font-medium">Qatorlar</th>
-            <th className="px-4 py-3 text-right font-medium">Jami qarz</th>
-            <th className="px-4 py-3 font-medium">Yuklangan</th>
+            <th className="px-4 py-3 font-medium">{t('Sana')}</th>
+            <th className="px-4 py-3 font-medium">{t('Fayl')}</th>
+            <th className="px-4 py-3 font-medium">{t('Holat')}</th>
+            <th className="px-4 py-3 text-right font-medium">{t('Qatorlar')}</th>
+            <th className="px-4 py-3 text-right font-medium">{t('Jami qarz')}</th>
+            <th className="px-4 py-3 font-medium">{t('Yuklangan')}</th>
             <th className="px-4 py-3" />
           </tr>
         </thead>
@@ -81,7 +83,7 @@ export function ImportHistory({ rows }: { rows: HistoryRow[] }) {
                 </td>
                 <td className="px-4 py-2.5">
                   <span className={`badge ${BADGE[r.status] ?? 'border-line text-muted'}`}>
-                    {r.status === 'READY' ? 'Tayyor' : r.status === 'FAILED' ? 'Xatolik' : `Yuklanmoqda… ${r.pct ?? 0}%`}
+                    {r.status === 'READY' ? t('Tayyor') : r.status === 'FAILED' ? t('Xatolik') : `${t('Yuklanmoqda…')} ${r.pct ?? 0}%`}
                   </span>
                 </td>
                 <td className="px-4 py-2.5 text-right tabular-nums">{r.rows.toLocaleString('ru-RU')}</td>
@@ -90,8 +92,8 @@ export function ImportHistory({ rows }: { rows: HistoryRow[] }) {
                 <td className="px-2 py-2.5 text-right">
                   <button
                     type="button"
-                    title="Oʻchirish"
-                    aria-label="Oʻchirish"
+                    title={t('Oʻchirish')}
+                    aria-label={t('Oʻchirish')}
                     disabled={deleting === r.id}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -111,22 +113,22 @@ export function ImportHistory({ rows }: { rows: HistoryRow[] }) {
       <Modal
         open={!!confirm}
         onClose={() => deleting === null && setConfirm(null)}
-        title="Importni oʻchirish"
-        description={confirm ? `${confirm.pretty} — ushbu sananing barcha mijoz/kreditlari va yuklangan fayllar butunlay oʻchadi.` : ''}
+        title={t('Importni oʻchirish')}
+        description={confirm ? `${confirm.pretty} — ${t('ushbu sananing barcha mijoz/kreditlari va yuklangan fayllar butunlay oʻchadi.')}` : ''}
         footer={
           <>
             <button type="button" onClick={() => setConfirm(null)} disabled={deleting !== null} className="btn-ghost">
-              Bekor
+              {t('Bekor')}
             </button>
             <button type="button" onClick={doDelete} disabled={deleting !== null} className="btn-danger">
-              <Trash size={16} /> {deleting !== null ? 'Oʻchirilyapti…' : 'Oʻchirish'}
+              <Trash size={16} /> {deleting !== null ? t('Oʻchirilyapti…') : t('Oʻchirish')}
             </button>
           </>
         }
       >
         {confirm && (
           <p className="text-sm text-muted">
-            Fayl: {confirm.fileName} · {confirm.rows.toLocaleString('ru-RU')} qator
+            {t('Fayl')}: {confirm.fileName} · {confirm.rows.toLocaleString('ru-RU')} {t('qator')}
           </p>
         )}
       </Modal>

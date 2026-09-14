@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { EmptyState, ClickableRow, Pagination } from '@/ui';
 import { formatSumDecimal } from '@/core/document';
+import { getT } from '@/lib/i18n/server';
 
 const PAGE = 50;
 
@@ -11,6 +12,7 @@ const PAGE = 50;
 export async function MijozlarTable({ snapshotId, linkDate, date, q, digitsOnly, useFullText, page }: {
   snapshotId: number; linkDate: string; date: string; q: string; digitsOnly: boolean; useFullText: boolean; page: number;
 }) {
+  const t = getT();
   type Group = { pinfl: string | null; clientName: string | null; _count: number; _sum: { totalDebt: unknown } };
   let groups: Group[];
   let totalClients: number;
@@ -70,7 +72,7 @@ export async function MijozlarTable({ snapshotId, linkDate, date, q, digitsOnly,
     return `/mijozlar?${p.toString()}`;
   };
 
-  if (groups.length === 0) return <EmptyState title="Mijoz topilmadi" hint="Qidiruvni oʻzgartirib koʻring." />;
+  if (groups.length === 0) return <EmptyState title={t('Mijoz topilmadi')} hint={t('Qidiruvni oʻzgartirib koʻring.')} />;
 
   return (
     <>
@@ -78,10 +80,10 @@ export async function MijozlarTable({ snapshotId, linkDate, date, q, digitsOnly,
         <table className="w-full text-sm">
           <thead className="border-b border-line text-left text-xs text-muted">
             <tr>
-              <th className="px-4 py-3 font-medium">PINFL</th>
-              <th className="px-4 py-3 font-medium">F.I.Sh</th>
-              <th className="px-4 py-3 text-right font-medium">Shartnoma</th>
-              <th className="px-4 py-3 text-right font-medium">Umumiy qarz</th>
+              <th className="px-4 py-3 font-medium">{t('PINFL')}</th>
+              <th className="px-4 py-3 font-medium">{t('F.I.Sh')}</th>
+              <th className="px-4 py-3 text-right font-medium">{t('Shartnoma')}</th>
+              <th className="px-4 py-3 text-right font-medium">{t('Umumiy qarz')}</th>
             </tr>
           </thead>
           <tbody>
@@ -91,17 +93,17 @@ export async function MijozlarTable({ snapshotId, linkDate, date, q, digitsOnly,
                 <td className="px-4 py-2.5">
                   <span className="font-medium">{g.clientName}</span>
                   {g.pinfl && exPinfls.has(g.pinfl) && (
-                    <span className="badge ml-2 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-300">sud roʻyxatida</span>
+                    <span className="badge ml-2 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-300">{t('sud roʻyxatida')}</span>
                   )}
                 </td>
                 <td className="px-4 py-2.5 text-right tabular-nums">{g._count}</td>
-                <td className="px-4 py-2.5 text-right font-semibold tabular-nums">{formatSumDecimal(String(g._sum.totalDebt ?? 0))} soʻm</td>
+                <td className="px-4 py-2.5 text-right font-semibold tabular-nums">{formatSumDecimal(String(g._sum.totalDebt ?? 0))} {t('soʻm')}</td>
               </ClickableRow>
             ))}
           </tbody>
         </table>
       </div>
-      <Pagination page={page} pages={totalPages} total={totalClients} perPage={PAGE} hrefFor={hrefPage} unit="mijoz" />
+      <Pagination page={page} pages={totalPages} total={totalClients} perPage={PAGE} hrefFor={hrefPage} unit={t('mijoz')} />
     </>
   );
 }

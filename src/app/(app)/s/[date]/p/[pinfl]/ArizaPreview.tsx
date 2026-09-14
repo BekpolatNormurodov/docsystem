@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { CourtArizaDocument } from '@/ui';
 import type { LoanArizaProps } from '@/core/ariza';
+import { useT } from '@/lib/i18n/client';
 
 /**
  * Toggles a single loan's ariza preview. Props are computed server-side by `loanToAriza` (the
@@ -10,11 +11,12 @@ import type { LoanArizaProps } from '@/core/ariza';
  * Dates and plain strings only, no QR.
  */
 export function ArizaPreview({ props }: { props: LoanArizaProps }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <div>
       <button type="button" onClick={() => setOpen((v) => !v)} className="btn-ghost text-xs">
-        {open ? 'Arizani yashirish' : 'Arizani koʻrish'}
+        {open ? t('Arizani yashirish') : t('Arizani koʻrish')}
       </button>
       {open && (
         <div className="cert-frame mt-3">

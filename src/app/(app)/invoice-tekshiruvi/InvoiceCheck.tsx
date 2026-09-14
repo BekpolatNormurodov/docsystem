@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico, Spinner, Modal, Select, DateField, useConfirm } from '@/ui';
+import { useT } from '@/lib/i18n/client';
 import { FIRMS, type FirmCfg } from '@/lib/firms';
 import { isOwn, DEFAULT_OWN_AMOUNTS_TIYIN } from '@/lib/billing-check/filters';
 
@@ -112,17 +113,18 @@ async function jpost(url: string, body: unknown) {
 }
 
 export function InvoiceCheck() {
+  const t = useT();
   const [tick, setTick] = useState(0);
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <header>
         <div className="flex items-center gap-2">
-          <h1 className="text-xl font-semibold">Invoice tekshiruvi</h1>
-          <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">Alohida · stepga kirmaydi</span>
+          <h1 className="text-xl font-semibold">{t('Invoice tekshiruvi')}</h1>
+          <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">{t('Alohida · stepga kirmaydi')}</span>
         </div>
         <p className="mt-1 max-w-2xl text-sm text-muted">
-          Kvitansiyalar firma bo'yicha bazaga yig'iladi va <b>har 2 soatda o‘zi yangilanadi</b>.
-          Qidiruv, filtr va Excel — shu bazadan.
+          {t("Kvitansiyalar firma bo'yicha bazaga yig'iladi va")} <b>{t('har 2 soatda o‘zi yangilanadi')}</b>.
+          {' '}{t('Qidiruv, filtr va Excel — shu bazadan.')}
         </p>
       </header>
 
@@ -135,6 +137,7 @@ export function InvoiceCheck() {
 
 // ── 1) Bitta kvitansiya ──────────────────────────────────────────────────────
 function SingleCheckCard({ onSaved }: { onSaved: () => void }) {
+  const t = useT();
   const [num, setNum] = useState('');
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -147,28 +150,28 @@ function SingleCheckCard({ onSaved }: { onSaved: () => void }) {
     setErr(null);
     const { ok, json } = await jpost('/api/billing-check/single', { invoice: n });
     setLoading(false);
-    if (!ok) { setErr(json?.error || 'Xato'); return; }
+    if (!ok) { setErr(json?.error || t('Xato')); return; }
     setInv(json.invoice);
     onSaved();
-  }, [num, onSaved]);
+  }, [num, onSaved, t]);
 
   return (
     <section className="card space-y-4 p-5">
-      <h2 className="text-sm font-semibold">Bitta kvitansiya</h2>
+      <h2 className="text-sm font-semibold">{t('Bitta kvitansiya')}</h2>
       <div className="flex flex-wrap items-center gap-2">
         <input
           value={num}
           onChange={(e) => setNum(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') void run(); }}
-          placeholder="Kvitansiya raqami (masalan 261255354462)"
+          placeholder={t('Kvitansiya raqami (masalan 261255354462)')}
           className="field-input w-72"
         />
         <button onClick={() => void run()} disabled={loading || !num.trim()} className="btn-primary">
-          {loading ? <Spinner size={14} className="mr-1.5" /> : null}Tekshirish
+          {loading ? <Spinner size={14} className="mr-1.5" /> : null}{t('Tekshirish')}
         </button>
         {inv && (
           <button onClick={() => void run()} disabled={loading} className="btn-ghost">
-            <Ico.refresh size={14} className="mr-1 inline" />Yangilash
+            <Ico.refresh size={14} className="mr-1 inline" />{t('Yangilash')}
           </button>
         )}
       </div>
@@ -179,29 +182,30 @@ function SingleCheckCard({ onSaved }: { onSaved: () => void }) {
 }
 
 function InvoiceDetail({ inv }: { inv: CheckedInvoice }) {
+  const t = useT();
   return (
     <div className="rounded-xl border border-line p-4">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <span className="font-mono text-sm font-semibold">{inv.number}</span>
         <span className={cx('badge', STATUS_STYLE[inv.invoiceStatus] ?? 'border-line text-muted')}>
-          {statusLabel(inv.invoiceStatus)}
+          {t(statusLabel(inv.invoiceStatus))}
         </span>
         {inv.firmCode && <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">{firmLabel(inv.firmCode)}</span>}
       </div>
       <dl className="grid gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2">
-        <DRow l="Egasi" v={val(inv.payer)} />
-        <DRow l="STIR/pasport" v={val(inv.payerTin)} />
-        <DRow l="Sud" v={val(inv.court)} />
-        <DRow l="Shaxsiy hisob raqami" v={val(inv.forAccount)} />
-        <DRow l="Qo'shimcha ma'lumot" v={val(inv.description)} />
-        <DRow l="Da'vo raqami" v={val(inv.claimCaseNumber)} />
-        <DRow l="Kvitansiya summasi" v={money(inv.amount)} strong />
-        <DRow l="To'lanmagan summa" v={money(inv.mustPayAmount)} />
-        <DRow l="Sarflangan/to'langan" v={money(inv.paidAmount)} />
-        <DRow l="Qoldiq" v={money(inv.balance)} />
-        <DRow l="Yaratilgan" v={dt(inv.issuedAt)} />
-        <DRow l="Amal qilish muddati" v={dt(inv.expiresAt)} />
-        <DRow l="Oxirgi tekshirilgan" v={dt(inv.checkedAt)} />
+        <DRow l={t('Egasi')} v={val(inv.payer)} />
+        <DRow l={t('STIR/pasport')} v={val(inv.payerTin)} />
+        <DRow l={t('Sud')} v={val(inv.court)} />
+        <DRow l={t('Shaxsiy hisob raqami')} v={val(inv.forAccount)} />
+        <DRow l={t("Qo'shimcha ma'lumot")} v={val(inv.description)} />
+        <DRow l={t("Da'vo raqami")} v={val(inv.claimCaseNumber)} />
+        <DRow l={t('Kvitansiya summasi')} v={money(inv.amount)} strong />
+        <DRow l={t("To'lanmagan summa")} v={money(inv.mustPayAmount)} />
+        <DRow l={t("Sarflangan/to'langan")} v={money(inv.paidAmount)} />
+        <DRow l={t('Qoldiq')} v={money(inv.balance)} />
+        <DRow l={t('Yaratilgan')} v={dt(inv.issuedAt)} />
+        <DRow l={t('Amal qilish muddati')} v={dt(inv.expiresAt)} />
+        <DRow l={t('Oxirgi tekshirilgan')} v={dt(inv.checkedAt)} />
       </dl>
     </div>
   );
@@ -217,8 +221,9 @@ function DRow({ l, v, strong }: { l: string; v: string; strong?: boolean }) {
 }
 
 function DetailModal({ inv, onClose }: { inv: CheckedInvoice | null; onClose: () => void }) {
+  const t = useT();
   return (
-    <Modal open={!!inv} onClose={onClose} title={inv ? `Kvitansiya ${inv.number}` : ''} size="lg">
+    <Modal open={!!inv} onClose={onClose} title={inv ? `${t('Kvitansiya')} ${inv.number}` : ''} size="lg">
       {inv && <InvoiceDetail inv={inv} />}
     </Modal>
   );
@@ -226,6 +231,7 @@ function DetailModal({ inv, onClose }: { inv: CheckedInvoice | null; onClose: ()
 
 // ── 2) Baza: avtomatik yangilanadi + qidiruv/sahifalash ─────────────────────
 function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void }) {
+  const t = useT();
   // Default — BARCHA firmalar: ochilishi bilan umumiy manzara ko'rinsin.
   const [firmCode, setFirmCode] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -289,9 +295,9 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
     params.set('page', String(page));
     params.set('size', String(size));
     const res = await fetch(`/api/billing-check?${params.toString()}`, { cache: 'no-store' });
-    if (!res.ok) { setErr('Ro‘yxatni yuklab bo‘lmadi'); setLoading(false); return; }
+    if (!res.ok) { setErr(t('Ro‘yxatni yuklab bo‘lmadi')); setLoading(false); return; }
     const j = await res.json().catch(() => null);
-    if (!j) { setErr('Ro‘yxatni yuklab bo‘lmadi'); setLoading(false); return; }
+    if (!j) { setErr(t('Ro‘yxatni yuklab bo‘lmadi')); setLoading(false); return; }
     setErr(null);
     setRows(j.invoices ?? []);
     setTotal(j.total ?? 0);
@@ -301,7 +307,7 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
     setAmountFacet(j.amountFacet ?? []);
     setOwnAmounts(j.ownAmounts ?? []);
     setLoading(false);
-  }, [filterParams, page, size]);
+  }, [filterParams, page, size, t]);
 
   useEffect(() => { void load(); }, [load, tick]);
 
@@ -349,16 +355,16 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
       ...(all ? { all: true } : { firm: activeFirm!.branchCode }),
       ...(syncLimit ? { limit: syncLimit } : {}),
     });
-    if (!ok) { setErr(json?.error || 'Boshlab bo‘lmadi'); return; }
+    if (!ok) { setErr(json?.error || t('Boshlab bo‘lmadi')); return; }
     setRunning(true);
     wasRunning.current = true;
     void pollSync();
-  }, [activeFirm, pollSync, syncLimit]);
+  }, [activeFirm, pollSync, syncLimit, t]);
 
 
   // Tanlanadigan turlar/summalar — bazada bori (ko'pdan ozga).
   const catOptions = [
-    { value: '', label: 'Barcha turi' },
+    { value: '', label: t('Barcha turi') },
     ...catFacet
       .filter((c) => c.payCategory)
       .sort((a, b) => b._count._all - a._count._all)
@@ -373,15 +379,15 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
   return (
     <section className="card space-y-4 p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold">Kvitansiyalar bazasi</h2>
-        <button onClick={() => setExportOpen(true)} className="btn-ghost" title="Sana, firma va holat bo‘yicha tanlab yuklash">
-          <Ico.download size={14} className="mr-1 inline" />Excel yuklab olish
+        <h2 className="text-sm font-semibold">{t('Kvitansiyalar bazasi')}</h2>
+        <button onClick={() => setExportOpen(true)} className="btn-ghost" title={t('Sana, firma va holat bo‘yicha tanlab yuklash')}>
+          <Ico.download size={14} className="mr-1 inline" />{t('Excel yuklab olish')}
         </button>
       </div>
 
       {/* firma tanlash */}
       <div className="flex flex-wrap items-center gap-2">
-        <Chip active={firmCode === null} onClick={() => { setFirmCode(null); setPage(0); }}>Barchasi ({cachedTotal})</Chip>
+        <Chip active={firmCode === null} onClick={() => { setFirmCode(null); setPage(0); }}>{t('Barchasi')} ({cachedTotal})</Chip>
         {FIRMS.map((f: FirmCfg) => (
           <Chip key={f.branchCode} active={firmCode === f.branchCode} onClick={() => { setFirmCode(f.branchCode); setPage(0); }}>
             {f.name.replace(/ MIKROMOLIYA.*$/i, '')} <span className="opacity-60">({countFor(f.branchCode)})</span>
@@ -396,52 +402,52 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <Spinner size={14} />
               <span className="text-sm">
-                <b>{runningSync?.firmName ?? '—'}</b> yig‘ilmoqda
+                <b>{runningSync?.firmName ?? '—'}</b> {t('yig‘ilmoqda')}
                 <span className="ml-2 tabular-nums text-muted">
                   {runningSync?.done ?? 0}{runningSync?.total ? ` / ${runningSync.total}` : ''}
                 </span>
-                {runningSync?.trigger === 'AUTO' && <span className="ml-2 text-muted">· avtomatik</span>}
+                {runningSync?.trigger === 'AUTO' && <span className="ml-2 text-muted">· {t('avtomatik')}</span>}
               </span>
-              <span className="text-sm text-amber-600 dark:text-amber-300">— tugagunicha yangi yangilash boshlanmaydi</span>
+              <span className="text-sm text-amber-600 dark:text-amber-300">{t('— tugagunicha yangi yangilash boshlanmaydi')}</span>
             </div>
           ) : (
             <>
               <span className="text-sm text-muted">
                 {activeFirm ? (
                   <>
-                    <b>{activeFirm.name.replace(/ MIKROMOLIYA.*$/i, '')}</b> · oxirgi yangilangan:{' '}
+                    <b>{activeFirm.name.replace(/ MIKROMOLIYA.*$/i, '')}</b> · {t('oxirgi yangilangan')}:{' '}
                     <span className="text-fg">{dt(activeSync?.finishedAt ?? null)}</span>
-                    {activeSync?.lastCount ? <span className="tabular-nums"> ({activeSync.lastCount} ta)</span> : null}
+                    {activeSync?.lastCount ? <span className="tabular-nums"> ({activeSync.lastCount} {t('ta')})</span> : null}
                   </>
                 ) : (
                   // «Barchasi» tanlanganda ENG ESKI yangilanish ko'rsatiladi — ma'lumot
                   // qanchalik eskirgani shu bilan o'lchanadi (eng yangisi bilan emas).
                   <>
-                    <b>Hamma firma</b> · eng eski yangilanish:{' '}
+                    <b>{t('Hamma firma')}</b> · {t('eng eski yangilanish')}:{' '}
                     <span className="text-fg">{dt(oldestSync)}</span>
                   </>
                 )}
-                <span className="ml-1">· har 2 soatda avtomatik</span>
+                <span className="ml-1">· {t('har 2 soatda avtomatik')}</span>
               </span>
               <div className="flex items-center gap-2">
                 <Select
                   value={String(syncLimit)}
                   onChange={(v) => setSyncLimit(Number(v))}
-                  options={SYNC_LIMITS}
+                  options={SYNC_LIMITS.map((o) => ({ value: o.value, label: t(o.label) }))}
                   className="w-40"
                 />
                 <button onClick={() => void startSync(false)} disabled={!activeFirm} className="btn-ghost">
-                  <Ico.refresh size={14} className="mr-1.5 inline" />Shu firmani
+                  <Ico.refresh size={14} className="mr-1.5 inline" />{t('Shu firmani')}
                 </button>
                 <button onClick={() => void startSync(true)} className="btn-primary">
-                  <Ico.refresh size={14} className="mr-1.5 inline" />Hamma firmani yangilash
+                  <Ico.refresh size={14} className="mr-1.5 inline" />{t('Hamma firmani yangilash')}
                 </button>
               </div>
             </>
           )}
         </div>
         {activeSync?.status === 'FAILED' && activeSync.message && (
-          <div className="mt-2 text-sm text-rose-600 dark:text-rose-300">Oxirgi urinish uzildi: {activeSync.message}</div>
+          <div className="mt-2 text-sm text-rose-600 dark:text-rose-300">{t('Oxirgi urinish uzildi')}: {activeSync.message}</div>
         )}
       </div>
       {err && <div className="text-sm text-rose-600 dark:text-rose-300">{err}</div>}
@@ -453,10 +459,10 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
           return (
             <div key={st} className={cx('rounded-xl border p-3', st === 'PAID' ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-line')}>
               <div className={cx('text-lg font-semibold tabular-nums', st === 'PAID' && 'text-emerald-600 dark:text-emerald-300')}>
-                {(s?._count?._all ?? 0).toLocaleString('ru-RU')} ta
+                {(s?._count?._all ?? 0).toLocaleString('ru-RU')} {t('ta')}
               </div>
-              <div className="mt-0.5 text-sm tabular-nums text-muted">{money(s?._sum?.amount ?? 0)} so‘m</div>
-              <div className="mt-1 text-xs text-muted">{statusLabel(st)}</div>
+              <div className="mt-0.5 text-sm tabular-nums text-muted">{money(s?._sum?.amount ?? 0)} {t('so‘m')}</div>
+              <div className="mt-1 text-xs text-muted">{t(statusLabel(st))}</div>
             </div>
           );
         })}
@@ -473,30 +479,30 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { setDq(q.trim()); setPage(0); } if (e.key === 'Escape') setQ(''); }}
-            placeholder="Qidirish: raqam, egasi, STIR, da'vo, sud, hisob raqami…"
+            placeholder={t("Qidirish: raqam, egasi, STIR, da'vo, sud, hisob raqami…")}
             className="field-input w-full pl-9 pr-8"
           />
           {q && (
-            <button onClick={() => setQ('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-fg" title="Tozalash">
+            <button onClick={() => setQ('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-fg" title={t('Tozalash')}>
               <Ico.close size={16} />
             </button>
           )}
         </div>
 
-        <FilterRow label="Holat">
-          <Chip active={status === null} onClick={() => { setStatus(null); setPage(0); }}>Barchasi</Chip>
+        <FilterRow label={t('Holat')}>
+          <Chip active={status === null} onClick={() => { setStatus(null); setPage(0); }}>{t('Barchasi')}</Chip>
           {statusList.map((s) => (
-            <Chip key={s} active={status === s} onClick={() => { setStatus(s); setPage(0); }}>{statusLabel(s)}</Chip>
+            <Chip key={s} active={status === s} onClick={() => { setStatus(s); setPage(0); }}>{t(statusLabel(s))}</Chip>
           ))}
         </FilterRow>
 
-        <FilterRow label="Summa">
-          <Chip active={amount !== 'own' && amount !== 'extra'} onClick={() => { setAmount(''); setPage(0); }}>Barchasi</Chip>
+        <FilterRow label={t('Summa')}>
+          <Chip active={amount !== 'own' && amount !== 'extra'} onClick={() => { setAmount(''); setPage(0); }}>{t('Barchasi')}</Chip>
           <Chip tone="own" active={amount === 'own'} onClick={() => { setAmount('own'); setPage(0); }}>
-            Bizniki ({ownCount})
+            {t('Bizniki')} ({ownCount})
           </Chip>
           <Chip tone="extra" active={amount === 'extra'} onClick={() => { setAmount('extra'); setPage(0); }}>
-            Ortiqcha ({extraCount})
+            {t('Ortiqcha')} ({extraCount})
           </Chip>
           {/* Qaysi summalar «bizniki» — shu yerda ko'rinib turadi, modalni ochish shart emas. */}
           <span className="flex flex-wrap items-center gap-1.5">
@@ -507,32 +513,32 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
                 </span>
               ))
             ) : (
-              <span className="text-xs text-amber-600 dark:text-amber-300">bizniki summa belgilanmagan</span>
+              <span className="text-xs text-amber-600 dark:text-amber-300">{t('bizniki summa belgilanmagan')}</span>
             )}
             <button
               className="rounded-full border border-line p-1.5 text-muted transition-colors hover:border-emerald-500/40 hover:text-emerald-600 dark:hover:text-emerald-300"
               onClick={() => setOwnOpen(true)}
-              title="Qaysi summalar bizniki — sozlash"
+              title={t('Qaysi summalar bizniki — sozlash')}
             >
               <Ico.settings size={14} />
             </button>
           </span>
         </FilterRow>
 
-        <FilterRow label="Sana">
+        <FilterRow label={t('Sana')}>
           <div className="w-44"><DateField label="" value={from} onChange={(v) => { setFrom(v); setPage(0); }} /></div>
           <span className="text-sm text-muted">—</span>
           <div className="w-44"><DateField label="" value={to} onChange={(v) => { setTo(v); setPage(0); }} /></div>
         </FilterRow>
 
-        <FilterRow label="Turi">
+        <FilterRow label={t('Turi')}>
           <Select value={cat} onChange={(v) => { setCat(v); setPage(0); }} options={catOptions} className="w-64" />
           {activeFilters > 0 && (
             <button
               className="btn-ghost !py-1.5 !px-3 text-sm"
               onClick={() => { setCat(''); setAmount(''); setStatus(null); setQ(''); setFrom(''); setTo(''); setPage(0); }}
             >
-              <Ico.close size={14} className="mr-1 inline" />Tozalash ({activeFilters})
+              <Ico.close size={14} className="mr-1 inline" />{t('Tozalash')} ({activeFilters})
             </button>
           )}
         </FilterRow>
@@ -543,18 +549,18 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
         <table className="w-full text-sm">
           <thead className="bg-surface-2 text-left text-xs text-muted">
             <tr>
-              <th className="px-3 py-2">Kvitansiya raqami</th>
-              <th className="px-3 py-2">Holati</th>
-              <th className="px-3 py-2">Turi</th>
-              <th className="px-3 py-2">Summasi</th>
-              <th className="px-3 py-2">Da'vo raqami</th>
-              <th className="px-3 py-2">Yaratilgan</th>
-              <th className="px-3 py-2">Tekshirilgan</th>
+              <th className="px-3 py-2">{t('Kvitansiya raqami')}</th>
+              <th className="px-3 py-2">{t('Holati')}</th>
+              <th className="px-3 py-2">{t('Turi')}</th>
+              <th className="px-3 py-2">{t('Summasi')}</th>
+              <th className="px-3 py-2">{t("Da'vo raqami")}</th>
+              <th className="px-3 py-2">{t('Yaratilgan')}</th>
+              <th className="px-3 py-2">{t('Tekshirilgan')}</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} className="px-3 py-8 text-center text-muted"><Spinner size={16} className="mr-2 inline" />Yuklanmoqda…</td></tr>
+              <tr><td colSpan={7} className="px-3 py-8 text-center text-muted"><Spinner size={16} className="mr-2 inline" />{t('Yuklanmoqda…')}</td></tr>
             ) : rows.length ? (
               rows.map((row) => (
                 <tr key={row.id} className="cursor-pointer border-t border-line/60 hover:bg-surface-2/50" onClick={() => setDetail(row)}>
@@ -562,17 +568,17 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
                   <td className="px-3 py-2">
                     <span
                       className={cx('badge whitespace-nowrap', STATUS_STYLE[row.invoiceStatus] ?? 'border-line text-muted')}
-                      title={statusLabel(row.invoiceStatus)}
+                      title={t(statusLabel(row.invoiceStatus))}
                     >
-                      {statusShort(row.invoiceStatus)}
+                      {t(statusShort(row.invoiceStatus))}
                     </span>
                   </td>
                   <td className="px-3 py-2 text-muted">{val(row.payCategory ?? row.description)}</td>
                   <td className="px-3 py-2 whitespace-nowrap tabular-nums">
                     {money(row.amount)}
                     {!isOwn(row.amount, ownAmounts) && (
-                      <span className="badge ml-2 border-orange-500/30 text-orange-600 dark:text-orange-300" title="Bizning standart summalarimizdan emas — odatda bekor qilinadi">
-                        ortiqcha
+                      <span className="badge ml-2 border-orange-500/30 text-orange-600 dark:text-orange-300" title={t('Bizning standart summalarimizdan emas — odatda bekor qilinadi')}>
+                        {t('ortiqcha')}
                       </span>
                     )}
                   </td>
@@ -583,7 +589,7 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
               ))
             ) : (
               <tr><td colSpan={7} className="px-3 py-8 text-center text-muted">
-                {dq || status ? 'Filtrga mos yozuv yo‘q' : 'Bazada hali kvitansiya yo‘q — «Hozir yangilash» ni bosing'}
+                {dq || status ? t('Filtrga mos yozuv yo‘q') : t('Bazada hali kvitansiya yo‘q — «Hozir yangilash» ni bosing')}
               </td></tr>
             )}
           </tbody>
@@ -597,7 +603,7 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
         </span>
         {/* Sahifa o'lchami sahifalash bilan birga — ikkalasi ham «qancha va qaysi bet» haqida. */}
         <div className="flex items-center gap-1">
-          <span className="mr-1">Sahifada:</span>
+          <span className="mr-1">{t('Sahifada')}:</span>
           {SIZES.map((n) => (
             <button
               key={n}
@@ -610,7 +616,7 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
           ))}
         </div>
         <div className="flex items-center gap-1">
-          <button className="btn-ghost !py-1 !px-2" disabled={loading || page <= 0} onClick={() => setPage(0)} title="Boshiga">«</button>
+          <button className="btn-ghost !py-1 !px-2" disabled={loading || page <= 0} onClick={() => setPage(0)} title={t('Boshiga')}>«</button>
           <button className="btn-ghost !py-1 !px-2" disabled={loading || page <= 0} onClick={() => setPage((p) => p - 1)}>
             <Ico.chevronLeft size={16} />
           </button>
@@ -618,7 +624,7 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
           <button className="btn-ghost !py-1 !px-2" disabled={loading || page >= lastPage} onClick={() => setPage((p) => p + 1)}>
             <Ico.chevron size={16} />
           </button>
-          <button className="btn-ghost !py-1 !px-2" disabled={loading || page >= lastPage} onClick={() => setPage(lastPage)} title="Oxiriga">»</button>
+          <button className="btn-ghost !py-1 !px-2" disabled={loading || page >= lastPage} onClick={() => setPage(lastPage)} title={t('Oxiriga')}>»</button>
         </div>
       </div>
 
@@ -681,6 +687,7 @@ function ExportModal({
   ownAmounts: number[];
   initial: { firm: string | null; status: string | null; cat: string; amount: string; from: string; to: string };
 }) {
+  const t = useT();
   const [firm, setFirm] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [own, setOwn] = useState('');
@@ -735,19 +742,19 @@ function ExportModal({
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Excel yuklab olish" size="lg"
+    <Modal open={open} onClose={onClose} title={t('Excel yuklab olish')} size="lg"
       footer={
         <div className="flex items-center justify-end gap-2">
-          <button className="btn-ghost" onClick={onClose}>Bekor</button>
+          <button className="btn-ghost" onClick={onClose}>{t('Bekor')}</button>
           <button className="btn-primary" onClick={download} disabled={!preview || preview.total === 0}>
-            <Ico.download size={14} className="mr-1.5 inline" />Yuklab olish
+            <Ico.download size={14} className="mr-1.5 inline" />{t('Yuklab olish')}
           </button>
         </div>
       }
     >
       <div className="space-y-4">
         <div>
-          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">Sana</div>
+          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">{t('Sana')}</div>
           <div className="mb-2 flex flex-wrap gap-2">
             {DATE_PRESETS.map((p) => (
               <Chip
@@ -755,7 +762,7 @@ function ExportModal({
                 active={activePreset === p.label}
                 onClick={() => { const [a, b] = p.range(); setFrom(a); setTo(b); }}
               >
-                {p.label}
+                {t(p.label)}
               </Chip>
             ))}
           </div>
@@ -767,9 +774,9 @@ function ExportModal({
         </div>
 
         <div>
-          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">Firma</div>
+          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">{t('Firma')}</div>
           <div className="flex flex-wrap gap-2">
-            <Chip active={firm === null} onClick={() => setFirm(null)}>Barchasi</Chip>
+            <Chip active={firm === null} onClick={() => setFirm(null)}>{t('Barchasi')}</Chip>
             {FIRMS.map((f: FirmCfg) => (
               <Chip key={f.branchCode} active={firm === f.branchCode} onClick={() => setFirm(f.branchCode)}>
                 {f.name.replace(/ MIKROMOLIYA.*$/i, '')}
@@ -779,42 +786,42 @@ function ExportModal({
         </div>
 
         <div>
-          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">Holat</div>
+          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">{t('Holat')}</div>
           <div className="flex flex-wrap gap-2">
-            <Chip active={status === null} onClick={() => setStatus(null)}>Barchasi</Chip>
+            <Chip active={status === null} onClick={() => setStatus(null)}>{t('Barchasi')}</Chip>
             {STATUS_ORDER.map((st) => (
-              <Chip key={st} active={status === st} onClick={() => setStatus(st)}>{statusLabel(st)}</Chip>
+              <Chip key={st} active={status === st} onClick={() => setStatus(st)}>{t(statusLabel(st))}</Chip>
             ))}
           </div>
         </div>
 
         <div>
-          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">Summa</div>
+          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">{t('Summa')}</div>
           <div className="flex flex-wrap items-center gap-2">
-            <Chip active={own === ''} onClick={() => setOwn('')}>Barchasi</Chip>
-            <Chip tone="own" active={own === 'own'} onClick={() => setOwn('own')}>Bizniki</Chip>
-            <Chip tone="extra" active={own === 'extra'} onClick={() => setOwn('extra')}>Ortiqcha</Chip>
-            <span className="text-xs text-muted">bizniki: {ownAmounts.map((n) => money(n)).join(' · ') || '—'}</span>
+            <Chip active={own === ''} onClick={() => setOwn('')}>{t('Barchasi')}</Chip>
+            <Chip tone="own" active={own === 'own'} onClick={() => setOwn('own')}>{t('Bizniki')}</Chip>
+            <Chip tone="extra" active={own === 'extra'} onClick={() => setOwn('extra')}>{t('Ortiqcha')}</Chip>
+            <span className="text-xs text-muted">{t('bizniki')}: {ownAmounts.map((n) => money(n)).join(' · ') || '—'}</span>
           </div>
         </div>
 
         {/* Yuklashdan oldingi xulosa */}
         <div className="rounded-xl border border-brand-500/30 bg-brand-500/5 p-3">
           {loading ? (
-            <div className="text-sm text-muted"><Spinner size={14} className="mr-1.5 inline" />Hisoblanmoqda…</div>
+            <div className="text-sm text-muted"><Spinner size={14} className="mr-1.5 inline" />{t('Hisoblanmoqda…')}</div>
           ) : preview && preview.total > 0 ? (
             <>
               <div className="text-lg font-semibold tabular-nums">
-                {preview.total.toLocaleString('ru-RU')} ta kvitansiya
+                {preview.total.toLocaleString('ru-RU')} {t('ta kvitansiya')}
               </div>
-              <div className="mt-0.5 text-sm tabular-nums text-muted">{money(preview.sum)} so‘m</div>
+              <div className="mt-0.5 text-sm tabular-nums text-muted">{money(preview.sum)} {t('so‘m')}</div>
               <div className="mt-1.5 text-xs text-muted">
-                Har firma alohida varaqda + oxirida «Xulosa» varag‘i (firma × holat, ortiqchalar alohida).
+                {t('Har firma alohida varaqda + oxirida «Xulosa» varag‘i (firma × holat, ortiqchalar alohida).')}
               </div>
             </>
           ) : (
             <div className="text-sm text-amber-600 dark:text-amber-300">
-              Bu shartlarga mos kvitansiya yo‘q — filtrni kengaytiring.
+              {t('Bu shartlarga mos kvitansiya yo‘q — filtrni kengaytiring.')}
             </div>
           )}
         </div>
@@ -840,6 +847,7 @@ function OwnAmountsModal({
   value: number[];
   onSaved: (list: number[]) => void;
 }) {
+  const t = useT();
   const [sel, setSel] = useState<number[]>(value);
   const [extra, setExtra] = useState('');
   const [saving, setSaving] = useState(false);
@@ -896,7 +904,7 @@ function OwnAmountsModal({
         >
           {on && <Ico.check size={14} />}
         </span>
-        <span className={cx('shrink-0 tabular-nums', on && 'font-medium')}>{money(n)} so‘m</span>
+        <span className={cx('shrink-0 tabular-nums', on && 'font-medium')}>{money(n)} {t('so‘m')}</span>
         {/* Ulush chizig'i — eng ko'p uchraganiga nisbatan */}
         <span className="ml-auto flex items-center gap-2">
           <span className="hidden h-1.5 w-24 overflow-hidden rounded-full bg-surface-2 sm:block">
@@ -906,7 +914,7 @@ function OwnAmountsModal({
             />
           </span>
           <span className="w-16 shrink-0 text-right text-xs tabular-nums text-muted">
-            {c ? `${c.toLocaleString('ru-RU')} ta` : 'bazada yo‘q'}
+            {c ? `${c.toLocaleString('ru-RU')} ${t('ta')}` : t('bazada yo‘q')}
           </span>
         </span>
       </label>
@@ -914,34 +922,33 @@ function OwnAmountsModal({
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Bizning summalarimiz" size="lg"
+    <Modal open={open} onClose={onClose} title={t('Bizning summalarimiz')} size="lg"
       footer={
         <div className="flex flex-wrap items-center justify-between gap-2">
           <button className="btn-ghost" onClick={() => setSel(DEFAULT_OWN_AMOUNTS_TIYIN)}>
-            Standart (20 600 / 22 000)
+            {t('Standart (20 600 / 22 000)')}
           </button>
           <div className="flex gap-2">
-            <button className="btn-ghost" onClick={onClose}>Bekor</button>
+            <button className="btn-ghost" onClick={onClose}>{t('Bekor')}</button>
             <button className="btn-primary" onClick={() => void save()} disabled={saving}>
-              {saving ? <Spinner size={14} className="mr-1.5" /> : null}Saqlash ({sel.length})
+              {saving ? <Spinner size={14} className="mr-1.5" /> : null}{t('Saqlash')} ({sel.length})
             </button>
           </div>
         </div>
       }
     >
       <p className="mb-4 text-sm leading-relaxed text-muted">
-        Biz yaratadigan kvitansiyalar qaysi summada bo‘lishini belgilang.
-        Belgilanmagan summalar <b className="font-medium text-orange-600 dark:text-orange-300">ortiqcha</b> deb
-        ko‘rsatiladi — bunday kvitansiya summasi xato kiritilgan yoki sud qo‘shimcha qo‘ygan bo‘ladi.
+        {t('Biz yaratadigan kvitansiyalar qaysi summada bo‘lishini belgilang.')}
+        {' '}{t('Belgilanmagan summalar')} <b className="font-medium text-orange-600 dark:text-orange-300">{t('ortiqcha')}</b> {t('deb ko‘rsatiladi — bunday kvitansiya summasi xato kiritilgan yoki sud qo‘shimcha qo‘ygan bo‘ladi.')}
       </p>
 
       {picked.length > 0 && (
         <>
           <div className="mb-1.5 flex items-baseline gap-2">
             <span className="text-xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
-              Bizniki
+              {t('Bizniki')}
             </span>
-            <span className="text-xs text-muted">{picked.length} ta summa · shu summadagilar to‘g‘ri hisoblanadi</span>
+            <span className="text-xs text-muted">{picked.length} {t('ta summa · shu summadagilar to‘g‘ri hisoblanadi')}</span>
           </div>
           <div className="mb-4 space-y-1.5">{picked.map((n) => <Row key={n} n={n} />)}</div>
         </>
@@ -951,28 +958,28 @@ function OwnAmountsModal({
         <>
           <div className="mb-1.5 flex items-baseline gap-2">
             <span className="text-xs font-semibold uppercase tracking-wide text-orange-600 dark:text-orange-300">
-              Ortiqcha
+              {t('Ortiqcha')}
             </span>
-            <span className="text-xs text-muted">{rest.length} ta summa · belgilansa «bizniki» ga o‘tadi</span>
+            <span className="text-xs text-muted">{rest.length} {t('ta summa · belgilansa «bizniki» ga o‘tadi')}</span>
           </div>
           {/* Quyruq uzun bo'lishi mumkin — modal cho'zilib ketmasin. */}
           <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">{rest.map((n) => <Row key={n} n={n} />)}</div>
         </>
       )}
 
-      {!all.length && <div className="text-sm text-muted">Bazada hali summa yo‘q — pastdan qo‘lda qo‘shing.</div>}
+      {!all.length && <div className="text-sm text-muted">{t('Bazada hali summa yo‘q — pastdan qo‘lda qo‘shing.')}</div>}
 
       <div className="mt-4 flex items-center gap-2 border-t border-line pt-4">
         <input
           value={extra}
           onChange={(e) => setExtra(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') addExtra(); }}
-          placeholder="Bazada yo‘q summani qo‘shish (so‘mda, masalan 25000)"
+          placeholder={t('Bazada yo‘q summani qo‘shish (so‘mda, masalan 25000)')}
           className="field-input flex-1"
           inputMode="numeric"
         />
         <button className="btn-ghost shrink-0" onClick={addExtra} disabled={!extra.trim()}>
-          <Ico.add size={14} className="mr-1 inline" />Qo‘shish
+          <Ico.add size={14} className="mr-1 inline" />{t('Qo‘shish')}
         </button>
       </div>
     </Modal>
@@ -1019,6 +1026,7 @@ function Chip({
 
 // ── 3) Tarix ──────────────────────────────────────────────────────────────────
 function HistoryCard({ tick }: { tick: number }) {
+  const t = useT();
   const confirm = useConfirm();
   const [rows, setRows] = useState<QueryRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1035,9 +1043,9 @@ function HistoryCard({ tick }: { tick: number }) {
 
   const del = async (r: QueryRow) => {
     const ok = await confirm({
-      title: 'Tarix yozuvini o‘chirish',
-      description: `«${r.query}» qidiruvi tarixdan butunlay o‘chiriladi. Davom etilsinmi?`,
-      confirmLabel: 'O‘chirish', danger: true,
+      title: t('Tarix yozuvini o‘chirish'),
+      description: `«${r.query}» ${t('qidiruvi tarixdan butunlay o‘chiriladi. Davom etilsinmi?')}`,
+      confirmLabel: t('O‘chirish'), danger: true,
     });
     if (!ok) return;
     await fetch(`/api/billing-check/query/${r.id}`, { method: 'DELETE' });
@@ -1047,23 +1055,23 @@ function HistoryCard({ tick }: { tick: number }) {
   return (
     <section className="card p-5">
       <button className="flex w-full items-center justify-between text-left" onClick={() => setOpen((o) => !o)}>
-        <h2 className="text-sm font-semibold">Tarix ({rows.length})</h2>
+        <h2 className="text-sm font-semibold">{t('Tarix')} ({rows.length})</h2>
         <Ico.chevron size={16} className={cx('transition-transform', open && 'rotate-90')} />
       </button>
       {open && (
         loading ? (
-          <div className="mt-3 text-sm text-muted"><Spinner size={14} className="mr-1.5 inline" />Yuklanmoqda…</div>
+          <div className="mt-3 text-sm text-muted"><Spinner size={14} className="mr-1.5 inline" />{t('Yuklanmoqda…')}</div>
         ) : (
           <div className="mt-3 overflow-x-auto rounded-xl border border-line">
             <table className="w-full text-sm">
               <thead className="bg-surface-2 text-left text-xs text-muted">
                 <tr>
-                  <th className="px-3 py-2">Vaqt</th>
-                  <th className="px-3 py-2">Kim</th>
-                  <th className="px-3 py-2">Turi</th>
-                  <th className="px-3 py-2">Qidiruv</th>
-                  <th className="px-3 py-2">Natija</th>
-                  <th className="px-3 py-2">Holat</th>
+                  <th className="px-3 py-2">{t('Vaqt')}</th>
+                  <th className="px-3 py-2">{t('Kim')}</th>
+                  <th className="px-3 py-2">{t('Turi')}</th>
+                  <th className="px-3 py-2">{t('Qidiruv')}</th>
+                  <th className="px-3 py-2">{t('Natija')}</th>
+                  <th className="px-3 py-2">{t('Holat')}</th>
                   <th className="px-3 py-2" />
                 </tr>
               </thead>
@@ -1072,13 +1080,13 @@ function HistoryCard({ tick }: { tick: number }) {
                   <tr key={r.id} className="border-t border-line/60">
                     <td className="px-3 py-2 whitespace-nowrap">{dt(r.createdAt)}</td>
                     <td className="px-3 py-2">{r.createdBy || '—'}</td>
-                    <td className="px-3 py-2">{r.mode === 'SINGLE' ? 'Bitta' : "Ro'yxat"}</td>
+                    <td className="px-3 py-2">{r.mode === 'SINGLE' ? t('Bitta') : t("Ro'yxat")}</td>
                     <td className="px-3 py-2 font-mono">{firmLabel(null) === r.query ? r.query : r.query}</td>
                     <td className="px-3 py-2 tabular-nums">{r.resultCount}</td>
                     <td className="px-3 py-2">
                       {r.status === 'OK'
                         ? <span className="badge border-emerald-500/30 text-emerald-600 dark:text-emerald-300">OK</span>
-                        : <span className="badge border-rose-500/30 text-rose-600 dark:text-rose-300" title={r.message || ''}>Xato</span>}
+                        : <span className="badge border-rose-500/30 text-rose-600 dark:text-rose-300" title={r.message || ''}>{t('Xato')}</span>}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <button className="btn-ghost !py-1 !px-2" onClick={() => void del(r)}>
@@ -1087,7 +1095,7 @@ function HistoryCard({ tick }: { tick: number }) {
                     </td>
                   </tr>
                 ))}
-                {!rows.length && <tr><td colSpan={7} className="px-3 py-6 text-center text-muted">Hali qidiruv bo'lmagan</td></tr>}
+                {!rows.length && <tr><td colSpan={7} className="px-3 py-6 text-center text-muted">{t("Hali qidiruv bo'lmagan")}</td></tr>}
               </tbody>
             </table>
           </div>

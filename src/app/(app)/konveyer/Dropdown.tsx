@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { useT } from '@/lib/i18n/client';
 
 export interface Opt { value: string; label: string; hint?: string }
 
@@ -9,6 +10,7 @@ export interface Opt { value: string; label: string; hint?: string }
 export function Dropdown({ value, options, onChange, className = '', placeholder = 'Tanlang' }: {
   value: string; options: Opt[]; onChange: (v: string) => void; className?: string; placeholder?: string;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 
@@ -31,7 +33,7 @@ export function Dropdown({ value, options, onChange, className = '', placeholder
         aria-expanded={open}
         className="flex h-10 w-full cursor-pointer items-center justify-between gap-2 rounded-xl border border-line bg-surface pl-3.5 pr-3 text-sm font-medium outline-none transition-colors hover:border-brand-500/60 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15"
       >
-        <span className={`truncate ${sel ? '' : 'text-muted'}`}>{sel?.label ?? placeholder}</span>
+        <span className={`truncate ${sel ? '' : 'text-muted'}`}>{sel?.label ?? t(placeholder)}</span>
         <svg className={`h-4 w-4 shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="6 9 12 15 18 9" /></svg>
       </button>
 

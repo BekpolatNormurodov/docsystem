@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
 import { requireStep } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -16,6 +17,7 @@ export const runtime = 'nodejs';
 // billing sinxronizatsiyasi holatni PAID ga o'zgartiradi va ishlar o'zi «Tayyor»ga qaytadi.
 export async function GET(req: NextRequest) {
   await requireStep('sud');
+  const t = getT();
 
   const rawFirm = Number(req.nextUrl.searchParams.get('firmId'));
   const firmId = Number.isInteger(rawFirm) && rawFirm > 0 ? rawFirm : undefined;
@@ -50,16 +52,16 @@ export async function GET(req: NextRequest) {
     .filter((x) => (x.inv?.invoiceStatus ?? 'TEKSHIRILMAGAN') !== 'PAID');
 
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('Tolanmagan kvitansiyalar');
+  const ws = wb.addWorksheet(t('Tolanmagan kvitansiyalar'));
   ws.columns = [
-    { header: 'Firma', key: 'firma', width: 30 },
-    { header: 'Mijoz', key: 'mijoz', width: 38 },
+    { header: t('Firma'), key: 'firma', width: 30 },
+    { header: t('Mijoz'), key: 'mijoz', width: 38 },
     { header: 'PINFL', key: 'pinfl', width: 18 },
-    { header: 'Kvitansiya №', key: 'kvit', width: 18 },
-    { header: 'Holat', key: 'holat', width: 16 },
-    { header: 'Summa', key: 'summa', width: 14 },
-    { header: 'To‘langan', key: 'tolangan', width: 14 },
-    { header: 'Qarzdorlik', key: 'qarz', width: 16 },
+    { header: t('Kvitansiya №'), key: 'kvit', width: 18 },
+    { header: t('Holat'), key: 'holat', width: 16 },
+    { header: t('Summa'), key: 'summa', width: 14 },
+    { header: t('To‘langan'), key: 'tolangan', width: 14 },
+    { header: t('Qarzdorlik'), key: 'qarz', width: 16 },
   ];
   ws.getRow(1).font = { bold: true };
 
@@ -69,7 +71,7 @@ export async function GET(req: NextRequest) {
       mijoz: c.clientName ?? '',
       pinfl: c.pinfl ?? '',
       kvit: c.receiptNumber ?? '',
-      holat: inv?.invoiceStatus ?? 'tekshirilmagan',
+      holat: inv?.invoiceStatus ?? t('tekshirilmagan'),
       summa: inv?.amount ? Number(inv.amount) : null,
       tolangan: inv?.paidAmount ? Number(inv.paidAmount) : 0,
       qarz: Number(c.totalDebt),

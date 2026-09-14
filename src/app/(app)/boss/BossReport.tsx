@@ -5,6 +5,7 @@
 // Snapshot filtri — sidebardagi umumiy sana (konv_s). Excel — /boss/excel.
 import React, { useState } from 'react';
 import { Ico } from '@/ui';
+import { useT } from '@/lib/i18n/client';
 import type { BossReportData, BossFirmRow, BossTotals } from '@/lib/boss-report';
 
 const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
@@ -13,6 +14,7 @@ const som = (x: number) => (x || 0).toLocaleString('ru-RU', { maximumFractionDig
 const cellNum = (x: number, cls?: string) => <td className={cx('px-3 py-2.5 text-right tabular-nums', cls)}>{x > 0 ? n(x) : <span className="text-muted/50">·</span>}</td>;
 
 export function BossReport({ data, snapLabel }: { data: BossReportData; snapLabel: string | null }) {
+  const t = useT();
   const { firms, totals, regions } = data;
   const [regOpen, setRegOpen] = useState(false); // default YOPIQ — bosib ochiladi
   const rtot = regions.reduce((a, r) => ({ clients: a.clients + r.clients, mib: a.mib + r.mib, sudTotal: a.sudTotal + r.sudTotal, granted: a.granted + r.granted, returned: a.returned + r.returned, debt: a.debt + r.debt }), { clients: 0, mib: 0, sudTotal: 0, granted: 0, returned: 0, debt: 0 });
@@ -22,12 +24,12 @@ export function BossReport({ data, snapLabel }: { data: BossReportData; snapLabe
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold">Hisobot</h1>
-            <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">Faqat admin</span>
+            <h1 className="text-xl font-semibold">{t('Hisobot')}</h1>
+            <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">{t('Faqat admin')}</span>
           </div>
           <p className="mt-1 max-w-2xl text-sm text-muted">
-            Firmalar bo‘yicha oqim: Talabnoma → Sanoat palatasi → Sudga chiqarilgan (holatlar bilan) → MIBga.
-            {snapLabel ? <> Snapshot: <b className="text-fg tabular-nums">{snapLabel}</b> (sanani yuqoridan almashtiring).</> : ' Snapshot topilmadi.'}
+            {t('Firmalar bo‘yicha oqim: Talabnoma → Sanoat palatasi → Sudga chiqarilgan (holatlar bilan) → MIBga.')}
+            {snapLabel ? <> {t('Snapshot')}: <b className="text-fg tabular-nums">{snapLabel}</b> ({t('sanani yuqoridan almashtiring')}).</> : ` ${t('Snapshot topilmadi.')}`}
           </p>
         </div>
         <a className="btn-ghost shrink-0" href="/boss/excel"><Ico.download size={16} /> Excel</a>
@@ -35,49 +37,49 @@ export function BossReport({ data, snapLabel }: { data: BossReportData; snapLabe
 
       {/* KPI: umumiy oqim. Jami qarz katta son (mlrd) — 2 ustun egallaydi, aks holda sig'maydi. */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
-        <Kpi label="Mijozlar (kishi)" value={n(totals.clients)} icon={<Ico.users size={18} />} tone="slate" />
-        <Kpi label="Talabnoma" value={n(totals.talabnoma)} icon={<Ico.send size={18} />} tone="indigo" />
-        <Kpi label="Sanoat palatasi" value={n(totals.sanoat)} icon={<Ico.stamp size={18} />} tone="violet" />
-        <Kpi label="Sudga chiqarilgan" value={n(totals.sud.total)} icon={<Ico.judge size={18} />} tone="sky" />
-        <Kpi label="— qanoatlantirilgan" value={n(totals.sud.granted)} icon={<Ico.check size={18} />} tone="emerald" />
-        <Kpi label="MIBga chiqarilgan" value={n(totals.mib)} icon={<Ico.building size={18} />} tone="teal" />
-        <Kpi label="Jami qarz (soʻm)" value={som(totals.debt)} icon={<Ico.receipt size={18} />} tone="slate" wide />
+        <Kpi label={t('Mijozlar (kishi)')} value={n(totals.clients)} icon={<Ico.users size={18} />} tone="slate" />
+        <Kpi label={t('Talabnoma')} value={n(totals.talabnoma)} icon={<Ico.send size={18} />} tone="indigo" />
+        <Kpi label={t('Sanoat palatasi')} value={n(totals.sanoat)} icon={<Ico.stamp size={18} />} tone="violet" />
+        <Kpi label={t('Sudga chiqarilgan')} value={n(totals.sud.total)} icon={<Ico.judge size={18} />} tone="sky" />
+        <Kpi label={t('— qanoatlantirilgan')} value={n(totals.sud.granted)} icon={<Ico.check size={18} />} tone="emerald" />
+        <Kpi label={t('MIBga chiqarilgan')} value={n(totals.mib)} icon={<Ico.building size={18} />} tone="teal" />
+        <Kpi label={t('Jami qarz (soʻm)')} value={som(totals.debt)} icon={<Ico.receipt size={18} />} tone="slate" wide />
       </div>
 
       {/* Firma × bosqich matritsasi */}
       <div className="card overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
-          <span className="text-sm font-semibold">Firmalar bo‘yicha ({n(firms.length)})</span>
-          <span className="text-xs text-muted">Sudga chiqarilgan ustuni — ADOLAT portalidagi holat bo‘yicha</span>
+          <span className="text-sm font-semibold">{t('Firmalar bo‘yicha')} ({n(firms.length)})</span>
+          <span className="text-xs text-muted">{t('Sudga chiqarilgan ustuni — ADOLAT portalidagi holat bo‘yicha')}</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[920px] text-sm">
             <thead className="bg-surface text-xs uppercase tracking-wide text-muted">
               <tr className="border-b border-line">
-                <th rowSpan={2} className="sticky left-0 z-10 bg-surface px-3 py-2 text-left align-bottom">Firma</th>
-                <th rowSpan={2} className="px-3 py-2 text-right align-bottom">Mijozlar</th>
-                <th rowSpan={2} className="px-3 py-2 text-right align-bottom">Talabnoma</th>
-                <th rowSpan={2} className="px-3 py-2 text-right align-bottom">Sanoat palatasi</th>
-                <th colSpan={5} className="border-l border-line px-3 py-1.5 text-center">Sudga chiqarilgan</th>
-                <th rowSpan={2} className="border-l border-line px-3 py-2 text-right align-bottom">MIBga</th>
-                <th rowSpan={2} className="px-3 py-2 text-right align-bottom">Jami qarz</th>
+                <th rowSpan={2} className="sticky left-0 z-10 bg-surface px-3 py-2 text-left align-bottom">{t('Firma')}</th>
+                <th rowSpan={2} className="px-3 py-2 text-right align-bottom">{t('Mijozlar')}</th>
+                <th rowSpan={2} className="px-3 py-2 text-right align-bottom">{t('Talabnoma')}</th>
+                <th rowSpan={2} className="px-3 py-2 text-right align-bottom">{t('Sanoat palatasi')}</th>
+                <th colSpan={5} className="border-l border-line px-3 py-1.5 text-center">{t('Sudga chiqarilgan')}</th>
+                <th rowSpan={2} className="border-l border-line px-3 py-2 text-right align-bottom">{t('MIBga')}</th>
+                <th rowSpan={2} className="px-3 py-2 text-right align-bottom">{t('Jami qarz')}</th>
               </tr>
               <tr className="border-b border-line">
-                <th className="border-l border-line px-3 py-1.5 text-right font-medium text-sky-600 dark:text-sky-300">Ko‘rib chiqishda</th>
-                <th className="px-3 py-1.5 text-right font-medium text-emerald-600 dark:text-emerald-300">Qanoatlantirilgan</th>
-                <th className="px-3 py-1.5 text-right font-medium text-amber-600 dark:text-amber-300">Qaytarilgan</th>
-                <th className="px-3 py-1.5 text-right font-medium text-rose-600 dark:text-rose-300">Rad qilingan</th>
-                <th className="px-3 py-1.5 text-right font-semibold">Jami</th>
+                <th className="border-l border-line px-3 py-1.5 text-right font-medium text-sky-600 dark:text-sky-300">{t('Ko‘rib chiqishda')}</th>
+                <th className="px-3 py-1.5 text-right font-medium text-emerald-600 dark:text-emerald-300">{t('Qanoatlantirilgan')}</th>
+                <th className="px-3 py-1.5 text-right font-medium text-amber-600 dark:text-amber-300">{t('Qaytarilgan')}</th>
+                <th className="px-3 py-1.5 text-right font-medium text-rose-600 dark:text-rose-300">{t('Rad qilingan')}</th>
+                <th className="px-3 py-1.5 text-right font-semibold">{t('Jami')}</th>
               </tr>
             </thead>
             <tbody>
               {firms.map((f) => <Row key={f.firmId} f={f} />)}
-              {firms.length === 0 && <tr><td colSpan={11} className="px-4 py-10 text-center text-muted">Bu snapshotда maʼlumot yoʻq.</td></tr>}
+              {firms.length === 0 && <tr><td colSpan={11} className="px-4 py-10 text-center text-muted">{t('Bu snapshotда maʼlumot yoʻq.')}</td></tr>}
             </tbody>
             {firms.length > 0 && (
               <tfoot>
                 <tr className="border-t-2 border-line bg-surface-2/50 font-semibold">
-                  <td className="sticky left-0 z-10 bg-surface-2/50 px-3 py-2.5">JAMI</td>
+                  <td className="sticky left-0 z-10 bg-surface-2/50 px-3 py-2.5">{t('JAMI')}</td>
                   {cellNum(totals.clients)}
                   {cellNum(totals.talabnoma)}
                   {cellNum(totals.sanoat)}
@@ -101,22 +103,22 @@ export function BossReport({ data, snapLabel }: { data: BossReportData; snapLabe
           className="flex w-full flex-wrap items-center justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-surface-2/50">
           <span className="flex items-center gap-2 text-sm font-semibold">
             <svg className={cx('h-4 w-4 shrink-0 text-muted transition-transform', regOpen && 'rotate-90')} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="m9 6 6 6-6 6" /></svg>
-            Viloyat bo‘yicha — MIBga va Sud
+            {t('Viloyat bo‘yicha — MIBga va Sud')}
           </span>
-          <span className="text-xs text-muted">{regOpen ? 'Manzil portfeldan · tumanlar viloyatga yig‘ilgan' : `${n(regions.length)} ta viloyat · ochish`}</span>
+          <span className="text-xs text-muted">{regOpen ? t('Manzil portfeldan · tumanlar viloyatga yig‘ilgan') : `${n(regions.length)} ${t('ta viloyat · ochish')}`}</span>
         </button>
         {regOpen && (
         <div className="overflow-x-auto border-t border-line">
           <table className="w-full min-w-[680px] text-sm">
             <thead className="bg-surface text-xs uppercase tracking-wide text-muted">
               <tr className="border-b border-line">
-                <th className="sticky left-0 z-10 bg-surface px-3 py-2 text-left">Viloyat</th>
-                <th className="px-3 py-2 text-right">Mijozlar</th>
-                <th className="border-l border-line px-3 py-2 text-right">MIBga</th>
-                <th className="border-l border-line px-3 py-2 text-right">Sudga (jami)</th>
-                <th className="px-3 py-2 text-right text-emerald-600 dark:text-emerald-300">Qanoatlantirilgan</th>
-                <th className="px-3 py-2 text-right text-amber-600 dark:text-amber-300">Qaytarilgan</th>
-                <th className="border-l border-line px-3 py-2 text-right">Jami qarz</th>
+                <th className="sticky left-0 z-10 bg-surface px-3 py-2 text-left">{t('Viloyat')}</th>
+                <th className="px-3 py-2 text-right">{t('Mijozlar')}</th>
+                <th className="border-l border-line px-3 py-2 text-right">{t('MIBga')}</th>
+                <th className="border-l border-line px-3 py-2 text-right">{t('Sudga (jami)')}</th>
+                <th className="px-3 py-2 text-right text-emerald-600 dark:text-emerald-300">{t('Qanoatlantirilgan')}</th>
+                <th className="px-3 py-2 text-right text-amber-600 dark:text-amber-300">{t('Qaytarilgan')}</th>
+                <th className="border-l border-line px-3 py-2 text-right">{t('Jami qarz')}</th>
               </tr>
             </thead>
             <tbody>
@@ -131,12 +133,12 @@ export function BossReport({ data, snapLabel }: { data: BossReportData; snapLabe
                   <td className="border-l border-line px-3 py-2.5 text-right tabular-nums">{r.debt > 0 ? som(r.debt) : <span className="text-muted/50">·</span>}</td>
                 </tr>
               ))}
-              {regions.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-muted">Region maʼlumoti yoʻq.</td></tr>}
+              {regions.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-muted">{t('Region maʼlumoti yoʻq.')}</td></tr>}
             </tbody>
             {regions.length > 0 && (
               <tfoot>
                 <tr className="border-t-2 border-line bg-surface-2/50 font-semibold">
-                  <td className="sticky left-0 z-10 bg-surface-2/50 px-3 py-2.5">JAMI</td>
+                  <td className="sticky left-0 z-10 bg-surface-2/50 px-3 py-2.5">{t('JAMI')}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">{n(rtot.clients)}</td>
                   <td className="border-l border-line px-3 py-2.5 text-right tabular-nums text-teal-600 dark:text-teal-300">{n(rtot.mib)}</td>
                   <td className="border-l border-line px-3 py-2.5 text-right tabular-nums">{n(rtot.sudTotal)}</td>

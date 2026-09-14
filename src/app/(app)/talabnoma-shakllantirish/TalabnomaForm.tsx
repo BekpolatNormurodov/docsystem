@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico, Spinner, useConfirm } from '@/ui';
+import { useT } from '@/lib/i18n/client';
 
 // ── API shapes ──────────────────────────────────────────────────────────────
 interface Run {
@@ -37,6 +38,7 @@ async function jpost(url: string, body: unknown) {
 }
 
 export function TalabnomaForm() {
+  const t = useT();
   const confirm = useConfirm();
   const [batches, setBatches] = useState<Batch[]>([]);
   const [selId, setSelId] = useState<number | null>(null);
@@ -62,9 +64,9 @@ export function TalabnomaForm() {
 
   const del = async (b: Batch) => {
     const ok = await confirm({
-      title: 'Partiyani o‘chirish',
-      description: `«${b.label || b.sourceFileName}» va uning barcha fayllari (2 Excel, reyestr, xatlar) butunlay o‘chiriladi. Davom etilsinmi?`,
-      confirmLabel: 'O‘chirish', danger: true,
+      title: t('Partiyani o‘chirish'),
+      description: `«${b.label || b.sourceFileName}» ${t('va uning barcha fayllari (2 Excel, reyestr, xatlar) butunlay o‘chiriladi. Davom etilsinmi?')}`,
+      confirmLabel: t('O‘chirish'), danger: true,
     });
     if (!ok) return;
     await fetch(`/api/talabnoma-form/${b.id}`, { method: 'DELETE' });
@@ -77,12 +79,11 @@ export function TalabnomaForm() {
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold">Talabnoma shakllantirish</h1>
-            <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">Alohida · stepga kirmaydi</span>
+            <h1 className="text-xl font-semibold">{t('Talabnoma shakllantirish')}</h1>
+            <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">{t('Alohida · stepga kirmaydi')}</span>
           </div>
           <p className="mt-1 max-w-2xl text-sm text-muted">
-            2 ta Excel (talabnoma manba + портфель) yuklang. Umumiy qarzdorlik 2 mln dan yuqori bo‘lganlar
-            ajratiladi, firma bo‘yicha filtrlanadi, reyestr va xatlar tayyorlanadi.
+            {t('2 ta Excel (talabnoma manba + портфель) yuklang. Umumiy qarzdorlik 2 mln dan yuqori bo‘lganlar ajratiladi, firma bo‘yicha filtrlanadi, reyestr va xatlar tayyorlanadi.')}
           </p>
         </div>
       </header>
@@ -95,7 +96,7 @@ export function TalabnomaForm() {
           <BatchPanel key={selected.id} batch={selected} confirm={confirm} onChanged={refresh} />
         ) : (
           <div className="card grid place-items-center p-10 text-sm text-muted">
-            Chapdan partiyani tanlang yoki yangi Excel yuklang.
+            {t('Chapdan partiyani tanlang yoki yangi Excel yuklang.')}
           </div>
         )}
       </div>
@@ -105,6 +106,7 @@ export function TalabnomaForm() {
 
 // ── Upload ───────────────────────────────────────────────────────────────────
 function UploadCard({ onDone }: { onDone: (batchId: number) => void }) {
+  const t = useT();
   const [source, setSource] = useState<File | null>(null);
   const [portfolio, setPortfolio] = useState<File | null>(null);
   const [label, setLabel] = useState('');
@@ -113,7 +115,7 @@ function UploadCard({ onDone }: { onDone: (batchId: number) => void }) {
 
   const submit = async () => {
     setErr('');
-    if (!source || !portfolio) { setErr('Ikkala fayl ham kerak'); return; }
+    if (!source || !portfolio) { setErr(t('Ikkala fayl ham kerak')); return; }
     setBusy(true);
     try {
       const fd = new FormData();
@@ -122,7 +124,7 @@ function UploadCard({ onDone }: { onDone: (batchId: number) => void }) {
       if (label.trim()) fd.append('label', label.trim());
       const res = await fetch('/api/talabnoma-form/upload', { method: 'POST', body: fd });
       const j = await res.json().catch(() => ({}));
-      if (!res.ok) { setErr(j.error || 'Xatolik'); return; }
+      if (!res.ok) { setErr(j.error || t('Xatolik')); return; }
       setSource(null); setPortfolio(null); setLabel('');
       onDone(j.batchId);
     } finally { setBusy(false); }
@@ -132,16 +134,16 @@ function UploadCard({ onDone }: { onDone: (batchId: number) => void }) {
   return (
     <div className="card p-5">
       <div className="grid gap-3 sm:grid-cols-2">
-        <FileField step={1} label="Портфель (умумий)" hint="То‘лиқ портфель — shartnoma tafsilotlari" file={portfolio} onPick={setPortfolio} />
-        <FileField step={2} label="Talabnoma PINFL ro‘yxati" hint="Faqat PINFL ustuni (PNFL/PINFL/ПНФЛ) — qolgani portfeldan olinadi" file={source} onPick={setSource} />
+        <FileField step={1} label={t('Портфель (умумий)')} hint={t('То‘лиқ портфель — shartnoma tafsilotlari')} file={portfolio} onPick={setPortfolio} />
+        <FileField step={2} label={t('Talabnoma PINFL ro‘yxati')} hint={t('Faqat PINFL ustuni (PNFL/PINFL/ПНФЛ) — qolgani portfeldan olinadi')} file={source} onPick={setSource} />
       </div>
       <div className="mt-4 flex flex-wrap items-end gap-3">
         <div className="min-w-[200px] flex-1">
-          <label className="field-label">Nom (ixtiyoriy)</label>
-          <input className="field-input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="masalan: 20.08.2026" />
+          <label className="field-label">{t('Nom (ixtiyoriy)')}</label>
+          <input className="field-input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder={t('masalan: 20.08.2026')} />
         </div>
         <button className="btn-primary shrink-0" disabled={busy || !ready} onClick={submit}>
-          {busy ? <Spinner size={16} /> : <Ico.filePlus size={16} />} Yuklash va tahlil
+          {busy ? <Spinner size={16} /> : <Ico.filePlus size={16} />} {t('Yuklash va tahlil')}
         </button>
       </div>
       {err && <p className="mt-2 text-sm font-medium text-rose-600 dark:text-rose-300">{err}</p>}
@@ -150,6 +152,7 @@ function UploadCard({ onDone }: { onDone: (batchId: number) => void }) {
 }
 
 function FileField({ step, label, hint, file, onPick }: { step: number; label: string; hint: string; file: File | null; onPick: (f: File | null) => void }) {
+  const t = useT();
   const ref = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const take = (f: File | null | undefined) => { if (f && /\.xlsx$/i.test(f.name)) onPick(f); };
@@ -180,7 +183,7 @@ function FileField({ step, label, hint, file, onPick }: { step: number; label: s
           {file ? <Ico.check size={18} /> : <Ico.sheet size={18} />}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">{file ? file.name : 'Fayl tanlang yoki sudrab tashlang'}</span>
+          <span className="block truncate text-sm font-medium">{file ? file.name : t('Fayl tanlang yoki sudrab tashlang')}</span>
           <span className="block truncate text-xs text-muted">{file ? fmt(file.size) : hint}</span>
         </span>
         {file && <Ico.check size={16} className="shrink-0 text-emerald-600 dark:text-emerald-300" />}
@@ -191,13 +194,14 @@ function FileField({ step, label, hint, file, onPick }: { step: number; label: s
 
 // ── History list ──────────────────────────────────────────────────────────────
 function HistoryList({ batches, loading, selId, onSelect, onDelete }: { batches: Batch[]; loading: boolean; selId: number | null; onSelect: (id: number) => void; onDelete: (b: Batch) => void }) {
+  const t = useT();
   return (
     <div className="card overflow-hidden">
-      <div className="border-b border-line px-4 py-3 text-sm font-semibold">Tarix</div>
+      <div className="border-b border-line px-4 py-3 text-sm font-semibold">{t('Tarix')}</div>
       {loading ? (
         <div className="grid place-items-center p-8"><Spinner /></div>
       ) : !batches.length ? (
-        <p className="p-6 text-sm text-muted">Hali partiya yo‘q.</p>
+        <p className="p-6 text-sm text-muted">{t('Hali partiya yo‘q.')}</p>
       ) : (
         <ul className="max-h-[520px] divide-y divide-line overflow-y-auto">
           {batches.map((b) => (
@@ -209,13 +213,13 @@ function HistoryList({ batches, loading, selId, onSelect, onDelete }: { batches:
                 </div>
                 <div className="text-xs text-muted">{dt(b.createdAt)}</div>
                 {b.status === 'READY' && (
-                  <div className="text-xs text-muted">{n(b.qualifiedCount)} / {n(b.candidateCount)} ≥ 2mln · {b.runs.length} amal</div>
+                  <div className="text-xs text-muted">{n(b.qualifiedCount)} / {n(b.candidateCount)} ≥ 2mln · {b.runs.length} {t('amal')}</div>
                 )}
               </button>
               <button
                 onClick={() => onDelete(b)}
-                title="O‘chirish"
-                aria-label="O‘chirish"
+                title={t('O‘chirish')}
+                aria-label={t('O‘chirish')}
                 className="absolute right-2 top-2.5 grid h-8 w-8 place-items-center rounded-lg text-muted opacity-0 transition-opacity hover:bg-rose-500/10 hover:text-rose-600 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:text-rose-300"
               >
                 <Ico.trash size={16} />
@@ -229,6 +233,7 @@ function HistoryList({ batches, loading, selId, onSelect, onDelete }: { batches:
 }
 
 function StatusPill({ status }: { status: string }) {
+  const t = useT();
   const map: Record<string, string> = {
     READY: 'border-emerald-500/30 text-emerald-600 dark:text-emerald-300',
     PARSING: 'border-amber-500/30 text-amber-600 dark:text-amber-300',
@@ -237,12 +242,13 @@ function StatusPill({ status }: { status: string }) {
     DONE: 'border-emerald-500/30 text-emerald-600 dark:text-emerald-300',
     FAILED: 'border-rose-500/30 text-rose-600 dark:text-rose-300',
   };
-  const label: Record<string, string> = { READY: 'Tayyor', PARSING: 'Tahlil…', RUNNING: 'Ishlayapti', PENDING: 'Navbatda', DONE: 'Tayyor', FAILED: 'Xato' };
+  const label: Record<string, string> = { READY: t('Tayyor'), PARSING: t('Tahlil…'), RUNNING: t('Ishlayapti'), PENDING: t('Navbatda'), DONE: t('Tayyor'), FAILED: t('Xato') };
   return <span className={cx('badge shrink-0', map[status] ?? 'border-line text-muted')}>{label[status] ?? status}</span>;
 }
 
 // ── Batch panel ───────────────────────────────────────────────────────────────
 function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: ReturnType<typeof useConfirm>; onChanged: () => Promise<void> }) {
+  const t = useT();
   const [opts, setOpts] = useState({ thresholdTotal: DEFAULT_THRESHOLD, perFirmMin: 0 });
   const [totalStr, setTotalStr] = useState(String(DEFAULT_THRESHOLD));
   const [perFirmStr, setPerFirmStr] = useState('0');
@@ -271,39 +277,39 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
     return (
       <div className="card p-8">
         <div className="mb-2 flex items-center justify-between gap-2">
-          <span className="flex items-center gap-2 text-sm font-medium"><Spinner size={16} /> Excel‘lar tahlil qilinmoqda…</span>
+          <span className="flex items-center gap-2 text-sm font-medium"><Spinner size={16} /> {t('Excel‘lar tahlil qilinmoqda…')}</span>
           <button
             className="btn-ghost px-2.5 py-1.5 text-xs"
             onClick={async () => { await fetch(`/api/talabnoma-form/${batch.id}/reparse`, { method: 'POST' }); await onChanged(); }}
-            title="Agar to‘xtab qolsa, tahlilni qayta boshlaydi"
+            title={t('Agar to‘xtab qolsa, tahlilni qayta boshlaydi')}
           >
-            <Ico.refresh size={14} /> Qayta urinish
+            <Ico.refresh size={14} /> {t('Qayta urinish')}
           </button>
         </div>
         <div className="mb-1.5 flex items-baseline justify-between">
-          <span className="text-xs text-muted">Портфель o‘qilmoqda</span>
+          <span className="text-xs text-muted">{t('Портфель o‘qilmoqda')}</span>
           <span className="text-lg font-semibold tabular-nums text-brand-600 dark:text-brand-400">{pct}%</span>
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-surface-2">
           <div className="h-full rounded-full bg-brand-600 transition-all duration-500 dark:bg-brand-400" style={{ width: `${Math.max(3, pct)}%` }} />
         </div>
         <p className="mt-2 text-xs text-muted">
-          {n(batch.processedRows)}{batch.totalRows > 0 ? ` / ~${n(batch.totalRows)}` : ''} qator · sahifadan chiqsangiz ham davom etadi
+          {n(batch.processedRows)}{batch.totalRows > 0 ? ` / ~${n(batch.totalRows)}` : ''} {t('qator · sahifadan chiqsangiz ham davom etadi')}
         </p>
       </div>
     );
   }
   if (batch.status === 'FAILED') {
-    return <div className="card p-6 text-sm text-rose-600 dark:text-rose-300">Tahlil xatosi: {batch.message || 'nomaʼlum'}</div>;
+    return <div className="card p-6 text-sm text-rose-600 dark:text-rose-300">{t('Tahlil xatosi')}: {batch.message || t('nomaʼlum')}</div>;
   }
 
   const doGenerate = async (firm: FirmBucket, kind: 'REYESTR' | 'LETTERS') => {
     setNote('');
     if (!firm.ready) {
       const ok = await confirm({
-        title: 'To‘liq forma tayyor emas',
-        description: `«${firm.name}» — bu firma uchun talabnoma formasi to‘liq emas. ${n(firm.personCount)} ta shaxs bor. Baribir tayyorlansinmi?`,
-        confirmLabel: 'Ha, tayyorla', danger: true,
+        title: t('To‘liq forma tayyor emas'),
+        description: `«${firm.name}» — ${t('bu firma uchun talabnoma formasi to‘liq emas.')} ${n(firm.personCount)} ${t('ta shaxs bor. Baribir tayyorlansinmi?')}`,
+        confirmLabel: t('Ha, tayyorla'), danger: true,
       });
       if (!ok) return;
     }
@@ -312,11 +318,11 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
       const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/generate`, {
         firmCode: firm.code, firmName: firm.name, kind, ...opts, includeUnready: !firm.ready,
       });
-      if (!ok) { setNote(json.error || `Xatolik (${status})`); return; }
+      if (!ok) { setNote(json.error || `${t('Xatolik')} (${status})`); return; }
       if (kind === 'REYESTR') {
         window.location.href = `/api/talabnoma-form/${batch.id}/download/${json.runId}`;
       } else {
-        setNote(`Xatlar tayyorlanmoqda (${n(json.rowCount ?? firm.personCount)} ta) — Tarixdan yuklab olasiz.`);
+        setNote(`${t('Xatlar tayyorlanmoqda')} (${n(json.rowCount ?? firm.personCount)} ${t('ta')}) — ${t('Tarixdan yuklab olasiz.')}`);
       }
       await onChanged();
     } finally { setBusyFirm(null); }
@@ -325,13 +331,13 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
   const doHippo = async (firm: FirmBucket) => {
     setNote('');
     if (!firm.ready) {
-      const ok = await confirm({ title: 'To‘liq forma tayyor emas', description: `«${firm.name}» to‘liq emas. xat.hippo ga baribir yuborilsinmi?`, confirmLabel: 'Ha', danger: true });
+      const ok = await confirm({ title: t('To‘liq forma tayyor emas'), description: `«${firm.name}» ${t('to‘liq emas. xat.hippo ga baribir yuborilsinmi?')}`, confirmLabel: t('Ha'), danger: true });
       if (!ok) return;
     }
     const ok = await confirm({
-      title: 'xat.hippo ga yuborish',
-      description: `«${firm.name}» — QORALAMA (draft) reyestr yaratiladi. Haqiqiy jo‘natish emas. Davom etilsinmi?`,
-      confirmLabel: 'Qoralama yaratish',
+      title: t('xat.hippo ga yuborish'),
+      description: `«${firm.name}» — ${t('QORALAMA (draft) reyestr yaratiladi. Haqiqiy jo‘natish emas. Davom etilsinmi?')}`,
+      confirmLabel: t('Qoralama yaratish'),
     });
     if (!ok) return;
     setBusyFirm(firm.code + 'HIPPO');
@@ -339,8 +345,8 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
       const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/hippo`, {
         firmCode: firm.code, mode: 'draft', ...opts, includeUnready: !firm.ready,
       });
-      if (!ok) { setNote(json.error || `Xatolik (${status})`); return; }
-      setNote(`xat.hippo qoralama yaratildi (#${json.registryId ?? '—'}, ${n(json.count)} ta).`);
+      if (!ok) { setNote(json.error || `${t('Xatolik')} (${status})`); return; }
+      setNote(`${t('xat.hippo qoralama yaratildi')} (#${json.registryId ?? '—'}, ${n(json.count)} ${t('ta')}).`);
       await onChanged();
     } finally { setBusyFirm(null); }
   };
@@ -349,35 +355,35 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
     <div className="space-y-5">
       {/* summary stats */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard label="List 1 shaxs" value={n(batch.candidateCount)} />
-        <StatCard label="Chegaradan o‘tgan" value={n(result?.qualifiedPeople ?? batch.qualifiedCount)} accent />
-        <StatCard label="Tayyor firma bilan" value={n(result?.readyPersonCount ?? 0)} good />
-        <StatCard label="Tayyor emas" value={n(result?.unreadyPersonCount ?? 0)} bad />
+        <StatCard label={t('List 1 shaxs')} value={n(batch.candidateCount)} />
+        <StatCard label={t('Chegaradan o‘tgan')} value={n(result?.qualifiedPeople ?? batch.qualifiedCount)} accent />
+        <StatCard label={t('Tayyor firma bilan')} value={n(result?.readyPersonCount ?? 0)} good />
+        <StatCard label={t('Tayyor emas')} value={n(result?.unreadyPersonCount ?? 0)} bad />
       </div>
 
       {/* inline filter bar — always visible */}
       <div className="card p-4">
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-          <Ico.layer size={16} className="text-brand-600 dark:text-brand-400" /> Filtr
+          <Ico.layer size={16} className="text-brand-600 dark:text-brand-400" /> {t('Filtr')}
           {applying && <Spinner size={14} />}
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <label className="min-w-[180px] flex-1">
-            <span className="field-label">1) Umumiy qarzdorlik ≥ (so‘m)</span>
+            <span className="field-label">{t('1) Umumiy qarzdorlik ≥ (so‘m)')}</span>
             <input className="field-input tabular-nums" inputMode="numeric" value={fmtInt(totalStr)}
               onChange={(e) => setTotalStr(e.target.value.replace(/\D/g, ''))}
               onKeyDown={(e) => e.key === 'Enter' && applyInline()} />
           </label>
           <label className="min-w-[180px] flex-1">
-            <span className="field-label">2) Har firmadan ≥ (so‘m) · ixtiyoriy</span>
+            <span className="field-label">{t('2) Har firmadan ≥ (so‘m) · ixtiyoriy')}</span>
             <input className="field-input tabular-nums" inputMode="numeric" value={fmtInt(perFirmStr)}
               onChange={(e) => setPerFirmStr(e.target.value.replace(/\D/g, ''))}
               onKeyDown={(e) => e.key === 'Enter' && applyInline()} />
           </label>
-          <button className="btn-primary shrink-0" onClick={() => applyInline()}>Qo‘llash</button>
+          <button className="btn-primary shrink-0" onClick={() => applyInline()}>{t('Qo‘llash')}</button>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="text-xs text-muted">Tez tanlov:</span>
+          <span className="text-xs text-muted">{t('Tez tanlov')}:</span>
           {[2_000_000, 3_000_000, 5_000_000, 10_000_000].map((v) => (
             <button key={v} onClick={() => applyInline(String(v))}
               className={cx('badge transition-colors hover:bg-surface-2', opts.thresholdTotal === v ? 'border-brand-500/40 text-brand-600 dark:text-brand-400' : 'border-line text-muted')}>
@@ -391,15 +397,15 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
 
       {/* per-firm table */}
       <div className="card overflow-hidden">
-        <div className="border-b border-line px-4 py-3 text-sm font-semibold">Firmalar bo‘yicha</div>
+        <div className="border-b border-line px-4 py-3 text-sm font-semibold">{t('Firmalar bo‘yicha')}</div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-xs uppercase tracking-wide text-muted">
               <tr className="border-b border-line">
-                <th className="px-4 py-2 text-left">Firma</th>
-                <th className="px-4 py-2 text-right">Shaxs</th>
-                <th className="px-4 py-2 text-right">Прострочка</th>
-                <th className="px-4 py-2 text-right">Amallar</th>
+                <th className="px-4 py-2 text-left">{t('Firma')}</th>
+                <th className="px-4 py-2 text-right">{t('Shaxs')}</th>
+                <th className="px-4 py-2 text-right">{t('Прострочка')}</th>
+                <th className="px-4 py-2 text-right">{t('Amallar')}</th>
               </tr>
             </thead>
             <tbody>
@@ -409,24 +415,24 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
                     <div className="flex items-center gap-2">
                       <span className={cx('font-medium', !f.ready && 'text-rose-600 dark:text-rose-300')}>{f.name}</span>
                       {f.ready
-                        ? <span className="badge border-emerald-500/30 text-emerald-600 dark:text-emerald-300">tayyor</span>
-                        : <span className="badge border-rose-500/30 text-rose-600 dark:text-rose-300">to‘liq forma tayyor emas</span>}
+                        ? <span className="badge border-emerald-500/30 text-emerald-600 dark:text-emerald-300">{t('tayyor')}</span>
+                        : <span className="badge border-rose-500/30 text-rose-600 dark:text-rose-300">{t('to‘liq forma tayyor emas')}</span>}
                     </div>
-                    <div className="text-xs text-muted">kod: {f.code}</div>
+                    <div className="text-xs text-muted">{t('kod')}: {f.code}</div>
                   </td>
                   <td className="px-4 py-2.5 text-right tabular-nums">{n(f.personCount)}</td>
                   <td className="px-4 py-2.5 text-right tabular-nums">{n(Math.round(f.overdueSum))}</td>
                   <td className="px-4 py-2.5">
                     <div className="flex justify-end gap-1.5">
-                      <ActBtn busy={busyFirm === f.code + 'REYESTR'} onClick={() => doGenerate(f, 'REYESTR')} icon="sheet">Reyestr</ActBtn>
-                      <ActBtn busy={busyFirm === f.code + 'LETTERS'} onClick={() => doGenerate(f, 'LETTERS')} icon="files">Xatlar</ActBtn>
+                      <ActBtn busy={busyFirm === f.code + 'REYESTR'} onClick={() => doGenerate(f, 'REYESTR')} icon="sheet">{t('Reyestr')}</ActBtn>
+                      <ActBtn busy={busyFirm === f.code + 'LETTERS'} onClick={() => doGenerate(f, 'LETTERS')} icon="files">{t('Xatlar')}</ActBtn>
                       <ActBtn busy={busyFirm === f.code + 'HIPPO'} onClick={() => doHippo(f)} icon="send">xat.hippo</ActBtn>
                     </div>
                   </td>
                 </tr>
               ))}
               {result && !result.firms.length && (
-                <tr><td colSpan={4} className="px-4 py-8 text-center text-sm text-muted">Bu filtrda firma yo‘q.</td></tr>
+                <tr><td colSpan={4} className="px-4 py-8 text-center text-sm text-muted">{t('Bu filtrda firma yo‘q.')}</td></tr>
               )}
             </tbody>
           </table>
@@ -458,11 +464,12 @@ function ActBtn({ children, onClick, busy, icon }: { children: React.ReactNode; 
 }
 
 function RunsTable({ batch }: { batch: Batch }) {
+  const t = useT();
   if (!batch.runs.length) return null;
-  const kindLabel: Record<string, string> = { REYESTR: 'Reyestr', LETTERS: 'Xatlar', HIPPO: 'xat.hippo' };
+  const kindLabel: Record<string, string> = { REYESTR: t('Reyestr'), LETTERS: t('Xatlar'), HIPPO: 'xat.hippo' };
   return (
     <div className="card overflow-hidden">
-      <div className="border-b border-line px-4 py-3 text-sm font-semibold">Amallar tarixi</div>
+      <div className="border-b border-line px-4 py-3 text-sm font-semibold">{t('Amallar tarixi')}</div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <tbody>
@@ -472,18 +479,18 @@ function RunsTable({ batch }: { batch: Batch }) {
                   <span className="font-medium">{kindLabel[r.kind] ?? r.kind}</span>
                   <span className="ml-2 text-muted">{r.firmName}</span>
                 </td>
-                <td className="px-4 py-2.5 text-right tabular-nums text-muted">{n(r.rowCount)} ta</td>
+                <td className="px-4 py-2.5 text-right tabular-nums text-muted">{n(r.rowCount)} {t('ta')}</td>
                 <td className="px-4 py-2.5 text-center"><StatusPill status={r.status} /></td>
                 <td className="px-4 py-2.5 text-right text-xs text-muted">{dt(r.createdAt)}</td>
                 <td className="px-4 py-2.5 text-right">
                   {r.status === 'DONE' && r.resultPath ? (
                     <a className="btn-ghost px-2.5 py-1.5 text-xs" href={`/api/talabnoma-form/${batch.id}/download/${r.id}`}>
-                      <Ico.download size={14} /> Yuklab olish
+                      <Ico.download size={14} /> {t('Yuklab olish')}
                     </a>
                   ) : r.kind === 'HIPPO' && r.status === 'DONE' ? (
                     <span className="text-xs text-emerald-600 dark:text-emerald-300">#{r.hippoRegistryId ?? '—'}</span>
                   ) : r.status === 'FAILED' ? (
-                    <span className="text-xs text-rose-600 dark:text-rose-300" title={r.message ?? ''}>{r.message?.slice(0, 30) ?? 'xato'}</span>
+                    <span className="text-xs text-rose-600 dark:text-rose-300" title={r.message ?? ''}>{r.message?.slice(0, 30) ?? t('xato')}</span>
                   ) : <Spinner size={14} />}
                 </td>
               </tr>

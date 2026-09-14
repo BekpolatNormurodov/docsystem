@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, useConfirm } from '@/ui';
+import { useT } from '@/lib/i18n/client';
 import { Dropdown } from './Dropdown';
 import DraftAutoPanel from './DraftAutoPanel';
 import { CaseDocs } from './CaseDocs';
@@ -103,12 +104,13 @@ const ringTone = (pct: number) => (pct >= 80 ? 'high' : pct >= 40 ? 'mid' : 'low
 // Signature visual: readiness as a stroke-animated inline-SVG ring. The app's global
 // prefers-reduced-motion rule zeroes the transition for free.
 function ReadinessRing({ pct, size = 48, sw = 5 }: { pct: number; size?: number; sw?: number }) {
+  const t = useT();
   const p = Math.max(0, Math.min(100, Math.round(pct)));
   const r = (size - sw) / 2;
   const c = 2 * Math.PI * r;
   const big = size >= 88;
   return (
-    <span role="img" aria-label={`${p}% tayyor`} className="relative inline-grid shrink-0 place-items-center" style={{ width: size, height: size }}>
+    <span role="img" aria-label={`${p}% ${t('tayyor')}`} className="relative inline-grid shrink-0 place-items-center" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90" aria-hidden>
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--line)" strokeWidth={sw} />
         <circle
@@ -164,10 +166,11 @@ function Tip({ label, children, side = 'top', className }: { label: string; chil
 // renders with a dashed, muted look and an «shart emas» tooltip so a dash there never reads as a
 // blocking «yetishmayapti». Court gate = talabnoma + skan + oferta (see court-ready.ts flagsFor).
 function DocTile({ ok, label, optional }: { ok: boolean; label: string; optional?: boolean }) {
+  const t = useT();
   const cls = ok
     ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
     : optional ? 'border border-dashed border-line bg-transparent text-muted/40' : 'bg-surface-2 text-muted/60';
-  const tip = optional ? `${label}: ${ok ? 'bor' : "yo'q"} — ma'lumot uchun (sud uchun shart emas)` : `${label}: ${ok ? 'bor' : "yo'q"}`;
+  const tip = optional ? `${t(label)}: ${ok ? t('bor') : t("yo'q")} ${t("— ma'lumot uchun (sud uchun shart emas)")}` : `${t(label)}: ${ok ? t('bor') : t("yo'q")}`;
   return (
     <Tip label={tip}>
       <span className={`grid h-6 w-6 place-items-center rounded-md ${cls}`} aria-label={tip}>
@@ -180,10 +183,11 @@ function DocTile({ ok, label, optional }: { ok: boolean; label: string; optional
 }
 
 function DueBadge({ d }: { d: number | null }) {
+  const t = useT();
   if (d === null) return null;
-  if (d < 0) return <span className="rounded-md bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium text-rose-600 dark:text-rose-300">{Math.abs(d)} kun kechikdi</span>;
-  if (d === 0) return <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">bugun</span>;
-  return <span className="rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-muted">{d} kun</span>;
+  if (d < 0) return <span className="rounded-md bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium text-rose-600 dark:text-rose-300">{Math.abs(d)} {t('kun kechikdi')}</span>;
+  if (d === 0) return <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">{t('bugun')}</span>;
+  return <span className="rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-muted">{d} {t('kun')}</span>;
 }
 
 const AVATAR = [
@@ -205,6 +209,7 @@ const ALMOST_DOCS: { key: keyof Missing; label: string; tone: string }[] = [
   { key: 'talabnoma', label: 'talabnoma', tone: 'bg-rose-500/12 text-rose-700 dark:text-rose-300' },
 ];
 function AlmostLine({ almost, compact }: { almost: Missing; compact?: boolean }) {
+  const t = useT();
   const items = ALMOST_DOCS.filter((a) => almost[a.key] > 0);
   const total = items.reduce((s, a) => s + almost[a.key], 0);
   if (total === 0) return null;
@@ -212,10 +217,10 @@ function AlmostLine({ almost, compact }: { almost: Missing; compact?: boolean })
     <div className={`flex flex-wrap items-center gap-1.5 ${compact ? 'text-[11px]' : 'text-xs'}`}>
       <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-300">
         <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="9" /><path d="m9 12 2 2 4-4" /></svg>
-        {n(total)} ta — 1 qadam qoldi:
+        {n(total)} {t('ta — 1 qadam qoldi:')}
       </span>
       {items.map((a) => (
-        <span key={a.key} className={`rounded px-1.5 py-0.5 font-medium tabular-nums ${a.tone}`}>faqat {a.label} {n(almost[a.key])}</span>
+        <span key={a.key} className={`rounded px-1.5 py-0.5 font-medium tabular-nums ${a.tone}`}>{t('faqat')} {t(a.label)} {n(almost[a.key])}</span>
       ))}
     </div>
   );
@@ -238,6 +243,7 @@ function ExportControl({ job, sendable, onStart, batchActive }: {
   job?: JobState; sendable: number; onStart: () => void;
   batchActive?: { jobId: number; status: string; queuePos: number } | null;
 }) {
+  const t = useT();
   const running = !!job && (job.status === 'PENDING' || job.status === 'RUNNING');
   const done = job?.status === 'DONE';
   // (progress foizi ExportControl da endi kerak emas — raqamlar qator ostidagi yagona chiziqda)
@@ -250,18 +256,18 @@ function ExportControl({ job, sendable, onStart, batchActive }: {
     return (
       <div className="flex flex-col items-end gap-1">
         <span className={`inline-flex min-h-9 max-w-full items-center text-balance rounded-lg border px-3 py-1.5 text-xs font-semibold leading-tight ${hadError ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'}`}>
-          {job.message || `${job.total} ta yuborildi`}
+          {job.message || `${job.total} ${t('ta yuborildi')}`}
         </span>
         {/* Bugunga sig'magani JIM YO'QOLMASIN: ilgari operator «91 so'radim, 12 ketdi»
             farqini ko'rmasdi — yozuv yashil «tayyor» bo'lib turardi. */}
         {(job.deferred ?? 0) > 0 && (
           <span className="max-w-full text-balance text-[10px] leading-tight text-amber-600 dark:text-amber-400">
-            {n(job.deferred!)} tasi bugungi sud limitiga sig‘madi — navbatda, ertaga o‘zi ketadi
+            {n(job.deferred!)} {t('tasi bugungi sud limitiga sig‘madi — navbatda, ertaga o‘zi ketadi')}
           </span>
         )}
         {sendable > 0 && (
-          <button onClick={onStart} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1 text-[11px] font-medium text-muted outline-none transition-colors hover:border-brand-500/40 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30" title={`Keyingi ${Math.min(MAX_COURT_BATCH, sendable)} ta`}>
-            <IcoBolt /> Yana ({Math.min(MAX_COURT_BATCH, sendable)})
+          <button onClick={onStart} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1 text-[11px] font-medium text-muted outline-none transition-colors hover:border-brand-500/40 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30" title={`${t('Keyingi')} ${Math.min(MAX_COURT_BATCH, sendable)} ${t('ta')}`}>
+            <IcoBolt /> {t('Yana')} ({Math.min(MAX_COURT_BATCH, sendable)})
           </button>
         )}
       </div>
@@ -273,11 +279,11 @@ function ExportControl({ job, sendable, onStart, batchActive }: {
     return (
       <div className="flex flex-col items-end gap-1">
         <a href={`/api/export/${job.jobId}/download`} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-700 outline-none transition-colors hover:bg-emerald-500/15 focus-visible:ring-2 focus-visible:ring-emerald-500/40 dark:text-emerald-300">
-          <IcoDown /> {job.total} ta ZIP — yuklab olish
+          <IcoDown /> {job.total} {t('ta ZIP — yuklab olish')}
         </a>
         {sendable > 0 && (
-          <button onClick={onStart} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1 text-[11px] font-medium text-muted outline-none transition-colors hover:border-brand-500/40 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30" title={`Keyingi ${Math.min(MAX_COURT_BATCH, sendable)} ta`}>
-            <IcoBolt /> Yana ({Math.min(MAX_COURT_BATCH, sendable)})
+          <button onClick={onStart} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1 text-[11px] font-medium text-muted outline-none transition-colors hover:border-brand-500/40 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30" title={`${t('Keyingi')} ${Math.min(MAX_COURT_BATCH, sendable)} ${t('ta')}`}>
+            <IcoBolt /> {t('Yana')} ({Math.min(MAX_COURT_BATCH, sendable)})
           </button>
         )}
       </div>
@@ -306,16 +312,16 @@ function ExportControl({ job, sendable, onStart, batchActive }: {
         className={`${ROW_BTN} bg-brand-500 text-white shadow-sm hover:bg-brand-600 focus-visible:ring-brand-500/40 disabled:opacity-40`}
         title={
           busyServer
-            ? `Bu firmaning partiyasi hozir ${serverRunning ? 'ketmoqda' : 'navbatda'} (#${batchActive!.jobId}). Yangi partiya YUBORISH NAVBATIGA qo'shiladi va o'sha tugashi bilan o'zi boshlanadi — kalit qayta so'ralmaydi.`
-            : sendable === 0 ? 'Sudga yuborishga tayyor mijoz yoʻq'
-              : `${Math.min(MAX_COURT_BATCH, sendable)} ta to'liq tayyor paketni sudga yuborish`
+            ? `${t('Bu firmaning partiyasi hozir')} ${serverRunning ? t('ketmoqda') : t('navbatda')} (#${batchActive!.jobId}). ${t("Yangi partiya YUBORISH NAVBATIGA qo'shiladi va o'sha tugashi bilan o'zi boshlanadi — kalit qayta so'ralmaydi.")}`
+            : sendable === 0 ? t('Sudga yuborishga tayyor mijoz yoʻq')
+              : `${Math.min(MAX_COURT_BATCH, sendable)} ${t("ta to'liq tayyor paketni sudga yuborish")}`
         }
       >
         {running
-          ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> Yuborilmoqda</>
+          ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> {t('Yuborilmoqda')}</>
           : busyServer
-            ? <><IcoPlus /> Navbatga qo‘shish {sendable > 0 ? `(${Math.min(MAX_COURT_BATCH, sendable)})` : ''}</>
-            : <><IcoBolt /> Sudga yuborish {sendable > 0 ? `(${Math.min(MAX_COURT_BATCH, sendable)})` : ''}</>}
+            ? <><IcoPlus /> {t('Navbatga qo‘shish')} {sendable > 0 ? `(${Math.min(MAX_COURT_BATCH, sendable)})` : ''}</>
+            : <><IcoBolt /> {t('Sudga yuborish')} {sendable > 0 ? `(${Math.min(MAX_COURT_BATCH, sendable)})` : ''}</>}
       </button>
       {/* Ketayotgan partiya haqidagi izoh ATAYIN yo'q.
           U shu yerda ham turardi, lekin ayni ma'lumot sahifaning yuqorisida — «Yuborish
@@ -329,8 +335,8 @@ function ExportControl({ job, sendable, onStart, batchActive }: {
           kerak, aks holda progress jimgina qotib qolgandek ko'rinadi. */}
       {(job?.status === 'FAILED' || job?.error) && (
         <span className="max-w-full text-[11px] font-medium leading-tight text-rose-500 [overflow-wrap:anywhere]" role="alert"
-          title={job?.status === 'FAILED' ? (job.message || job.error || 'Xatolik') : job?.error}>
-          {job?.status === 'FAILED' ? (job.message || job.error || 'Xatolik') : job?.error}
+          title={job?.status === 'FAILED' ? (job.message || job.error || t('Xatolik')) : job?.error}>
+          {job?.status === 'FAILED' ? (job.message || job.error || t('Xatolik')) : job?.error}
         </span>
       )}
     </div>
@@ -384,6 +390,7 @@ function ZipRing({ pct, indeterminate }: { pct: number; indeterminate?: boolean 
 }
 
 function ZipControl({ job, sendable, onStart, onCancel }: { job?: JobState; sendable: number; onStart: () => void; onCancel?: (jobId: number) => void }) {
+  const t = useT();
   const running = !!job && (job.status === 'PENDING' || job.status === 'RUNNING');
   const pct = job && job.total ? Math.round((job.progress / job.total) * 100) : 0;
   // Operator so'ragan son bilan server topgani farq qilsa — AYTAMIZ. Jim farq aynan
@@ -399,8 +406,8 @@ function ZipControl({ job, sendable, onStart, onCancel }: { job?: JobState; send
     // So'ralgan va yig'ilgan son farq qilsa — «ketyapti» holatidagi kabi shu yerda ham
     // KO'RINADI (ilgari farq faqat progress paytida ko'rinib, tugagach yo'qolardi).
     const label = short > 0
-      ? `${n(job.total)} ta mijoz ZIP arxivi (eng eski muddatlilardan) — ${n(job.asked!)} ta so‘ralgan edi, ${n(short)} tasi tayyor emas edi. Yuklab olish`
-      : `${n(job.total)} ta mijoz ZIP arxivi (eng eski muddatlilardan) — yuklab olish`;
+      ? `${n(job.total)} ${t('ta mijoz ZIP arxivi (eng eski muddatlilardan) —')} ${n(job.asked!)} ${t('ta so‘ralgan edi,')} ${n(short)} ${t('tasi tayyor emas edi. Yuklab olish')}`
+      : `${n(job.total)} ${t('ta mijoz ZIP arxivi (eng eski muddatlilardan) — yuklab olish')}`;
     return (
       <div className="flex shrink-0 items-center gap-1">
         <a
@@ -416,12 +423,12 @@ function ZipControl({ job, sendable, onStart, onCancel }: { job?: JobState; send
         {/* So'ralgani bilan yig'ilgani farqi TUGAGACH HAM ko'rinib tursin: «500 so'radim,
             arxivda 480 ta» savoli aynan shu yerda tug'iladi (nishonchada faqat 480 turadi). */}
         {short > 0 && (
-          <span className="text-[10px] leading-tight text-amber-600 dark:text-amber-400" title={`${n(job.asked!)} ta so‘raldi, ${n(job.total)} tasi arxivga tushdi`}>
+          <span className="text-[10px] leading-tight text-amber-600 dark:text-amber-400" title={`${n(job.asked!)} ${t('ta so‘raldi,')} ${n(job.total)} ${t('tasi arxivga tushdi')}`}>
             −{n(short)}
           </span>
         )}
         {sendable > 0 && (
-          <button type="button" onClick={onStart} title={`Yangi ZIP — ${n(sendable)} ta tayyor`} aria-label={`Yangi ZIP — ${n(sendable)} ta tayyor`}
+          <button type="button" onClick={onStart} title={`${t('Yangi ZIP —')} ${n(sendable)} ${t('ta tayyor')}`} aria-label={`${t('Yangi ZIP —')} ${n(sendable)} ${t('ta tayyor')}`}
             className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted outline-none transition-colors hover:bg-surface-2 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30">
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 5v14M5 12h14" /></svg>
           </button>
@@ -436,8 +443,8 @@ function ZipControl({ job, sendable, onStart, onCancel }: { job?: JobState; send
   if (running) {
     const pending = job!.status === 'PENDING';
     const label = pending
-      ? `ZIP navbatda${job!.total ? ` — ${n(job!.total)} ta mijoz` : ''}`
-      : `ZIP tayyorlanmoqda — ${n(job!.progress)}/${n(job!.total)} (${pct}%)`;
+      ? `${t('ZIP navbatda')}${job!.total ? ` — ${n(job!.total)} ${t('ta mijoz')}` : ''}`
+      : `${t('ZIP tayyorlanmoqda —')} ${n(job!.progress)}/${n(job!.total)} (${pct}%)`;
     return (
       <div className="flex shrink-0 items-center gap-1">
         <span className={`${ZIP_BTN} border-transparent text-fg`} title={label} aria-label={label} role="progressbar"
@@ -449,14 +456,14 @@ function ZipControl({ job, sendable, onStart, onCancel }: { job?: JobState; send
             boshqa chora qolmasdi (va u soatlab ketishi mumkin). */}
         {onCancel && job!.jobId > 0 && (
           <button type="button" onClick={() => onCancel(job!.jobId)}
-            title={job!.message === 'Bekor qilinmoqda…' ? 'Bekor qilinmoqda…' : 'ZIP tayyorlashni bekor qilish'}
-            aria-label="ZIP tayyorlashni bekor qilish"
+            title={job!.message === 'Bekor qilinmoqda…' ? t('Bekor qilinmoqda…') : t('ZIP tayyorlashni bekor qilish')}
+            aria-label={t('ZIP tayyorlashni bekor qilish')}
             className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted outline-none transition-colors hover:bg-rose-500/10 hover:text-rose-600 focus-visible:ring-2 focus-visible:ring-rose-500/30">
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M18 6 6 18M6 6l12 12" /></svg>
           </button>
         )}
         {short > 0 && (
-          <span className="text-[10px] leading-tight text-amber-600 dark:text-amber-400" title={`${n(job!.asked!)} ta so'raldi, ${n(job!.total)} tasi tayyor edi`}>
+          <span className="text-[10px] leading-tight text-amber-600 dark:text-amber-400" title={`${n(job!.asked!)} ${t("ta so'raldi,")} ${n(job!.total)} ${t('tasi tayyor edi')}`}>
             −{n(short)}
           </span>
         )}
@@ -467,16 +474,16 @@ function ZipControl({ job, sendable, onStart, onCancel }: { job?: JobState; send
   // XATO — qizil ikonka; sabab title'da to'liq, yonida qisqartirilgan holda ko'rinadi
   // (xato butunlay yashirilmasin, lekin qatorni ham cho'zmasin).
   const failed = job?.status === 'FAILED' || !!job?.error;
-  const err = job?.message || job?.error || 'ZIP tayyorlanmadi';
+  const err = job?.message || job?.error || t('ZIP tayyorlanmadi');
   const idleLabel = sendable > 0
-    ? `ZIP — ${n(sendable)} ta tayyor mijoz hujjatlarini bitta arxivga yig'ish (sudga yuborilmaydi)`
-    : 'ZIP — tayyor mijoz yo‘q';
+    ? `${t('ZIP —')} ${n(sendable)} ${t("ta tayyor mijoz hujjatlarini bitta arxivga yig'ish (sudga yuborilmaydi)")}`
+    : t('ZIP — tayyor mijoz yo‘q');
   return (
     <div className="flex shrink-0 items-center gap-1">
       <button
         type="button" onClick={onStart} disabled={sendable === 0}
-        title={failed ? `${err} — qayta urinish uchun bosing` : idleLabel}
-        aria-label={failed ? `ZIP xatosi: ${err}. Qayta urinish` : idleLabel}
+        title={failed ? `${err} ${t('— qayta urinish uchun bosing')}` : idleLabel}
+        aria-label={failed ? `${t('ZIP xatosi:')} ${err}. ${t('Qayta urinish')}` : idleLabel}
         className={`${ZIP_BTN} disabled:cursor-not-allowed disabled:opacity-40 ${failed
           ? 'border-rose-500/40 bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 focus-visible:ring-rose-500/40 dark:text-rose-300'
           : 'border-line text-muted hover:border-brand-500/40 hover:text-fg focus-visible:ring-brand-500/30'}`}
@@ -523,7 +530,7 @@ const filterMeta = (key: ReadyFilter) => CLIENT_FILTERS.find((f) => f.key === ke
 // Rangli ikon (summary kartalari uchun) — tab'lar bilan bir xil.
 const statIcon = (key: ReadyFilter) => { const m = filterMeta(key); return <span className={m.iconCls}>{m.icon}</span>; };
 
-function statusChip(r: ClientRow) {
+function statusChip(r: ClientRow, t: (s: string) => string) {
   // «Sudda» va «Chiqarilgan» — ATAYIN ikki xil holat.
   // 2026-09-07: BRIGHT qatorida «Yuborilgan 100» ko'rinardi, lekin ularning bittasi ham
   // sudga ketmagan edi — 100 tasida faqat ZIP paketi chiqarilgan. Operator ularni sudda
@@ -532,42 +539,43 @@ function statusChip(r: ClientRow) {
     // QO'LDA kiritilgani ALOHIDA belgilanadi: mijoz «Tayyor»dan yo'qolgan bo'lsa, operator
     // sababini shu yerda ko'radi — aks holda u sababsiz g'oyib bo'lgandek tuyulardi.
     if ((r as { submittedExternal?: boolean }).submittedExternal) {
-      return <span className="rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:text-violet-300" title="ADOLAT'da bu odamga shu firma nomidan tirik da'vo bor — biz yubormaganmiz (yurist portalda qo'lda kiritgan). Shuning uchun qayta yuborilmaydi.">Portalda bor</span>;
+      return <span className="rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:text-violet-300" title={t("ADOLAT'da bu odamga shu firma nomidan tirik da'vo bor — biz yubormaganmiz (yurist portalda qo'lda kiritgan). Shuning uchun qayta yuborilmaydi.")}>{t('Portalda bor')}</span>;
     }
-    return <span className="rounded-md bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:text-indigo-300" title="Da'vo ADOLAT orqali sudga topshirilgan">Sudda</span>;
+    return <span className="rounded-md bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:text-indigo-300" title={t("Da'vo ADOLAT orqali sudga topshirilgan")}>{t('Sudda')}</span>;
   }
   // «Navbatda» — partiyaga olingan, sudga hali yetmagan. Busiz bunday ish «Tayyor» ko'rinardi
   // va operator uni ikkinchi marta yuborishga urinardi.
   if ((r as { queued?: boolean }).queued) {
-    return <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300" title="Partiyaga olingan — navbati kelishini kutmoqda">Navbatda</span>;
+    return <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300" title={t('Partiyaga olingan — navbati kelishini kutmoqda')}>{t('Navbatda')}</span>;
   }
-  if ((r as { draftReady?: boolean }).draftReady) return <span className="rounded-md bg-teal-500/15 px-1.5 py-0.5 text-[10px] font-medium text-teal-700 dark:text-teal-300" title="ADOLAT'da to'liq qoralama tayyor — yurist portalda o'zi yuboradi">Qoralama tayyor</span>;
-  if (r.sendable) return <span className="rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">Tayyor</span>;
-  return <span className="rounded-md bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium text-rose-600 dark:text-rose-300">Tayyor emas</span>;
+  if ((r as { draftReady?: boolean }).draftReady) return <span className="rounded-md bg-teal-500/15 px-1.5 py-0.5 text-[10px] font-medium text-teal-700 dark:text-teal-300" title={t("ADOLAT'da to'liq qoralama tayyor — yurist portalda o'zi yuboradi")}>{t('Qoralama tayyor')}</span>;
+  if (r.sendable) return <span className="rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">{t('Tayyor')}</span>;
+  return <span className="rounded-md bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium text-rose-600 dark:text-rose-300">{t('Tayyor emas')}</span>;
 }
 
 const ClientRowCard = React.memo(function ClientRowCard({ r, firmId, selectable, checked, onCheck, onChanged, onUndo, undoing }: {
   r: ClientRow; firmId: number; selectable: boolean; checked: boolean; onCheck: (id: number, v: boolean) => void; onChanged: () => void;
   onUndo?: (id: number) => void; undoing?: boolean;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const active = selectable && checked;
   return (
     <div className={`rounded-xl border bg-surface transition-colors ${active ? 'border-brand-500/60 bg-brand-500/[0.04]' : 'border-line'}`}>
       <div className="flex items-center gap-3 p-2.5">
         {selectable && (
-          <label className="flex shrink-0 cursor-pointer items-center" title="Tanlash">
-            <input type="checkbox" checked={checked} onChange={(e) => onCheck(r.caseId, e.target.checked)} aria-label="Tanlash" className="peer sr-only" />
+          <label className="flex shrink-0 cursor-pointer items-center" title={t('Tanlash')}>
+            <input type="checkbox" checked={checked} onChange={(e) => onCheck(r.caseId, e.target.checked)} aria-label={t('Tanlash')} className="peer sr-only" />
             <span className={`grid h-5 w-5 place-items-center rounded-md border-2 transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/30 ${checked ? 'border-brand-500 bg-brand-500 text-white' : 'border-line bg-surface text-transparent hover:border-brand-500/60'}`}>
               <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round"><path d="m20 6-11 11-5-5" /></svg>
             </span>
           </label>
         )}
         <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[11px] font-bold ${avatarColor(r.pinfl || '')}`} aria-hidden>{initials(r.clientName)}</span>
-        <div className="min-w-0 flex-1 cursor-pointer" onClick={() => setOpen((v) => !v)} title="Mijoz hujjatlarini ochish">
+        <div className="min-w-0 flex-1 cursor-pointer" onClick={() => setOpen((v) => !v)} title={t('Mijoz hujjatlarini ochish')}>
           <div className="flex items-center gap-2">
             <span className="truncate text-sm font-medium">{r.clientName || '—'}</span>
-            {statusChip(r)}
+            {statusChip(r, t)}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
             <span className="tabular-nums">{r.pinfl}</span>
@@ -576,12 +584,12 @@ const ClientRowCard = React.memo(function ClientRowCard({ r, firmId, selectable,
           </div>
         </div>
         {/* Sud uchun 4 ta shart (talabnoma·check·skan·oferta), so'ng ajratilgan «boji» — ma'lumot uchun. */}
-        <div className="flex shrink-0 items-center gap-1.5" title="Sud sharti (5 tasi ham MAJBURIY): Talabnoma · Check (kvitansiya) · Skan · Oferta · Boji (invoice raqami)">
+        <div className="flex shrink-0 items-center gap-1.5" title={t('Sud sharti (5 tasi ham MAJBURIY): Talabnoma · Check (kvitansiya) · Skan · Oferta · Boji (invoice raqami)')}>
           <DocTile ok={r.talabnoma} label="Talabnoma" />
           {/* Check = talabnoma UZPOST kvitansiyasi biriktirilgan (MAJBURIY). Yonida hippo-delivered ko'rsatkichi. */}
           <DocTile ok={r.receipt} label="Check" />
           {!r.receipt && r.talabnomaDelivered && (
-            <Tip label="xat.hippo yetkazilgan, lekin kvitansiya hali biriktirilmagan — «Cheklarni biriktirish»" className="shrink-0">
+            <Tip label={t('xat.hippo yetkazilgan, lekin kvitansiya hali biriktirilmagan — «Cheklarni biriktirish»')} className="shrink-0">
               <span className="inline-flex items-center rounded px-1 py-0.5 text-[9px] font-semibold bg-sky-500/15 text-sky-700 dark:text-sky-300">hippo✓</span>
             </Tip>
           )}
@@ -593,17 +601,17 @@ const ClientRowCard = React.memo(function ClientRowCard({ r, firmId, selectable,
         <span className="hidden w-24 shrink-0 text-right text-sm font-semibold tabular-nums sm:block">{sum(r.totalDebt)}</span>
         {/* «Bekor» — qatorning o'zida (modalga kirmasdan): yuborilganni → «Tayyor»ga qaytaradi. */}
         {r.exported && onUndo && (
-          <Tip label="Bekor qilib «Tayyor»ga qaytarish" className="shrink-0">
+          <Tip label={t('Bekor qilib «Tayyor»ga qaytarish')} className="shrink-0">
             <button onClick={() => onUndo(r.caseId)} disabled={undoing} className="inline-flex items-center gap-1 rounded-lg border border-rose-500/40 px-2 py-1 text-[11px] font-medium text-rose-600 outline-none transition-colors hover:bg-rose-500/10 focus-visible:ring-2 focus-visible:ring-rose-500/30 disabled:opacity-50 dark:text-rose-300">
               <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M3 7v6h6" /><path d="M21 17a9 9 0 0 0-15-6.7L3 13" /></svg>
-              {undoing ? '…' : 'Bekor'}
+              {undoing ? '…' : t('Bekor')}
             </button>
           </Tip>
         )}
         {/* Har mijozni ochib hujjatlarini koʻrish + qoʻshimcha biriktirish (tayyor boʻlsa ham). */}
-        <Tip label={r.ready ? 'Mijoz hujjatlari — koʻrish va qoʻshimcha biriktirish' : 'Yetishmagan hujjatlarni toʻldirish'} className="shrink-0">
+        <Tip label={r.ready ? t('Mijoz hujjatlari — koʻrish va qoʻshimcha biriktirish') : t('Yetishmagan hujjatlarni toʻldirish')} className="shrink-0">
           <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className={`rounded-lg border px-2 py-1 text-[11px] font-medium transition-colors ${r.ready ? 'border-line text-muted hover:border-brand-500/40 hover:text-fg' : 'border-amber-500/40 text-amber-700 hover:bg-amber-500/10 dark:text-amber-300'}`}>
-            {r.ready ? 'Hujjatlar' : 'Toʻldirish'} {open ? '▲' : '▼'}
+            {r.ready ? t('Hujjatlar') : t('Toʻldirish')} {open ? '▲' : '▼'}
           </button>
         </Tip>
       </div>
@@ -611,7 +619,7 @@ const ClientRowCard = React.memo(function ClientRowCard({ r, firmId, selectable,
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title={r.clientName || 'Mijoz hujjatlari'}
+        title={r.clientName || t('Mijoz hujjatlari')}
         description={`${r.pinfl ?? ''} · ${r.stageLabel}`}
         size="xl"
         footer={
@@ -621,14 +629,14 @@ const ClientRowCard = React.memo(function ClientRowCard({ r, firmId, selectable,
                 onClick={() => onUndo(r.caseId)}
                 disabled={undoing}
                 className="mr-auto inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs font-semibold text-rose-600 outline-none transition-colors hover:bg-rose-500/10 focus-visible:ring-2 focus-visible:ring-rose-500/30 disabled:opacity-50 dark:text-rose-300"
-                title="Yuborilganni bekor qilib «Tayyor»ga qaytaradi"
+                title={t('Yuborilganni bekor qilib «Tayyor»ga qaytaradi')}
               >
                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M3 7v6h6" /><path d="M21 17a9 9 0 0 0-15-6.7L3 13" /></svg>
-                {undoing ? 'Bekor qilinmoqda…' : 'Bekor qilish'}
+                {undoing ? t('Bekor qilinmoqda…') : t('Bekor qilish')}
               </button>
             )}
-            <button onClick={onChanged} className="btn-ghost text-xs">Yangilash</button>
-            <button onClick={() => setOpen(false)} className="rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-brand-600">Yopish</button>
+            <button onClick={onChanged} className="btn-ghost text-xs">{t('Yangilash')}</button>
+            <button onClick={() => setOpen(false)} className="rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-brand-600">{t('Yopish')}</button>
           </>
         }
       >
@@ -645,6 +653,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
   // (prepare-ready baribir 409 qaytaradi; tugmani yoqilgan qoldirish faqat chalg'itadi).
   batchActive?: { jobId: number; status: string; queuePos: number } | null;
 }) {
+  const t = useT();
   const confirm = useConfirm();
   const [filter, setFilter] = useState<ReadyFilter>('sendable');
   const [q, setQ] = useState('');
@@ -676,7 +685,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
       setData(d); loadedOnce.current = true;
     } catch (e) {
       if (my !== reqRef.current) return;
-      setError(e instanceof Error ? e.message : 'Yuklab boʻlmadi'); // keep the previous rows visible
+      setError(e instanceof Error ? e.message : t('Yuklab boʻlmadi')); // keep the previous rows visible
     } finally { if (my === reqRef.current) { setLoading(false); setRefreshing(false); } }
   }, [firmId, snapshotId]);
   useEffect(() => { load(); }, [load]);
@@ -698,9 +707,9 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
   // qaytaradi. Backend: POST /konveyer/court-undo (meta.exportedAt/draftAt olib tashlanadi).
   const undo = useCallback(async (caseId: number) => {
     const ok = await confirm({
-      title: 'Yuborishni bekor qilish',
-      description: 'Rozimisiz? Mijoz sud paketidan chiqarilib, «Tayyor»ga qaytadi.',
-      confirmLabel: 'Ha, bekor qilish', danger: true,
+      title: t('Yuborishni bekor qilish'),
+      description: t('Rozimisiz? Mijoz sud paketidan chiqarilib, «Tayyor»ga qaytadi.'),
+      confirmLabel: t('Ha, bekor qilish'), danger: true,
     });
     if (!ok) return;
     try {
@@ -744,7 +753,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
       const okFilter = filter === 'sendable' ? r.sendable : filter === 'queued' ? !!r.queued : filter === 'draftReady' ? !!r.draftReady : filter === 'ready' ? r.ready : filter === 'submitted' ? !!r.submitted : filter === 'notready' ? !r.ready : true;
       if (!okFilter) continue;
       const k = String(r.courtId ?? 'none');
-      const it = m.get(k) ?? { id: r.courtId ?? null, name: r.courtName ?? 'Sud tayinlanmagan', enabled: r.courtEnabled !== false, count: 0 };
+      const it = m.get(k) ?? { id: r.courtId ?? null, name: r.courtName ?? t('Sud tayinlanmagan'), enabled: r.courtEnabled !== false, count: 0 };
       it.count++;
       m.set(k, it);
     }
@@ -812,7 +821,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
               className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${active ? f.activeCls : 'bg-surface-2 text-muted hover:text-fg'}`}
             >
               <span className={active ? '' : f.iconCls}>{f.icon}</span>
-              {f.label}
+              {t(f.label)}
               {cnt != null && <span className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${active ? 'bg-black/[0.06] dark:bg-white/10' : 'bg-surface text-muted'}`}>{n(cnt)}</span>}
             </button>
           );
@@ -822,7 +831,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
       {/* search */}
       <div className="relative mb-2">
         <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
-        <input value={q} onChange={(e) => setQ(e.target.value)} aria-label="Mijoz qidirish" placeholder="F.I.O yoki PINFL…" className="w-full rounded-xl border border-line bg-surface py-2 pl-10 pr-3 text-sm outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('Mijoz qidirish')} placeholder={t('F.I.O yoki PINFL…')} className="w-full rounded-xl border border-line bg-surface py-2 pl-10 pr-3 text-sm outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15" />
       </div>
 
       {/* SUD bo'yicha filtr — firma ishlari bir necha sudga bo'lingan bo'lsa ko'rinadi.
@@ -830,12 +839,12 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
           tanlash mumkin bo'lsa-da, yuborish baribir xato beradi. */}
       {courtOptions.length > 1 && (
         <div className="mb-2 flex flex-wrap items-center gap-1.5">
-          <span className="text-[11px] font-medium text-muted">Sud:</span>
+          <span className="text-[11px] font-medium text-muted">{t('Sud:')}</span>
           <button
             onClick={() => { setCourtFilter('all'); setPage(1); }}
             className={`rounded-lg px-2 py-1 text-[11px] font-medium transition-colors ${courtFilter === 'all' ? 'bg-brand-500/15 text-brand-700 dark:text-brand-300' : 'text-muted hover:bg-surface-2'}`}
           >
-            Hammasi
+            {t('Hammasi')}
           </button>
           {courtOptions.map((c) => {
             const on = courtFilter === c.id;
@@ -843,7 +852,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
               <button
                 key={String(c.id ?? 'none')}
                 onClick={() => { setCourtFilter(c.id); setPage(1); }}
-                title={c.enabled ? undefined : 'ADOLAT’da bu sud elektron ariza qabul qilmaydi'}
+                title={c.enabled ? undefined : t('ADOLAT’da bu sud elektron ariza qabul qilmaydi')}
                 className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-colors ${
                   on ? 'bg-brand-500/15 text-brand-700 dark:text-brand-300' : 'text-muted hover:bg-surface-2'
                 }`}
@@ -858,7 +867,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
               beradi, lekin buni bosishdan OLDIN bilgan ma'qul. */}
           {courtFilter !== 'all' && courtOptions.find((c) => c.id === courtFilter && !c.enabled) && (
             <span className="w-full text-[10px] leading-snug text-amber-600 dark:text-amber-400">
-              Bu sud ADOLAT’da elektron ariza qabul qilmaydi — yuborish xato beradi. Sud administratori yoqishi kerak.
+              {t('Bu sud ADOLAT’da elektron ariza qabul qilmaydi — yuborish xato beradi. Sud administratori yoqishi kerak.')}
             </span>
           )}
         </div>
@@ -869,44 +878,44 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
       ) : error && !data ? (
         <div className="flex items-center justify-between gap-2 rounded-lg border border-rose-500/25 bg-rose-500/[0.04] px-3 py-2 text-[12px] font-medium text-rose-500" role="alert">
           <span>{error}</span>
-          <button onClick={() => load()} className="rounded border border-line px-1.5 py-0.5 text-muted hover:border-brand-500/40">Qayta urinish</button>
+          <button onClick={() => load()} className="rounded border border-line px-1.5 py-0.5 text-muted hover:border-brand-500/40">{t('Qayta urinish')}</button>
         </div>
       ) : (
         <div className={refreshing ? 'opacity-60 transition-opacity duration-200' : 'transition-opacity duration-200'}>
-          {error && <div className="mb-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.05] px-2.5 py-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-300" role="alert">Yangilanmadi — eski roʻyxat koʻrsatilyapti.</div>}
+          {error && <div className="mb-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.05] px-2.5 py-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-300" role="alert">{t('Yangilanmadi — eski roʻyxat koʻrsatilyapti.')}</div>}
           {rows.length === 0 ? (
             // A filter/search switch refetches; the OLD filter's rows may be empty, so show a skeleton
             // while the new list loads instead of a false «Bu filtrda mijoz yoʻq».
             refreshing
               ? <div className="space-y-1.5">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-14 animate-pulse rounded-xl bg-surface-2" />)}</div>
-              : <div className="rounded-lg border border-line bg-surface px-3 py-6 text-center text-sm text-muted">{debouncedQ ? `«${debouncedQ}» topilmadi` : 'Bu filtrda mijoz yoʻq.'}</div>
+              : <div className="rounded-lg border border-line bg-surface px-3 py-6 text-center text-sm text-muted">{debouncedQ ? `«${debouncedQ}» ${t('topilmadi')}` : t('Bu filtrda mijoz yoʻq.')}</div>
           ) : (
             <>
               {/* Yopishib turadigan YUQORI panel — belgilash + «Sudga yuborish» doim ko'rinadi (pastda qolmaydi). */}
               {filter === 'sendable' && selectableIds.length > 0 && (
                 <div className="sticky top-0 z-20 mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-surface/95 px-2.5 py-1.5 shadow-sm backdrop-blur">
-                  <label className="flex cursor-pointer items-center gap-2 text-xs font-medium" title="Barcha tayyorlarni belgilash">
-                    <input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Hammasini belgilash" className="peer sr-only" />
+                  <label className="flex cursor-pointer items-center gap-2 text-xs font-medium" title={t('Barcha tayyorlarni belgilash')}>
+                    <input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label={t('Hammasini belgilash')} className="peer sr-only" />
                     <span className={`grid h-5 w-5 place-items-center rounded-md border-2 transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/30 ${allSelected ? 'border-brand-500 bg-brand-500 text-white' : someSelected ? 'border-brand-500 bg-brand-500/15 text-brand-600 dark:text-brand-400' : 'border-line bg-surface text-transparent hover:border-brand-500/60'}`}>
                       {allSelected
                         ? <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round"><path d="m20 6-11 11-5-5" /></svg>
                         : <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3.5} strokeLinecap="round"><path d="M6 12h12" /></svg>}
                     </span>
-                    Hammasini belgilash{filtered.length > MAX_COURT_BATCH ? ` (birinchi ${MAX_COURT_BATCH})` : ''}
+                    {t('Hammasini belgilash')}{filtered.length > MAX_COURT_BATCH ? ` (${t('birinchi')} ${MAX_COURT_BATCH})` : ''}
                   </label>
                   <div className="flex items-center gap-2">
                     <span className="text-xs tabular-nums text-muted">{n(selected.size)} / {n(filtered.length)}</span>
                     {selected.size > 0 && (
                       <>
-                        <button onClick={() => setSelected(new Set())} className="btn-ghost text-xs">Bekor</button>
+                        <button onClick={() => setSelected(new Set())} className="btn-ghost text-xs">{t('Bekor')}</button>
                         <button
                           onClick={doExport}
                           disabled={running}
                           title={batchActive
-                            ? `Bu firmaning partiyasi hozir ${batchActive.status === 'RUNNING' ? 'ketmoqda' : 'navbatda'} (#${batchActive.jobId}). Belgilangan ishlar yuborish navbatiga qo'shiladi va o'sha tugashi bilan boshlanadi.`
-                            : `${n(selected.size)} ta belgilangan ishni sudga yuborish`}
+                            ? `${t('Bu firmaning partiyasi hozir')} ${batchActive.status === 'RUNNING' ? t('ketmoqda') : t('navbatda')} (#${batchActive.jobId}). ${t("Belgilangan ishlar yuborish navbatiga qo'shiladi va o'sha tugashi bilan boshlanadi.")}`
+                            : `${n(selected.size)} ${t('ta belgilangan ishni sudga yuborish')}`}
                           className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-40">
-                          {batchActive ? <><IcoPlus /> Navbatga qo‘shish ({n(selected.size)})</> : <><IcoBolt /> Sudga yuborish ({n(selected.size)})</>}
+                          {batchActive ? <><IcoPlus /> {t('Navbatga qo‘shish')} ({n(selected.size)})</> : <><IcoBolt /> {t('Sudga yuborish')} ({n(selected.size)})</>}
                         </button>
                       </>
                     )}
@@ -920,9 +929,9 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
               </div>
               {pages > 1 && (
                 <div className="mt-2 flex items-center justify-between">
-                  <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="btn-ghost px-2 py-1 text-xs disabled:opacity-40">Oldingi</button>
-                  <span className="text-xs tabular-nums text-muted">Sahifa {page} / {pages} · {n(filtered.length)} ta</span>
-                  <button onClick={() => setPage((p) => Math.min(pages, p + 1))} disabled={page >= pages} className="btn-ghost px-2 py-1 text-xs disabled:opacity-40">Keyingi</button>
+                  <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="btn-ghost px-2 py-1 text-xs disabled:opacity-40">{t('Oldingi')}</button>
+                  <span className="text-xs tabular-nums text-muted">{t('Sahifa')} {page} / {pages} · {n(filtered.length)} {t('ta')}</span>
+                  <button onClick={() => setPage((p) => Math.min(pages, p + 1))} disabled={page >= pages} className="btn-ghost px-2 py-1 text-xs disabled:opacity-40">{t('Keyingi')}</button>
                 </div>
               )}
             </>
@@ -939,6 +948,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
 // bazada saqlanadi — deploy/restart'dan keyin ham kuchda qoladi. Pauzada ishlar navbatda
 // (PENDING) qoladi va davom ettirilganda aynan shu joydan ketadi.
 function PauseSwitch() {
+  const t = useT();
   const [paused, setPaused] = useState<boolean | null>(null);
   const [counts, setCounts] = useState<Record<string, number> | null>(null);
   // Haqiqatan partiya ketyaptimi — JOB holatidan (navbat yozuvidan emas: uzilgan
@@ -994,7 +1004,7 @@ function PauseSwitch() {
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className={`text-[12px] font-semibold ${paused ? 'text-amber-700 dark:text-amber-300' : 'text-fg'}`}>
-            {paused ? 'Sudga yuborish to‘xtatilgan' : running ? 'Yuborilmoqda' : waiting > 0 ? 'Navbat kutmoqda' : 'Sudga yuborish faol'}
+            {paused ? t('Sudga yuborish to‘xtatilgan') : running ? t('Yuborilmoqda') : waiting > 0 ? t('Navbat kutmoqda') : t('Sudga yuborish faol')}
           </span>
           {/* Umumiy raqamlar — barcha firmalar bo'yicha, bir qarashda.
               `role="status"` + `aria-atomic` bitta MA'NOLI jumla bilan: har 5 soniyada
@@ -1005,26 +1015,26 @@ function PauseSwitch() {
               className="flex flex-wrap items-center gap-1 text-[11px] tabular-nums"
               role="status"
               aria-atomic="true"
-              aria-label={`Sudga yuborish: ${n(done)} ketdi, ${n(waiting)} navbatda, ${n(skipped)} boji to'lanmagan, ${n(failed)} yuborilmadi`}
+              aria-label={`${t('Sudga yuborish')}: ${n(done)} ${t('ketdi')}, ${n(waiting)} ${t('navbatda')}, ${n(skipped)} ${t("boji to'lanmagan")}, ${n(failed)} ${t('yuborilmadi')}`}
             >
               {waiting > 0 && (
-                <span className="rounded bg-slate-500/12 px-1.5 py-0.5 font-medium text-slate-600 dark:text-slate-300" title="Navbatda va ishlanmoqda">
-                  {n(waiting)} navbatda
+                <span className="rounded bg-slate-500/12 px-1.5 py-0.5 font-medium text-slate-600 dark:text-slate-300" title={t('Navbatda va ishlanmoqda')}>
+                  {n(waiting)} {t('navbatda')}
                 </span>
               )}
               {done > 0 && (
-                <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-medium text-emerald-700 dark:text-emerald-300" title="ADOLAT qabul qilgan">
-                  {n(done)} ketdi
+                <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-medium text-emerald-700 dark:text-emerald-300" title={t('ADOLAT qabul qilgan')}>
+                  {n(done)} {t('ketdi')}
                 </span>
               )}
               {skipped > 0 && (
-                <span className="rounded bg-amber-500/15 px-1.5 py-0.5 font-medium text-amber-700 dark:text-amber-300" title="Davlat boji to‘lanmagan — portalga umuman chiqarilmadi. Buxgalteriya to‘lovni o‘tkazgach ish o‘zi navbatga qaytadi.">
-                  {n(skipped)} boji to‘lanmagan
+                <span className="rounded bg-amber-500/15 px-1.5 py-0.5 font-medium text-amber-700 dark:text-amber-300" title={t('Davlat boji to‘lanmagan — portalga umuman chiqarilmadi. Buxgalteriya to‘lovni o‘tkazgach ish o‘zi navbatga qaytadi.')}>
+                  {n(skipped)} {t('boji to‘lanmagan')}
                 </span>
               )}
               {failed > 0 && (
-                <span className="rounded bg-rose-500/15 px-1.5 py-0.5 font-medium text-rose-700 dark:text-rose-300" title="Xato bergan — firma qatoridagi navbat panelidan sababini ko‘ring">
-                  {n(failed)} yuborilmadi
+                <span className="rounded bg-rose-500/15 px-1.5 py-0.5 font-medium text-rose-700 dark:text-rose-300" title={t('Xato bergan — firma qatoridagi navbat panelidan sababini ko‘ring')}>
+                  {n(failed)} {t('yuborilmadi')}
                 </span>
               )}
             </span>
@@ -1035,7 +1045,7 @@ function PauseSwitch() {
       <button
         onClick={toggle}
         disabled={busy}
-        title={paused ? 'Jarayonni davom ettirish' : 'Butun jarayonni vaqtincha to‘xtatish'}
+        title={paused ? t('Jarayonni davom ettirish') : t('Butun jarayonni vaqtincha to‘xtatish')}
         className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-semibold outline-none transition-colors focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50 ${
           paused
             ? 'border-emerald-500/45 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/[0.18] focus-visible:ring-emerald-500/30 dark:text-emerald-300'
@@ -1049,7 +1059,7 @@ function PauseSwitch() {
         ) : (
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M7 4h3.5v16H7zM13.5 4H17v16h-3.5z" /></svg>
         )}
-        {busy ? 'Kutilmoqda' : paused ? 'Davom ettirish' : 'Pauza'}
+        {busy ? t('Kutilmoqda') : paused ? t('Davom ettirish') : t('Pauza')}
       </button>
     </div>
   );
@@ -1075,6 +1085,7 @@ const Q_STATE: Record<string, { label: string; tone: string }> = {
 // ya'ni firma qatoridagi sonlar ham o'zgaradi. Busiz panel yangilanar, tepasi esa
 // eski raqamlarni ko'rsatib turardi.
 function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean; onChanged?: () => void }) {
+  const t = useT();
   const [data, setData] = useState<{ counts: Record<string, number>; rows: QueueRow[]; truncated?: boolean; totalAll?: number } | null>(null);
   const [open, setOpen] = useState(false);
 
@@ -1100,13 +1111,13 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
   const cancelQueue = async (waitingNow: number, doneNow: number) => {
     if (cancelBusy) return;
     const ok = await confirmQ({
-      title: 'Navbat bekor qilinsinmi?',
+      title: t('Navbat bekor qilinsinmi?'),
       description:
-        `Navbatda turgan ${n(waitingNow)} ta ish ro'yxatdan chiqariladi va ularga hech narsa yuborilmaydi. ` +
-        `Allaqachon yuborilgan ${n(doneNow)} ta ishga TEGILMAYDI — ular sudda qolaveradi. ` +
-        `Ayni damda portalga ketayotgan bitta ish oxirigacha boradi (yarim yo'lda uzilsa ADOLAT'da yetim qoralama qoladi). ` +
-        `Firma to'xtatilgan holatga o'tadi — keyin xohlasangiz «Sudga yuborish» bilan qaytadan navbat tuzasiz.`,
-      confirmLabel: 'Ha, bekor qilinsin',
+        `${t('Navbatda turgan')} ${n(waitingNow)} ${t("ta ish ro'yxatdan chiqariladi va ularga hech narsa yuborilmaydi.")} ` +
+        `${t('Allaqachon yuborilgan')} ${n(doneNow)} ${t('ta ishga TEGILMAYDI — ular sudda qolaveradi.')} ` +
+        `${t("Ayni damda portalga ketayotgan bitta ish oxirigacha boradi (yarim yo'lda uzilsa ADOLAT'da yetim qoralama qoladi).")} ` +
+        `${t("Firma to'xtatilgan holatga o'tadi — keyin xohlasangiz «Sudga yuborish» bilan qaytadan navbat tuzasiz.")}`,
+      confirmLabel: t('Ha, bekor qilinsin'),
       danger: true,
     });
     if (!ok) return;
@@ -1118,12 +1129,12 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
         body: JSON.stringify({ firmId }),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) { setErr(d?.error || 'Bekor qilinmadi'); return; }
+      if (!r.ok) { setErr(d?.error || t('Bekor qilinmadi')); return; }
       setFirmPaused(true);
       await load();
       onChanged?.();   // firma qatoridagi «Tayyor / Sudda» sonlari ham darhol yangilansin
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Bekor qilinmadi');
+      setErr(e instanceof Error ? e.message : t('Bekor qilinmadi'));
     } finally { setCancelBusy(false); }
   };
 
@@ -1138,13 +1149,13 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
   const retryFailed = async (failedNow: number) => {
     if (retryBusy) return;
     const ok = await confirmQ({
-      title: 'Xato berganlar qayta yuborilsinmi?',
+      title: t('Xato berganlar qayta yuborilsinmi?'),
       description:
-        `${n(failedNow)} ta ish qaytadan navbatga qo'yiladi va sudga yuboriladi. ` +
-        `ADOLAT'da ishi bor (ya'ni da'vosi allaqachon qabul qilingan) ishlar bunga KIRMAYDI — ` +
-        `bir odamga ikkinchi da'vo ochilmaydi. ` +
-        `Sabab tuzatilmagan bo'lsa, sud yana rad etishi mumkin.`,
-      confirmLabel: 'Ha, qayta yuborilsin',
+        `${n(failedNow)} ${t("ta ish qaytadan navbatga qo'yiladi va sudga yuboriladi.")} ` +
+        `${t("ADOLAT'da ishi bor (ya'ni da'vosi allaqachon qabul qilingan) ishlar bunga KIRMAYDI —")} ` +
+        `${t("bir odamga ikkinchi da'vo ochilmaydi.")} ` +
+        `${t("Sabab tuzatilmagan bo'lsa, sud yana rad etishi mumkin.")}`,
+      confirmLabel: t('Ha, qayta yuborilsin'),
     });
     if (!ok) return;
     setRetryBusy(true);
@@ -1155,11 +1166,11 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
         body: JSON.stringify({ firmId, retryFailed: true }),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) { setErr(d?.error || 'Qayta yuborilmadi'); return; }
+      if (!r.ok) { setErr(d?.error || t('Qayta yuborilmadi')); return; }
       await load();
       onChanged?.();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Qayta yuborilmadi');
+      setErr(e instanceof Error ? e.message : t('Qayta yuborilmadi'));
     } finally { setRetryBusy(false); }
   };
 
@@ -1182,7 +1193,7 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
     } catch (e) {
       // Avval bu jimgina yutilardi — sessiya tugaganda panel eski raqamlarni ko'rsatib
       // turaverardi va operator ular hozirgi holat deb o'ylardi.
-      setErr(e instanceof Error ? e.message : 'Navbat holatini o‘qib bo‘lmadi');
+      setErr(e instanceof Error ? e.message : t('Navbat holatini o‘qib bo‘lmadi'));
     }
   }, [firmId]);
 
@@ -1235,7 +1246,7 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
           onClick={() => setOpen((v) => !v)}
           className={`group flex min-w-0 items-center gap-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30 ${waiting > 0 ? 'flex-1' : 'ml-auto'}`}
           aria-expanded={open}
-          aria-label={`Navbat tafsiloti: ${n(done)} ketdi, ${n(waiting)} navbatda, ${n(skipped)} boji to'lanmagan, ${n(failed)} yuborilmadi`}
+          aria-label={`${t('Navbat tafsiloti')}: ${n(done)} ${t('ketdi')}, ${n(waiting)} ${t('navbatda')}, ${n(skipped)} ${t("boji to'lanmagan")}, ${n(failed)} ${t('yuborilmadi')}`}
         >
           {waiting > 0 && (
             <span className="flex h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-2" aria-hidden>
@@ -1248,22 +1259,22 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
             {done > 0 && (
               <span
                 className="font-semibold text-emerald-600 dark:text-emerald-400"
-                title="Shu NAVBAT orqali ketganlar. Yuqoridagi «Sudda» — firmaning sudga topshirilgan BARCHA ishlari (navbatdan oldin qo'lda yuborilganlar ham), shuning uchun u kattaroq bo'lishi mumkin."
-              >{n(done)} ketdi</span>
+                title={t("Shu NAVBAT orqali ketganlar. Yuqoridagi «Sudda» — firmaning sudga topshirilgan BARCHA ishlari (navbatdan oldin qo'lda yuborilganlar ham), shuning uchun u kattaroq bo'lishi mumkin.")}
+              >{n(done)} {t('ketdi')}</span>
             )}
-            {waiting > 0 && <span className="text-muted">{n(waiting)} navbatda</span>}
+            {waiting > 0 && <span className="text-muted">{n(waiting)} {t('navbatda')}</span>}
             {/* Taxminiy vaqt — har ish ~60s. Busiz ro'yxat «qotib qolgan»dek ko'rinadi. */}
             {live && waiting > 0 && (
-              <span className="text-muted" title="Har ish orasida sud sozlamasidagi interval (standart 60s)">
-                ≈{waiting >= 60 ? `${Math.round(waiting / 60)} soat` : `${waiting} daq`}
+              <span className="text-muted" title={t('Har ish orasida sud sozlamasidagi interval (standart 60s)')}>
+                ≈{waiting >= 60 ? `${Math.round(waiting / 60)} ${t('soat')}` : `${waiting} ${t('daq')}`}
               </span>
             )}
             {skipped > 0 && (
-              <span className="font-semibold text-amber-600 dark:text-amber-400" title="Davlat boji to‘lanmagan — portalga umuman chiqarilmadi. To‘langach o‘zi navbatga qaytadi.">
-                {n(skipped)} boji to‘lanmagan
+              <span className="font-semibold text-amber-600 dark:text-amber-400" title={t('Davlat boji to‘lanmagan — portalga umuman chiqarilmadi. To‘langach o‘zi navbatga qaytadi.')}>
+                {n(skipped)} {t('boji to‘lanmagan')}
               </span>
             )}
-            {failed > 0 && <span className="font-semibold text-rose-600 dark:text-rose-400">{n(failed)} yuborilmadi</span>}
+            {failed > 0 && <span className="font-semibold text-rose-600 dark:text-rose-400">{n(failed)} {t('yuborilmadi')}</span>}
             <svg
               className={`h-3.5 w-3.5 text-muted transition-transform ${open ? 'rotate-180' : ''}`}
               viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden
@@ -1278,10 +1289,10 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
           <button
             onClick={() => { void retryFailed(failed); }}
             disabled={retryBusy}
-            title="Xato bergan / sud rad etgan ishlarni qaytadan navbatga qo‘yish"
+            title={t('Xato bergan / sud rad etgan ishlarni qaytadan navbatga qo‘yish')}
             className="h-7 shrink-0 rounded-lg border border-brand-500/40 bg-brand-500/10 px-2.5 text-[11px] font-semibold text-brand-700 outline-none transition-colors hover:bg-brand-500/[0.18] focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50 dark:text-brand-300"
           >
-            {retryBusy ? '…' : `Qayta yuborish (${n(failed)})`}
+            {retryBusy ? '…' : `${t('Qayta yuborish')} (${n(failed)})`}
           </button>
         )}
 
@@ -1290,22 +1301,22 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
           <>
             {firmPaused && (
               <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
-                To‘xtatilgan
+                {t('To‘xtatilgan')}
               </span>
             )}
             <button
               onClick={toggleFirmPause}
               disabled={pauseBusy}
               title={firmPaused
-                ? 'Shu firmani davom ettirish'
-                : 'Faqat SHU firmani to‘xtatish — boshqa firmalar ishlayveradi'}
+                ? t('Shu firmani davom ettirish')
+                : t('Faqat SHU firmani to‘xtatish — boshqa firmalar ishlayveradi')}
               className={`h-7 shrink-0 rounded-lg border px-2.5 text-[11px] font-semibold outline-none transition-colors focus-visible:ring-2 disabled:opacity-50 ${
                 firmPaused
                   ? 'border-emerald-500/45 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/[0.18] focus-visible:ring-emerald-500/30 dark:text-emerald-300'
                   : 'border-line text-muted hover:border-amber-500/45 hover:bg-amber-500/10 hover:text-amber-700 focus-visible:ring-amber-500/30 dark:hover:text-amber-300'
               }`}
             >
-              {pauseBusy ? '…' : firmPaused ? 'Davom ettirish' : 'To‘xtatish'}
+              {pauseBusy ? '…' : firmPaused ? t('Davom ettirish') : t('To‘xtatish')}
             </button>
             {/* BEKOR — «To'xtatish»dan boshqa amal, shuning uchun alohida tugma.
                 To'xtatish = vaqtincha (ishlar navbatda qoladi); Bekor = navbat chopiladi.
@@ -1313,10 +1324,10 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
             <button
               onClick={() => { void cancelQueue(waiting, done); }}
               disabled={cancelBusy}
-              title="Navbatdagi qolgan ishlarni butunlay bekor qilish (yuborilganlarga tegmaydi)"
+              title={t('Navbatdagi qolgan ishlarni butunlay bekor qilish (yuborilganlarga tegmaydi)')}
               className="h-7 shrink-0 rounded-lg border border-line px-2.5 text-[11px] font-semibold text-muted outline-none transition-colors hover:border-rose-500/45 hover:bg-rose-500/10 hover:text-rose-600 focus-visible:ring-2 focus-visible:ring-rose-500/30 disabled:opacity-50 dark:hover:text-rose-300"
             >
-              {cancelBusy ? '…' : 'Bekor'}
+              {cancelBusy ? '…' : t('Bekor')}
             </button>
           </>
         )}
@@ -1342,7 +1353,7 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
                 <div className="flex items-center gap-2">
                   {/* Tartib raqami — 99 ta ish orasida qaysi biri qayerdaligini ko'rish uchun. */}
                   <span className="w-6 shrink-0 text-right tabular-nums text-muted">{i + 1}.</span>
-                  <span className={`shrink-0 rounded px-1.5 py-0.5 font-medium ${st.tone}`}>{st.label}</span>
+                  <span className={`shrink-0 rounded px-1.5 py-0.5 font-medium ${st.tone}`}>{t(st.label)}</span>
                   <span className="min-w-0 truncate font-medium">{row.clientName || `#${row.caseId}`}</span>
                   {/* Ayni paytdagi bosqich — faqat ketayotgan ish uchun. Busiz «Ketyapti»
                       60 soniya qimirlamay turadi va qotib qolgandek ko'rinadi. */}
@@ -1353,12 +1364,12 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
                       ishda «necha urinishda ketdi» ahamiyatsiz, lekin «Yuborildi» yonida
                       turgan «2×» operatorni chalkashtiradi (nima 2 marta bo'ldi — yuborildimi?). */}
                   {row.attempts > 1 && row.state !== 'DONE' && (
-                    <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-[10px] text-muted" title="Shuncha marta urinilgan">
-                      {row.attempts}-urinish
+                    <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-[10px] text-muted" title={t('Shuncha marta urinilgan')}>
+                      {row.attempts}-{t('urinish')}
                     </span>
                   )}
                   {row.caseNumber && (
-                    <span className="ml-auto shrink-0 font-mono text-[10px] text-emerald-600 dark:text-emerald-400" title="Sud ish raqami">
+                    <span className="ml-auto shrink-0 font-mono text-[10px] text-emerald-600 dark:text-emerald-400" title={t('Sud ish raqami')}>
                       {row.caseNumber}
                     </span>
                   )}
@@ -1372,7 +1383,7 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
                 )}
                 {/* Xato bo'lsa ham qoralama yaratilgan bo'lishi mumkin — ADOLAT'da yetim qolmasin. */}
                 {failedRow && row.draftId && (
-                  <p className="mt-0.5 font-mono text-[10px] text-muted">ADOLAT qoralama: {row.draftId}</p>
+                  <p className="mt-0.5 font-mono text-[10px] text-muted">{t('ADOLAT qoralama:')} {row.draftId}</p>
                 )}
               </li>
             );
@@ -1382,7 +1393,7 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
               yo'qday tuyuladi. Sanoqlar esa yuqorida to'liq turadi. */}
           {data.truncated && (
             <li className="px-2 py-1.5 text-center text-[11px] text-muted">
-              Ro‘yxatda {data.rows.length} ta ko‘rsatildi (jami {data.totalAll}). Qolganini yuqoridagi sanoqlardan ko‘ring.
+              {t('Ro‘yxatda')} {data.rows.length} {t('ta ko‘rsatildi (jami')} {data.totalAll}). {t('Qolganini yuqoridagi sanoqlardan ko‘ring.')}
             </li>
           )}
         </ul>
@@ -1402,13 +1413,14 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
   /** Butun ro'yxatda navbatda ish bormi — «Navbatda» ustunini ko'rsatish/yashirish uchun. */
   showQueued?: boolean;
 }) {
+  const t = useT();
   const pct = fr.total ? (fr.ready / fr.total) * 100 : 0;
   const [includeExported, setIncludeExported] = useState(false); // «qaytadan» — allaqachon yuborilganlarni ham qo'shish
   const docsOk = fr.docs?.complete !== false; // firma hujjatlari (guvohnoma/ishonchnoma/shartnoma) to'liqmi
   const docsMissing = fr.docs?.missing ?? [];
   const docsTip = docsOk
-    ? 'Firma hujjatlari to‘liq: guvohnoma, ishonchnoma, shartnoma'
-    : `Firma hujjatlari yetishmaydi: ${docsMissing.join(', ')}. Firmalar → firma → «Hujjatlar»dan yuklang. To‘liq bo‘lmaguncha sudga yuborib bo‘lmaydi.`;
+    ? t('Firma hujjatlari to‘liq: guvohnoma, ishonchnoma, shartnoma')
+    : `${t('Firma hujjatlari yetishmaydi:')} ${docsMissing.join(', ')}. ${t('Firmalar → firma → «Hujjatlar»dan yuklang. To‘liq bo‘lmaguncha sudga yuborib bo‘lmaydi.')}`;
 
   // ⋮ menyu (qo'shimcha amallar) + hisobot modali. Detalni kamaytirish: asosiy son/tugma
   // ko'rinadi, qolgani menyuda.
@@ -1442,15 +1454,15 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className={`truncate font-semibold ${docsOk ? '' : 'text-muted'}`} title={fr.firmName}>{fr.firmName}</span>
-            <span className="rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted">{n(fr.total)} jami</span>
+            <span className="rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted">{n(fr.total)} {t('jami')}</span>
             {/* Firma hujjatlari holati — ustiga borilsa qaysilari kerak/yetishmayotgani ko'rinadi. */}
             <span
               title={docsTip}
               className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${docsOk ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-amber-500/20 text-amber-700 dark:text-amber-300'}`}
             >
               {docsOk
-                ? <><svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round"><path d="m20 6-11 11-5-5" /></svg>Hujjatlar</>
-                : <><svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>Hujjat yetishmaydi</>}
+                ? <><svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round"><path d="m20 6-11 11-5-5" /></svg>{t('Hujjatlar')}</>
+                : <><svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>{t('Hujjat yetishmaydi')}</>}
             </span>
           </div>
           {/* Yetishmagan firma hujjatlari — aniq qaysilari (rasmga mos: guvohnoma/ishonchnoma/shartnoma). */}
@@ -1459,12 +1471,12 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
               {FIRM_DOCS_ALL.map((k) => {
                 const miss = docsMissing.includes(k);
                 return (
-                  <span key={k} className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium ${miss ? 'bg-rose-500/15 text-rose-600 dark:text-rose-300' : 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'}`} title={miss ? `${k} yetishmaydi` : `${k} bor`}>
+                  <span key={k} className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium ${miss ? 'bg-rose-500/15 text-rose-600 dark:text-rose-300' : 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'}`} title={miss ? `${k} ${t('yetishmaydi')}` : `${k} ${t('bor')}`}>
                     {miss ? '✕' : '✓'} {k}
                   </span>
                 );
               })}
-              <span className="text-muted">— Firmalar boʻlimidan yuklang</span>
+              <span className="text-muted">{t('— Firmalar boʻlimidan yuklang')}</span>
             </div>
           )}
           {/* Firma qatorida FAQAT ish oqimiga aloqador holatlar: Tayyor emas · Tayyor · Qoralama · Sudda.
@@ -1486,9 +1498,9 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
             // firmada 4, boshqasida 5 ustun bo'lib, qatorlar tekislanmay qolardi.
             <div className={`mt-2 grid max-w-[40rem] grid-cols-2 gap-1.5 sm:grid-cols-3 ${showQueued ? '2xl:grid-cols-[1.3fr_1fr_1fr_1fr_1fr]' : '2xl:grid-cols-[1.3fr_1fr_1fr_1fr]'}`}>
               {FIRM_STAT_CHIPS.filter((f) => f.key !== 'queued' || showQueued).map((f) => (
-                <span key={f.key} className="inline-flex min-w-0 items-center gap-1.5 rounded-lg bg-surface-2 px-2 py-1 text-[11px] font-medium" title={f.label}>
+                <span key={f.key} className="inline-flex min-w-0 items-center gap-1.5 rounded-lg bg-surface-2 px-2 py-1 text-[11px] font-medium" title={t(f.label)}>
                   <span className={`shrink-0 ${f.iconCls}`}>{f.icon}</span>
-                  <span className="truncate text-muted">{f.label}</span>
+                  <span className="truncate text-muted">{t(f.label)}</span>
                   {/* «Sudda» ATAYIN ikki qismga bo'linadi: `50+120`.
                       Chapdagi — BIZ yuborganlar, o'ngdagi kichikroq va boshqa rangdagi —
                       yurist ADOLAT'da QO'LDA kiritganlari. Ular ham sudda, ya'ni qayta
@@ -1499,7 +1511,7 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
                       <span className="font-semibold">{n(fr.submitted - fr.submittedExternal)}</span>
                       <span
                         className="text-[10px] font-semibold text-amber-600 dark:text-amber-400"
-                        title={`+${n(fr.submittedExternal)} tasini yurist ADOLAT'da QO'LDA kiritgan — tizim yubormagan. Ular qayta yuborilmaydi. Chapdagi son — tizim yuborganlari.`}
+                        title={`+${n(fr.submittedExternal)} ${t("tasini yurist ADOLAT'da QO'LDA kiritgan — tizim yubormagan. Ular qayta yuborilmaydi. Chapdagi son — tizim yuborganlari.")}`}
                       >+{n(fr.submittedExternal)}</span>
                     </span>
                   ) : (
@@ -1525,10 +1537,10 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
           {autoActive ? (
             <div className="inline-flex shrink-0 items-center gap-2">
               <span className={`${ROW_BTN} border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300`}>
-                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" /> Auto{job && (job.status === 'RUNNING' || job.status === 'PENDING') ? ' · ketyapti' : ''}
+                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" /> {t('Auto')}{job && (job.status === 'RUNNING' || job.status === 'PENDING') ? ` · ${t('ketyapti')}` : ''}
               </span>
               <button type="button" onClick={() => onStopAuto?.()} className={`${ROW_BTN} border border-rose-500/40 text-rose-600 hover:bg-rose-500/10 focus-visible:ring-rose-500/30 dark:text-rose-300`}>
-                To‘xtatish
+                {t('To‘xtatish')}
               </button>
             </div>
           ) : (
@@ -1541,7 +1553,7 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
                 <button type="button" disabled title={docsTip}
                   className={`${ROW_BTN} border border-amber-500/40 bg-amber-500/10 text-amber-700 opacity-90 dark:text-amber-300`}>
                   <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
-                  Hujjat kerak
+                  {t('Hujjat kerak')}
                 </button>
               )}
             </>
@@ -1549,7 +1561,7 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
 
           {/* ⋮ MENYU — asosiy amal (Sudga yuborish/Qoralama) + batafsil / hisobot / ZIP */}
           <div ref={menuRef} className="relative shrink-0">
-            <button type="button" onClick={() => setMenuOpen((v) => !v)} aria-expanded={menuOpen} aria-haspopup="menu" title="Amallar"
+            <button type="button" onClick={() => setMenuOpen((v) => !v)} aria-expanded={menuOpen} aria-haspopup="menu" title={t('Amallar')}
               className={`inline-flex ${ROW_H} w-9 items-center justify-center rounded-lg border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-500/30 ${menuOpen || drillOpen ? 'border-brand-500/40 bg-surface-2 text-fg' : 'border-line text-muted hover:border-brand-500/40 hover:bg-surface-2 hover:text-fg'}`}>
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden><circle cx="12" cy="5" r="1.7" /><circle cx="12" cy="12" r="1.7" /><circle cx="12" cy="19" r="1.7" /></svg>
             </button>
@@ -1560,11 +1572,11 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
                   <>
                     <button type="button" role="menuitem" onClick={() => { startExport(fr.firmId, {}); setMenuOpen(false); }}
                       className={`${MENU_ITEM} justify-between font-semibold text-emerald-700 dark:text-emerald-300`} disabled={fr.sendable <= 0 && !jobActive}
-                      title={fr.sendable > 0 ? 'Soni so‘raladi — navbatga qo‘shish yoki yuborish/qoralama' : jobActive ? 'Ayni damda yuborilmoqda' : 'Yuboriladigan tayyor ish yo‘q'}>
-                      <span>Sudga yuborish / Qoralama{fr.sendable > 0 ? ` (${n(fr.sendable)})` : ''}</span>
+                      title={fr.sendable > 0 ? t('Soni so‘raladi — navbatga qo‘shish yoki yuborish/qoralama') : jobActive ? t('Ayni damda yuborilmoqda') : t('Yuboriladigan tayyor ish yo‘q')}>
+                      <span>{t('Sudga yuborish / Qoralama')}{fr.sendable > 0 ? ` (${n(fr.sendable)})` : ''}</span>
                       {jobActive && job && (
                         <span className="inline-flex shrink-0 items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:text-sky-300">
-                          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-500" /> ketyapti {n(job.progress ?? 0)}/{n(job.total ?? 0)}
+                          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-500" /> {t('ketyapti')} {n(job.progress ?? 0)}/{n(job.total ?? 0)}
                         </span>
                       )}
                     </button>
@@ -1572,18 +1584,18 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
                   </>
                 )}
                 <button type="button" role="menuitem" onClick={() => { if (!drillOpen) onToggleDrill(); setMenuOpen(false); }} className={MENU_ITEM}>
-                  Mijozlar (batafsil)
+                  {t('Mijozlar (batafsil)')}
                 </button>
                 <button type="button" role="menuitem" onClick={() => { setQueueOpen(true); setMenuOpen(false); }} className={`${MENU_ITEM} justify-between`}>
-                  <span>Yuborilayotganlar / navbat</span>
-                  {jobActive && <span className="inline-flex shrink-0 items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:text-sky-300"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-500" /> ketyapti</span>}
+                  <span>{t('Yuborilayotganlar / navbat')}</span>
+                  {jobActive && <span className="inline-flex shrink-0 items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:text-sky-300"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-500" /> {t('ketyapti')}</span>}
                 </button>
                 <button type="button" role="menuitem" onClick={() => { setReportOpen(true); setMenuOpen(false); }} className={MENU_ITEM}>
-                  Hisobot
+                  {t('Hisobot')}
                 </button>
                 {docsOk && !zipShown && (
-                  <button type="button" role="menuitem" onClick={() => { onZip?.(); setMenuOpen(false); }} className={MENU_ITEM} title="Hujjatlarni bitta arxivga — sudga YUBORMAYDI">
-                    ZIP — hujjatlarni yuklab olish
+                  <button type="button" role="menuitem" onClick={() => { onZip?.(); setMenuOpen(false); }} className={MENU_ITEM} title={t('Hujjatlarni bitta arxivga — sudga YUBORMAYDI')}>
+                    {t('ZIP — hujjatlarni yuklab olish')}
                   </button>
                 )}
               </div>
@@ -1595,20 +1607,20 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
       {/* YUBORILAYOTGANLAR / navbat holati — endi alohida MODALда (qator ostида emas).
           Xato sabablari, progress, davom ettirish — hammasi shu modalда. */}
       {queueOpen && (
-        <Modal open onClose={() => setQueueOpen(false)} title={`Yuborilayotganlar / navbat — ${fr.firmName}`} size="lg">
+        <Modal open onClose={() => setQueueOpen(false)} title={`${t('Yuborilayotganlar / navbat —')} ${fr.firmName}`} size="lg">
           <QueuePanel firmId={fr.firmId} live onChanged={onChanged} />
         </Modal>
       )}
       {/* MIJOZLAR (batafsil) — endi MODALда (qator ostида emas). */}
       {drillOpen && (
-        <Modal open onClose={onToggleDrill} title={`Mijozlar — ${fr.firmName}`} description={`${n(fr.total)} ta ish · ${n(fr.sendable)} tayyor`} size="xl">
+        <Modal open onClose={onToggleDrill} title={`${t('Mijozlar —')} ${fr.firmName}`} description={`${n(fr.total)} ${t('ta ish')} · ${n(fr.sendable)} ${t('tayyor')}`} size="xl">
           <ClientDrilldown firmId={fr.firmId} snapshotId={snapshotId} job={job} startExport={(caseIds) => startExport(fr.firmId, { caseIds, draftMode: true })} onChanged={onChanged} batchActive={batchActive} />
         </Modal>
       )}
 
       {/* HISOBOT modali — firma tayyorligi tafsiloti (⋮ menyudan ochiladi). */}
       {reportOpen && (
-        <Modal open onClose={() => setReportOpen(false)} title={`Hisobot — ${fr.firmName}`} description={`Jami ${n(fr.total)} ta ish`} size="lg">
+        <Modal open onClose={() => setReportOpen(false)} title={`${t('Hisobot —')} ${fr.firmName}`} description={`${t('Jami')} ${n(fr.total)} ${t('ta ish')}`} size="lg">
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {[
@@ -1620,18 +1632,18 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
                 { label: 'Sudda (yurist qo‘lda)', value: fr.submittedExternal, cls: 'text-amber-600 dark:text-amber-400' },
               ].map((s) => (
                 <div key={s.label} className="rounded-lg border border-line bg-surface-2 px-3 py-2">
-                  <div className="text-[11px] text-muted">{s.label}</div>
+                  <div className="text-[11px] text-muted">{t(s.label)}</div>
                   <div className={`text-lg font-semibold tabular-nums ${s.cls}`}>{n(s.value)}</div>
                 </div>
               ))}
             </div>
 
             <div>
-              <div className="mb-1.5 text-[12px] font-semibold text-muted">Yetishmayotgan hujjatlar (ish soni)</div>
+              <div className="mb-1.5 text-[12px] font-semibold text-muted">{t('Yetishmayotgan hujjatlar (ish soni)')}</div>
               <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-5">
                 {([['Talabnoma', 'talabnoma'], ['Skan', 'scan'], ['Oferta', 'oferta'], ['Chek', 'receipt'], ['Boji', 'boji']] as const).map(([lbl, k]) => (
                   <div key={k} className="rounded-lg bg-surface-2 px-2 py-1.5 text-[11px]">
-                    <div className="text-muted">{lbl}</div>
+                    <div className="text-muted">{t(lbl)}</div>
                     <div className={`font-semibold tabular-nums ${fr.missing[k] ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{n(fr.missing[k])}</div>
                   </div>
                 ))}
@@ -1639,20 +1651,20 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
             </div>
 
             <div>
-              <div className="mb-1.5 text-[12px] font-semibold text-muted">1 qadam qolgan (aynan bittasi yetishmaydi)</div>
+              <div className="mb-1.5 text-[12px] font-semibold text-muted">{t('1 qadam qolgan (aynan bittasi yetishmaydi)')}</div>
               <div className="flex flex-wrap gap-1.5 text-[11px]">
                 {([['Talabnoma', 'talabnoma'], ['Skan', 'scan'], ['Oferta', 'oferta'], ['Chek', 'receipt'], ['Boji', 'boji']] as const)
                   .filter(([, k]) => fr.almost[k] > 0)
                   .map(([lbl, k]) => (
-                    <span key={k} className="rounded bg-amber-500/15 px-2 py-1 font-medium text-amber-700 dark:text-amber-300">{lbl}: {n(fr.almost[k])}</span>
+                    <span key={k} className="rounded bg-amber-500/15 px-2 py-1 font-medium text-amber-700 dark:text-amber-300">{t(lbl)}: {n(fr.almost[k])}</span>
                   ))}
-                {(fr.almost.talabnoma + fr.almost.scan + fr.almost.oferta + fr.almost.receipt + fr.almost.boji) === 0 && <span className="text-muted">Yo‘q</span>}
+                {(fr.almost.talabnoma + fr.almost.scan + fr.almost.oferta + fr.almost.receipt + fr.almost.boji) === 0 && <span className="text-muted">{t('Yo‘q')}</span>}
               </div>
             </div>
 
             <div className={`rounded-lg border px-3 py-2 text-[11px] ${docsOk ? 'border-emerald-500/30 bg-emerald-500/[0.05]' : 'border-amber-500/40 bg-amber-500/[0.05]'}`}>
-              <span className="font-semibold">Firma hujjatlari: </span>
-              {docsOk ? 'to‘liq (guvohnoma, ishonchnoma, shartnoma)' : `yetishmaydi — ${docsMissing.join(', ')}`}
+              <span className="font-semibold">{t('Firma hujjatlari:')} </span>
+              {docsOk ? t('to‘liq (guvohnoma, ishonchnoma, shartnoma)') : `${t('yetishmaydi —')} ${docsMissing.join(', ')}`}
             </div>
           </div>
         </Modal>
@@ -1662,18 +1674,19 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
 }
 
 function ReturnRow({ r, idx }: { r: ReturnCase; idx: number }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const isCourt = r.stage === 'COURT_RETURNED';
   return (
     <div className="animate-fade-in rounded-xl border border-line bg-surface" style={{ animationDelay: `${Math.min(idx, 8) * 40}ms` }}>
       <button onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-3 px-3 py-2.5 text-left outline-none transition-colors hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500/30">
-        <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${isCourt ? 'bg-rose-500/15 text-rose-600 dark:text-rose-300' : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'}`}>{isCourt ? 'Sud qaytardi' : 'Palatadan'}</span>
+        <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${isCourt ? 'bg-rose-500/15 text-rose-600 dark:text-rose-300' : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'}`}>{isCourt ? t('Sud qaytardi') : t('Palatadan')}</span>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">{r.clientName || '—'}</div>
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
             <span className="tabular-nums">{r.pinfl}</span>
             <span className="max-w-[10rem] truncate rounded bg-surface-2 px-1.5 py-0.5 font-medium" title={r.firmName}>{r.firmName}</span>
-            <span className="rounded bg-surface-2 px-1.5 py-0.5">{r.docCount} hujjat</span>
+            <span className="rounded bg-surface-2 px-1.5 py-0.5">{r.docCount} {t('hujjat')}</span>
           </div>
         </div>
         <span className="shrink-0 text-sm font-semibold tabular-nums">{sum(r.totalDebt)}</span>
@@ -1681,7 +1694,7 @@ function ReturnRow({ r, idx }: { r: ReturnCase; idx: number }) {
       </button>
       {open && (
         <div className="border-t border-line bg-surface-2/30 p-3">
-          <div className="mb-2 text-[11px] text-muted">Qo'shimcha fayllarni to'ldiring (palata skan / firma hujjatlari), so'ng «Hammasini yarat» bilan qayta paket oling.</div>
+          <div className="mb-2 text-[11px] text-muted">{t("Qo'shimcha fayllarni to'ldiring (palata skan / firma hujjatlari), so'ng «Hammasini yarat» bilan qayta paket oling.")}</div>
           <CaseDocs caseId={r.caseId} firmId={r.firmId} stage={r.stage} receiptNumber={r.receiptNumber} talabnomaSent={r.talabnomaSent} />
         </div>
       )}
@@ -1705,6 +1718,7 @@ function EmptyBlock({ title, hint }: { title: string; hint?: string }) {
 
 // ── main ─────────────────────────────────────────────────────────────────────
 export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: { firms: { firmId: number; firmName: string; total: number; stir?: string | null }[]; selectedId?: number; initialData?: Data | null; tab?: 'send' | 'stat' | 'returns' }) {
+  const t = useT();
   const confirmQ = useConfirm(); // navbatni to'xtatish/tozalash — qaytarib bo'lmaydigan amallar
   const [firmId, setFirmId] = useState<number | null>(null);
   const [data, setData] = useState<Data | null>(initialData ?? null);
@@ -1755,7 +1769,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
       return d as Data;
     } catch (e) {
       if (my !== reqRef.current) return null;
-      setError(e instanceof Error ? e.message : 'Yuklab boʻlmadi'); // keep stale data — no setData(null)
+      setError(e instanceof Error ? e.message : t('Yuklab boʻlmadi')); // keep stale data — no setData(null)
       return null;
     } finally { if (my === reqRef.current) { setLoading(false); setRefreshing(false); } }
   }, [firmId, selectedId]);
@@ -1824,9 +1838,9 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
         }
       } catch (e) {
         if (++pollFails === WARN_AFTER) {
-          const msg = e instanceof Error ? e.message : 'Holatni o‘qib bo‘lmadi';
+          const msg = e instanceof Error ? e.message : t('Holatni o‘qib bo‘lmadi');
           // Ish SERVERDA davom etyapti — bu faqat ko'rsatkich uzilgani.
-          setJobs((j) => (j[key] ? { ...j, [key]: { ...j[key], error: `${msg} — aloqa tiklanishi kutilmoqda (ish serverda davom etyapti)` } } : j));
+          setJobs((j) => (j[key] ? { ...j, [key]: { ...j[key], error: `${msg} ${t('— aloqa tiklanishi kutilmoqda (ish serverda davom etyapti)')}` } } : j));
         }
         if (pollFails >= WARN_AFTER && period !== SLOW_MS) { period = SLOW_MS; schedule(); }
       }
@@ -1848,20 +1862,20 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     // .catch hamma narsani «Tarmoq xatosi» deb yozardi. Operator ZIP tugmasini qayta-qayta
     // bosardi, holbuki qilishi kerak bo'lgan yagona ish — qaytadan kirish (2026-09-08).
     // Sabab getJson() dagi bilan BIR XIL usulda aniqlanadi (content-type + redirect).
-    let failMsg = 'Tarmoq xatosi';
+    let failMsg = t('Tarmoq xatosi');
     fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       .then((r) => {
         const ct = r.headers.get('content-type') ?? '';
         if (!ct.includes('application/json')) {
           failMsg = r.redirected || r.url.includes('/login')
-            ? 'Sessiya tugagan — sahifani yangilab, qaytadan kiring.'
-            : `Server JSON qaytarmadi (${r.status}). Sahifani yangilab ko‘ring.`;
+            ? t('Sessiya tugagan — sahifani yangilab, qaytadan kiring.')
+            : `${t('Server JSON qaytarmadi')} (${r.status}). ${t('Sahifani yangilab ko‘ring.')}`;
           throw new Error(failMsg);
         }
         return r.json().then((d) => ({ ok: r.ok, d }));
       })
       .then(({ ok, d }) => {
-        if (!ok) { setJobs((j) => ({ ...j, [key]: { jobId: 0, status: 'FAILED', progress: 0, total: 0, error: d?.error || 'Xatolik' } })); return; }
+        if (!ok) { setJobs((j) => ({ ...j, [key]: { jobId: 0, status: 'FAILED', progress: 0, total: 0, error: d?.error || t('Xatolik') } })); return; }
         // `asked` — operator NECHTA so'ragani. Server topgani (`d.total`) undan kam bo'lishi
         // mumkin (masalan tayyorlari kamaygan). Ilgari bu farq jim yo'qolardi va operator
         // «616 so'ragandim, nega 100?» degan savol bilan qolardi.
@@ -1874,7 +1888,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
         // kunida worker tomonidan o'zi yuboriladi. Ilgari bunday javob 400 edi va navbat
         // yozuvi qizil «xato» bo'lib qotib qolardi.
         if (!d.jobId) {
-          setJobs((j) => ({ ...j, [key]: { jobId: 0, status: 'DONE', progress: 0, total: Number(d.queued) || 0, type: 'COURT_SUBMIT', asked, message: d.message || 'Navbatga qo‘yildi' } }));
+          setJobs((j) => ({ ...j, [key]: { jobId: 0, status: 'DONE', progress: 0, total: Number(d.queued) || 0, type: 'COURT_SUBMIT', asked, message: d.message || t('Navbatga qo‘yildi') } }));
           void loadRef.current();
           onDone();
           return;
@@ -1984,10 +1998,10 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     const lim = (extra as { limit?: unknown }).limit;
     const cnt = Array.isArray(ids) ? ids.length : (typeof lim === 'number' ? lim : null);
     const draft = (extra as { draftMode?: boolean }).draftMode === true;
-    const act = draft ? 'ADOLAT\'da qoralama tayyorlaysiz (sudga YUBORILMAYDI — yurist portalda o\'zi yuboradi)' : 'sudga yuborasiz';
+    const act = draft ? t("ADOLAT'da qoralama tayyorlaysiz (sudga YUBORILMAYDI — yurist portalda o'zi yuboradi)") : t('sudga yuborasiz');
     setGate({
-      firmId: fid, firmName: f?.firmName ?? `Firma ${fid}`, stir: f?.stir ?? null, extra,
-      summary: cnt != null ? `${cnt} ta mijoz uchun ${act}. Firma kaliti bilan tasdiqlang.` : `Tayyor mijozlar uchun (bir martada ≤${MAX_COURT_BATCH}) ${act}. Firma kaliti bilan tasdiqlang.`,
+      firmId: fid, firmName: f?.firmName ?? `${t('Firma')} ${fid}`, stir: f?.stir ?? null, extra,
+      summary: cnt != null ? `${cnt} ${t('ta mijoz uchun')} ${act}. ${t('Firma kaliti bilan tasdiqlang.')}` : `${t('Tayyor mijozlar uchun (bir martada ≤')}${MAX_COURT_BATCH}) ${act}. ${t('Firma kaliti bilan tasdiqlang.')}`,
     });
   };
   const startExport = (fid: number, extra: Record<string, unknown> = {}) => {
@@ -1997,7 +2011,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     const fr = data?.readiness.firms.find((f) => f.firmId === fid);
     const max = Math.min(MAX_COURT_BATCH, fr?.sendable ?? 0);
     if (max <= 0) return; // yuboriladigan yo'q
-    setCountAsk({ firmId: fid, firmName: fr?.firmName ?? `Firma ${fid}`, max, queued: fr?.queued ?? 0, value: max, auto: false, draftMode: true });
+    setCountAsk({ firmId: fid, firmName: fr?.firmName ?? `${t('Firma')} ${fid}`, max, queued: fr?.queued ?? 0, value: max, auto: false, draftMode: true });
   };
 
   // ── «Sudga yuborish» modalidagi SUD taqsimoti (ko'rsatkich) ──────────────────
@@ -2093,7 +2107,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     <div className="card p-4">
       <div className="mb-3 flex flex-wrap items-center justify-end gap-3">
         <div className="flex items-center gap-2">
-          {lastLoaded && <span className="hidden text-[11px] text-muted sm:inline">Yangilangan: <span className="tabular-nums">{lastLoaded.toLocaleTimeString('ru-RU')}</span></span>}
+          {lastLoaded && <span className="hidden text-[11px] text-muted sm:inline">{t('Yangilangan:')} <span className="tabular-nums">{lastLoaded.toLocaleTimeString('ru-RU')}</span></span>}
           {/* EXCEL EKSPORTLARI.
               Ilgari bu yerda yolg'iz «Statistika» havolasi turardi va boshqa ikkita eksport
               (sudga qaytganlar, mijozlar ro'yxati) UI'dan umuman ko'rinmasdi — operator ular
@@ -2114,10 +2128,10 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                 <div className="fixed inset-0 z-10" onClick={() => setXlsOpen(false)} aria-hidden />
                 <div className="absolute right-0 z-20 mt-1 w-72 overflow-hidden rounded-xl border border-line bg-surface shadow-lg">
                   {[
-                    { href: `/konveyer/court-stats-excel${selectedId ? `?s=${selectedId}` : ''}`, title: 'Firma statistikasi', hint: 'Har firma: jami · tayyor · sudda · yetishmayotgan hujjatlar' },
-                    { href: `/konveyer/cases-excel${selectedId ? `?s=${selectedId}` : ''}${firmId ? `${selectedId ? '&' : '?'}firmId=${firmId}` : ''}`, title: 'Mijozlar ro‘yxati', hint: 'F.I.O · PINFL · firma · qarzdorlik · boji · muddat' },
-                    { href: `/konveyer/court-returns-excel${selectedId ? `?s=${selectedId}` : ''}${firmId ? `${selectedId ? '&' : '?'}firmId=${firmId}` : ''}`, title: 'Suddan qaytganlar', hint: 'Qayta yuborish uchun ishlash ro‘yxati' },
-                    { href: `/konveyer/unpaid-receipts-excel${firmId ? `?firmId=${firmId}` : ''}`, title: 'To‘lanmagan kvitansiyalar', hint: 'Buxgalteriya uchun: to‘lov kutayotgan ishlar · raqam · summa' },
+                    { href: `/konveyer/court-stats-excel${selectedId ? `?s=${selectedId}` : ''}`, title: t('Firma statistikasi'), hint: t('Har firma: jami · tayyor · sudda · yetishmayotgan hujjatlar') },
+                    { href: `/konveyer/cases-excel${selectedId ? `?s=${selectedId}` : ''}${firmId ? `${selectedId ? '&' : '?'}firmId=${firmId}` : ''}`, title: t('Mijozlar ro‘yxati'), hint: t('F.I.O · PINFL · firma · qarzdorlik · boji · muddat') },
+                    { href: `/konveyer/court-returns-excel${selectedId ? `?s=${selectedId}` : ''}${firmId ? `${selectedId ? '&' : '?'}firmId=${firmId}` : ''}`, title: t('Suddan qaytganlar'), hint: t('Qayta yuborish uchun ishlash ro‘yxati') },
+                    { href: `/konveyer/unpaid-receipts-excel${firmId ? `?firmId=${firmId}` : ''}`, title: t('To‘lanmagan kvitansiyalar'), hint: t('Buxgalteriya uchun: to‘lov kutayotgan ishlar · raqam · summa') },
                   ].map((x) => (
                     <a
                       key={x.href}
@@ -2133,8 +2147,8 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
               </>
             )}
           </div>
-          <Tip label="Yangilash" side="bottom">
-            <button onClick={() => load()} disabled={refreshing} aria-label="Yangilash" className="grid h-9 w-9 place-items-center rounded-xl border border-line text-muted outline-none transition-colors hover:border-brand-500/40 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50">
+          <Tip label={t('Yangilash')} side="bottom">
+            <button onClick={() => load()} disabled={refreshing} aria-label={t('Yangilash')} className="grid h-9 w-9 place-items-center rounded-xl border border-line text-muted outline-none transition-colors hover:border-brand-500/40 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50">
               <IcoRefresh spin={refreshing} />
             </button>
           </Tip>
@@ -2146,15 +2160,15 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
         <div className="grid gap-2 sm:grid-cols-4">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-20 animate-pulse rounded-xl bg-surface-2" />)}</div>
       ) : !data ? (
         <div className="flex items-center justify-between gap-2 rounded-lg border border-rose-500/25 bg-rose-500/[0.04] px-3 py-2 text-[12px] font-medium text-rose-500" role="alert">
-          <span>{error ?? 'Yuklab boʻlmadi'}</span>
-          <button onClick={() => load()} className="rounded border border-line px-1.5 py-0.5 text-muted hover:border-brand-500/40">Qayta urinish</button>
+          <span>{error ?? t('Yuklab boʻlmadi')}</span>
+          <button onClick={() => load()} className="rounded border border-line px-1.5 py-0.5 text-muted hover:border-brand-500/40">{t('Qayta urinish')}</button>
         </div>
       ) : (
         <div className={refreshing ? 'opacity-60 transition-opacity duration-200' : 'transition-opacity duration-200'}>
           {error && (
             <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.05] px-3 py-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-300" role="alert">
-              <span>Yangilanmadi ({error}) — eski maʼlumot koʻrsatilyapti.</span>
-              <button onClick={() => load()} className="rounded border border-line px-1.5 py-0.5 hover:border-amber-500/50">Qayta</button>
+              <span>{t('Yangilanmadi')} ({error}) — {t('eski maʼlumot koʻrsatilyapti.')}</span>
+              <button onClick={() => load()} className="rounded border border-line px-1.5 py-0.5 hover:border-amber-500/50">{t('Qayta')}</button>
             </div>
           )}
 
@@ -2170,12 +2184,12 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                         va operator qaysi biri rost ekanini bilmasdi (2026-09-07).
                         Farq — sudga ALLAQACHON ketganlar: hujjati to'liq (ready) ichida
                         ular ham bor, «yuborishga tayyor» (sendable) ichida esa yo'q. */}
-                    <div className="text-[11px] font-medium text-muted">Hujjati to‘liq</div>
-                    <div className="text-sm font-semibold" title="5 shart bajarilgan: talabnoma + imzolangan skan + oferta + check + boji raqami. Sudga ketganlar ham shu songa kiradi.">
-                      {n(ov!.ready)} / {n(ov!.total)} mijoz
+                    <div className="text-[11px] font-medium text-muted">{t('Hujjati to‘liq')}</div>
+                    <div className="text-sm font-semibold" title={t('5 shart bajarilgan: talabnoma + imzolangan skan + oferta + check + boji raqami. Sudga ketganlar ham shu songa kiradi.')}>
+                      {n(ov!.ready)} / {n(ov!.total)} {t('mijoz')}
                     </div>
-                    <div className="mt-0.5 text-[11px] text-muted" title="Hujjati to‘liq va sudga hali yuborilmaganlar — «Tayyor» kartasidagi son bilan bir xil.">
-                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">{n(ov!.sendable)}</span> tasi yuborishga tayyor
+                    <div className="mt-0.5 text-[11px] text-muted" title={t('Hujjati to‘liq va sudga hali yuborilmaganlar — «Tayyor» kartasidagi son bilan bir xil.')}>
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">{n(ov!.sendable)}</span> {t('tasi yuborishga tayyor')}
                     </div>
                   </div>
                 </div>
@@ -2183,53 +2197,53 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                     «Navbatda» qo'shilgach oxirgi karta yolg'iz ikkinchi qatorga tushib,
                     yonida katta bo'sh joy qolardi. */}
                 <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
-                  <Stat label="Jami" value={ov!.total} icon={statIcon('all')} hint="Tanlangan firma/snapshot bo'yicha" />
-                  <Stat label="Tayyor" value={ov!.sendable} tone="emerald" icon={statIcon('sendable')} hint="Talabnoma + skan + oferta + check + boji (invoice raqami) bor, hali yuborilmagan — shu tab'dan yuboriladi" />
+                  <Stat label={t('Jami')} value={ov!.total} icon={statIcon('all')} hint={t("Tanlangan firma/snapshot bo'yicha")} />
+                  <Stat label={t('Tayyor')} value={ov!.sendable} tone="emerald" icon={statIcon('sendable')} hint={t("Talabnoma + skan + oferta + check + boji (invoice raqami) bor, hali yuborilmagan — shu tab'dan yuboriladi")} />
                   {/* Nol bo'lsa karta umuman chiqmaydi — bo'sh «Navbatda 0» faqat joy egallaydi. */}
                   {ov!.queued > 0 && (
-                    <Stat label="Navbatda" value={ov!.queued} tone="amber" icon={statIcon('queued')} hint="Partiyaga olingan, sudga hali yetib bormagan — «Tayyor» sanog'idan chiqarilgan" />
+                    <Stat label={t('Navbatda')} value={ov!.queued} tone="amber" icon={statIcon('queued')} hint={t("Partiyaga olingan, sudga hali yetib bormagan — «Tayyor» sanog'idan chiqarilgan")} />
                   )}
-                  <Stat label="Qoralama tayyor" value={ov!.draftReady} tone="teal" icon={statIcon('draftReady')} hint="ADOLAT'da hamma maydon to'ldirilib, hujjatlar biriktirilib TO'LIQ tayyorlangan qoralama — yurist portalda ochib o'zi yuboradi. Sudga hali yuborilmagan." />
+                  <Stat label={t('Qoralama tayyor')} value={ov!.draftReady} tone="teal" icon={statIcon('draftReady')} hint={t("ADOLAT'da hamma maydon to'ldirilib, hujjatlar biriktirilib TO'LIQ tayyorlangan qoralama — yurist portalda ochib o'zi yuboradi. Sudga hali yuborilmagan.")} />
                   {/* «Sudda» — ATAYIN `submitted`, `exported` EMAS. Ilgari bu karta ZIP
                       olingan ishlarni ham qo'shib «Yuborilgan 131» deb ko'rsatardi, holbuki
                       ularning ko'pi sudga ketmagan edi (2026-09-07: BRIGHT'da 100 tasi ZIP). */}
                   <Stat
-                    label="Sudda" value={ov!.submitted} tone="indigo" icon={statIcon('submitted')}
-                    hint="ADOLAT'da rasman ochilgan da'volar — tizim yuborganlari va yurist qo'lda kiritganlari"
+                    label={t('Sudda')} value={ov!.submitted} tone="indigo" icon={statIcon('submitted')}
+                    hint={t("ADOLAT'da rasman ochilgan da'volar — tizim yuborganlari va yurist qo'lda kiritganlari")}
                     extra={ov!.submittedExternal}
-                    extraHint={`${n(ov!.submittedExternal)} tasini yurist ADOLAT'da QO'LDA kiritgan (tizim yubormagan). Ular qayta yuborilmaydi.`}
+                    extraHint={`${n(ov!.submittedExternal)} ${t("tasini yurist ADOLAT'da QO'LDA kiritgan (tizim yubormagan). Ular qayta yuborilmaydi.")}`}
                   />
                 </div>
               </div>
               {(ov!.almost.scan + ov!.almost.oferta + ov!.almost.talabnoma + ov!.almost.receipt + ov!.almost.boji) > 0 && (
                 <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] px-3 py-2.5">
                   <AlmostLine almost={ov!.almost} />
-                  <div className="mt-1 text-[11px] text-muted">Bittagina hujjat yetmaydi — o'shani to'ldirsangiz darhol sudga chiqadi. Sud uchun 5 ta shart (hammasi majburiy): talabnoma + imzolangan skan + oferta + check (UZPOST kvitansiya) + boji (invoice raqami). Invoice PDF sudga ketmaydi, lekin raqami ariza ichida ketadi. Odatda «faqat skan» yoki «faqat check» eng katta guruh.</div>
+                  <div className="mt-1 text-[11px] text-muted">{t("Bittagina hujjat yetmaydi — o'shani to'ldirsangiz darhol sudga chiqadi. Sud uchun 5 ta shart (hammasi majburiy): talabnoma + imzolangan skan + oferta + check (UZPOST kvitansiya) + boji (invoice raqami). Invoice PDF sudga ketmaydi, lekin raqami ariza ichida ketadi. Odatda «faqat skan» yoki «faqat check» eng katta guruh.")}</div>
                 </div>
               )}
               {queue.length > 0 && (
                 <div className="rounded-xl border border-brand-500/30 bg-brand-500/[0.05] p-3">
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="text-xs font-semibold">Yuborish navbati — {n(queue.filter((x) => x.status !== 'done' && x.status !== 'error').length)} qoldi</span>
+                    <span className="text-xs font-semibold">{t('Yuborish navbati —')} {n(queue.filter((x) => x.status !== 'done' && x.status !== 'error').length)} {t('qoldi')}</span>
                     <div className="flex items-center gap-1.5">
                       {!queueActive ? (
                         <button type="button" onClick={() => setQueueActive(true)} disabled={!queue.some((x) => x.status === 'wait')}
-                          className="inline-flex items-center gap-1 rounded-lg bg-brand-500 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-brand-600 disabled:opacity-50"><IcoBolt /> Boshlash</button>
+                          className="inline-flex items-center gap-1 rounded-lg bg-brand-500 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-brand-600 disabled:opacity-50"><IcoBolt /> {t('Boshlash')}</button>
                       ) : (
                         <button
                           type="button"
                           onClick={async () => {
                             const left = queue.filter((x) => x.status === 'wait').length;
                             const ok = await confirmQ({
-                              title: 'Navbatni to‘xtatishmi?',
+                              title: t('Navbatni to‘xtatishmi?'),
                               description: left > 0
-                                ? `Ketayotgan partiya oxirigacha boradi, keyin to‘xtaydi. Navbatda ${n(left)} ta partiya qoladi — keyin «Boshlash» bilan davom ettirishingiz mumkin.`
-                                : 'Ketayotgan partiya oxirigacha boradi, keyin yangi partiya boshlanmaydi.',
-                              confirmLabel: 'Ha, to‘xtatilsin', danger: true,
+                                ? `${t('Ketayotgan partiya oxirigacha boradi, keyin to‘xtaydi. Navbatda')} ${n(left)} ${t('ta partiya qoladi — keyin «Boshlash» bilan davom ettirishingiz mumkin.')}`
+                                : t('Ketayotgan partiya oxirigacha boradi, keyin yangi partiya boshlanmaydi.'),
+                              confirmLabel: t('Ha, to‘xtatilsin'), danger: true,
                             });
                             if (ok) setQueueActive(false);
                           }}
-                          className="inline-flex items-center gap-1 rounded-lg border border-rose-500/40 px-2.5 py-1 text-[11px] font-medium text-rose-600 transition-colors hover:bg-rose-500/10 dark:text-rose-300">To‘xtatish</button>
+                          className="inline-flex items-center gap-1 rounded-lg border border-rose-500/40 px-2.5 py-1 text-[11px] font-medium text-rose-600 transition-colors hover:bg-rose-500/10 dark:text-rose-300">{t('To‘xtatish')}</button>
                       )}
                       <button
                         type="button"
@@ -2237,13 +2251,13 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                           const drop = queue.filter((x) => x.status !== 'sending' && x.status !== 'signing').length;
                           if (drop === 0) return;
                           const ok = await confirmQ({
-                            title: 'Navbat tozalansinmi?',
-                            description: `${n(drop)} ta yozuv ro‘yxatdan o‘chiriladi (ketayotgani qoladi). Yuborilgan ishlarga ta’sir qilmaydi — faqat navbat ro‘yxati tozalanadi.`,
-                            confirmLabel: 'Ha, tozalansin', danger: true,
+                            title: t('Navbat tozalansinmi?'),
+                            description: `${n(drop)} ${t('ta yozuv ro‘yxatdan o‘chiriladi (ketayotgani qoladi). Yuborilgan ishlarga ta’sir qilmaydi — faqat navbat ro‘yxati tozalanadi.')}`,
+                            confirmLabel: t('Ha, tozalansin'), danger: true,
                           });
                           if (ok) setQueue((q) => q.filter((x) => x.status === 'sending' || x.status === 'signing'));
                         }}
-                        className="rounded-lg border border-line px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:border-brand-500/40 hover:text-fg">Tozalash</button>
+                        className="rounded-lg border border-line px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:border-brand-500/40 hover:text-fg">{t('Tozalash')}</button>
                     </div>
                   </div>
                   <div className="space-y-1.5">
@@ -2265,20 +2279,20 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                       const why = it.status === 'error' ? (it.error || job?.message || job?.error) : null;
                       return (
                         <div key={it.id} className={`flex flex-wrap items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs ${it.status === 'error' ? 'border-rose-500/35 bg-rose-500/[0.05]' : 'border-line bg-surface'}`}>
-                          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${badge[0]}`}>{badge[1]}</span>
-                          <span className="min-w-0 flex-1 truncate font-medium">{it.firmName} · {n(it.count)} ta</span>
+                          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${badge[0]}`}>{t(badge[1])}</span>
+                          <span className="min-w-0 flex-1 truncate font-medium">{it.firmName} · {n(it.count)} {t('ta')}</span>
                           {it.status === 'sending' && <span className="shrink-0 tabular-nums text-muted">{n(job?.progress ?? 0)}/{n(job?.total || it.count)} ({pct}%)</span>}
                           {heldBy && (
-                            <span className="shrink-0 text-[11px] text-muted" title={`Shu firmada partiya #${heldBy.jobId} ketmoqda — u tugashi bilan bu o'zi boshlanadi`}>
-                              #{heldBy.jobId} tugashini kutmoqda
+                            <span className="shrink-0 text-[11px] text-muted" title={`${t('Shu firmada partiya')} #${heldBy.jobId} ${t("ketmoqda — u tugashi bilan bu o'zi boshlanadi")}`}>
+                              #{heldBy.jobId} {t('tugashini kutmoqda')}
                             </span>
                           )}
                           {it.status === 'error' && (
-                            <button type="button" onClick={() => setQueue((q) => q.filter((x) => x.id !== it.id))} title="Ro‘yxatdan olib tashlash"
+                            <button type="button" onClick={() => setQueue((q) => q.filter((x) => x.id !== it.id))} title={t('Ro‘yxatdan olib tashlash')}
                               className="shrink-0 rounded px-1 text-muted transition-colors hover:text-rose-500">✕</button>
                           )}
                           {it.status === 'wait' && (
-                            <button type="button" onClick={() => setQueue((q) => q.filter((x) => x.id !== it.id))} title="Navbatdan o‘chirish"
+                            <button type="button" onClick={() => setQueue((q) => q.filter((x) => x.id !== it.id))} title={t('Navbatdan o‘chirish')}
                               className="shrink-0 rounded px-1 text-muted transition-colors hover:text-rose-500">✕</button>
                           )}
                           {why && (
@@ -2288,7 +2302,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                       );
                     })}
                   </div>
-                  <p className="mt-2 text-[11px] text-muted">Ketma-ket yuboriladi. Har firma uchun kalit bir marta so‘raladi. Xato bo‘lsa keyingisiga o‘tadi.</p>
+                  <p className="mt-2 text-[11px] text-muted">{t('Ketma-ket yuboriladi. Har firma uchun kalit bir marta so‘raladi. Xato bo‘lsa keyingisiga o‘tadi.')}</p>
                 </div>
               )}
               {/* 24/7 avtomat qoralama — boshqaruv + monitoring (firma/sud kesimida). */}
@@ -2302,8 +2316,8 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                 <div className="mb-2 rounded-xl border border-amber-500/40 bg-amber-500/[0.06] p-3">
                   <div className="mb-2 flex items-center gap-2">
                     <svg className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
-                    <span className="text-[12px] font-semibold text-amber-700 dark:text-amber-300">Tugallanmagan ishlar</span>
-                    <span className="text-[11px] text-muted">Navbatda qolgan, xato bergan yoki boji to‘lanmagan — o‘sha joydan davom etadi</span>
+                    <span className="text-[12px] font-semibold text-amber-700 dark:text-amber-300">{t('Tugallanmagan ishlar')}</span>
+                    <span className="text-[11px] text-muted">{t('Navbatda qolgan, xato bergan yoki boji to‘lanmagan — o‘sha joydan davom etadi')}</span>
                   </div>
                   <div className="space-y-1.5">
                     {pendingQ.map((q) => {
@@ -2316,50 +2330,50 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                             navbat sanog'i («5 ketdi · 195 navbatda») — ikkalasi bir ekranda
                             bir-birini yolg'onga chiqarardi. Endi bitta haqiqat. */}
                         {q.done > 0 && (
-                          <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-emerald-700 dark:text-emerald-300" title="ADOLAT qabul qilgan">
-                            {n(q.done)} ketdi
+                          <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-emerald-700 dark:text-emerald-300" title={t('ADOLAT qabul qilgan')}>
+                            {n(q.done)} {t('ketdi')}
                           </span>
                         )}
                         {waiting > 0 && (
                           <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted">
-                            {n(waiting)} navbatda
+                            {n(waiting)} {t('navbatda')}
                           </span>
                         )}
                         {/* Boji to'lanmagan — XATO EMAS, lekin operator ARALASHUVI kerak:
                             buxgalteriya to'lovni o'tkazgach ish o'zi navbatga qaytadi. */}
                         {q.skipped > 0 && (
-                          <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-amber-700 dark:text-amber-300" title="Davlat boji to‘lanmagan — portalga umuman chiqarilmadi. To‘langach o‘zi navbatga qaytadi.">
-                            {n(q.skipped)} boji to‘lanmagan
+                          <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-amber-700 dark:text-amber-300" title={t('Davlat boji to‘lanmagan — portalga umuman chiqarilmadi. To‘langach o‘zi navbatga qaytadi.')}>
+                            {n(q.skipped)} {t('boji to‘lanmagan')}
                           </span>
                         )}
                         {q.failed > 0 && (
-                          <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-rose-700 dark:text-rose-300" title="Xato bergan — firma qatoridagi navbat panelidan sababini ko‘ring">
-                            {n(q.failed)} yuborilmadi
+                          <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-rose-700 dark:text-rose-300" title={t('Xato bergan — firma qatoridagi navbat panelidan sababini ko‘ring')}>
+                            {n(q.failed)} {t('yuborilmadi')}
                           </span>
                         )}
                         {q.job?.status === 'RUNNING' ? (
-                          <span className="inline-flex shrink-0 items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300" title={`Partiya #${q.job.jobId} ketmoqda`}>
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300" title={`${t('Partiya')} #${q.job.jobId} ${t('ketmoqda')}`}>
                             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-500" aria-hidden />
-                            ketmoqda
+                            {t('ketmoqda')}
                           </span>
                         ) : q.job?.status === 'PENDING' ? (
                           /* Worker bir vaqtda bitta partiya bajaradi — bu firma o'z navbatini
                              kutyapti. O'rnini ko'rsatamiz, aks holda «nega boshlanmayapti?». */
-                          <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300" title={`Partiya #${q.job.jobId} navbatda — oldingisi tugagach o'zi boshlanadi`}>
-                            navbatda · {q.job.queuePos}-o‘rin
+                          <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300" title={`${t('Partiya')} #${q.job.jobId} ${t("navbatda — oldingisi tugagach o'zi boshlanadi")}`}>
+                            {t('navbatda')} · {q.job.queuePos}-{t('o‘rin')}
                           </span>
                         ) : waiting > 0 ? (
                           <button
                             type="button"
-                            onClick={() => setGate({ firmId: q.firmId, firmName: q.firmName, stir: q.stir, extra: { resume: true }, summary: `${q.firmName} — navbatda qolgan ${n(q.pending)} ta ishni davom ettirish` })}
+                            onClick={() => setGate({ firmId: q.firmId, firmName: q.firmName, stir: q.stir, extra: { resume: true }, summary: `${q.firmName} — ${t('navbatda qolgan')} ${n(q.pending)} ${t('ta ishni davom ettirish')}` })}
                             className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-brand-500 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-brand-600"
                           >
-                            <IcoBolt /> Davom ettirish
+                            <IcoBolt /> {t('Davom ettirish')}
                           </button>
                         ) : (
                           /* Navbatda ish yo'q — faqat xato/o'tkazilganlar qolgan. «Davom
                              ettirish» bu yerda YOLG'ON tugma bo'lardi: bosilsa 400 qaytarardi. */
-                          <span className="shrink-0 text-[11px] text-muted">Navbat tugagan — quyidagi firma qatoridan sababini ko‘ring</span>
+                          <span className="shrink-0 text-[11px] text-muted">{t('Navbat tugagan — quyidagi firma qatoridan sababini ko‘ring')}</span>
                         )}
                         {/* DVIGATEL NIMA QILAYOTGANI — so'zma-so'z.
                             Portal sovutish davrida («keyingisi 802s dan keyin») ekran 15
@@ -2377,7 +2391,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
 
               <div className="space-y-2">
                 {data.readiness.firms.length === 0
-                  ? <EmptyBlock title="Bu snapshotda mijoz yoʻq" hint="Sidebar sanasini tekshiring yoki Hisobotda konveyerni yangilang." />
+                  ? <EmptyBlock title={t('Bu snapshotda mijoz yoʻq')} hint={t('Sidebar sanasini tekshiring yoki Hisobotda konveyerni yangilang.')} />
                   : data.readiness.firms.map((fr, i) => (
                     <FirmSendRow
                       key={fr.firmId}
@@ -2403,14 +2417,14 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
           ) : tab === 'stat' ? (
             <div key="stat" className="animate-fade-in space-y-3">
               {board!.total === 0 ? (
-                <EmptyBlock title="Status olinmagan" hint="«Ulanishlar» orqali firma kalitini ulab sud (adolat) va talabnoma (pochta) holatlarini yangilang — qanoatlantirilgan, qaytarilgan, rad, yetkazildi… hammasi shu yerda ko'rinadi." />
+                <EmptyBlock title={t('Status olinmagan')} hint={t("«Ulanishlar» orqali firma kalitini ulab sud (adolat) va talabnoma (pochta) holatlarini yangilang — qanoatlantirilgan, qaytarilgan, rad, yetkazildi… hammasi shu yerda ko'rinadi.")} />
               ) : (() => {
                 const cab = board!.sources.CABINET ?? 0;
                 const hip = board!.sources.HIPPO ?? 0;
                 const segs: { key: 'CABINET' | 'HIPPO' | 'all'; label: string; count: number }[] = [
-                  { key: 'CABINET', label: 'Sud (adolat)', count: cab },
-                  { key: 'HIPPO', label: 'Talabnoma', count: hip },
-                  { key: 'all', label: 'Hammasi', count: board!.total },
+                  { key: 'CABINET', label: t('Sud (adolat)'), count: cab },
+                  { key: 'HIPPO', label: t('Talabnoma'), count: hip },
+                  { key: 'all', label: t('Hammasi'), count: board!.total },
                 ];
                 // If the default (Sud) has nothing but Talabnoma does, show Talabnoma instead.
                 const eff: 'CABINET' | 'HIPPO' | 'all' = statSource === 'CABINET' && cab === 0 && hip > 0 ? 'HIPPO' : statSource;
@@ -2428,15 +2442,15 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                             className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${eff === s.key ? 'bg-surface text-fg shadow-sm' : 'text-muted hover:text-fg'}`}
                           >
                             {s.label}
-                            <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${eff === s.key ? 'bg-brand-500/15 text-brand-600 dark:text-brand-400' : 'bg-surface-2 text-muted'}`}>{n(s.count)}</span>
+                            <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${eff === s.key ? 'bg-brand-500/15 text-brand-600 dark:text-brand-400' : 'bg-surface-2 text-muted'}`}>{n(s.count)}</span>{/* s.label allaqachon t() bilan */}
                           </button>
                         ))}
                       </div>
-                      <span className="text-[11px] text-muted">Mijozga bogʻlangan: <b className="font-semibold text-fg tabular-nums">{n(board!.matched)}</b></span>
+                      <span className="text-[11px] text-muted">{t('Mijozga bogʻlangan:')} <b className="font-semibold text-fg tabular-nums">{n(board!.matched)}</b></span>
                     </div>
 
                     {shown.length === 0 ? (
-                      <EmptyBlock title="Bu boʻlimda status yoʻq" hint={eff === 'CABINET' ? 'Sud (adolat) holatlari hali yangilanmagan.' : 'Talabnoma yetkazish holatlari yoʻq.'} />
+                      <EmptyBlock title={t('Bu boʻlimda status yoʻq')} hint={eff === 'CABINET' ? t('Sud (adolat) holatlari hali yangilanmagan.') : t('Talabnoma yetkazish holatlari yoʻq.')} />
                     ) : (
                       <>
                         {/* legend (touch-friendly — the bar's title= tooltips are dead on touch) */}
@@ -2468,11 +2482,11 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
           ) : (
             <div key="returns" className="animate-fade-in space-y-2">
               {returns.length === 0
-                ? <EmptyBlock title="Qaytgan ish yoʻq" hint="Sud yoki palata qaytarganda shu yerda ko'rinadi — to'ldirib qayta yuborasiz." />
+                ? <EmptyBlock title={t('Qaytgan ish yoʻq')} hint={t("Sud yoki palata qaytarganda shu yerda ko'rinadi — to'ldirib qayta yuborasiz.")} />
                 : (
                   <>
                     <div className="rounded-lg border border-line bg-surface-2/30 px-3 py-2 text-[11px] leading-relaxed text-muted">
-                      Sud yoki palata qaytargan ishlar. Har birini ochib, yetishmagan <b className="font-medium text-fg">fayllarni to'ldiring</b>, so'ng qayta paket oling va qayta yuboring.
+                      {t('Sud yoki palata qaytargan ishlar. Har birini ochib, yetishmagan')} <b className="font-medium text-fg">{t("fayllarni to'ldiring")}</b>, {t("so'ng qayta paket oling va qayta yuboring.")}
                     </div>
                     {returns.map((r, i) => <ReturnRow key={r.caseId} r={r} idx={i} />)}
                   </>
@@ -2489,15 +2503,15 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
         <Modal
           open
           onClose={() => setZipAsk(null)}
-          title={`ZIP yuklab olish — ${zipAsk.firmName}`}
+          title={`${t('ZIP yuklab olish —')} ${zipAsk.firmName}`}
           // TANLOV QOIDASI AYTILADI. Ilgari modalda faqat son turardi va operator 100 talik
           // ikkita arxivni olib, ichida kim borligini ham, ular ustma-ust tushadimi-yo'qmi
           // ham bilolmasdi — ZIP'ni ochib papka nomlarini o'qishga majbur edi (2026-09-08).
           // Server tanlovi `selectReadyCaseIds`: dueAt bo'yicha o'sish tartibida, ya'ni
           // ENG ESKI MUDDATLILARDAN boshlab N ta.
-          description={`${n(zipAsk.max)} ta tayyor mijoz — standart: HAMMASI. Eng eski muddatlilardan boshlab tanlanadi. Hujjatlar bitta arxivga yig'iladi, sudga yuborilmaydi.`}
+          description={`${n(zipAsk.max)} ${t("ta tayyor mijoz — standart: HAMMASI. Eng eski muddatlilardan boshlab tanlanadi. Hujjatlar bitta arxivga yig'iladi, sudga yuborilmaydi.")}`}
           footer={<>
-            <button className="btn-ghost" type="button" onClick={() => setZipAsk(null)}>Bekor</button>
+            <button className="btn-ghost" type="button" onClick={() => setZipAsk(null)}>{t('Bekor')}</button>
             <button
               className="btn-primary" type="button"
               disabled={!zipAsk.value || zipAsk.value < 1}
@@ -2513,7 +2527,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
               {(() => {
                 const v = Math.max(1, Math.min(zipAsk.max, Math.floor(zipAsk.value) || 0));
                 const all = Math.min(MAX_ZIP_BATCH, zipAsk.max);
-                return v >= all ? `ZIP tayyorlash — hammasi (${n(v)})` : `ZIP tayyorlash (${n(v)})`;
+                return v >= all ? `${t('ZIP tayyorlash — hammasi')} (${n(v)})` : `${t('ZIP tayyorlash')} (${n(v)})`;
               })()}
             </button>
           </>}
@@ -2529,7 +2543,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                 return (
                   <button type="button" onClick={() => setZipAsk((c) => c && ({ ...c, value: all }))} aria-pressed={isAll}
                     className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${isAll ? 'bg-brand-500 text-white shadow-sm' : 'border border-line text-fg hover:bg-surface-2'}`}>
-                    Hammasi ({n(all)})
+                    {t('Hammasi')} ({n(all)})
                   </button>
                 );
               })()}
@@ -2540,7 +2554,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                 </button>
               ))}
             </div>
-            <label className="field-label">Yoki aniq soni
+            <label className="field-label">{t('Yoki aniq soni')}
               <input
                 type="number" min={1} max={Math.min(MAX_ZIP_BATCH, zipAsk.max)}
                 className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm tabular-nums outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15"
@@ -2561,27 +2575,25 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                 da'vo ochadigan tugmaga olib borardi (2026-09-08 kod tekshiruvi). */}
             {zipAsk.max > MAX_ZIP_BATCH && (
               <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                Bir martada eng ko‘pi {n(MAX_ZIP_BATCH)} ta — eng eski muddatlilari olinadi.
-                Qolgan {n(zipAsk.max - MAX_ZIP_BATCH)} tasi keyingi ZIP'ga O‘ZI o‘tmaydi:
-                ikkinchi ZIP ham xuddi shu {n(MAX_ZIP_BATCH)} tasini beradi.
+                {t('Bir martada eng ko‘pi')} {n(MAX_ZIP_BATCH)} {t('ta — eng eski muddatlilari olinadi.')}
+                {t('Qolgan')} {n(zipAsk.max - MAX_ZIP_BATCH)} {t("tasi keyingi ZIP'ga O‘ZI o‘tmaydi:")}
+                {t('ikkinchi ZIP ham xuddi shu')} {n(MAX_ZIP_BATCH)} {t('tasini beradi.')}
               </p>
             )}
             <div className="rounded-lg border border-line p-2.5 text-[11px] leading-snug text-muted">
-              <span className="font-medium text-fg">Filtr: «Tayyor»</span> — 5 shart to'liq bajarilgan mijozlar
-              (talabnoma + imzolangan skan + oferta + kvitansiya + boji). Arxivda har mijoz uchun
-              alohida papka bo'ladi. Sudga yuborilganlar ro'yxatga KIRMAYDI — faqat hali yuborilmagan tayyorlari.
+              <span className="font-medium text-fg">{t('Filtr: «Tayyor»')}</span> {t("— 5 shart to'liq bajarilgan mijozlar (talabnoma + imzolangan skan + oferta + kvitansiya + boji). Arxivda har mijoz uchun alohida papka bo'ladi. Sudga yuborilganlar ro'yxatga KIRMAYDI — faqat hali yuborilmagan tayyorlari.")}
             </div>
           </div>
         </Modal>
       )}
 
       {countAsk && (() => { const askBusy = activeBatchByFirm.get(countAsk.firmId) ?? null; return (
-        <Modal open onClose={() => { setCountAsk(null); setPickedCourts(null); }} title={`${countAsk.draftMode ? 'Qoralama tayyorlash' : 'Sudga yuborish'} — ${countAsk.firmName}`}
+        <Modal open onClose={() => { setCountAsk(null); setPickedCourts(null); }} title={`${countAsk.draftMode ? t('Qoralama tayyorlash') : t('Sudga yuborish')} — ${countAsk.firmName}`}
           // «max» — NAVBATDAGILARSIZ tayyorlar soni. Navbatda turganini ham aytamiz, aks holda
           // operator «291 tayyor edi, nega 91 ta?» deb o'ylaydi (2026-09-07).
-          description={`${n(countAsk.max)} ta tayyor${countAsk.queued ? ` (yana ${n(countAsk.queued)} tasi navbatda — ular qayta yuborilmaydi)` : ''}. Bir martada eng ko'pi ${MAX_COURT_BATCH} ta.`}
+          description={`${n(countAsk.max)} ${t('ta tayyor')}${countAsk.queued ? ` (${t('yana')} ${n(countAsk.queued)} ${t('tasi navbatda — ular qayta yuborilmaydi')})` : ''}. ${t("Bir martada eng ko'pi")} ${MAX_COURT_BATCH} ${t('ta.')}`}
           footer={<>
-            <button className="btn-ghost" type="button" onClick={() => setCountAsk(null)}>Bekor</button>
+            <button className="btn-ghost" type="button" onClick={() => setCountAsk(null)}>{t('Bekor')}</button>
             {/* Firmada partiya ketayotgan bo'lsa TO'G'RIDAN yuborish mumkin emas (server 409
                 qaytaradi) — bunda yagona to'g'ri amal navbatga qo'shish, shuning uchun u
                 asosiy tugmaga aylanadi va «Yuborish» yashiriladi. Aks holda operator
@@ -2589,23 +2601,23 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
             <button className={askBusy ? 'btn-primary' : 'btn-ghost'} type="button"
               disabled={!countAsk.value || countAsk.value < 1 || (pickedCourts !== null && pickedCourts.length === 0)}
               title={askBusy
-                ? `#${askBusy.jobId} tugashi bilan bu partiya o'zi boshlanadi — kalit qayta so'ralmaydi`
-                : "Navbatga qo'shish — bir nechta partiyani ketma-ket yuborish (skayner kabi)"}
+                ? `#${askBusy.jobId} ${t("tugashi bilan bu partiya o'zi boshlanadi — kalit qayta so'ralmaydi")}`
+                : t("Navbatga qo'shish — bir nechta partiyani ketma-ket yuborish (skayner kabi)")}
               onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const f = firms.find((x) => x.firmId === countAsk.firmId); addToQueue(countAsk.firmId, countAsk.firmName, f?.stir ?? null, v, pickedCourts ?? undefined, countAsk.draftMode); setCountAsk(null); setPickedCourts(null); }}>
-              + Navbatga{askBusy ? ` (${Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0))})` : ''}
+              + {t('Navbatga')}{askBusy ? ` (${Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0))})` : ''}
             </button>
             {!askBusy && (
               <button className="btn-primary" type="button"
                 disabled={!countAsk.value || countAsk.value < 1 || (pickedCourts !== null && pickedCourts.length === 0)}
                 onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const fid = countAsk.firmId; const au = countAsk.auto; const cs = pickedCourts; const dm = countAsk.draftMode; setCountAsk(null); setPickedCourts(null); openGate(fid, { limit: v, auto: au, ...(cs && cs.length ? { courtIds: cs } : {}), ...(dm ? { draftMode: true } : {}) }); }}>
-                {countAsk.draftMode ? 'Qoralama tayyorlash' : countAsk.auto ? 'Auto boshlash' : 'Yuborish'} ({Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0))})
+                {countAsk.draftMode ? t('Qoralama tayyorlash') : countAsk.auto ? t('Auto boshlash') : t('Yuborish')} ({Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0))})
               </button>
             )}
           </>}
         >
           <div className="space-y-3">
             <label className="block">
-              <span className="field-label">Soni (1–{Math.min(MAX_COURT_BATCH, countAsk.max)})</span>
+              <span className="field-label">{t('Soni')} (1–{Math.min(MAX_COURT_BATCH, countAsk.max)})</span>
               <input type="number" min={1} max={Math.min(MAX_COURT_BATCH, countAsk.max)} value={countAsk.value}
                 onChange={(e) => { const raw = Math.floor(Number(e.target.value) || 0); setCountAsk((c) => c && ({ ...c, value: Math.max(0, Math.min(c.max, raw)) })); }}
                 className="mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm tabular-nums outline-none focus:border-brand-500 focus-visible:ring-2 focus-visible:ring-brand-500/30" autoFocus />
@@ -2617,7 +2629,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
               ))}
               {countAsk.max < MAX_COURT_BATCH && (
                 <button type="button" onClick={() => setCountAsk((c) => c && ({ ...c, value: c.max }))}
-                  className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${countAsk.value === countAsk.max ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line text-muted hover:border-brand-500/40'}`}>Hammasi ({countAsk.max})</button>
+                  className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${countAsk.value === countAsk.max ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line text-muted hover:border-brand-500/40'}`}>{t('Hammasi')} ({countAsk.max})</button>
               )}
             </div>
             {/* QORALAMA REJIMI — DEFAULT YOQILGAN. Yoqilsa: ADOLAT'da to'liq to'ldirilgan
@@ -2628,31 +2640,27 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
             <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-emerald-500/40 bg-emerald-500/[0.05] p-2.5">
               <input type="checkbox" checked={countAsk.draftMode} onChange={(e) => setCountAsk((c) => c && ({ ...c, draftMode: e.target.checked }))} className="mt-0.5 h-4 w-4 accent-emerald-600" />
               <span className="min-w-0">
-                <span className="block text-[12px] font-medium">Qoralama tayyorlash — yurist portalda o‘zi yuboradi <span className="text-emerald-600 dark:text-emerald-400">(tavsiya)</span></span>
+                <span className="block text-[12px] font-medium">{t('Qoralama tayyorlash — yurist portalda o‘zi yuboradi')} <span className="text-emerald-600 dark:text-emerald-400">{t('(tavsiya)')}</span></span>
                 <span className="block text-[11px] text-muted">
-                  ADOLAT'da hamma maydon to‘ldirilib, hujjatlar biriktirilib to‘liq tayyor qoralama qoladi.
-                  Sudga YUBORILMAYDI — yurist ertalab portalda ochib, ko‘rib, o‘zi bosib yuboradi. 24/7 ishlaydi,
-                  sud kunlik limitini band qilmaydi va ketayotgan boshqa jarayonlarga tegmaydi.
+                  {t("ADOLAT'da hamma maydon to‘ldirilib, hujjatlar biriktirilib to‘liq tayyor qoralama qoladi. Sudga YUBORILMAYDI — yurist ertalab portalda ochib, ko‘rib, o‘zi bosib yuboradi. 24/7 ishlaydi, sud kunlik limitini band qilmaydi va ketayotgan boshqa jarayonlarga tegmaydi.")}
                 </span>
               </span>
             </label>
             <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-line p-2.5">
               <input type="checkbox" checked={countAsk.auto} onChange={(e) => setCountAsk((c) => c && ({ ...c, auto: e.target.checked }))} className="mt-0.5 h-4 w-4 accent-brand-500" />
               <span className="min-w-0">
-                <span className="block text-[12px] font-medium">Auto — partiyalarni ketma-ket davom ettirish</span>
+                <span className="block text-[12px] font-medium">{t('Auto — partiyalarni ketma-ket davom ettirish')}</span>
                 <span className="block text-[11px] text-muted">
-                  Bir martada eng ko‘pi 100 ta yuboriladi. Auto yoqilsa, partiya tugagach keyingisi
-                  o‘zi boshlanadi va kalit qayta so‘ralmaydi — tayyorlar tugaguncha (yoki «To‘xtatish»gacha).
-                  Ishlar orasidagi kutish esa doim bor: u sud sozlamasidan olinadi (standart 60s).
+                  {t('Bir martada eng ko‘pi 100 ta yuboriladi. Auto yoqilsa, partiya tugagach keyingisi o‘zi boshlanadi va kalit qayta so‘ralmaydi — tayyorlar tugaguncha (yoki «To‘xtatish»gacha). Ishlar orasidagi kutish esa doim bor: u sud sozlamasidan olinadi (standart 60s).')}
                 </span>
               </span>
             </label>
             {courtBreak && courtBreak.firmId === countAsk.firmId && courtBreak.courts.length > 0 && (
               <div className="rounded-lg border border-line p-2.5">
                 <div className="mb-1.5 flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-semibold text-muted">Qaysi sudga yuborilsin? (tayyor {n(courtBreak.total)} ta)</span>
+                  <span className="text-[11px] font-semibold text-muted">{t('Qaysi sudga yuborilsin? (tayyor')} {n(courtBreak.total)} {t('ta)')}</span>
                   {pickedCourts !== null && (
-                    <button onClick={() => setPickedCourts(null)} className="text-[11px] font-medium text-brand-600 underline-offset-2 hover:underline dark:text-brand-400">hammasi</button>
+                    <button onClick={() => setPickedCourts(null)} className="text-[11px] font-medium text-brand-600 underline-offset-2 hover:underline dark:text-brand-400">{t('hammasi')}</button>
                   )}
                 </div>
                 <div className="space-y-1">
@@ -2670,8 +2678,8 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                       <label
                         key={c.courtId ?? 'none'}
                         className={`flex items-start justify-between gap-2 rounded px-1.5 py-1 text-xs ${selectable ? 'cursor-pointer hover:bg-surface-2' : 'opacity-70'}`}
-                        title={closed ? (c.note ?? 'Bu sud ADOLAT orqali elektron ariza qabul qilmaydi')
-                          : selectable ? undefined : 'Bu ishlarga sud hali biriktirilmagan — firmaning asosiy sudiga ketadi'}
+                        title={closed ? (c.note ?? t('Bu sud ADOLAT orqali elektron ariza qabul qilmaydi'))
+                          : selectable ? undefined : t('Bu ishlarga sud hali biriktirilmagan — firmaning asosiy sudiga ketadi')}
                       >
                         <span className="flex min-w-0 items-start gap-2">
                           <input
@@ -2694,7 +2702,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                             <span className={`block truncate ${closed ? 'text-muted line-through' : ''}`}>{c.shortName}</span>
                             {closed && (
                               <span className="mt-0.5 block text-[10px] leading-snug text-amber-600 dark:text-amber-400">
-                                {c.note ?? 'ADOLAT’da elektron qabul yoqilmagan — sud administratori hal qiladi'}
+                                {c.note ?? t('ADOLAT’da elektron qabul yoqilmagan — sud administratori hal qiladi')}
                               </span>
                             )}
                           </span>
@@ -2705,12 +2713,12 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                   })}
                 </div>
                 {pickedCourts !== null && pickedCourts.length === 0 && (
-                  <p className="mt-1.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">Hech bo‘lmasa bitta sud tanlanishi kerak.</p>
+                  <p className="mt-1.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">{t('Hech bo‘lmasa bitta sud tanlanishi kerak.')}</p>
                 )}
-                <p className="mt-1.5 text-[10px] leading-snug text-muted">Boshqa sudga allaqachon biriktirilgan ishlar tanlangan sudga ko‘chirilmaydi — ular keyingi safarga qoladi.</p>
+                <p className="mt-1.5 text-[10px] leading-snug text-muted">{t('Boshqa sudga allaqachon biriktirilgan ishlar tanlangan sudga ko‘chirilmaydi — ular keyingi safarga qoladi.')}</p>
               </div>
             )}
-            <p className="text-[11px] text-muted">Eng eski (muddati yaqin) tayyor mijozlardan boshlab olinadi.</p>
+            <p className="text-[11px] text-muted">{t('Eng eski (muddati yaqin) tayyor mijozlardan boshlab olinadi.')}</p>
           </div>
         </Modal>
       ); })()}
@@ -2722,8 +2730,8 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
           firm={{ firmId: gate.firmId, firmName: gate.firmName, stir: gate.stir }}
           provider="CABINET"
           endpoint="/konveyer/court-sign"
-          title="Sudga yuborish — kalit bilan tasdiqlash"
-          confirmLabel="Imzolab yuborish"
+          title={t('Sudga yuborish — kalit bilan tasdiqlash')}
+          confirmLabel={t('Imzolab yuborish')}
           summary={gate.summary}
           onSuccess={() => {
             const ex = gate.extra as { auto?: boolean; limit?: number; resume?: boolean };
@@ -2742,9 +2750,9 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
           firm={{ firmId: queueGate.firmId, firmName: queueGate.firmName, stir: queueGate.stir }}
           provider="CABINET"
           endpoint="/konveyer/court-sign"
-          title="Navbat — kalit bilan tasdiqlash"
-          confirmLabel="Imzolab davom etish"
-          summary={`${queueGate.firmName}: ${queueGate.count} ta sudga yuboriladi. Firma kaliti bilan tasdiqlang (bu firma uchun bir marta).`}
+          title={t('Navbat — kalit bilan tasdiqlash')}
+          confirmLabel={t('Imzolab davom etish')}
+          summary={`${queueGate.firmName}: ${queueGate.count} ${t('ta sudga yuboriladi. Firma kaliti bilan tasdiqlang (bu firma uchun bir marta).')}`}
           onSuccess={() => { const g = queueGate; signedFirms.current.add(g.firmId); setQueue((q) => q.map((x) => (x.id === g.itemId ? { ...x, status: 'wait' } : x))); setQueueGate(null); }}
         />
       )}

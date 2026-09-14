@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
 import { requireUser } from '@/lib/auth';
 import { mibEligibleExport } from '@/lib/konveyer';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -11,6 +12,7 @@ export const maxDuration = 120;
 // for filing with MIB by hand until the real MIB API is wired. Uncapped (the on-screen list caps at 500).
 export async function GET(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const sp = req.nextUrl.searchParams;
   const num = (v: string | null): number | undefined => { const n = Number(v); return v != null && v !== '' && Number.isInteger(n) && n > 0 ? n : undefined; };
   const snapshotId = num(sp.get('s'));
@@ -18,23 +20,23 @@ export async function GET(req: NextRequest) {
 
   let rows;
   try { rows = await mibEligibleExport({ snapshotId, firmId }); }
-  catch (e) { console.error('mib-excel failed', e); return NextResponse.json({ error: 'Yuklanmadi' }, { status: 500 }); }
-  if (rows.length === 0) return NextResponse.json({ error: "MIB boʻyicha ish yoʻq" }, { status: 422 });
+  catch (e) { console.error('mib-excel failed', e); return NextResponse.json({ error: t('Yuklanmadi') }, { status: 500 }); }
+  if (rows.length === 0) return NextResponse.json({ error: t("MIB boʻyicha ish yoʻq") }, { status: 422 });
 
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('MIB ijro');
+  const ws = wb.addWorksheet(t('MIB ijro'));
   ws.columns = [
     { header: '№', key: 'i', width: 6 },
-    { header: 'Qarzdor (F.I.O)', key: 'name', width: 36 },
+    { header: t('Qarzdor (F.I.O)'), key: 'name', width: 36 },
     { header: 'PINFL', key: 'pinfl', width: 16 },
-    { header: 'Kod', key: 'kod', width: 12 },
-    { header: 'Firma', key: 'firm', width: 24 },
-    { header: 'Sud ish raqami', key: 'case', width: 22 },
-    { header: 'Holat', key: 'holat', width: 18 },
-    { header: 'Sud qarori', key: 'court', width: 22 },
-    { header: 'Natija', key: 'result', width: 26 },
-    { header: 'MIB ijro ID', key: 'mib', width: 16 },
-    { header: 'Qarz (soʻm)', key: 'debt', width: 18 },
+    { header: t('Kod'), key: 'kod', width: 12 },
+    { header: t('Firma'), key: 'firm', width: 24 },
+    { header: t('Sud ish raqami'), key: 'case', width: 22 },
+    { header: t('Holat'), key: 'holat', width: 18 },
+    { header: t('Sud qarori'), key: 'court', width: 22 },
+    { header: t('Natija'), key: 'result', width: 26 },
+    { header: t('MIB ijro ID'), key: 'mib', width: 16 },
+    { header: t('Qarz (soʻm)'), key: 'debt', width: 18 },
   ];
   ws.getRow(1).font = { bold: true };
   ws.getColumn('pinfl').numFmt = '@';

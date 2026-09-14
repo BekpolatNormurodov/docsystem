@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { SearchNormal1 } from 'iconsax-react';
+import { useT } from '@/lib/i18n/client';
 
 interface FirmChip {
   code: string;
@@ -12,6 +13,7 @@ interface FirmChip {
 
 /** Real-time person-view filters: contract number (ld_id) + which firms to show. Updates the URL. */
 export function PersonFilters({ initialC, firms, initialFirms }: { initialC: string; firms: FirmChip[]; initialFirms: string[] }) {
+  const t = useT();
   const router = useRouter();
   const pathname = usePathname();
   const [c, setC] = useState(initialC);
@@ -51,13 +53,13 @@ export function PersonFilters({ initialC, firms, initialFirms }: { initialC: str
   return (
     <div className="mb-4 space-y-3">
       <label className="block max-w-sm">
-        <span className="field-label">Shartnoma raqami boʻyicha qidirish</span>
+        <span className="field-label">{t('Shartnoma raqami boʻyicha qidirish')}</span>
         <div className="relative">
           <SearchNormal1 size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input
             value={c}
             onChange={(e) => setC(e.target.value)}
-            placeholder="masalan: 12345"
+            placeholder={t('masalan: 12345')}
             className="field-input w-full pl-9"
           />
         </div>

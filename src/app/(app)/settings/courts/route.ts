@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
 import { courtsForAdmin, ensureSeedCourt, saveCourt, setFirmCourtsAccess } from '@/lib/court-routing';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -14,6 +15,7 @@ export async function GET() {
 // POST { action:'save'|'delete', ... } — sud yaratish/tahrirlash/o'chirish.
 export async function POST(req: NextRequest) {
   await requireAdmin();
+  const t = getT();
   const body = await req.json().catch(() => ({}));
   const action = body?.action;
   try {
@@ -23,19 +25,19 @@ export async function POST(req: NextRequest) {
     // u yo'naltirishdan chiqadi, lekin tarix saqlanadi.
     if (action === 'delete') {
       return NextResponse.json(
-        { error: 'Sudni o‘chirib bo‘lmaydi — unga bog‘langan ishlar va tarix yo‘qoladi. Ishlatmaslik uchun «Active» bayrog‘ini o‘chiring.' },
+        { error: t('Sudni o‘chirib bo‘lmaydi — unga bog‘langan ishlar va tarix yo‘qoladi. Ishlatmaslik uchun «Active» bayrog‘ini o‘chiring.') },
         { status: 405 },
       );
     }
     if (action === 'firmCourts') {
       const firmId = Number(body?.firmId);
-      if (!firmId) return NextResponse.json({ error: 'firmId kerak' }, { status: 400 });
+      if (!firmId) return NextResponse.json({ error: t('firmId kerak') }, { status: 400 });
       await setFirmCourtsAccess(firmId, Array.isArray(body?.courtIds) ? body.courtIds.map(Number) : []);
       return NextResponse.json(await courtsForAdmin());
     }
     // save
     if (!body?.billingCourtId || !body?.nameUz || !body?.shortName) {
-      return NextResponse.json({ error: 'Sud id, nomi va qisqa nomi majburiy' }, { status: 400 });
+      return NextResponse.json({ error: t('Sud id, nomi va qisqa nomi majburiy') }, { status: 400 });
     }
     await saveCourt({
       id: body.id ? Number(body.id) : undefined,
@@ -57,7 +59,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(await courtsForAdmin());
   } catch (e) {
     // billingCourtId @unique buzilsa — tushunarli xato.
-    const msg = (e as { code?: string })?.code === 'P2002' ? 'Bu «Sud id» allaqachon mavjud' : 'Saqlashda xatolik';
+    const msg = (e as { code?: string })?.code === 'P2002' ? t('Bu «Sud id» allaqachon mavjud') : t('Saqlashda xatolik');
     return NextResponse.json({ error: msg }, { status: 400 });
   }
 }

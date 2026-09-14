@@ -1,12 +1,14 @@
 import { prisma } from '@/lib/db';
 import { PageHeader } from '@/ui';
 import { getBojiAmount } from '@/lib/konveyer-buxgalter';
+import { getT } from '@/lib/i18n/server';
 import { InvoiceCreateForm } from './InvoiceCreateForm';
 import { InvoiceList, type InvoiceRow } from './InvoiceList';
 
 export const dynamic = 'force-dynamic';
 
 export default async function InvoyslarPage() {
+  const t = getT();
   const [firms, records, bojiAmount] = await Promise.all([
     prisma.firm.findMany({ orderBy: { shortName: 'asc' }, select: { id: true, shortName: true, stir: true, region: true, district: true, addressLine: true } }),
     prisma.invoiceRecord.findMany({ orderBy: { createdAt: 'desc' }, take: 100, include: { firm: { select: { shortName: true } } } }),
@@ -25,7 +27,7 @@ export default async function InvoyslarPage() {
 
   return (
     <div>
-      <PageHeader title="Invoice yaratish" subtitle="Firma tanlang, sonini kiriting (1–100) — kvitansiyalar avtomat yaratiladi, fonda ishlaydi, tugagach ZIP boʻlib yuklanadi" />
+      <PageHeader title={t('Invoice yaratish')} subtitle={t('Firma tanlang, sonini kiriting (1–100) — kvitansiyalar avtomat yaratiladi, fonda ishlaydi, tugagach ZIP boʻlib yuklanadi')} />
       <InvoiceCreateForm firms={firms} bojiAmount={bojiAmount} />
       <InvoiceList rows={rows} />
     </div>

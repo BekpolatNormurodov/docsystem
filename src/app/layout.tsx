@@ -1,6 +1,7 @@
 import './globals.css';
 import { cookies } from 'next/headers';
 import { ThemeScript } from '@/ui';
+import { I18nProvider } from '@/lib/i18n/client';
 
 export const metadata = { title: 'Yurist Tizimi' };
 
@@ -14,7 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <ThemeScript />
       </head>
-      <body>{children}</body>
+      <body><I18nProvider lang={lang}>{children}</I18nProvider></body>
     </html>
   );
 }

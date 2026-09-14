@@ -3,10 +3,12 @@
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { SearchNormal1, ArrowDown2 } from 'iconsax-react';
+import { useT } from '@/lib/i18n/client';
 
 const pretty = (d: string) => d.split('-').reverse().join('.');
 
 export function MijozlarFilters({ dates, date, initialQ }: { dates: string[]; date: string; initialQ: string }) {
+  const t = useT();
   const router = useRouter();
   const [q, setQ] = useState(initialQ);
   const [open, setOpen] = useState(false);
@@ -47,13 +49,13 @@ export function MijozlarFilters({ dates, date, initialQ }: { dates: string[]; da
   return (
     <div className="mb-4 flex flex-wrap items-end gap-3">
       <div className="relative" ref={box}>
-        <span className="field-label">Sana</span>
+        <span className="field-label">{t('Sana')}</span>
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
           className="field-input flex min-w-[170px] items-center justify-between gap-2"
         >
-          <span className="font-medium">{date === 'all' ? 'Hamma sana' : pretty(date)}</span>
+          <span className="font-medium">{date === 'all' ? t('Hamma sana') : pretty(date)}</span>
           <ArrowDown2 size={16} className={`text-muted transition ${open ? 'rotate-180' : ''}`} />
         </button>
         {open && (
@@ -64,7 +66,7 @@ export function MijozlarFilters({ dates, date, initialQ }: { dates: string[]; da
                 autoFocus
                 value={dq}
                 onChange={(e) => setDq(e.target.value)}
-                placeholder="Sana qidirish…"
+                placeholder={t('Sana qidirish…')}
                 className="field-input w-full py-1.5 pl-8 text-sm"
               />
             </div>
@@ -80,7 +82,7 @@ export function MijozlarFilters({ dates, date, initialQ }: { dates: string[]; da
                     date === 'all' ? 'font-semibold text-brand-600' : ''
                   }`}
                 >
-                  Hamma sana
+                  {t('Hamma sana')}
                 </button>
               )}
               {filtered.map((d) => (
@@ -99,7 +101,7 @@ export function MijozlarFilters({ dates, date, initialQ }: { dates: string[]; da
                 </button>
               ))}
               {filtered.length === 0 && !'hamma sana'.includes(dq.trim().toLowerCase()) && (
-                <div className="px-3 py-2 text-xs text-muted">Topilmadi</div>
+                <div className="px-3 py-2 text-xs text-muted">{t('Topilmadi')}</div>
               )}
             </div>
           </div>
@@ -107,13 +109,13 @@ export function MijozlarFilters({ dates, date, initialQ }: { dates: string[]; da
       </div>
 
       <label className="min-w-[240px] flex-1">
-        <span className="field-label">Qidiruv (PINFL, F.I.Sh, passport yoki shartnoma raqami)</span>
+        <span className="field-label">{t('Qidiruv (PINFL, F.I.Sh, passport yoki shartnoma raqami)')}</span>
         <div className="relative">
           <SearchNormal1 size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="masalan: 3210… yoki ABDULLAYEV"
+            placeholder={t('masalan: 3210… yoki ABDULLAYEV')}
             className="field-input w-full pl-9 pr-9"
           />
           {pending && (
@@ -123,7 +125,7 @@ export function MijozlarFilters({ dates, date, initialQ }: { dates: string[]; da
             <button
               type="button"
               onClick={() => setQ('')}
-              aria-label="Tozalash"
+              aria-label={t('Tozalash')}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-fg"
             >
               ✕

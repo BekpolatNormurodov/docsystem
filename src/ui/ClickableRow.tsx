@@ -3,6 +3,7 @@
 import React from 'react';
 import { useRouter } from 'next/navigation';
 import { Ico } from './icons';
+import { useT } from '@/lib/i18n/client';
 
 /**
  * A table row that navigates on click (and on Enter). Prefetches on hover so the
@@ -11,13 +12,14 @@ import { Ico } from './icons';
 export function ClickableRow({
   href,
   children,
-  title = 'Ochish',
+  title,
 }: {
   href: string;
   children: React.ReactNode;
   title?: string;
 }) {
   const router = useRouter();
+  const t = useT();
   return (
     <tr
       onClick={() => router.push(href)}
@@ -27,7 +29,7 @@ export function ClickableRow({
       }}
       tabIndex={0}
       role="link"
-      aria-label={title}
+      aria-label={title ?? t('Ochish')}
       className="cursor-pointer border-t border-line transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500/40"
     >
       {children}
@@ -70,8 +72,9 @@ export function RowAction({
 /** View (eye) action — navigates, stops the row handler from double-firing. */
 export function ViewAction({ href }: { href: string }) {
   const router = useRouter();
+  const t = useT();
   return (
-    <RowAction label="Ochish" onClick={() => router.push(href)}>
+    <RowAction label={t('Ochish')} onClick={() => router.push(href)}>
       <Ico.eye size={16} />
     </RowAction>
   );

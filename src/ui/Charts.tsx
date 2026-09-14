@@ -1,4 +1,5 @@
 import React from 'react';
+import { getT } from '@/lib/i18n/server';
 
 /**
  * Pure-SVG charts — server-rendered, no chart library, no client JS.
@@ -22,6 +23,7 @@ function ChartCard({
   children: React.ReactNode;
   empty?: boolean;
 }) {
+  const t = getT();
   return (
     <section className="card p-5">
       <header className="mb-4">
@@ -29,7 +31,7 @@ function ChartCard({
         {subtitle && <p className="mt-0.5 text-xs text-muted">{subtitle}</p>}
       </header>
       {empty ? (
-        <p className="py-10 text-center text-sm text-muted">Bu davr uchun maʼlumot yoʻq</p>
+        <p className="py-10 text-center text-sm text-muted">{t('Bu davr uchun maʼlumot yoʻq')}</p>
       ) : (
         <figure role="img" aria-label={summary}>
           {children}
@@ -136,6 +138,7 @@ export interface Slice {
 
 /** Donut — status proportion. Max 4 statuses, so well inside the ≤5 rule. */
 export function DonutChart({ title, subtitle, slices }: { title: string; subtitle?: string; slices: Slice[] }) {
+  const t = getT();
   const total = slices.reduce((a, s) => a + s.value, 0);
   const R = 60;
   const SW = 22;
@@ -147,7 +150,7 @@ export function DonutChart({ title, subtitle, slices }: { title: string; subtitl
       title={title}
       subtitle={subtitle}
       empty={total === 0}
-      summary={`${title}. Jami ${fmt(total)}. ${slices.map((s) => `${s.label}: ${fmt(s.value)}`).join(', ')}.`}
+      summary={`${title}. ${t('Jami')} ${fmt(total)}. ${slices.map((s) => `${s.label}: ${fmt(s.value)}`).join(', ')}.`}
     >
       <div className="flex items-center gap-5">
         <svg viewBox="0 0 160 160" className="h-[150px] w-[150px] shrink-0 -rotate-90">

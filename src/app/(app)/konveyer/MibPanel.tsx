@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useT } from '@/lib/i18n/client';
 
 // ── MIB · ijro monitoringi ────────────────────────────────────────────────
 // Sud biz foydaga hal qilgan ishlar (COURT_ACCEPTED) + MIB'ga chiqqanlar
@@ -90,6 +91,7 @@ const STATUS_KIND: Record<string, StatusKind> = {
 };
 
 function StatusBucketCard({ b }: { b: StatusBucket }) {
+  const t = useT();
   const ui = KIND_UI[b.kind];
   return (
     <div className={cx('rounded-xl border px-3 py-2.5', ui.ring)}>
@@ -98,13 +100,14 @@ function StatusBucketCard({ b }: { b: StatusBucket }) {
         <span className="truncate text-[11px] font-medium text-muted" title={b.label}>{b.label}</span>
       </div>
       <div className={cx('mt-1 text-lg font-bold leading-none tabular-nums', ui.text)}>{n(b.count)}</div>
-      <div className="mt-0.5 text-[11px] tabular-nums text-muted">{n(Number(b.debt))} so'm</div>
+      <div className="mt-0.5 text-[11px] tabular-nums text-muted">{n(Number(b.debt))} {t("so'm")}</div>
     </div>
   );
 }
 
 // One MIB API station in the pipeline. state: idle → active (so'ralmoqda) → done.
 function ApiNode({ index, name, sub, state, count }: { index: number; name: string; sub: string; state: 'idle' | 'active' | 'done'; count: number }) {
+  const t = useT();
   const lit = state !== 'idle';
   return (
     <div className={cx(
@@ -123,11 +126,11 @@ function ApiNode({ index, name, sub, state, count }: { index: number; name: stri
       </div>
       <div className="mt-2 flex items-center gap-1.5 text-[11px] font-medium tabular-nums">
         {state === 'idle' ? (
-          <span className="text-muted">kutilmoqda</span>
+          <span className="text-muted">{t('kutilmoqda')}</span>
         ) : state === 'active' ? (
-          <><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-teal-500" /><span className="text-teal-700 dark:text-teal-300">so'ralmoqda… {n(count)}</span></>
+          <><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-teal-500" /><span className="text-teal-700 dark:text-teal-300">{t("so'ralmoqda…")} {n(count)}</span></>
         ) : (
-          <span className="text-teal-700 dark:text-teal-300">{n(count)} javob</span>
+          <span className="text-teal-700 dark:text-teal-300">{n(count)} {t('javob')}</span>
         )}
       </div>
     </div>
@@ -138,6 +141,7 @@ function ApiNode({ index, name, sub, state, count }: { index: number; name: stri
 // arrived rows — each `r` reference is stable (cases come straight from `data`), so the
 // default shallow compare skips the already-shown rows instead of re-reconciling all.
 const MibRow = React.memo(function MibRow({ r }: { r: MibCase }) {
+  const t = useT();
   const hasCourt = !!r.courtStatus;
   const cu = hasCourt ? KIND_UI[STATUS_KIND[r.courtStatus!] ?? 'process'] : null;
   const h = holatOf(r.stage, r.stageLabel);
@@ -150,7 +154,7 @@ const MibRow = React.memo(function MibRow({ r }: { r: MibCase }) {
       </td>
       <td className="px-3 py-2">
         <div className="font-mono text-[12px] tabular-nums">{caseNo || '—'}</div>
-        <div className="text-[11px] text-muted">{r.mibRef ? `ijro: ${r.mibRef}` : hasCourt ? 'sud ish raqami' : 'ijro ID — MIB API'}</div>
+        <div className="text-[11px] text-muted">{r.mibRef ? `${t('ijro:')} ${r.mibRef}` : hasCourt ? t('sud ish raqami') : t('ijro ID — MIB API')}</div>
       </td>
       <td className="px-3 py-2">
         {hasCourt ? (
@@ -161,7 +165,7 @@ const MibRow = React.memo(function MibRow({ r }: { r: MibCase }) {
         ) : (
           <span className={cx('inline-flex items-center gap-1.5 text-[11px] font-medium', h.text)}>
             <span className={cx('h-1.5 w-1.5 rounded-full', h.dot)} />
-            {h.label}
+            {t(h.label)}
           </span>
         )}
         {r.courtResult && <div className="mt-0.5 max-w-[14rem] truncate text-[10px] text-muted" title={r.courtResult}>{r.courtResult}</div>}
@@ -172,6 +176,7 @@ const MibRow = React.memo(function MibRow({ r }: { r: MibCase }) {
 });
 
 export function MibPanel({ snapshotId, firmId }: { snapshotId?: number; firmId?: number }) {
+  const t = useT();
   const [data, setData] = useState<PullData | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -194,13 +199,13 @@ export function MibPanel({ snapshotId, firmId }: { snapshotId?: number; firmId?:
       if (snapshotId) qs.set('s', String(snapshotId));
       if (firmId) qs.set('firmId', String(firmId));
       const res = await fetch(`/konveyer/mib/pull${qs.toString() ? `?${qs}` : ''}`, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`Server xatosi (${res.status})`);
+      if (!res.ok) throw new Error(`${t('Server xatosi')} (${res.status})`);
       const d: PullData = await res.json();
       if (my !== reqRef.current) return;
       setData(d);
     } catch (e) {
       if (my !== reqRef.current) return;
-      setErr(e instanceof Error ? e.message : 'Yuklab bo‘lmadi');
+      setErr(e instanceof Error ? e.message : t('Yuklab bo‘lmadi'));
       setData(null);
     } finally {
       if (my === reqRef.current) setLoading(false);
@@ -269,9 +274,9 @@ export function MibPanel({ snapshotId, firmId }: { snapshotId?: number; firmId?:
           </span>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold">MIB · ijro monitoringi</span>
+              <span className="text-sm font-semibold">{t('MIB · ijro monitoringi')}</span>
             </div>
-            <div className="mt-0.5 truncate text-xs text-muted">Ma'lumotlar bazadan (real) · 2 ta MIB API'sidan tortish</div>
+            <div className="mt-0.5 truncate text-xs text-muted">{t("Ma'lumotlar bazadan (real) · 2 ta MIB API'sidan tortish")}</div>
           </div>
         </div>
         <svg className={cx('h-4 w-4 shrink-0 text-muted transition-transform', open && 'rotate-90')} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m9 6 6 6-6 6" /></svg>
@@ -284,22 +289,22 @@ export function MibPanel({ snapshotId, firmId }: { snapshotId?: number; firmId?:
           ) : err ? (
             <div role="alert" className="flex items-center justify-between gap-2 rounded-xl border border-rose-500/25 bg-rose-500/[0.04] px-3 py-2.5 text-xs">
               <span className="text-rose-500">{err}</span>
-              <button onClick={load} className="rounded-lg border border-line px-2.5 py-1 font-medium text-muted hover:border-brand-500/40">Qayta</button>
+              <button onClick={load} className="rounded-lg border border-line px-2.5 py-1 font-medium text-muted hover:border-brand-500/40">{t('Qayta')}</button>
             </div>
           ) : !data || data.total === 0 ? (
             <div className="rounded-xl border border-dashed border-line bg-surface-2/40 px-3 py-6 text-center text-xs text-muted">
-              Bu sana/firma bo'yicha sud foydaga hal qilgan ish topilmadi.
-              <div className="mt-1 text-[11px]">Yon paneldagi sanani yoki firmani almashtirib ko'ring.</div>
+              {t("Bu sana/firma bo'yicha sud foydaga hal qilgan ish topilmadi.")}
+              <div className="mt-1 text-[11px]">{t("Yon paneldagi sanani yoki firmani almashtirib ko'ring.")}</div>
             </div>
           ) : (
             <>
               {/* to'liq ro'yxatni Excel — MIB'ga qo'lda topshirish uchun (real API ulanmaguncha) */}
               <div className="mb-3 flex items-center justify-between gap-2">
-                <span className="text-[11px] text-muted">MIB'ga topshirish ro'yxati</span>
+                <span className="text-[11px] text-muted">{t("MIB'ga topshirish ro'yxati")}</span>
                 <a
                   href={excelHref}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] px-3 py-1.5 text-xs font-semibold text-emerald-700 outline-none transition-colors hover:border-emerald-500/50 hover:bg-emerald-500/[0.1] focus-visible:ring-2 focus-visible:ring-emerald-500/40 dark:text-emerald-300"
-                  title="To'liq ro'yxat (Excel) — qarzdor, PINFL, sud ish raqami, holat, sud qarori, qarz. Ekranda ko'pi bilan 500 ta, Excelda hammasi."
+                  title={t("To'liq ro'yxat (Excel) — qarzdor, PINFL, sud ish raqami, holat, sud qarori, qarz. Ekranda ko'pi bilan 500 ta, Excelda hammasi.")}
                 >
                   <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="m9 13 2 3 2-3" /><path d="M11 16v3" /></svg>
                   Excel
@@ -308,24 +313,24 @@ export function MibPanel({ snapshotId, firmId }: { snapshotId?: number; firmId?:
 
               {/* umumiy holat — real */}
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <Stat label="Jami ish" value={n(data.total)} />
-                <Stat label="Qanoatlantirilgan" value={n(data.granted)} accent="emerald" />
-                <Stat label="MIB'da · ijroda" value={n(data.atMib)} accent="teal" />
-                <Stat label="Umumiy qarz" value={n(Number(data.totalDebt))} suffix="so'm" accent="fg" />
+                <Stat label={t('Jami ish')} value={n(data.total)} />
+                <Stat label={t('Qanoatlantirilgan')} value={n(data.granted)} accent="emerald" />
+                <Stat label={t("MIB'da · ijroda")} value={n(data.atMib)} accent="teal" />
+                <Stat label={t('Umumiy qarz')} value={n(Number(data.totalDebt))} suffix={t("so'm")} accent="fg" />
               </div>
               {data.capped && (
-                <div className="mt-2 text-[11px] text-muted">Ro'yxatda ko'pi bilan {n(data.cases.length)} ta ko'rsatiladi (statistika to'liq {n(data.total)} ta bo'yicha).</div>
+                <div className="mt-2 text-[11px] text-muted">{t("Ro'yxatda ko'pi bilan")} {n(data.cases.length)} {t("ta ko'rsatiladi (statistika to'liq")} {n(data.total)} {t("ta bo'yicha).")}</div>
               )}
 
               {/* Sud qarori holatlari — real cabinet statuslari, summalar bilan (monitoringning yuragi) */}
               <div className="mt-4">
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">Sud qarori holatlari</span>
-                  <span className="text-[11px] tabular-nums text-muted">{n(data.withStatus)} / {n(data.total)} status tortilgan</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">{t('Sud qarori holatlari')}</span>
+                  <span className="text-[11px] tabular-nums text-muted">{n(data.withStatus)} / {n(data.total)} {t('status tortilgan')}</span>
                 </div>
                 {data.withStatus === 0 ? (
                   <div className="rounded-xl border border-dashed border-line bg-surface-2/40 px-3 py-4 text-center text-xs text-muted">
-                    Sud statuslari hali tortilmagan. «Ulanishlar» dan cabinet.sud.uz ga ulanib statuslarni oling — qanoatlantirilgan / jarayonda / rad holatlari shu yerda summalar bilan chiqadi.
+                    {t('Sud statuslari hali tortilmagan. «Ulanishlar» dan cabinet.sud.uz ga ulanib statuslarni oling — qanoatlantirilgan / jarayonda / rad holatlari shu yerda summalar bilan chiqadi.')}
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
@@ -337,16 +342,16 @@ export function MibPanel({ snapshotId, firmId }: { snapshotId?: number; firmId?:
               {/* ── 2-API konsoli (signature) ─────────────────────────────── */}
               <div className="mt-4 rounded-2xl border border-line bg-surface-2/30 p-4">
                 <div className="mb-3 flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">Ijro ma'lumoti · 2 ta MIB API'si</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">{t("Ijro ma'lumoti · 2 ta MIB API'si")}</span>
                 </div>
 
                 {/* pipeline: API 1 → API 2 */}
                 <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[1fr_auto_1fr]">
-                  <ApiNode index={1} name="Qarzdorlik so'rovi" sub="ijro hujjatlari · PINFL bo'yicha" state={nodeState} count={shown} />
+                  <ApiNode index={1} name={t("Qarzdorlik so'rovi")} sub={t("ijro hujjatlari · PINFL bo'yicha")} state={nodeState} count={shown} />
                   <div className="flex items-center justify-center" aria-hidden>
                     <svg className={cx('h-4 w-4 rotate-90 transition-colors sm:rotate-0', nodeState === 'idle' ? 'text-muted/40' : 'text-teal-500', running && 'animate-pulse')} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></svg>
                   </div>
-                  <ApiNode index={2} name="Ijro monitoringi" sub="ijro ID bo'yicha batafsil" state={nodeState} count={shown} />
+                  <ApiNode index={2} name={t('Ijro monitoringi')} sub={t("ijro ID bo'yicha batafsil")} state={nodeState} count={shown} />
                 </div>
 
                 {/* boshqaruv + progress */}
@@ -354,7 +359,7 @@ export function MibPanel({ snapshotId, firmId }: { snapshotId?: number; firmId?:
                   {!running && !done && (
                     <button onClick={start} className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40">
                       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 3v12" /><path d="m8 11 4 4 4-4" /><path d="M4 21h16" /></svg>
-                      Ijro ma'lumotini tortish
+                      {t("Ijro ma'lumotini tortish")}
                       <span className="rounded-md bg-white/20 px-1.5 py-0.5 text-[11px] font-bold tabular-nums">{n(target)}</span>
                     </button>
                   )}
@@ -362,17 +367,17 @@ export function MibPanel({ snapshotId, firmId }: { snapshotId?: number; firmId?:
                     <>
                       <span className="inline-flex items-center gap-2 rounded-xl bg-teal-500/10 px-3 py-2 text-sm font-semibold text-teal-700 dark:text-teal-300">
                         <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-teal-500/40 border-t-teal-600 dark:border-t-teal-300" />
-                        Ketyapti… <span className="tabular-nums">{n(shown)}/{n(target)}</span>
+                        {t('Ketyapti…')} <span className="tabular-nums">{n(shown)}/{n(target)}</span>
                       </span>
-                      <button onClick={stop} className="rounded-xl border border-line px-3 py-2 text-sm font-medium text-muted transition-colors hover:border-rose-500/40 hover:text-rose-500">To'xtat</button>
+                      <button onClick={stop} className="rounded-xl border border-line px-3 py-2 text-sm font-medium text-muted transition-colors hover:border-rose-500/40 hover:text-rose-500">{t("To'xtat")}</button>
                     </>
                   )}
                   {done && (
                     <>
                       <span className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                        <Check className="h-4 w-4" /> {n(target)} ta tortildi
+                        <Check className="h-4 w-4" /> {n(target)} {t('ta tortildi')}
                       </span>
-                      <button onClick={reset} className="rounded-xl border border-line px-3 py-2 text-sm font-medium text-muted transition-colors hover:border-brand-500/40">Qayta tortish</button>
+                      <button onClick={reset} className="rounded-xl border border-line px-3 py-2 text-sm font-medium text-muted transition-colors hover:border-brand-500/40">{t('Qayta tortish')}</button>
                     </>
                   )}
                   {(running || shown > 0) && (
@@ -386,8 +391,8 @@ export function MibPanel({ snapshotId, firmId }: { snapshotId?: number; firmId?:
                 )}
 
                 <div className="mt-3 text-[11px] leading-relaxed text-muted">
-                  Ko'rsatilgan qarzdor, PINFL, sud ish raqami, holat va qarz — <b className="font-semibold text-fg">bazadan (real)</b>.
-                  Davlat ijrochisi va MIB ijro ID real MIB API ulangach to'ldiriladi. Hech narsa bazaga yozilmaydi.
+                  {t("Ko'rsatilgan qarzdor, PINFL, sud ish raqami, holat va qarz —")} <b className="font-semibold text-fg">{t('bazadan (real)')}</b>.
+                  {' '}{t("Davlat ijrochisi va MIB ijro ID real MIB API ulangach to'ldiriladi. Hech narsa bazaga yozilmaydi.")}
                 </div>
               </div>
 
@@ -395,8 +400,8 @@ export function MibPanel({ snapshotId, firmId }: { snapshotId?: number; firmId?:
               {shown > 0 && (
                 <div className="mt-4">
                   <div className="mb-1.5 flex items-center justify-between gap-2 text-[11px] text-muted">
-                    <span className="font-semibold uppercase tracking-wide">Holatlar taqsimoti</span>
-                    <span className="tabular-nums">Tortilgan qarz: <span className="font-semibold text-fg">{n(pulledDebt)}</span> so'm</span>
+                    <span className="font-semibold uppercase tracking-wide">{t('Holatlar taqsimoti')}</span>
+                    <span className="tabular-nums">{t('Tortilgan qarz:')} <span className="font-semibold text-fg">{n(pulledDebt)}</span> {t("so'm")}</span>
                   </div>
                   <div className="flex h-2 w-full overflow-hidden rounded-full bg-surface-2">
                     {seg(byStage.mib, 'bg-teal-500')}
@@ -404,10 +409,10 @@ export function MibPanel({ snapshotId, firmId }: { snapshotId?: number; firmId?:
                   </div>
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
                     <span className="inline-flex items-center gap-1.5 tabular-nums">
-                      <span className="h-2 w-2 rounded-full bg-teal-500" /><span className="text-muted">MIB'da · ijroda</span><span className="font-semibold text-fg">{n(byStage.mib)}</span>
+                      <span className="h-2 w-2 rounded-full bg-teal-500" /><span className="text-muted">{t("MIB'da · ijroda")}</span><span className="font-semibold text-fg">{n(byStage.mib)}</span>
                     </span>
                     <span className="inline-flex items-center gap-1.5 tabular-nums">
-                      <span className="h-2 w-2 rounded-full bg-slate-400" /><span className="text-muted">Yopilgan</span><span className="font-semibold text-fg">{n(byStage.closed)}</span>
+                      <span className="h-2 w-2 rounded-full bg-slate-400" /><span className="text-muted">{t('Yopilgan')}</span><span className="font-semibold text-fg">{n(byStage.closed)}</span>
                     </span>
                   </div>
                 </div>
@@ -417,18 +422,18 @@ export function MibPanel({ snapshotId, firmId }: { snapshotId?: number; firmId?:
               {shown > 0 && (
                 <div className="mt-4 max-h-96 overflow-auto rounded-xl border border-line">
                   <table className="w-full min-w-[38rem] text-sm">
-                    <caption className="sr-only">Tortilgan ijro ma'lumotlari — bazadan (real)</caption>
+                    <caption className="sr-only">{t("Tortilgan ijro ma'lumotlari — bazadan (real)")}</caption>
                     <thead className="sticky top-0 z-10 bg-surface-2/95">
                       <tr>
                         <th colSpan={4} className="border-b border-line bg-teal-500/10 px-3 py-1 text-left text-[10px] font-bold uppercase tracking-wide text-teal-700 dark:text-teal-300">
-                          Real ma'lumot · davlat ijrochisi/ijro ID — MIB API ulangach
+                          {t("Real ma'lumot · davlat ijrochisi/ijro ID — MIB API ulangach")}
                         </th>
                       </tr>
                       <tr className="border-b border-line text-[10px] uppercase tracking-wide text-muted">
-                        <th scope="col" className="px-3 py-2 text-left font-semibold">Qarzdor</th>
-                        <th scope="col" className="px-3 py-2 text-left font-semibold">Sud ish raqami</th>
-                        <th scope="col" className="px-3 py-2 text-left font-semibold">Holat</th>
-                        <th scope="col" className="px-3 py-2 text-right font-semibold">Qarz</th>
+                        <th scope="col" className="px-3 py-2 text-left font-semibold">{t('Qarzdor')}</th>
+                        <th scope="col" className="px-3 py-2 text-left font-semibold">{t('Sud ish raqami')}</th>
+                        <th scope="col" className="px-3 py-2 text-left font-semibold">{t('Holat')}</th>
+                        <th scope="col" className="px-3 py-2 text-right font-semibold">{t('Qarz')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-line">

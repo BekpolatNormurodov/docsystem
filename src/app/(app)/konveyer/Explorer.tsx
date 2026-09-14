@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useT } from '@/lib/i18n/client';
 import { Dropdown } from './Dropdown';
 import { AdvanceControls, type Transition } from './AdvanceControls';
 import { CaseList } from './CaseList';
@@ -35,6 +36,7 @@ function ParallelRail({ prep, talabnoma, ariza, boj, court, exec, selected, onSe
   prep: number; talabnoma: number; ariza: number; boj: number; court: number; exec: number;
   selected: string | null; onSelect: (k: string) => void;
 }) {
+  const t = useT();
   // 4-step flow: Tayyorlash splits into Talabnoma(top) + Sanoat palatasi(bottom); both MERGE
   // straight into Sud (invoice/buxgalteriya is folded INTO Sud now), then Ijro (MIB).
   const N = {
@@ -55,7 +57,7 @@ function ParallelRail({ prep, talabnoma, ariza, boj, court, exec, selected, onSe
       <g
         role="button"
         tabIndex={0}
-        aria-label={`${nd.label}: ${on ? n(nd.v) : 0}`}
+        aria-label={`${t(nd.label)}: ${on ? n(nd.v) : 0}`}
         aria-pressed={sel}
         onClick={() => onSelect(nd.key)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(nd.key); } }}
@@ -64,14 +66,14 @@ function ParallelRail({ prep, talabnoma, ariza, boj, court, exec, selected, onSe
         <circle cx={nd.x} cy={nd.y} r={nd.r} fill={on ? nd.c : 'transparent'} stroke={on ? nd.c : 'var(--muted,#94a3b8)'} strokeWidth={on ? 0 : 2} strokeDasharray={on ? undefined : '5 4'} />
         {sel && <circle cx={nd.x} cy={nd.y} r={nd.r + 5} fill="none" stroke={nd.c} strokeWidth={2} opacity={0.55} />}
         <text x={nd.x} y={nd.y + 6} textAnchor="middle" fontSize={17} fontWeight={700} fill={on ? '#fff' : 'var(--muted,#94a3b8)'} style={{ pointerEvents: 'none' }}>{on ? n(nd.v) : '·'}</text>
-        <text x={nd.x} y={nd.y + nd.r + 17} textAnchor="middle" fontSize={11.5} fill="var(--muted,#64748b)" fontWeight={sel ? 700 : 400} style={{ pointerEvents: 'none' }}>{nd.label}</text>
+        <text x={nd.x} y={nd.y + nd.r + 17} textAnchor="middle" fontSize={11.5} fill="var(--muted,#64748b)" fontWeight={sel ? 700 : 400} style={{ pointerEvents: 'none' }}>{t(nd.label)}</text>
       </g>
     );
   };
   const sudOn = N.court.v > 0;
 
   return (
-    <svg viewBox="0 0 900 210" className="w-full" style={{ maxHeight: 250 }} role="img" aria-label="Konveyer sxemasi">
+    <svg viewBox="0 0 900 210" className="w-full" style={{ maxHeight: 250 }} role="img" aria-label={t('Konveyer sxemasi')}>
       {curve(N.prep.x + N.prep.r, N.prep.y - 8, N.tal.x - N.tal.r, N.tal.y, N.tal.v > 0, N.tal.c)}
       {curve(N.prep.x + N.prep.r, N.prep.y + 8, N.ariza.x - N.ariza.r, N.ariza.y, N.ariza.v > 0, N.ariza.c)}
       {/* both lanes merge straight into Sud (invoice folded in) */}
@@ -86,6 +88,7 @@ function ParallelRail({ prep, talabnoma, ariza, boj, court, exec, selected, onSe
 export function Explorer({ phases, stages, firms, funnel, snapshotId }: {
   phases: PhaseMeta[]; stages: StageMeta[]; firms: FirmRow[]; funnel: FunnelData; snapshotId?: number;
 }) {
+  const t = useT();
   const [firmId, setFirmId] = useState<number | null>(null); // null => Hamma firma
   const [phaseKey, setPhaseKey] = useState<string | null>(null);
 
@@ -96,11 +99,11 @@ export function Explorer({ phases, stages, firms, funnel, snapshotId }: {
   const counts = phases.map((p) => scopePhases[p.key] ?? 0);
   const scopeTalabnoma = firm ? firm.talabnomaSent : funnel.talabnomaSent;
   // Talabnoma is a parallel track (talabnomaAt), not a stage — synthetic phase.
-  const TAL_PHASE: PhaseMeta = { key: 'TALABNOMA', label: 'Talabnoma (hippo)', color: '#0ea5e9', stages: [] };
+  const TAL_PHASE: PhaseMeta = { key: 'TALABNOMA', label: 'Talabnoma (hippo)', color: '#0ea5e9', stages: [] }; // label t()'da render paytida o'giriladi
   const activePhase = phaseKey === 'TALABNOMA' ? TAL_PHASE : (phases.find((p) => p.key === phaseKey) ?? null);
   const talabnomaFilter = phaseKey === 'TALABNOMA';
 
-  const firmOpts = [{ value: 'all', label: 'Hamma firma' }, ...funnel.firms.map((f) => ({ value: String(f.firmId), label: f.firmName, hint: n(f.total) }))];
+  const firmOpts = [{ value: 'all', label: t('Hamma firma') }, ...funnel.firms.map((f) => ({ value: String(f.firmId), label: f.firmName, hint: n(f.total) }))];
 
   // Advance targets must follow the pipeline graph, NOT raw STAGES adjacency: a court-ACCEPTED case
   // goes to MIB (execution), never to the "sud qaytardi" reject bucket that sits next in the display
@@ -136,7 +139,7 @@ export function Explorer({ phases, stages, firms, funnel, snapshotId }: {
             onChange={(v) => setFirmId(v === 'all' ? null : Number(v))}
             className="min-w-[240px]"
           />
-          <div className="text-xs text-muted">{activePhase ? `Bosqich: ${activePhase.label}` : 'Bosqichni bosing yoki pastdan qidiring'}</div>
+          <div className="text-xs text-muted">{activePhase ? `${t('Bosqich')}: ${t(activePhase.label)}` : t('Bosqichni bosing yoki pastdan qidiring')}</div>
         </div>
 
         <ParallelRail
@@ -160,8 +163,8 @@ export function Explorer({ phases, stages, firms, funnel, snapshotId }: {
         <div className="card p-4">
           <div className="mb-3 flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full" style={{ background: activePhase.color }} />
-            <span className="text-sm font-semibold">{activePhase.label}</span>
-            <span className="text-xs text-muted">— firmalar bo'yicha</span>
+            <span className="text-sm font-semibold">{t(activePhase.label)}</span>
+            <span className="text-xs text-muted">{t("— firmalar bo'yicha")}</span>
           </div>
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
             {[...funnel.firms]
@@ -193,20 +196,20 @@ export function Explorer({ phases, stages, firms, funnel, snapshotId }: {
       {/* users — global by default, filtered by the chosen station */}
       <div className="card p-4">
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-muted">Mijozlar</span>
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted">{t('Mijozlar')}</span>
           <span className="inline-flex items-center gap-1.5 rounded-lg bg-surface-2 px-2 py-1 text-xs font-medium">
-            {firm ? firm.firmName : 'Hamma firma'}
-            {firm && <button onClick={() => setFirmId(null)} className="text-muted hover:text-rose-500" aria-label="Firma filtrini olib tashlash">✕</button>}
+            {firm ? firm.firmName : t('Hamma firma')}
+            {firm && <button onClick={() => setFirmId(null)} className="text-muted hover:text-rose-500" aria-label={t('Firma filtrini olib tashlash')}>✕</button>}
           </span>
           {activePhase && (
             <span className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium" style={{ background: `${activePhase.color}18`, color: activePhase.color }}>
-              {activePhase.label}
-              <button onClick={() => setPhaseKey(null)} className="opacity-70 hover:opacity-100" aria-label="Bosqich filtrini olib tashlash">✕</button>
+              {t(activePhase.label)}
+              <button onClick={() => setPhaseKey(null)} className="opacity-70 hover:opacity-100" aria-label={t('Bosqich filtrini olib tashlash')}>✕</button>
             </span>
           )}
           {(firm || activePhase) && (
             <button onClick={() => { setFirmId(null); setPhaseKey(null); }} className="inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-xs font-medium text-muted transition-colors hover:border-rose-500/40 hover:text-rose-500">
-              ✕ Tozalash
+              ✕ {t('Tozalash')}
             </button>
           )}
           <div className="ml-auto">
@@ -214,7 +217,7 @@ export function Explorer({ phases, stages, firms, funnel, snapshotId }: {
               firmId={firmId ?? undefined}
               snapshotId={snapshotId}
               stages={talabnomaFilter ? [] : (activePhase ? activePhase.stages : [])}
-              scopeLabel={`${firm ? firm.firmName : 'Hamma firma'}${activePhase ? ` · ${activePhase.label}` : ''}`}
+              scopeLabel={`${firm ? firm.firmName : t('Hamma firma')}${activePhase ? ` · ${t(activePhase.label)}` : ''}`}
             />
           </div>
         </div>
@@ -224,14 +227,14 @@ export function Explorer({ phases, stages, firms, funnel, snapshotId }: {
           snapshotId={snapshotId}
           stages={activePhase ? activePhase.stages : []}
           talabnoma={talabnomaFilter}
-          phaseLabel={activePhase?.label}
+          phaseLabel={activePhase ? t(activePhase.label) : undefined}
         />
       </div>
 
       {/* per-firm stage advance (only when a firm + phase chosen) */}
       {transitions.length > 0 && (
         <div className="card p-4">
-          <div className="mb-2 text-xs font-semibold text-muted">Bosqichni o'tkazish · {activePhase?.label}</div>
+          <div className="mb-2 text-xs font-semibold text-muted">{t("Bosqichni o'tkazish")} · {activePhase ? t(activePhase.label) : ''}</div>
           <AdvanceControls firmId={summaryFirm!.firmId} transitions={transitions} />
         </div>
       )}

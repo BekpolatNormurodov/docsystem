@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
+import { useT } from '@/lib/i18n/client';
 
 // 24/7 AVTOMAT QORALAMA — boshqaruv + monitoring (sud bo'limi, admin).
 //
@@ -33,6 +34,7 @@ function Bar({ ready, queued, submitted, total }: { ready: number; queued: numbe
 }
 
 export default function DraftAutoPanel() {
+  const t = useT();
   const [data, setData] = useState<Status | null>(null);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
@@ -45,7 +47,7 @@ export default function DraftAutoPanel() {
       setData(await r.json());
       setErr(null);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'holat o‘qilmadi');
+      setErr(e instanceof Error ? e.message : t('holat o‘qilmadi'));
     }
   }, []);
 
@@ -104,25 +106,25 @@ export default function DraftAutoPanel() {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className={`text-[13px] font-semibold ${on ? 'text-teal-700 dark:text-teal-300' : 'text-fg'}`}>
-              24/7 avtomat qoralama {on ? '— ishlamoqda' : '— o‘chiq'}
+              {t('24/7 avtomat qoralama')} {on ? t('— ishlamoqda') : t('— o‘chiq')}
             </span>
             {totalSendable > 0 && (
-              <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-emerald-700 dark:text-emerald-300" title="Hujjati to‘liq, hali navbatga olinmagan — «Go»da shular tayyorlanadi">
-                {n(totalSendable)} tayyor
+              <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-emerald-700 dark:text-emerald-300" title={t('Hujjati to‘liq, hali navbatga olinmagan — «Go»da shular tayyorlanadi')}>
+                {n(totalSendable)} {t('tayyor')}
               </span>
             )}
             {totalQueued > 0 && (
-              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-amber-700 dark:text-amber-300" title="Navbatga olingan — ayni damда real ishga aylantirilyapti">
-                {n(totalQueued)} navbatda
+              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-amber-700 dark:text-amber-300" title={t('Navbatga olingan — ayni damда real ishga aylantirilyapti')}>
+                {n(totalQueued)} {t('navbatda')}
               </span>
             )}
             {totalDraftReady > 0 && (
               <span className="rounded bg-teal-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-teal-700 dark:text-teal-300">
-                {n(totalDraftReady)} qoralama tayyor
+                {n(totalDraftReady)} {t('qoralama tayyor')}
               </span>
             )}
             {active && (
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-sky-500/15 px-2 py-0.5 text-[11px] font-semibold text-sky-700 ring-1 ring-sky-500/30 dark:text-sky-300" title="Ayni damда ishlanayotgan firma">
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-sky-500/15 px-2 py-0.5 text-[11px] font-semibold text-sky-700 ring-1 ring-sky-500/30 dark:text-sky-300" title={t('Ayni damда ishlanayotgan firma')}>
                 <span className="relative flex h-2 w-2" aria-hidden>
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-500/70" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-sky-500" />
@@ -146,11 +148,11 @@ export default function DraftAutoPanel() {
               : 'border-teal-500/50 bg-teal-500/10 text-teal-700 hover:bg-teal-500/[0.18] focus-visible:ring-teal-500/30 dark:text-teal-300'
           }`}
         >
-          {busy ? '…' : on ? 'To‘xtatish' : 'Go — 24/7'}
+          {busy ? '…' : on ? t('To‘xtatish') : t('Go — 24/7')}
         </button>
         <button onClick={() => setOpen((v) => !v)} aria-expanded={open}
           className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-line px-2.5 py-1.5 text-[11px] font-medium text-muted outline-none transition-colors hover:border-teal-500/40 hover:text-fg focus-visible:ring-2 focus-visible:ring-teal-500/30">
-          Monitoring
+          {t('Monitoring')}
           <svg className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
         </button>
       </div>
@@ -160,12 +162,12 @@ export default function DraftAutoPanel() {
           {/* FIRMA kesimida */}
           <div>
             <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-muted">
-              <span>Firma kesimida</span>
+              <span>{t('Firma kesimida')}</span>
               <span className="ml-auto flex items-center gap-2 text-[10px] font-normal">
-                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" />tayyor</span>
-                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" />navbatda</span>
-                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-teal-500" />qoralama</span>
-                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-indigo-500" />sudda</span>
+                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" />{t('tayyor')}</span>
+                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" />{t('navbatda')}</span>
+                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-teal-500" />{t('qoralama')}</span>
+                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-indigo-500" />{t('sudda')}</span>
               </span>
             </div>
             <ul className="space-y-1">
@@ -174,7 +176,7 @@ export default function DraftAutoPanel() {
                   <button
                     onClick={() => toggleFirm(f.firmId, f.paused)}
                     disabled={firmBusy === f.firmId}
-                    title={f.paused ? 'Bu firmani davom ettirish' : 'Bu firmani to‘xtatish (boshqalari ketaveradi)'}
+                    title={f.paused ? t('Bu firmani davom ettirish') : t('Bu firmani to‘xtatish (boshqalari ketaveradi)')}
                     className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded outline-none transition-colors focus-visible:ring-2 disabled:opacity-40 ${f.paused ? 'text-rose-600 hover:bg-rose-500/15 focus-visible:ring-rose-500/30 dark:text-rose-300' : 'text-muted hover:bg-surface hover:text-fg focus-visible:ring-teal-500/30'}`}
                   >
                     {f.paused
@@ -183,20 +185,20 @@ export default function DraftAutoPanel() {
                   </button>
                   <span className={`min-w-0 flex-1 truncate font-medium ${f.paused ? 'text-muted' : f.active ? 'text-sky-700 dark:text-sky-300' : ''}`} title={f.firmName}>{f.firmName}</span>
                   {f.active && !f.paused && (
-                    <span className="inline-flex shrink-0 items-center gap-1 rounded bg-sky-500/15 px-1 py-0.5 text-[9px] font-semibold text-sky-700 dark:text-sky-300" title="Ayni damда ishlanyapti">
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded bg-sky-500/15 px-1 py-0.5 text-[9px] font-semibold text-sky-700 dark:text-sky-300" title={t('Ayni damда ishlanyapti')}>
                       <span className="relative flex h-1.5 w-1.5" aria-hidden>
                         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-500/70" />
                         <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-sky-500" />
                       </span>
-                      {active ? `${n(active.progress)}/${n(active.total)}` : 'ketyapti'}
+                      {active ? `${n(active.progress)}/${n(active.total)}` : t('ketyapti')}
                     </span>
                   )}
-                  {f.paused && <span className="shrink-0 rounded bg-rose-500/15 px-1 py-0.5 text-[9px] font-medium text-rose-700 dark:text-rose-300">pauza</span>}
+                  {f.paused && <span className="shrink-0 rounded bg-rose-500/15 px-1 py-0.5 text-[9px] font-medium text-rose-700 dark:text-rose-300">{t('pauza')}</span>}
                   <Bar ready={f.draftReady} queued={f.queued} submitted={f.submitted} total={f.total} />
-                  <span className="w-8 shrink-0 text-right tabular-nums text-emerald-600 dark:text-emerald-400" title="Tayyor — hali navbatga olinmagan">{n(f.sendable)}</span>
-                  <span className="w-8 shrink-0 text-right tabular-nums text-amber-600 dark:text-amber-400" title="Navbatda — real ishga aylantirilyapti">{n(f.queued)}</span>
-                  <span className="w-8 shrink-0 text-right tabular-nums text-teal-600 dark:text-teal-400" title="Qoralama tayyor">{n(f.draftReady)}</span>
-                  <span className="w-8 shrink-0 text-right tabular-nums text-indigo-600 dark:text-indigo-400" title="Sudda">{n(f.submitted)}</span>
+                  <span className="w-8 shrink-0 text-right tabular-nums text-emerald-600 dark:text-emerald-400" title={t('Tayyor — hali navbatga olinmagan')}>{n(f.sendable)}</span>
+                  <span className="w-8 shrink-0 text-right tabular-nums text-amber-600 dark:text-amber-400" title={t('Navbatda — real ishga aylantirilyapti')}>{n(f.queued)}</span>
+                  <span className="w-8 shrink-0 text-right tabular-nums text-teal-600 dark:text-teal-400" title={t('Qoralama tayyor')}>{n(f.draftReady)}</span>
+                  <span className="w-8 shrink-0 text-right tabular-nums text-indigo-600 dark:text-indigo-400" title={t('Sudda')}>{n(f.submitted)}</span>
                 </li>
               ))}
             </ul>
@@ -204,24 +206,24 @@ export default function DraftAutoPanel() {
           {/* SUD kesimida */}
           <div>
             <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-muted">
-              <span>Sud kesimida</span>
+              <span>{t('Sud kesimida')}</span>
               <span className="ml-auto flex items-center gap-2 text-[10px] font-normal">
-                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" />tayyor</span>
-                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" />navbatda</span>
-                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-teal-500" />qoralama</span>
-                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-indigo-500" />sudda</span>
+                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" />{t('tayyor')}</span>
+                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" />{t('navbatda')}</span>
+                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-teal-500" />{t('qoralama')}</span>
+                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-indigo-500" />{t('sudda')}</span>
               </span>
             </div>
             <ul className="space-y-1">
-              {data.courts.length === 0 && <li className="rounded-lg bg-surface-2 px-2 py-1.5 text-[11px] text-muted">Sud biriktirilmagan</li>}
+              {data.courts.length === 0 && <li className="rounded-lg bg-surface-2 px-2 py-1.5 text-[11px] text-muted">{t('Sud biriktirilmagan')}</li>}
               {data.courts.map((c) => (
                 <li key={c.courtId} className="flex items-center gap-2 rounded-lg bg-surface-2 px-2 py-1.5 text-[11px]">
                   <span className="min-w-0 flex-1 truncate font-medium" title={c.courtName}>{c.courtName}</span>
                   <Bar ready={c.draftReady} queued={c.queued} submitted={c.submitted} total={c.total} />
-                  <span className="w-8 shrink-0 text-right tabular-nums text-emerald-600 dark:text-emerald-400" title="Tayyor — hali navbatga olinmagan">{n(c.sendable)}</span>
-                  <span className="w-8 shrink-0 text-right tabular-nums text-amber-600 dark:text-amber-400" title="Navbatda — real ishga aylantirilyapti">{n(c.queued)}</span>
-                  <span className="w-8 shrink-0 text-right tabular-nums text-teal-600 dark:text-teal-400" title="Qoralama tayyor">{n(c.draftReady)}</span>
-                  <span className="w-8 shrink-0 text-right tabular-nums text-indigo-600 dark:text-indigo-400" title="Sudda">{n(c.submitted)}</span>
+                  <span className="w-8 shrink-0 text-right tabular-nums text-emerald-600 dark:text-emerald-400" title={t('Tayyor — hali navbatga olinmagan')}>{n(c.sendable)}</span>
+                  <span className="w-8 shrink-0 text-right tabular-nums text-amber-600 dark:text-amber-400" title={t('Navbatda — real ishga aylantirilyapti')}>{n(c.queued)}</span>
+                  <span className="w-8 shrink-0 text-right tabular-nums text-teal-600 dark:text-teal-400" title={t('Qoralama tayyor')}>{n(c.draftReady)}</span>
+                  <span className="w-8 shrink-0 text-right tabular-nums text-indigo-600 dark:text-indigo-400" title={t('Sudda')}>{n(c.submitted)}</span>
                 </li>
               ))}
             </ul>

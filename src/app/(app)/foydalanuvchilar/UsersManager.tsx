@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Ico } from '@/ui/icons';
 import { useConfirm } from '@/ui';
+import { useT } from '@/lib/i18n/client';
 import { STEP_KEYS, STEP_META, MODULE_KEYS, MODULE_META, EXTRA_KEYS, EXTRA_META, STEP_SUBITEMS, SUBITEM_META, type StepKey, type ModuleKey, type ExtraKey, type SubItemKey, type AccessKey } from '@/lib/access';
 
 // Har qanday ruxsat kaliti uchun yorliq (bosqich / sub-item / modul).
@@ -56,14 +57,14 @@ const uniqueLogin = (name: string, taken: Set<string>) => {
 };
 
 // Human "last seen" from an ISO timestamp (client-side; recomputed each render).
-const relLogin = (iso: string | null) => {
-  if (!iso) return 'hech qachon';
+const relLogin = (iso: string | null, t: (s: string) => string) => {
+  if (!iso) return t('hech qachon');
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 60) return 'hozir';
-  if (s < 3600) return `${Math.floor(s / 60)} daq oldin`;
-  if (s < 86400) return `${Math.floor(s / 3600)} soat oldin`;
+  if (s < 60) return t('hozir');
+  if (s < 3600) return `${Math.floor(s / 60)} ${t('daq oldin')}`;
+  if (s < 86400) return `${Math.floor(s / 3600)} ${t('soat oldin')}`;
   const days = Math.floor(s / 86400);
-  return days < 30 ? `${days} kun oldin` : new Date(iso).toLocaleDateString('ru-RU');
+  return days < 30 ? `${days} ${t('kun oldin')}` : new Date(iso).toLocaleDateString('ru-RU');
 };
 
 // Caller passes size + a border color (top stays transparent to form the gap).
@@ -126,6 +127,7 @@ const inputCls =
   'w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15';
 
 function UserForm({ mode, initial, existingUsernames = [], onDone, onCancel }: { mode: 'add' | 'edit'; initial?: UserRow; existingUsernames?: string[]; onDone: () => void; onCancel: () => void }) {
+  const t = useT();
   const taken = React.useMemo(() => new Set(existingUsernames.map((u) => u.toLowerCase())), [existingUsernames]);
   const [newUsername, setNewUsername] = useState('');
   const [loginTouched, setLoginTouched] = useState(false); // admin login'ni qo'lda o'zgartirsa — avto to'xtaydi
@@ -155,10 +157,10 @@ function UserForm({ mode, initial, existingUsernames = [], onDone, onCancel }: {
         body: JSON.stringify(payload),
       });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d?.error || 'Saqlanmadi');
+      if (!res.ok) throw new Error(d?.error || t('Saqlanmadi'));
       onDone();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Xatolik');
+      setErr(e instanceof Error ? e.message : t('Xatolik'));
     } finally {
       setBusy(false);
     }
@@ -167,43 +169,43 @@ function UserForm({ mode, initial, existingUsernames = [], onDone, onCancel }: {
   return (
     <div className="rounded-xl border border-line bg-surface-2/40 p-4">
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="F.I.Sh">
+        <Field label={t('F.I.Sh')}>
           <input
             className={inputCls}
             value={fullName}
             onChange={(e) => { const v = e.target.value; setFullName(v); if (mode === 'add' && !loginTouched) setNewUsername(uniqueLogin(v, taken)); }}
-            placeholder="Mahmudov Akmal"
+            placeholder={t('Mahmudov Akmal')}
             autoFocus={mode === 'add'}
           />
         </Field>
-        <Field label="Login">
+        <Field label={t('Login')}>
           {mode === 'add' ? (
-            <input className={inputCls} value={newUsername} onChange={(e) => { setNewUsername(e.target.value); setLoginTouched(true); }} placeholder="ismdan avto" />
+            <input className={inputCls} value={newUsername} onChange={(e) => { setNewUsername(e.target.value); setLoginTouched(true); }} placeholder={t('ismdan avto')} />
           ) : (
             <input className={cx(inputCls, 'cursor-not-allowed opacity-60')} value={initial?.username ?? ''} readOnly />
           )}
         </Field>
-        <Field label={mode === 'add' ? 'Parol (avto — 7–8 belgi)' : 'Yangi parol'}>
+        <Field label={mode === 'add' ? t('Parol (avto — 7–8 belgi)') : t('Yangi parol')}>
           <div className="relative">
             <input
               className={cx(inputCls, mode === 'add' ? 'pr-16' : 'pr-10')}
               type={showPw ? 'text' : 'password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder={mode === 'add' ? 'avto yaratildi' : 'Bo‘sh — o‘zgarmaydi'}
+              placeholder={mode === 'add' ? t('avto yaratildi') : t('Bo‘sh — o‘zgarmaydi')}
               autoComplete="new-password"
             />
             {mode === 'add' && (
-              <button type="button" onClick={() => setPassword(genPassword())} aria-label="Boshqa parol" title="Boshqa parol yaratish" className="absolute right-8 top-1/2 -translate-y-1/2 rounded p-1 text-muted transition-colors hover:text-fg">
+              <button type="button" onClick={() => setPassword(genPassword())} aria-label={t('Boshqa parol')} title={t('Boshqa parol yaratish')} className="absolute right-8 top-1/2 -translate-y-1/2 rounded p-1 text-muted transition-colors hover:text-fg">
                 <Ico.refresh size={15} />
               </button>
             )}
-            <button type="button" onClick={() => setShowPw((v) => !v)} aria-label={showPw ? 'Yashirish' : 'Ko‘rsatish'} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted transition-colors hover:text-fg">
+            <button type="button" onClick={() => setShowPw((v) => !v)} aria-label={showPw ? t('Yashirish') : t('Ko‘rsatish')} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted transition-colors hover:text-fg">
               {showPw ? <Ico.eyeOff size={16} /> : <Ico.eye size={16} />}
             </button>
           </div>
         </Field>
-        <Field label="Rol">
+        <Field label={t('Rol')}>
           <div className="inline-flex rounded-lg border border-line bg-surface p-0.5">
             {(['YURIST', 'ADMIN'] as const).map((r) => (
               <button
@@ -212,7 +214,7 @@ function UserForm({ mode, initial, existingUsernames = [], onDone, onCancel }: {
                 onClick={() => setRole(r)}
                 className={cx('rounded-md px-4 py-1.5 text-sm font-medium transition-colors', role === r ? 'bg-brand-500 text-white shadow-sm' : 'text-muted hover:text-fg')}
               >
-                {r === 'ADMIN' ? 'Admin' : 'Yurist'}
+                {r === 'ADMIN' ? t('Admin') : t('Yurist')}
               </button>
             ))}
           </div>
@@ -223,7 +225,7 @@ function UserForm({ mode, initial, existingUsernames = [], onDone, onCancel }: {
         <div className="mt-4 space-y-4">
           <div>
             <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted">
-              <Ico.check size={14} /> Bosqich ruxsatlari — galochka qo‘ying (ichki sahifagacha)
+              <Ico.check size={14} /> {t('Bosqich ruxsatlari — galochka qo‘ying (ichki sahifagacha)')}
             </div>
             <div className="space-y-3">
               {STEP_KEYS.map((sk) => {
@@ -246,7 +248,7 @@ function UserForm({ mode, initial, existingUsernames = [], onDone, onCancel }: {
           </div>
           <div>
             <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted">
-              <Ico.check size={14} /> Alohida modullar
+              <Ico.check size={14} /> {t('Alohida modullar')}
             </div>
             <AccessToggles
               keys={MODULE_KEYS}
@@ -258,7 +260,7 @@ function UserForm({ mode, initial, existingUsernames = [], onDone, onCancel }: {
           </div>
           <div>
             <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted">
-              <Ico.check size={14} /> Maxsus ruxsatlar
+              <Ico.check size={14} /> {t('Maxsus ruxsatlar')}
             </div>
             <AccessToggles
               keys={EXTRA_KEYS}
@@ -271,17 +273,17 @@ function UserForm({ mode, initial, existingUsernames = [], onDone, onCancel }: {
         </div>
       ) : (
         <div className="mt-4 flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-          <Ico.info size={15} /> Admin barcha bosqich va sahifalarni ko‘radi va boshqaradi.
+          <Ico.info size={15} /> {t('Admin barcha bosqich va sahifalarni ko‘radi va boshqaradi.')}
         </div>
       )}
 
       <div className="mt-4 flex items-center gap-2">
         <button onClick={submit} disabled={busy} className="inline-flex items-center gap-2 rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:opacity-60">
           {busy && <Spinner className="h-3.5 w-3.5 border-white/60" />}
-          {mode === 'add' ? 'Qo‘shish' : 'Saqlash'}
+          {mode === 'add' ? t('Qo‘shish') : t('Saqlash')}
         </button>
         <button onClick={onCancel} disabled={busy} className="rounded-lg px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-surface-2 hover:text-fg">
-          Bekor
+          {t('Bekor')}
         </button>
         {err && <span role="alert" className="ml-1 text-xs font-medium text-rose-500">{err}</span>}
       </div>
@@ -311,6 +313,7 @@ function IconBtn({ title, onClick, disabled, danger, active, children }: { title
 }
 
 export function UsersManager({ users, meId }: { users: UserRow[]; meId: number }) {
+  const t = useT();
   const router = useRouter();
   const confirm = useConfirm();
   const [adding, setAdding] = useState(false);
@@ -328,10 +331,10 @@ export function UsersManager({ users, meId }: { users: UserRow[]; meId: number }
     try {
       const res = await fetch(`/api/users/${u.id}`, init);
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d?.error || 'Xatolik');
+      if (!res.ok) throw new Error(d?.error || t('Xatolik'));
       refresh();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Xatolik');
+      setErr(e instanceof Error ? e.message : t('Xatolik'));
     } finally {
       setBusyId(null);
     }
@@ -340,9 +343,9 @@ export function UsersManager({ users, meId }: { users: UserRow[]; meId: number }
   const toggleActive = (u: UserRow) => call(u, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !u.active }) });
   const remove = async (u: UserRow) => {
     const ok = await confirm({
-      title: 'Foydalanuvchini oʻchirish',
-      description: `«${u.username}» foydalanuvchisi butunlay oʻchiriladi.`,
-      confirmLabel: 'Oʻchirish', danger: true,
+      title: t('Foydalanuvchini oʻchirish'),
+      description: `«${u.username}» ${t('foydalanuvchisi butunlay oʻchiriladi.')}`,
+      confirmLabel: t('Oʻchirish'), danger: true,
     });
     if (!ok) return;
     call(u, { method: 'DELETE' });
@@ -367,12 +370,12 @@ export function UsersManager({ users, meId }: { users: UserRow[]; meId: number }
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Ism yoki login boʻyicha qidirish…"
+            placeholder={t('Ism yoki login boʻyicha qidirish…')}
             className="w-full rounded-lg border border-line bg-surface py-2 pl-9 pr-3 text-sm outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15"
           />
         </div>
         <div className="inline-flex rounded-lg border border-line bg-surface p-0.5">
-          {([['all', 'Barchasi', users.length], ['ADMIN', 'Admin', admins], ['YURIST', 'Yurist', yuristlar]] as const).map(([r, label, cnt]) => (
+          {([['all', t('Barchasi'), users.length], ['ADMIN', t('Admin'), admins], ['YURIST', t('Yurist'), yuristlar]] as const).map(([r, label, cnt]) => (
             <button
               key={r}
               onClick={() => setRoleF(r)}
@@ -384,7 +387,7 @@ export function UsersManager({ users, meId }: { users: UserRow[]; meId: number }
         </div>
         {blocked > 0 && (
           <span className="inline-flex items-center gap-1.5 rounded-lg bg-rose-500/10 px-2.5 py-1.5 text-xs font-medium text-rose-500">
-            <span className="h-1.5 w-1.5 rounded-full bg-rose-500" /> {blocked} bloklangan
+            <span className="h-1.5 w-1.5 rounded-full bg-rose-500" /> {blocked} {t('bloklangan')}
           </span>
         )}
         <button
@@ -394,7 +397,7 @@ export function UsersManager({ users, meId }: { users: UserRow[]; meId: number }
             adding ? 'bg-surface-2 text-fg' : 'bg-brand-500 text-white hover:bg-brand-600',
           )}
         >
-          <Ico.userAdd size={17} /> {adding ? 'Yopish' : 'Yangi foydalanuvchi'}
+          <Ico.userAdd size={17} /> {adding ? t('Yopish') : t('Yangi foydalanuvchi')}
         </button>
       </div>
 
@@ -412,7 +415,7 @@ export function UsersManager({ users, meId }: { users: UserRow[]; meId: number }
 
       <div className="space-y-2.5">
         {shown.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-line px-4 py-10 text-center text-sm text-muted">Hech kim topilmadi</div>
+          <div className="rounded-xl border border-dashed border-line px-4 py-10 text-center text-sm text-muted">{t('Hech kim topilmadi')}</div>
         ) : shown.map((u) => {
           const isMe = u.id === meId;
           const editing = editingId === u.id;
@@ -433,37 +436,37 @@ export function UsersManager({ users, meId }: { users: UserRow[]; meId: number }
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-semibold">{u.fullName || u.username}</span>
-                    {isMe && <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-muted">siz</span>}
+                    {isMe && <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-muted">{t('siz')}</span>}
                   </div>
                   <div className="flex items-center gap-1.5 text-xs text-muted">
                     <span className="truncate">@{u.username}</span>
                     <span aria-hidden>·</span>
-                    <span className="inline-flex shrink-0 items-center gap-1" title="Oxirgi kirish"><Ico.calendar size={11} /> {relLogin(u.lastLoginAt)}</span>
+                    <span className="inline-flex shrink-0 items-center gap-1" title={t('Oxirgi kirish')}><Ico.calendar size={11} /> {relLogin(u.lastLoginAt, t)}</span>
                   </div>
                 </div>
 
                 <span className={cx('ml-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold', u.role === 'ADMIN' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400' : 'bg-brand-500/15 text-brand-600 dark:text-brand-300')}>
                   {u.role === 'ADMIN' ? <Ico.check size={12} /> : <Ico.user size={12} />}
-                  {u.role === 'ADMIN' ? 'Admin' : 'Yurist'}
+                  {u.role === 'ADMIN' ? t('Admin') : t('Yurist')}
                 </span>
                 <span className={cx('inline-flex items-center gap-1.5 text-[11px] font-medium', u.active ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted')}>
                   <span className={cx('h-1.5 w-1.5 rounded-full', u.active ? 'bg-emerald-500' : 'bg-slate-400')} />
-                  {u.active ? 'Faol' : 'Bloklangan'}
+                  {u.active ? t('Faol') : t('Bloklangan')}
                 </span>
 
                 <div className="ml-auto flex items-center gap-1">
                   {busy && <Spinner className="mr-1 h-4 w-4 border-brand-500/50" />}
-                  <IconBtn title={editing ? 'Yopish' : 'Tahrirlash'} active={editing} disabled={busy} onClick={() => { setEditingId(editing ? null : u.id); setAdding(false); }}>
+                  <IconBtn title={editing ? t('Yopish') : t('Tahrirlash')} active={editing} disabled={busy} onClick={() => { setEditingId(editing ? null : u.id); setAdding(false); }}>
                     <Ico.pen size={16} />
                   </IconBtn>
                   <IconBtn
-                    title={isMe && u.active ? 'O‘zingizni bloklay olmaysiz' : u.active ? 'Bloklash' : 'Faollashtirish'}
+                    title={isMe && u.active ? t('O‘zingizni bloklay olmaysiz') : u.active ? t('Bloklash') : t('Faollashtirish')}
                     disabled={busy || (isMe && u.active)}
                     onClick={() => toggleActive(u)}
                   >
                     {u.active ? <Ico.lock size={16} /> : <Ico.unlock size={16} />}
                   </IconBtn>
-                  <IconBtn title={isMe ? 'O‘zingizni o‘chira olmaysiz' : 'O‘chirish'} danger disabled={busy || isMe} onClick={() => remove(u)}>
+                  <IconBtn title={isMe ? t('O‘zingizni o‘chira olmaysiz') : t('O‘chirish')} danger disabled={busy || isMe} onClick={() => remove(u)}>
                     <Ico.trash size={16} />
                   </IconBtn>
                 </div>
@@ -472,7 +475,7 @@ export function UsersManager({ users, meId }: { users: UserRow[]; meId: number }
               {!editing && (
                 <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-line/60 pt-3">
                   {u.role === 'ADMIN' ? (
-                    <span className="inline-flex items-center gap-1.5 text-xs text-muted"><Ico.check size={13} /> Barcha bosqich va modullar · to‘liq ruxsat</span>
+                    <span className="inline-flex items-center gap-1.5 text-xs text-muted"><Ico.check size={13} /> {t('Barcha bosqich va modullar · to‘liq ruxsat')}</span>
                   ) : u.steps.length ? (
                     <>
                       {u.steps.map((k) => {
@@ -485,7 +488,7 @@ export function UsersManager({ users, meId }: { users: UserRow[]; meId: number }
                       })}
                     </>
                   ) : (
-                    <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400"><Ico.info size={13} /> Hech qanday ruxsat berilmagan</span>
+                    <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400"><Ico.info size={13} /> {t('Hech qanday ruxsat berilmagan')}</span>
                   )}
                 </div>
               )}

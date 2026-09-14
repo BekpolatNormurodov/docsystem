@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Select, TextField } from '@/ui';
+import { useT } from '@/lib/i18n/client';
 
 interface FirmLite { id: number; shortName: string; stir: string | null; region: string | null; district: string | null; addressLine: string | null; }
 interface BatchItem { index: number; status: 'PENDING' | 'OK' | 'FAILED'; invoiceNo?: string; message?: string; }
@@ -15,6 +16,7 @@ interface Progress {
 const LS_KEY = 'invoice_active_batch';
 
 export function InvoiceCreateForm({ firms, bojiAmount }: { firms: FirmLite[]; bojiAmount: number }) {
+  const t = useT();
   const router = useRouter();
   const [firmId, setFirmId] = useState(firms[0] ? String(firms[0].id) : '');
   const [count, setCount] = useState('15');
@@ -41,7 +43,7 @@ export function InvoiceCreateForm({ firms, bojiAmount }: { firms: FirmLite[]; bo
       setProgress(data);
       if ((data.phase === 'DONE' || data.phase === 'BLOCKED') && timer.current) {
         clearInterval(timer.current); setBusy(false);
-        if (data.phase === 'BLOCKED') setError(data.error ?? 'IP bloklandi yoki tarmoq ishlamayapti');
+        if (data.phase === 'BLOCKED') setError(data.error ?? t('IP bloklandi yoki tarmoq ishlamayapti'));
         else router.refresh();
       }
     }, 1500);
@@ -63,7 +65,7 @@ export function InvoiceCreateForm({ firms, bojiAmount }: { firms: FirmLite[]; bo
         // Faqat hali ishlayotgan (RUNNING/PAUSING) paketni davom ettiramiz; terminal
         // (DONE/BLOCKED) faqat ko'rsatiladi — busy=true chaqnashi bo'lmaydi.
         if (data.phase === 'RUNNING' || data.phase === 'PAUSING') { setBusy(true); poll(saved); }
-        else if (data.phase === 'BLOCKED') setError(data.error ?? 'IP bloklandi yoki tarmoq ishlamayapti');
+        else if (data.phase === 'BLOCKED') setError(data.error ?? t('IP bloklandi yoki tarmoq ishlamayapti'));
       })();
     }
     return () => { alive = false; if (timer.current) clearInterval(timer.current); };
@@ -79,11 +81,11 @@ export function InvoiceCreateForm({ firms, bojiAmount }: { firms: FirmLite[]; bo
         body: JSON.stringify({ firmId: Number(firmId), count: Number(count) }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.error ?? 'Xatolik'); setBusy(false); return; }
+      if (!res.ok) { setError(data.error ?? t('Xatolik')); setBusy(false); return; }
       setBatchId(data.batchId);
       localStorage.setItem(LS_KEY, data.batchId);
       poll(data.batchId);
-    } catch { setError('Ulanishda xatolik'); setBusy(false); }
+    } catch { setError(t('Ulanishda xatolik')); setBusy(false); }
   }
 
   const pct = progress ? Math.round((progress.done / progress.total) * 100) : 0;
@@ -94,28 +96,28 @@ export function InvoiceCreateForm({ firms, bojiAmount }: { firms: FirmLite[]; bo
   if (firms.length === 0) {
     return (
       <div className="card max-w-lg p-6 text-sm text-muted">
-        Firma yoʻq — avval <span className="font-medium text-fg">«Firmalar»</span> boʻlimida firma qoʻshing, soʻng shu yerda invoice yaratasiz.
+        {t('Firma yoʻq — avval')} <span className="font-medium text-fg">«{t('Firmalar')}»</span> {t('boʻlimida firma qoʻshing, soʻng shu yerda invoice yaratasiz.')}
       </div>
     );
   }
 
   return (
     <div className="card max-w-lg space-y-4 p-6">
-      <Select label="Firma" value={firmId} onChange={setFirmId}
+      <Select label={t('Firma')} value={firmId} onChange={setFirmId}
         options={firms.map((f) => ({ value: String(f.id), label: f.shortName }))} />
 
-      <TextField label="Soni (1–100)" value={count}
+      <TextField label={t('Soni (1–100)')} value={count}
         onChange={(v) => setCount(String(Math.min(100, Math.max(1, Number(v.replace(/\D/g, '')) || 1))))} />
 
       <div className="rounded-xl border border-line bg-surface-2 p-3 text-xs text-muted">
         <div>STIR: {firm?.stir || '—'}</div>
-        <div>Manzil: {addr || <span className="text-rose-500">toʻldirilmagan</span>}</div>
-        <div className="mt-1">Summa: {bojiAmount.toLocaleString('ru-RU')} soʻm · avto (captcha kerak emas)</div>
+        <div>{t('Manzil')}: {addr || <span className="text-rose-500">{t('toʻldirilmagan')}</span>}</div>
+        <div className="mt-1">{t('Summa')}: {bojiAmount.toLocaleString('ru-RU')} {t('soʻm · avto (captcha kerak emas)')}</div>
       </div>
 
       <button type="button" onClick={onStart} disabled={busy || !firmId}
         className="btn-primary w-full justify-center py-2.5 disabled:opacity-50">
-        {busy ? 'Jarayonda…' : 'Boshlash'}
+        {busy ? t('Jarayonda…') : t('Boshlash')}
       </button>
 
       {error && <p className="text-sm text-rose-600 dark:text-rose-300">{error}</p>}
@@ -125,7 +127,7 @@ export function InvoiceCreateForm({ firms, bojiAmount }: { firms: FirmLite[]; bo
           <div className="flex items-center justify-between text-sm font-medium">
             <span>{progress.done} / {progress.total} · <span className="text-emerald-600">✓{progress.ok}</span> <span className="text-rose-500">✗{progress.failed}</span></span>
             <span className={blocked ? 'text-rose-500' : 'text-muted'}>
-              {blocked ? '⚠ To‘xtadi (IP/tarmoq)' : done ? '✓ Tugadi' : progress.phase === 'PAUSING' ? `⏸ Pauza ${Math.ceil(progress.pauseLeftMs / 1000)}s` : `Ishlayapti #${progress.current}…`}
+              {blocked ? t('⚠ To‘xtadi (IP/tarmoq)') : done ? t('✓ Tugadi') : progress.phase === 'PAUSING' ? `⏸ ${t('Pauza')} ${Math.ceil(progress.pauseLeftMs / 1000)}s` : `${t('Ishlayapti')} #${progress.current}…`}
             </span>
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-surface-2">
@@ -135,7 +137,7 @@ export function InvoiceCreateForm({ firms, bojiAmount }: { firms: FirmLite[]; bo
           {terminal && batchId && progress.ok > 0 && (
             <a href={`/api/invoices/batch/${batchId}/zip`}
               className="btn-primary flex w-full justify-center py-2.5">
-              ⬇ ZIP yuklab olish ({progress.ok} PDF + Excel hisobot)
+              ⬇ {t('ZIP yuklab olish')} ({progress.ok} PDF + Excel {t('hisobot')})
             </a>
           )}
 

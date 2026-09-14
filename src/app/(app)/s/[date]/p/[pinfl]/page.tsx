@@ -6,6 +6,7 @@ import { formatSumDecimal, dmy } from '@/core/document';
 import { fillOferta } from '@/lib/oferta-pdf';
 import { firmPrimaryCourt } from '@/lib/court-routing';
 import { PageHeader, StatCard } from '@/ui';
+import { getT } from '@/lib/i18n/server';
 import { ArizaPreview } from './ArizaPreview';
 import { OfertaPreview } from './OfertaPreview';
 import { PersonFilters } from './PersonFilters';
@@ -19,6 +20,7 @@ export default async function PersonPage({
   params: { date: string; pinfl: string };
   searchParams: Record<string, string | string[] | undefined>;
 }) {
+  const t = getT();
   // Validate the date segment before Prisma — malformed / impossible (2026-13-45,
   // 2026-02-30 rollover) → clean 404, not a 500 or the wrong day's data.
   if (!/^\d{4}-\d{2}-\d{2}$/.test(params.date)) notFound();
@@ -58,16 +60,16 @@ export default async function PersonPage({
   const firmByCode = new Map(firms.map((fr) => [fr.code, fr]));
   // firmId → shakllangan hujjatlar ro'yxati (kvitansiya PDF + yuklangan case hujjatlari).
   const DOC_KIND_LABEL: Record<string, string> = {
-    TALABNOMA: 'Talabnoma', ARIZA: 'Ariza', SIGNED_ARIZA: 'Imzolangan ariza',
-    INVOICE: 'Kvitansiya', OFERTA: 'Oferta', GUVOHNOMA: 'Guvohnoma',
-    ISHONCHNOMA: 'Ishonchnoma', SHARTNOMA: 'Shartnoma', BOSHQA: 'Boshqa hujjat',
+    TALABNOMA: t('Talabnoma'), ARIZA: t('Ariza'), SIGNED_ARIZA: t('Imzolangan ariza'),
+    INVOICE: t('Kvitansiya'), OFERTA: t('Oferta'), GUVOHNOMA: t('Guvohnoma'),
+    ISHONCHNOMA: t('Ishonchnoma'), SHARTNOMA: t('Shartnoma'), BOSHQA: t('Boshqa hujjat'),
   };
   type FormedDoc = { href: string; label: string };
   const docsByFirm = new Map<number, FormedDoc[]>();
   for (const cs of cases) {
     const list = docsByFirm.get(cs.firmId) ?? [];
     for (const inv of cs.invoiceRecords) {
-      list.push({ href: `/api/invoices/${inv.id}/download`, label: `Kvitansiya ${inv.invoiceNo}` });
+      list.push({ href: `/api/invoices/${inv.id}/download`, label: `${t('Kvitansiya')} ${inv.invoiceNo}` });
     }
     for (const d of cs.documents) {
       list.push({ href: `/api/case-doc/${d.id}`, label: DOC_KIND_LABEL[d.kind] ?? d.fileName });
@@ -137,23 +139,23 @@ export default async function PersonPage({
     <div>
       <PageHeader
         title={first.clientName || params.pinfl}
-        subtitle={`PINFL: ${params.pinfl} · Sana: ${params.date.split('-').reverse().join('.')}`}
+        subtitle={`${t('PINFL')}: ${params.pinfl} · ${t('Sana')}: ${params.date.split('-').reverse().join('.')}`}
       />
 
       {isExcluded && (
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
-          <span className="text-sm font-semibold text-amber-700 dark:text-amber-300">⚖ Sudga xat berilgan</span>
-          <span className="text-xs text-muted">— sud roʻyxatiga kiritilgan mijoz</span>
+          <span className="text-sm font-semibold text-amber-700 dark:text-amber-300">⚖ {t('Sudga xat berilgan')}</span>
+          <span className="text-xs text-muted">— {t('sud roʻyxatiga kiritilgan mijoz')}</span>
         </div>
       )}
 
       <PersonFilters initialC={c} firms={personFirms} initialFirms={firmSel} />
 
       <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Jami qarz" value={`${formatSumDecimal(String(grandTotal))} soʻm`} />
-        <StatCard label="Kreditlar" value={loans.length} />
-        <StatCard label="Firmalar" value={byFirm.size} />
-        <StatCard label="Sudlar" value={clientCourts.length} />
+        <StatCard label={t('Jami qarz')} value={`${formatSumDecimal(String(grandTotal))} ${t('soʻm')}`} />
+        <StatCard label={t('Kreditlar')} value={loans.length} />
+        <StatCard label={t('Firmalar')} value={byFirm.size} />
+        <StatCard label={t('Sudlar')} value={clientCourts.length} />
       </div>
 
       {/* Mijozning sudlari — qaysi sud, qaysi firma(lar) shu sudga chiqadi (1 firma → 1 sud, lekin
@@ -162,8 +164,8 @@ export default async function PersonPage({
         <div className="card mb-4 p-4">
           <div className="mb-2 flex items-center gap-2">
             <svg className="h-4 w-4 text-brand-600 dark:text-brand-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M3 21h18M6 21V10M18 21V10M4 10h16L12 3 4 10Z" /></svg>
-            <span className="text-sm font-semibold">Sudlar</span>
-            <span className="rounded-full bg-brand-500/10 px-2 py-0.5 text-xs font-medium text-brand-600 dark:text-brand-300">{clientCourts.length} ta</span>
+            <span className="text-sm font-semibold">{t('Sudlar')}</span>
+            <span className="rounded-full bg-brand-500/10 px-2 py-0.5 text-xs font-medium text-brand-600 dark:text-brand-300">{clientCourts.length} {t('ta')}</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {clientCourts.map(({ court, firms: firmsAtCourt }) => (
@@ -179,22 +181,22 @@ export default async function PersonPage({
       <div className="card mb-4 p-5">
         <dl className="grid gap-3 sm:grid-cols-2">
           <div>
-            <dt className="text-xs text-muted">F.I.O.</dt>
+            <dt className="text-xs text-muted">{t('F.I.O.')}</dt>
             <dd className="mt-0.5 font-medium">{first.clientName || '—'}</dd>
           </div>
           <div>
-            <dt className="text-xs text-muted">Telefon</dt>
+            <dt className="text-xs text-muted">{t('Telefon')}</dt>
             <dd className="mt-0.5 font-medium">{first.phone || '—'}</dd>
           </div>
           <div className="sm:col-span-2">
-            <dt className="text-xs text-muted">Manzil</dt>
+            <dt className="text-xs text-muted">{t('Manzil')}</dt>
             <dd className="mt-0.5 font-medium">{first.postAddressUz || first.postAddress || '—'}</dd>
           </div>
         </dl>
       </div>
 
       {loans.length === 0 && (
-        <div className="card mb-4 p-5 text-sm text-muted">Shartnoma raqami boʻyicha kredit topilmadi.</div>
+        <div className="card mb-4 p-5 text-sm text-muted">{t('Shartnoma raqami boʻyicha kredit topilmadi.')}</div>
       )}
 
       <div className="space-y-6">
@@ -205,8 +207,8 @@ export default async function PersonPage({
               <section key={branchCode || 'unknown'} className="card p-5">
                 <header className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-surface-2 px-3 py-2">
                   <h2 className="flex flex-wrap items-center gap-x-2 font-semibold">
-                    {firm?.shortName ?? branchCode ?? 'Nomaʼlum firma'}
-                    <span className="text-xs font-normal text-muted">· {firmLoans.length} ta shartnoma</span>
+                    {firm?.shortName ?? branchCode ?? t('Nomaʼlum firma')}
+                    <span className="text-xs font-normal text-muted">· {firmLoans.length} {t('ta shartnoma')}</span>
                     {firm && courtForFirm(firm.id) && (
                       <span className="inline-flex items-center gap-1 rounded-full border border-brand-500/25 bg-brand-500/[0.06] px-2 py-0.5 text-[11px] font-medium text-brand-700 dark:text-brand-300">
                         <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M3 21h18M6 21V10M18 21V10M4 10h16L12 3 4 10Z" /></svg>
@@ -215,7 +217,7 @@ export default async function PersonPage({
                     )}
                   </h2>
                   <span className="rounded-lg bg-brand-600/10 px-3 py-1 text-sm font-bold tabular-nums text-brand-700 dark:text-brand-300">
-                    Jami: {formatSumDecimal(String(firmTotal))} soʻm
+                    {t('Jami')}: {formatSumDecimal(String(firmTotal))} {t('soʻm')}
                   </span>
                 </header>
 
@@ -238,7 +240,7 @@ export default async function PersonPage({
                       return (
                         <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
                           <a href={`/api/ariza/${firmLoans[0]!.id}`} className="btn-primary text-xs">
-                            .docx — birlashtirilgan ariza
+                            .docx — {t('birlashtirilgan ariza')}
                           </a>
                           {formed.map((d, i) => (
                             <a

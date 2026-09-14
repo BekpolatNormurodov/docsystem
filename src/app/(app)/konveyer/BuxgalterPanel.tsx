@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Skeleton, Select } from '@/ui';
 import { GeneratedList } from './GeneratedList';
 import { InvoiceExcelTools } from './InvoiceExcelTools';
+import { useT } from '@/lib/i18n/client';
 
 // Per-court eligible bucket under a firm (firm→court is one-to-many).
 interface CourtEligible { courtId: number; courtName: string; billingCourtId: string; billingReady: boolean; isPrimary: boolean; eligible: number }
@@ -26,6 +27,7 @@ const ROW_CAP = 200;
  * Jonli progress + reload'da tiklanadi (localStorage). courtId POST'ga qo'shiladi.
  */
 function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId: number; court: CourtEligible; snapshotId?: number; amount: number; onDone: () => void }) {
+  const t = useT();
   const cap = Math.min(ROW_CAP, court.eligible);
   const [count, setCount] = useState<number>(Math.min(25, cap) || cap); // default 25 (yoki qolgani kam bo'lsa — hammasi)
   const [busy, setBusy] = useState(false);
@@ -56,14 +58,14 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
         clearInterval(timer.current);
         localStorage.removeItem(LS_KEY);
         setBusy(false); setCanceling(false);
-        if (p.phase === 'BLOCKED') { setOk(false); setMsg(p.error ?? 'Jarayon uzildi — qayta urinib koʻring'); }
+        if (p.phase === 'BLOCKED') { setOk(false); setMsg(p.error ?? t('Jarayon uzildi — qayta urinib koʻring')); }
         else if (p.phase === 'CANCELED') {
           setOk(true);
-          setMsg(`Bekor qilindi — ${n(p.ok)} ta yaratilgan${p.failed ? ` · ${n(p.failed)} uzildi` : ''}`);
+          setMsg(`${t('Bekor qilindi —')} ${n(p.ok)} ${t('ta yaratilgan')}${p.failed ? ` · ${n(p.failed)} ${t('uzildi')}` : ''}`);
           if (p.ok > 0) downloadZip(restBatchId);
         } else {
           setOk(true);
-          setMsg(`${n(p.ok)} ta yaratildi${p.failed ? ` · ${n(p.failed)} uzildi (qayta urinib koʻring)` : ''}`);
+          setMsg(`${n(p.ok)} ${t('ta yaratildi')}${p.failed ? ` · ${n(p.failed)} ${t('uzildi (qayta urinib koʻring)')}` : ''}`);
           if (p.ok > 0) downloadZip(restBatchId);
         }
         onDone();
@@ -87,9 +89,9 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
         if (p.phase === 'RUNNING' || p.phase === 'PAUSING') { setBusy(true); poll(saved.r); }
         else {
           localStorage.removeItem(LS_KEY);
-          if (p.phase === 'BLOCKED') { setOk(false); setMsg(p.error ?? 'Jarayon uzildi — qayta urinib koʻring'); }
-          else if (p.phase === 'CANCELED') { setOk(true); setMsg(`Bekor qilindi — ${n(p.ok)} ta yaratilgan`); }
-          else if (p.ok > 0) { setOk(true); setMsg(`${n(p.ok)} ta yaratildi${p.failed ? ` · ${n(p.failed)} uzildi` : ''}`); }
+          if (p.phase === 'BLOCKED') { setOk(false); setMsg(p.error ?? t('Jarayon uzildi — qayta urinib koʻring')); }
+          else if (p.phase === 'CANCELED') { setOk(true); setMsg(`${t('Bekor qilindi —')} ${n(p.ok)} ${t('ta yaratilgan')}`); }
+          else if (p.ok > 0) { setOk(true); setMsg(`${n(p.ok)} ${t('ta yaratildi')}${p.failed ? ` · ${n(p.failed)} ${t('uzildi')}` : ''}`); }
         }
       })();
     }
@@ -98,7 +100,7 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
   }, []);
 
   const create = async () => {
-    if (!count || count > cap) { setOk(false); setMsg(`1–${n(cap)} oraligʻida son kiriting`); return; }
+    if (!count || count > cap) { setOk(false); setMsg(`1–${n(cap)} ${t('oraligʻida son kiriting')}`); return; }
     // Eski (bekor qilinayotgan) paket poll'ini darhol to'xtatamiz — yangisiga xalaqit bermasin.
     if (timer.current) { clearInterval(timer.current); timer.current = null; }
     localStorage.removeItem(LS_KEY);
@@ -109,14 +111,14 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
         body: JSON.stringify({ firmId, count, s: snapshotId, courtId: court.courtId || undefined }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error ?? 'Xato');
+      if (!res.ok) throw new Error(data?.error ?? t('Xato'));
       setBatchId(data.invoiceBatchId ?? null);
       if (data.restBatchId) {
         setRestId(data.restBatchId);
         localStorage.setItem(LS_KEY, JSON.stringify({ r: data.restBatchId, i: data.invoiceBatchId ?? null }));
         poll(data.restBatchId);
-      } else { setBusy(false); setOk(true); setMsg('Yaratildi'); onDone(); }
-    } catch (e: any) { setOk(false); setBusy(false); setMsg(e?.message ?? 'Xato'); }
+      } else { setBusy(false); setOk(true); setMsg(t('Yaratildi')); onDone(); }
+    } catch (e: any) { setOk(false); setBusy(false); setMsg(e?.message ?? t('Xato')); }
   };
 
   const cancel = async () => {
@@ -129,49 +131,49 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
     <div className="rounded-xl border border-line bg-surface px-3 py-2.5 shadow-sm">
       <div className="flex items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-1.5 text-[12px] font-semibold">
-          {court.isPrimary && <span title="Asosiy sud" className="text-amber-500">★</span>}
+          {court.isPrimary && <span title={t('Asosiy sud')} className="text-amber-500">★</span>}
           <span className="truncate">{court.courtName}</span>
         </span>
-        <span className="shrink-0 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">{n(court.eligible)} kutyapti</span>
+        <span className="shrink-0 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">{n(court.eligible)} {t('kutyapti')}</span>
       </div>
 
       {!court.billingReady && (
         <div className="mt-1 flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/[0.06] px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
           <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><path d="M12 9v4M12 17h.01" /></svg>
-          «Sud id» yo'q — «Sudlar» bo'limida kiriting (aks holda invoice noto'g'ri sudga ketadi)
+          {t("«Sud id» yo'q — «Sudlar» bo'limida kiriting (aks holda invoice noto'g'ri sudga ketadi)")}
         </div>
       )}
 
       <div className="mt-2 flex items-center gap-2">
         {/* Soni — pro dropdown. Qolgani <200 bo'lsa «Hammasi», aks holda 25/50/100/200. */}
         <Select
-          value={String(count)} label={`${court.courtName} invoice soni`} searchAfter={99} className="w-48 shrink-0"
+          value={String(count)} label={`${court.courtName} ${t('invoice soni')}`} searchAfter={99} className="w-48 shrink-0"
           options={(() => {
             const el = court.eligible;
             const opts = el < 200 ? [...[25, 50, 100].filter((v) => v < el), el] : [25, 50, 100, 200];
-            return opts.map((v) => ({ value: String(v), label: (el < 200 && v === el) ? `Hammasi (${n(v)})` : `${v} ta` }));
+            return opts.map((v) => ({ value: String(v), label: (el < 200 && v === el) ? `${t('Hammasi')} (${n(v)})` : `${v} ${t('ta')}` }));
           })()}
           onChange={(v) => setCount(Number(v) || cap)}
         />
-        <span className="min-w-0 truncate text-[11px] tabular-nums text-muted">= <span className="font-semibold text-fg">{n(count * amount)}</span> soʻm</span>
+        <span className="min-w-0 truncate text-[11px] tabular-nums text-muted">= <span className="font-semibold text-fg">{n(count * amount)}</span> {t('soʻm')}</span>
         {busy && restId && !canceling && (
-          <button onClick={cancel} title="Bekor qilish" className="ml-auto inline-flex items-center gap-1 rounded-md border border-rose-500/40 px-2 py-1 text-[11px] font-semibold text-rose-600 transition-colors hover:bg-rose-500/10 dark:text-rose-300">
+          <button onClick={cancel} title={t('Bekor qilish')} className="ml-auto inline-flex items-center gap-1 rounded-md border border-rose-500/40 px-2 py-1 text-[11px] font-semibold text-rose-600 transition-colors hover:bg-rose-500/10 dark:text-rose-300">
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="m15 9-6 6M9 9l6 6" /></svg>
-            Bekor
+            {t('Bekor')}
           </button>
         )}
         {/* Bekor bosilgan — eski paket fonda to'xtayapti. Foydalanuvchi kutmasdan qayta «Yarat» qila oladi. */}
         {busy && canceling && (
-          <span className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-rose-500/30 bg-rose-500/[0.04] px-2 py-1 text-[11px] font-medium text-rose-600 dark:text-rose-300" title="Eski paket fonda toʻxtatilmoqda — hozir yangisini yaratsangiz ham boʻladi">
+          <span className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-rose-500/30 bg-rose-500/[0.04] px-2 py-1 text-[11px] font-medium text-rose-600 dark:text-rose-300" title={t('Eski paket fonda toʻxtatilmoqda — hozir yangisini yaratsangiz ham boʻladi')}>
             <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            Toʻxtatilmoqda…
+            {t('Toʻxtatilmoqda…')}
           </span>
         )}
         <button onClick={create} disabled={(busy && !canceling) || !count} aria-busy={busy && !canceling}
           className={`inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 py-1.5 text-[11px] font-semibold text-white shadow-sm shadow-amber-500/25 transition-all hover:bg-amber-600 hover:shadow-amber-500/40 active:scale-[.97] disabled:opacity-50 disabled:shadow-none ${!busy ? 'ml-auto' : ''}`}>
           {busy && !canceling
-            ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> {prog ? <span className="tabular-nums">{n(prog.done)}/{n(prog.total)}</span> : 'Boshlanmoqda…'}</>
-            : canceling ? 'Qaytadan yarat' : 'Yarat'}
+            ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> {prog ? <span className="tabular-nums">{n(prog.done)}/{n(prog.total)}</span> : t('Boshlanmoqda…')}</>
+            : canceling ? t('Qaytadan yarat') : t('Yarat')}
         </button>
       </div>
 
@@ -181,7 +183,7 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
             <div className="h-full rounded-full bg-amber-500 transition-all duration-300" style={{ width: `${prog.total ? Math.round((prog.done / prog.total) * 100) : 0}%` }} />
           </div>
           <span className="shrink-0"><span className="font-semibold text-emerald-600 dark:text-emerald-400">✓{n(prog.ok)}</span>{prog.failed ? <span className="font-semibold text-rose-500"> ✗{n(prog.failed)}</span> : null}</span>
-          <span className="shrink-0 text-[10px]">{prog.phase === 'PAUSING' ? `⏸ ${Math.ceil(prog.pauseLeftMs / 1000)}s` : 'ishlayapti…'}</span>
+          <span className="shrink-0 text-[10px]">{prog.phase === 'PAUSING' ? `⏸ ${Math.ceil(prog.pauseLeftMs / 1000)}s` : t('ishlayapti…')}</span>
         </div>
       )}
       {msg && (
@@ -194,7 +196,7 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
                 PDF (ZIP)
               </a>
             )}
-            {batchId && <a href={`/konveyer/farmoyish?batchId=${batchId}`} className="rounded border border-line px-1.5 py-0.5 font-medium text-brand-600 hover:border-brand-500/40 dark:text-brand-400">Farmoyish</a>}
+            {batchId && <a href={`/konveyer/farmoyish?batchId=${batchId}`} className="rounded border border-line px-1.5 py-0.5 font-medium text-brand-600 hover:border-brand-500/40 dark:text-brand-400">{t('Farmoyish')}</a>}
             {batchId && <a href={`/konveyer/farmoyish?batchId=${batchId}&format=xlsx`} className="rounded border border-line px-1.5 py-0.5 font-medium text-emerald-600 hover:border-emerald-500/40 dark:text-emerald-400">Excel</a>}
           </div>
         ) : (
@@ -210,6 +212,7 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
 
 /** A firm card: overall progress + one invoice row per court the firm routes to (one-to-many). */
 function FirmCard({ f, snapshotId, onDone, amount }: { f: FirmCourtProg; snapshotId?: number; onDone: () => void; amount: number }) {
+  const t = useT();
   const pct = f.total > 0 ? Math.round((f.withInvoice / f.total) * 100) : 0;
   const done = f.eligible === 0 && f.withInvoice >= f.total;
   const activeCourts = f.courts.filter((c) => c.eligible > 0);
@@ -223,14 +226,14 @@ function FirmCard({ f, snapshotId, onDone, amount }: { f: FirmCourtProg; snapsho
         </span>
         <span className="flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums text-muted">
           <span><b className="text-fg">{n(f.withInvoice)}</b>/{n(f.total)}</span>
-          {f.courts.length > 1 && <span className="rounded-full bg-brand-500/10 px-1.5 py-0.5 text-[10px] font-medium text-brand-600 dark:text-brand-300">{f.courts.length} sud</span>}
+          {f.courts.length > 1 && <span className="rounded-full bg-brand-500/10 px-1.5 py-0.5 text-[10px] font-medium text-brand-600 dark:text-brand-300">{f.courts.length} {t('sud')}</span>}
         </span>
       </div>
       <div className="my-2 h-1 w-full overflow-hidden rounded-full bg-surface-2">
         <div className={`h-full rounded-full transition-all ${done ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${pct}%` }} />
       </div>
       {activeCourts.length === 0 ? (
-        <div className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">✓ Hammasiga yaratilgan</div>
+        <div className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">✓ {t('Hammasiga yaratilgan')}</div>
       ) : (
         <div className="space-y-2">
           {activeCourts.map((c) => (
@@ -243,6 +246,7 @@ function FirmCard({ f, snapshotId, onDone, amount }: { f: FirmCourtProg; snapsho
 }
 
 export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; firmId?: number }) {
+  const t = useT();
   const router = useRouter();
   const [firms, setFirms] = useState<FirmCourtProg[] | null>(null);
   const [courtTotals, setCourtTotals] = useState<CourtTotal[]>([]);
@@ -260,7 +264,7 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
       if (snapshotId) qs.set('s', String(snapshotId));
       if (firmId) qs.set('firmId', String(firmId));
       const res = await fetch(`/konveyer/invoice-batch${qs.toString() ? `?${qs}` : ''}`);
-      if (!res.ok) throw new Error(`Server xatosi (${res.status})`);
+      if (!res.ok) throw new Error(`${t('Server xatosi')} (${res.status})`);
       const data = await res.json();
       if (myReq !== reqRef.current) return;
       setFirms(data.byCourt ?? []);
@@ -270,7 +274,7 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
     } catch (e) {
       if (myReq !== reqRef.current) return;
       setFirms([]);
-      setLoadErr(e instanceof Error ? e.message : 'Yuklab bo‘lmadi');
+      setLoadErr(e instanceof Error ? e.message : t('Yuklab bo‘lmadi'));
     }
   }, [snapshotId, firmId]);
   useEffect(() => { load(); }, [load]);
@@ -285,11 +289,11 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
     <div className="card p-5">
       <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center justify-between text-left">
         <div className="min-w-0">
-          <div className="text-sm font-semibold">Invoice — buxgalteriya</div>
+          <div className="text-sm font-semibold">{t('Invoice — buxgalteriya')}</div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
-            <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">{n(totalWith)} yaratilgan</span>
-            {totalEligible > 0 && <span className="rounded-full bg-amber-500/10 px-2 py-0.5 font-semibold tabular-nums text-amber-700 dark:text-amber-300">{n(totalEligible)} kutyapti</span>}
-            <span className="tabular-nums text-muted">{n(totalAll)} jami · har biri {n(amount)} so'm</span>
+            <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">{n(totalWith)} {t('yaratilgan')}</span>
+            {totalEligible > 0 && <span className="rounded-full bg-amber-500/10 px-2 py-0.5 font-semibold tabular-nums text-amber-700 dark:text-amber-300">{n(totalEligible)} {t('kutyapti')}</span>}
+            <span className="tabular-nums text-muted">{n(totalAll)} {t('jami · har biri')} {n(amount)} {t("so'm")}</span>
           </div>
         </div>
         <svg className={`h-4 w-4 shrink-0 text-muted transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m9 6 6 6-6 6" /></svg>
@@ -301,12 +305,12 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
             <InvoiceExcelTools snapshotId={snapshotId} firmId={firmId} firms={(firms ?? []).map((f) => ({ id: f.firmId, name: f.firmName }))} count={totalWith} onChanged={onDone} />
             {courtTotals.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 border-t border-line pt-2.5">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Sud bo'yicha:</span>
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">{t("Sud bo'yicha:")}</span>
                 {courtTotals.map((c) => (
                   <span key={c.courtId} className="inline-flex items-center gap-1 rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium">
                     <span className={c.billingReady ? '' : 'text-amber-600 dark:text-amber-400'}>{c.courtName}</span>
                     <span className="tabular-nums text-emerald-600 dark:text-emerald-400">{n(c.eligible)}</span>
-                    {!c.billingReady && <span title="Billing «Sud id» yo'q" className="text-amber-500">⚠</span>}
+                    {!c.billingReady && <span title={t("Billing «Sud id» yo'q")} className="text-amber-500">⚠</span>}
                   </span>
                 ))}
               </div>
@@ -316,10 +320,10 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
           {loadErr ? (
             <div role="alert" className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-rose-500/25 bg-rose-500/[0.04] px-3 py-2.5 text-xs">
               <span className="text-rose-600 dark:text-rose-300">{loadErr}</span>
-              <button onClick={() => load()} className="rounded-md border border-line px-2 py-1 font-medium text-muted hover:border-brand-500/40">Qayta urinish</button>
+              <button onClick={() => load()} className="rounded-md border border-line px-2 py-1 font-medium text-muted hover:border-brand-500/40">{t('Qayta urinish')}</button>
             </div>
           ) : firms !== null && firms.length === 0 ? (
-            <div className="mt-4 grid h-24 place-items-center text-center text-xs text-muted">Bu snapshot bo‘yicha firma yo‘q</div>
+            <div className="mt-4 grid h-24 place-items-center text-center text-xs text-muted">{t('Bu snapshot bo‘yicha firma yo‘q')}</div>
           ) : (
             <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
               {firms === null
@@ -330,17 +334,17 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
 
           {batches.length > 0 && (
             <div className="mt-4 border-t border-line pt-3">
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Tarix — yaratilgan partiyalar</div>
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">{t('Tarix — yaratilgan partiyalar')}</div>
               <div className="overflow-x-auto rounded-xl border border-line">
                 <table className="w-full min-w-[42rem] table-fixed text-sm">
-                  <caption className="sr-only">Yaratilgan invoice partiyalar tarixi</caption>
+                  <caption className="sr-only">{t('Yaratilgan invoice partiyalar tarixi')}</caption>
                   <thead>
                     <tr className="border-b border-line bg-surface-2/40 text-[10px] uppercase tracking-wide text-muted">
-                      <th scope="col" className="w-28 px-3 py-1.5 text-left font-semibold">Sana</th>
-                      <th scope="col" className="px-3 py-1.5 text-left font-semibold">Firma</th>
-                      <th scope="col" className="w-16 px-3 py-1.5 text-right font-semibold">Soni</th>
-                      <th scope="col" className="w-28 px-3 py-1.5 text-right font-semibold">Holat</th>
-                      <th scope="col" className="w-40 px-3 py-1.5 text-right font-semibold">Farmoyish</th>
+                      <th scope="col" className="w-28 px-3 py-1.5 text-left font-semibold">{t('Sana')}</th>
+                      <th scope="col" className="px-3 py-1.5 text-left font-semibold">{t('Firma')}</th>
+                      <th scope="col" className="w-16 px-3 py-1.5 text-right font-semibold">{t('Soni')}</th>
+                      <th scope="col" className="w-28 px-3 py-1.5 text-right font-semibold">{t('Holat')}</th>
+                      <th scope="col" className="w-40 px-3 py-1.5 text-right font-semibold">{t('Farmoyish')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-line">
@@ -348,19 +352,19 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
                       <tr key={b.id} className="hover:bg-surface-2">
                         <td className="px-3 py-2 text-xs tabular-nums text-muted">{dt(b.createdAt)}</td>
                         <td className="truncate px-3 py-2 font-medium" title={b.firmName}>{b.firmName}</td>
-                        <td className="px-3 py-2 text-right text-xs tabular-nums"><span className="font-semibold text-fg">{n(b.count)}</span> ta</td>
+                        <td className="px-3 py-2 text-right text-xs tabular-nums"><span className="font-semibold text-fg">{n(b.count)}</span> {t('ta')}</td>
                         <td className="px-3 py-2 text-right text-xs">
                           {b.paid > 0
-                            ? <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-medium text-emerald-600 dark:text-emerald-300 tabular-nums">{n(b.paid)} to'landi</span>
-                            : <span className="text-muted">to'lanmagan</span>}
+                            ? <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-medium text-emerald-600 dark:text-emerald-300 tabular-nums">{n(b.paid)} {t("to'landi")}</span>
+                            : <span className="text-muted">{t("to'lanmagan")}</span>}
                         </td>
                         <td className="px-3 py-2 text-right">
                           <div className="inline-flex items-center gap-1">
-                            <a href={`/konveyer/farmoyish?batchId=${b.id}`} className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-line px-2 py-0.5 text-xs font-medium text-brand-600 hover:border-brand-500/40 dark:text-brand-400" title="Farmoyish (Word)">
+                            <a href={`/konveyer/farmoyish?batchId=${b.id}`} className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-line px-2 py-0.5 text-xs font-medium text-brand-600 hover:border-brand-500/40 dark:text-brand-400" title={t('Farmoyish (Word)')}>
                               <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 3v12" /><path d="m8 11 4 4 4-4" /></svg>
                               Word
                             </a>
-                            <a href={`/konveyer/farmoyish?batchId=${b.id}&format=xlsx`} className="whitespace-nowrap rounded-md border border-line px-2 py-0.5 text-xs font-medium text-emerald-600 hover:border-emerald-500/40 dark:text-emerald-400" title="Farmoyish (Excel)">Excel</a>
+                            <a href={`/konveyer/farmoyish?batchId=${b.id}&format=xlsx`} className="whitespace-nowrap rounded-md border border-line px-2 py-0.5 text-xs font-medium text-emerald-600 hover:border-emerald-500/40 dark:text-emerald-400" title={t('Farmoyish (Excel)')}>Excel</a>
                           </div>
                         </td>
                       </tr>

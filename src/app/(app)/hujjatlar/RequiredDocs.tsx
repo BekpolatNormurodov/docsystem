@@ -5,6 +5,7 @@
 // ext-badge + fayl nomi + hajmi (bosib yuklab olish) + almashtirish/o'chirish. Ochilib-yopiladigan emas.
 import React from 'react';
 import type { AppDocFile, AppDocKey } from '@/lib/app-docs';
+import { getT } from '@/lib/i18n/server';
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
 const KB = 1024;
@@ -23,14 +24,15 @@ type Files = { talabnoma: AppDocFile; sud: AppDocFile };
 export function ExtraDocs({ initial }: { initial: Files }) {
   // QULF: hujjat paketi faqat KO'RINADI (yuklab olish) — o'zgartirish/o'chirish YO'Q (admin ham).
   // O'zgartirish faqat kod/DB orqali. Filtrlar shu saqlangan fayllardan ishlaydi.
+  const t = getT();
   return (
     <div className="card mb-8 max-w-md space-y-4 p-6">
       <div className="flex items-baseline justify-between">
-        <h2 className="text-sm font-semibold">Hujjat paketi</h2>
-        <span className="inline-flex items-center gap-1 text-xs text-muted" title="Qulflangan — UI orqali o‘zgartirib/o‘chirib bo‘lmaydi">🔒 qulflangan</span>
+        <h2 className="text-sm font-semibold">{t('Hujjat paketi')}</h2>
+        <span className="inline-flex items-center gap-1 text-xs text-muted" title={t('Qulflangan — UI orqali o‘zgartirib/o‘chirib bo‘lmaydi')}>🔒 {t('qulflangan')}</span>
       </div>
-      <DocZone k="talabnoma" label="Talabnoma ro‘yxati" accent="brand" file={initial.talabnoma} />
-      <DocZone k="sud" label="Sud hujjati" accent="amber" file={initial.sud} />
+      <DocZone k="talabnoma" label={t('Talabnoma ro‘yxati')} accent="brand" file={initial.talabnoma} />
+      <DocZone k="sud" label={t('Sud hujjati')} accent="amber" file={initial.sud} />
     </div>
   );
 }
@@ -38,6 +40,7 @@ export function ExtraDocs({ initial }: { initial: Files }) {
 // QULF: faqat ko'rinadi (yuklab olish). Yuklash/almashtirish/o'chirish YO'Q — o'zgartirish kod/DB orqali.
 function DocZone({ k, label, accent, file }: { k: AppDocKey; label: string; accent: Accent; file: AppDocFile }) {
   const a = ACCENT[accent];
+  const t = getT();
   return (
     <div>
       <span className="field-label">{label}</span>
@@ -46,16 +49,16 @@ function DocZone({ k, label, accent, file }: { k: AppDocKey; label: string; acce
           <span className={cx('grid h-11 w-11 shrink-0 place-items-center rounded-lg text-[10px] font-bold uppercase', a.badge)}>
             {extOf(file.label)}
           </span>
-          <a href={`/api/app-docs?download=${k}`} title="Yuklab olish" className="min-w-0 flex-1">
+          <a href={`/api/app-docs?download=${k}`} title={t('Yuklab olish')} className="min-w-0 flex-1">
             <span className="block truncate text-sm font-medium text-brand-600 hover:underline dark:text-brand-400">{file.label}</span>
-            <span className="block text-xs text-muted">{fmtSize(file.size)} · yuklab olish</span>
+            <span className="block text-xs text-muted">{fmtSize(file.size)} · {t('yuklab olish')}</span>
           </a>
-          <span className="shrink-0 text-muted" title="Qulflangan — o‘zgartirib/o‘chirib bo‘lmaydi">🔒</span>
+          <span className="shrink-0 text-muted" title={t('Qulflangan — o‘zgartirib/o‘chirib bo‘lmaydi')}>🔒</span>
         </div>
       ) : (
         <div className="flex items-center gap-3 rounded-xl border border-dashed border-line px-4 py-3.5 text-muted">
-          <span className="text-sm">Yuklanmagan</span>
-          <span className="ml-auto text-[11px]">faqat kod/DB orqali qo‘yiladi</span>
+          <span className="text-sm">{t('Yuklanmagan')}</span>
+          <span className="ml-auto text-[11px]">{t('faqat kod/DB orqali qo‘yiladi')}</span>
         </div>
       )}
     </div>

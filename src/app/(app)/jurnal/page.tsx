@@ -2,6 +2,7 @@ import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { PageHeader, EmptyState, Pagination } from '@/ui';
 import { actionLabel, actionCat, type ActionCat } from '@/lib/audit-labels';
+import { getT } from '@/lib/i18n/server';
 import { JurnalFilters } from './JurnalFilters';
 import { ActionIcon } from './ActionIcon';
 import { JobHistory } from '../konveyer/JobHistory';
@@ -18,11 +19,11 @@ const hhmm = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 const fmtFull = (d: Date) => `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${hhmm(d)}`;
 const dayKey = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 // Human relative time for very recent rows; falls back to the clock for older ones.
-const rel = (d: Date) => {
+const rel = (d: Date, t: (s: string) => string) => {
   const s = Math.floor((Date.now() - d.getTime()) / 1000);
-  if (s < 45) return 'hozir';
-  if (s < 3600) return `${Math.floor(s / 60)} daq oldin`;
-  if (s < 86400) return `${Math.floor(s / 3600)} soat oldin`;
+  if (s < 45) return t('hozir');
+  if (s < 3600) return `${Math.floor(s / 60)} ${t('daq oldin')}`;
+  if (s < 86400) return `${Math.floor(s / 3600)} ${t('soat oldin')}`;
   return hhmm(d);
 };
 
@@ -58,6 +59,7 @@ function detailText(detail: unknown): string {
 }
 
 export default async function JurnalPage({ searchParams }: { searchParams: { action?: string; q?: string; page?: string; from?: string; to?: string; tab?: string } }) {
+  const t = getT();
   const me = await requireUser();
   const isAdmin = me.role === 'ADMIN';
   // «Partiyalar tarixi» (background export batches) is an admin-only operational view, tucked in here
@@ -67,13 +69,13 @@ export default async function JurnalPage({ searchParams }: { searchParams: { act
   const header = (
     <>
       <PageHeader
-        title="Amaliyotlar"
-        subtitle={isAdmin ? 'Kim, qachon, nima qildi — barcha harakatlar tarixi' : 'Sizning harakatlaringiz tarixi'}
+        title={t('Amaliyotlar')}
+        subtitle={isAdmin ? t('Kim, qachon, nima qildi — barcha harakatlar tarixi') : t('Sizning harakatlaringiz tarixi')}
       />
       {isAdmin && (
         <div className="mb-4 inline-flex rounded-xl border border-line bg-surface p-1">
-          <a href="/jurnal" className={tab === 'amaliyotlar' ? TAB_ON : TAB_OFF}>Amaliyotlar</a>
-          <a href="/jurnal?tab=tarix" className={tab === 'tarix' ? TAB_ON : TAB_OFF}>Partiyalar tarixi</a>
+          <a href="/jurnal" className={tab === 'amaliyotlar' ? TAB_ON : TAB_OFF}>{t('Amaliyotlar')}</a>
+          <a href="/jurnal?tab=tarix" className={tab === 'tarix' ? TAB_ON : TAB_OFF}>{t('Partiyalar tarixi')}</a>
         </div>
       )}
     </>
@@ -130,7 +132,7 @@ export default async function JurnalPage({ searchParams }: { searchParams: { act
   const groups: { key: string; label: string; rows: typeof rows }[] = [];
   for (const r of rows) {
     const k = dayKey(r.createdAt);
-    const label = k === today ? 'Bugun' : k === yesterday ? 'Kecha' : `${pad(r.createdAt.getDate())}.${pad(r.createdAt.getMonth() + 1)}.${r.createdAt.getFullYear()}`;
+    const label = k === today ? t('Bugun') : k === yesterday ? t('Kecha') : `${pad(r.createdAt.getDate())}.${pad(r.createdAt.getMonth() + 1)}.${r.createdAt.getFullYear()}`;
     const g = groups.find((x) => x.key === k);
     if (g) g.rows.push(r);
     else groups.push({ key: k, label, rows: [r] });
@@ -143,11 +145,11 @@ export default async function JurnalPage({ searchParams }: { searchParams: { act
       {/* stat strip */}
       <div className="mb-4 flex flex-wrap gap-2.5">
         <div className="rounded-xl border border-line bg-surface px-4 py-2.5">
-          <div className="text-[11px] font-medium uppercase tracking-wide text-muted">Jami</div>
+          <div className="text-[11px] font-medium uppercase tracking-wide text-muted">{t('Jami')}</div>
           <div className="text-xl font-bold tabular-nums">{total.toLocaleString('ru-RU')}</div>
         </div>
         <div className="rounded-xl border border-line bg-surface px-4 py-2.5">
-          <div className="text-[11px] font-medium uppercase tracking-wide text-muted">Bugun</div>
+          <div className="text-[11px] font-medium uppercase tracking-wide text-muted">{t('Bugun')}</div>
           <div className="text-xl font-bold tabular-nums text-brand-600 dark:text-brand-300">{todayCount.toLocaleString('ru-RU')}</div>
         </div>
       </div>
@@ -157,7 +159,7 @@ export default async function JurnalPage({ searchParams }: { searchParams: { act
       </div>
 
       {rows.length === 0 ? (
-        <EmptyState title="Yozuv yo‘q" hint="Tanlangan filtr bo‘yicha hech qanday harakat topilmadi." />
+        <EmptyState title={t('Yozuv yo‘q')} hint={t('Tanlangan filtr bo‘yicha hech qanday harakat topilmadi.')} />
       ) : (
         <div className="space-y-6">
           {groups.map((g) => (
@@ -180,7 +182,7 @@ export default async function JurnalPage({ searchParams }: { searchParams: { act
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-semibold">{actionLabel(r.action)}</span>
                           {r.target && <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-muted">{r.target}</span>}
-                          <span className="ml-auto shrink-0 text-xs tabular-nums text-muted" title={fmtFull(r.createdAt)}>{g.key === today ? rel(r.createdAt) : hhmm(r.createdAt)}</span>
+                          <span className="ml-auto shrink-0 text-xs tabular-nums text-muted" title={fmtFull(r.createdAt)}>{g.key === today ? rel(r.createdAt, t) : hhmm(r.createdAt)}</span>
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted">
                           <span className="inline-flex items-center gap-1.5">
@@ -189,7 +191,7 @@ export default async function JurnalPage({ searchParams }: { searchParams: { act
                           </span>
                           {r.role && (
                             <span className={r.role === 'ADMIN' ? 'text-amber-600 dark:text-amber-400' : 'text-brand-600 dark:text-brand-300'}>
-                              {r.role === 'ADMIN' ? 'admin' : 'yurist'}
+                              {r.role === 'ADMIN' ? t('admin') : t('yurist')}
                             </span>
                           )}
                           {d && <span className="truncate">· {d}</span>}
@@ -204,7 +206,7 @@ export default async function JurnalPage({ searchParams }: { searchParams: { act
         </div>
       )}
 
-      <Pagination page={page} pages={pages} total={total} perPage={PAGE} hrefFor={(p) => `/jurnal${qs(p)}`} unit="yozuv" />
+      <Pagination page={page} pages={pages} total={total} perPage={PAGE} hrefFor={(p) => `/jurnal${qs(p)}`} unit={t('yozuv')} />
     </div>
   );
 }
