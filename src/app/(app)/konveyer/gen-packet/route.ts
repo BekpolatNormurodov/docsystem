@@ -6,6 +6,7 @@ import { prisma } from '@/lib/db';
 import { enqueueJob } from '@/lib/job-dispatch';
 import { awaitJob } from '@/lib/await-job';
 import { audit, AuditAction } from '@/lib/audit';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -38,11 +39,12 @@ async function zipEntryCount(zipPath: string): Promise<number> {
 // this case, wait for it to finish, then stream exports/{jobId}.zip.
 export async function GET(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const caseId = Number(req.nextUrl.searchParams.get('caseId'));
-  if (!Number.isInteger(caseId) || caseId <= 0) return NextResponse.json({ error: 'caseId kerak' }, { status: 400 });
+  if (!Number.isInteger(caseId) || caseId <= 0) return NextResponse.json({ error: t('caseId kerak') }, { status: 400 });
 
   const ac = await prisma.arizaCase.findUnique({ where: { id: caseId }, select: { snapshotId: true, clientName: true } });
-  if (!ac?.snapshotId) return NextResponse.json({ error: 'Case yoki portfel maʼlumoti yoʻq' }, { status: 404 });
+  if (!ac?.snapshotId) return NextResponse.json({ error: t('Case yoki portfel maʼlumoti yoʻq') }, { status: 404 });
 
   const job = await prisma.job.create({
     data: { type: 'PACKET', status: 'PENDING', snapshotId: ac.snapshotId, total: 1, params: { caseIds: [caseId], talabnomaPdf: true } },
@@ -52,17 +54,17 @@ export async function GET(req: NextRequest) {
   const r = await awaitJob(job.id);
   // FIX 3(a): a timeout means the job is still QUEUED (likely stuck behind a large bulk batch), not
   // failed — tell the user to retry once the batch clears rather than implying the document errored.
-  if (r === 'TIMEOUT') return NextResponse.json({ error: 'Paket navbatda — katta partiya tugagach qayta urinib koʻring' }, { status: 504 });
-  if (r === 'FAILED') return NextResponse.json({ error: 'Paket yaratilmadi' }, { status: 500 });
+  if (r === 'TIMEOUT') return NextResponse.json({ error: t('Paket navbatda — katta partiya tugagach qayta urinib koʻring') }, { status: 504 });
+  if (r === 'FAILED') return NextResponse.json({ error: t('Paket yaratilmadi') }, { status: 500 });
 
   const zipPath = path.join(process.cwd(), 'exports', `${job.id}.zip`);
-  if (!fs.existsSync(zipPath)) return NextResponse.json({ error: 'Paket yaratilmadi' }, { status: 500 });
+  if (!fs.existsSync(zipPath)) return NextResponse.json({ error: t('Paket yaratilmadi') }, { status: 500 });
 
   // FIX 3(b): a packet job can finish DONE yet produce ZERO documents (buildCasePacket yielded no files
   // → no client folder, no firm docs). runPacketJob keeps no doc-count on the Job row (progress/total
   // count cases, no message), so read the finished ZIP's entry count cheaply instead. Zero → 404 rather
   // than streaming an empty archive as success.
-  if ((await zipEntryCount(zipPath)) === 0) return NextResponse.json({ error: 'Hujjat topilmadi' }, { status: 404 });
+  if ((await zipEntryCount(zipPath)) === 0) return NextResponse.json({ error: t('Hujjat topilmadi') }, { status: 404 });
 
   // The job already advanced the case (prepare-packets → markPacketGenerated), so no funnel write here.
   await audit(AuditAction.PACKET_GEN, { target: `case:${caseId}` });

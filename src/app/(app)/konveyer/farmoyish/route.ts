@@ -2,15 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth';
 import { buildFarmoyishDocx } from '@/lib/farmoyish-docx';
 import { buildFarmoyishExcel } from '@/lib/farmoyish-excel';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
 // GET ?batchId=&format= — bitta partiya farmoyishi. format=xlsx → Excel, aks holda Word (.docx).
 export async function GET(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const batchId = Number(req.nextUrl.searchParams.get('batchId'));
   const isXlsx = req.nextUrl.searchParams.get('format') === 'xlsx';
-  if (!batchId) return NextResponse.json({ error: 'batchId kerak' }, { status: 400 });
+  if (!batchId) return NextResponse.json({ error: t('batchId kerak') }, { status: 400 });
   try {
     const { buffer, fileName } = isXlsx ? await buildFarmoyishExcel(batchId) : await buildFarmoyishDocx(batchId);
     return new NextResponse(new Uint8Array(buffer), {
@@ -22,6 +24,6 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? 'Farmoyish xatosi' }, { status: 400 });
+    return NextResponse.json({ error: e?.message ?? t('Farmoyish xatosi') }, { status: 400 });
   }
 }

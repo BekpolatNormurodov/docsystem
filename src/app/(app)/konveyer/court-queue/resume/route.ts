@@ -5,6 +5,7 @@ import { enqueueJob } from '@/lib/job-dispatch';
 import { FIRM_REQUIRED_DOCS, FIRM_DOC_LABEL } from '@/lib/court-ready';
 import { isQueuePaused } from '@/lib/cabinet/pacer';
 import { MAX_COURT_BATCH } from '@/lib/court-batch';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -24,15 +25,16 @@ export const runtime = 'nodejs';
 // hech narsa takrorlanmaydi.
 export async function POST(req: NextRequest) {
   await requireStep('sud:send');
+  const t = getT();
   const body = await req.json().catch(() => ({}));
   const firmId = Number(body?.firmId);
   if (!Number.isInteger(firmId) || firmId <= 0) {
-    return NextResponse.json({ error: 'firmId kerak' }, { status: 400 });
+    return NextResponse.json({ error: t('firmId kerak') }, { status: 400 });
   }
 
   if (await isQueuePaused()) {
     return NextResponse.json(
-      { error: 'Sudga yuborish jarayoni pauzada. Avval «Davom ettirish» tugmasi bilan yoqing.' },
+      { error: t('Sudga yuborish jarayoni pauzada. Avval «Davom ettirish» tugmasi bilan yoqing.') },
       { status: 409 },
     );
   }
@@ -45,7 +47,7 @@ export async function POST(req: NextRequest) {
   const missDocs = FIRM_REQUIRED_DOCS.filter((k) => !haveDocs.has(k));
   if (missDocs.length) {
     return NextResponse.json(
-      { error: `Firma hujjatlari yetishmaydi: ${missDocs.map((k) => FIRM_DOC_LABEL[k] ?? k).join(', ')}.` },
+      { error: `${t('Firma hujjatlari yetishmaydi')}: ${missDocs.map((k) => FIRM_DOC_LABEL[k] ?? k).join(', ')}.` },
       { status: 400 },
     );
   }
@@ -65,7 +67,7 @@ export async function POST(req: NextRequest) {
   const active = actives.find((j) => Number((j.params as { firmId?: number } | null)?.firmId) === firmId);
   if (active) {
     return NextResponse.json(
-      { error: `Bu firma uchun partiya allaqachon ${active.status === 'RUNNING' ? 'ketmoqda' : 'navbatda'} (#${active.id}). Tugashini kuting.` },
+      { error: `${t('Bu firma uchun partiya allaqachon')} ${active.status === 'RUNNING' ? t('ketmoqda') : t('navbatda')} (#${active.id}). ${t('Tugashini kuting.')}` },
       { status: 409 },
     );
   }
@@ -90,7 +92,7 @@ export async function POST(req: NextRequest) {
   });
   if (!items.length) {
     return NextResponse.json(
-      { error: retryFailed ? 'Qayta yuboriladigan (xato bergan) ish yo‘q' : 'Bu firmada navbatda qolgan ish yo‘q' },
+      { error: retryFailed ? t('Qayta yuboriladigan (xato bergan) ish yo‘q') : t('Bu firmada navbatda qolgan ish yo‘q') },
       { status: 400 },
     );
   }

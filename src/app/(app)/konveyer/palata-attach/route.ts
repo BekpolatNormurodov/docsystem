@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import { attachAllScanned } from '@/lib/palata-attach';
 import { reapStaleOcrJobs } from '@/lib/palata-ocr';
 import { audit, AuditAction } from '@/lib/audit';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,10 +24,11 @@ export async function GET() {
 // background Job so the request returns instantly; progress is polled via GET.
 export async function POST(req: Request) {
   await requireUser();
+  const t = getT();
   await reapStaleOcrJobs();
   // Don't pile a manual save on top of a live OCR read or another save run.
   const running = await prisma.job.findFirst({ where: { type: { in: ['PALATA_OCR', 'PALATA_ATTACH'] }, status: { in: ['PENDING', 'RUNNING'] } } });
-  if (running) return NextResponse.json({ error: 'Jarayon allaqachon ishlayapti, kuting.' }, { status: 409 });
+  if (running) return NextResponse.json({ error: t('Jarayon allaqachon ishlayapti, kuting.') }, { status: 409 });
 
   // «Mavjudlarni yangilash» — default TRUE: an already-saved client's PDF is refreshed
   // from the latest scan. Sending { replace: false } keeps existing docs untouched.
@@ -36,7 +38,7 @@ export async function POST(req: Request) {
   const job = await prisma.job.create({ data: { type: 'PALATA_ATTACH', status: 'PENDING', total: 0, progress: 0 } });
   // Fire-and-forget: progress + result live on the Job row (polled via GET).
   void (async () => {
-    await prisma.job.updateMany({ where: { id: job.id }, data: { status: 'RUNNING', message: 'Bazaga saqlanmoqda…' } });
+    await prisma.job.updateMany({ where: { id: job.id }, data: { status: 'RUNNING', message: t('Bazaga saqlanmoqda…') } });
     try {
       let lastAt = 0;
       const r = await attachAllScanned({
@@ -45,11 +47,11 @@ export async function POST(req: Request) {
           if (d - lastAt >= 10 || d === t) { lastAt = d; prisma.job.updateMany({ where: { id: job.id }, data: { progress: d, total: Math.max(1, t) } }).catch(() => {}); }
         },
       });
-      const msg = `${r.linked} bazaga saqlandi` + (r.updated ? ` · ${r.updated} yangilandi` : '') + (r.already ? ` · ${r.already} avval saqlangan` : '') + (r.noCase ? ` · ${r.noCase} ish topilmadi` : '');
+      const msg = `${r.linked} ${t('bazaga saqlandi')}` + (r.updated ? ` · ${r.updated} ${t('yangilandi')}` : '') + (r.already ? ` · ${r.already} ${t('avval saqlangan')}` : '') + (r.noCase ? ` · ${r.noCase} ${t('ish topilmadi')}` : '');
       await prisma.job.updateMany({ where: { id: job.id }, data: { status: 'DONE', progress: 1, total: 1, message: msg } });
       await audit(AuditAction.PALATA_SCAN, { target: 'palata:attach', detail: r });
     } catch (e) {
-      await prisma.job.updateMany({ where: { id: job.id }, data: { status: 'FAILED', message: e instanceof Error ? e.message : 'Xatolik' } }).catch(() => {});
+      await prisma.job.updateMany({ where: { id: job.id }, data: { status: 'FAILED', message: e instanceof Error ? e.message : t('Xatolik') } }).catch(() => {});
     }
   })();
   return NextResponse.json({ jobId: job.id });

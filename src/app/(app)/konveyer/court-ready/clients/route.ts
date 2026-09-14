@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { requireStep } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { firmReadyClients } from '@/lib/court-ready';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -17,6 +18,7 @@ const num = (v: string | null): number | undefined => {
 // (or firm/snapshot change), not on every filter/search/page — that per-interaction refetch was slow.
 export async function GET(req: NextRequest) {
   await requireStep('sud:send');
+  const t = getT();
   const raw = req.nextUrl.searchParams.get('s') ?? cookies().get('konv_s')?.value ?? null;
   const parsed = num(raw);
   // Cheap snapshot resolution — this route fires on every filter/search/page change, so
@@ -33,7 +35,7 @@ export async function GET(req: NextRequest) {
   }
 
   const firmId = num(req.nextUrl.searchParams.get('firmId'));
-  if (!firmId) return NextResponse.json({ error: 'firmId kerak' }, { status: 400 });
+  if (!firmId) return NextResponse.json({ error: t('firmId kerak') }, { status: 400 });
 
   const result = await firmReadyClients({ snapshotId, firmId });
   return NextResponse.json(result);

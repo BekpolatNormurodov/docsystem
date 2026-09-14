@@ -5,6 +5,7 @@ import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { enqueueJob } from '@/lib/job-dispatch';
 import { awaitJob } from '@/lib/await-job';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -15,18 +16,19 @@ export const maxDuration = 300;
 // track (talabnomaAt) for this client, so no funnel write here.
 export async function GET(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const caseId = Number(req.nextUrl.searchParams.get('caseId'));
-  if (!Number.isInteger(caseId) || caseId <= 0) return NextResponse.json({ error: 'caseId kerak' }, { status: 400 });
+  if (!Number.isInteger(caseId) || caseId <= 0) return NextResponse.json({ error: t('caseId kerak') }, { status: 400 });
 
   const ac = await prisma.arizaCase.findUnique({
     where: { id: caseId },
     select: { pinfl: true, snapshotId: true, kod: true, clientName: true },
   });
-  if (!ac?.pinfl || !ac.snapshotId) return NextResponse.json({ error: 'Case yoki mijoz maʼlumoti yoʻq' }, { status: 404 });
+  if (!ac?.pinfl || !ac.snapshotId) return NextResponse.json({ error: t('Case yoki mijoz maʼlumoti yoʻq') }, { status: 404 });
 
   // Letterhead firm resolved by branch code (as before); the job needs its numeric id to scope the batch.
   const firm = ac.kod ? await prisma.firm.findUnique({ where: { code: ac.kod }, select: { id: true } }) : null;
-  if (!firm) return NextResponse.json({ error: 'Firma topilmadi' }, { status: 404 });
+  if (!firm) return NextResponse.json({ error: t('Firma topilmadi') }, { status: 404 });
 
   const job = await prisma.job.create({
     data: {
@@ -39,11 +41,11 @@ export async function GET(req: NextRequest) {
   const r = await awaitJob(job.id);
   // FIX 3(a): a timeout means the job is still QUEUED (likely stuck behind a large bulk batch), not
   // failed — tell the user to retry once the batch clears rather than implying the document errored.
-  if (r === 'TIMEOUT') return NextResponse.json({ error: 'Talabnoma navbatda — katta partiya tugagach qayta urinib koʻring' }, { status: 504 });
-  if (r === 'FAILED') return NextResponse.json({ error: 'Talabnoma yaratilmadi' }, { status: 500 });
+  if (r === 'TIMEOUT') return NextResponse.json({ error: t('Talabnoma navbatda — katta partiya tugagach qayta urinib koʻring') }, { status: 504 });
+  if (r === 'FAILED') return NextResponse.json({ error: t('Talabnoma yaratilmadi') }, { status: 500 });
 
   const zipPath = path.join(process.cwd(), 'exports', `${job.id}.zip`);
-  if (!fs.existsSync(zipPath)) return NextResponse.json({ error: 'Talabnoma yaratilmadi' }, { status: 500 });
+  if (!fs.existsSync(zipPath)) return NextResponse.json({ error: t('Talabnoma yaratilmadi') }, { status: 500 });
 
   const safe = (ac.clientName || `case-${caseId}`).replace(/[^\p{L}\p{N}]+/gu, '_').slice(0, 40);
   const stat = fs.statSync(zipPath);

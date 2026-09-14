@@ -4,6 +4,7 @@ import { requireAdmin } from '@/lib/auth';
 import { hashPassword } from '@/core/password';
 import { parseSteps } from '@/lib/access';
 import { audit, AuditAction } from '@/lib/audit';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -11,8 +12,9 @@ export const runtime = 'nodejs';
 // granted step keys. Password is hashed here — never stored or logged in the clear.
 export async function POST(req: NextRequest) {
   await requireAdmin();
+  const t = getT();
   let body: unknown;
-  try { body = await req.json(); } catch { return NextResponse.json({ error: 'Notoʻgʻri soʻrov' }, { status: 400 }); }
+  try { body = await req.json(); } catch { return NextResponse.json({ error: t('Notoʻgʻri soʻrov') }, { status: 400 }); }
   const b = (body ?? {}) as Record<string, unknown>;
 
   const username = typeof b.username === 'string' ? b.username.trim() : '';
@@ -21,12 +23,12 @@ export async function POST(req: NextRequest) {
   const role = b.role === 'ADMIN' ? 'ADMIN' : 'YURIST';
   const steps = role === 'YURIST' ? parseSteps(b.steps) : [];
 
-  if (username.length < 3) return NextResponse.json({ error: 'Login kamida 3 belgidan iborat boʻlsin' }, { status: 400 });
-  if (password.length < 4) return NextResponse.json({ error: 'Parol kamida 4 belgidan iborat boʻlsin' }, { status: 400 });
-  if (role === 'YURIST' && steps.length === 0) return NextResponse.json({ error: 'Yuristga kamida bitta bosqich bering' }, { status: 400 });
+  if (username.length < 3) return NextResponse.json({ error: t('Login kamida 3 belgidan iborat boʻlsin') }, { status: 400 });
+  if (password.length < 4) return NextResponse.json({ error: t('Parol kamida 4 belgidan iborat boʻlsin') }, { status: 400 });
+  if (role === 'YURIST' && steps.length === 0) return NextResponse.json({ error: t('Yuristga kamida bitta bosqich bering') }, { status: 400 });
 
   const exists = await prisma.admin.findUnique({ where: { username }, select: { id: true } });
-  if (exists) return NextResponse.json({ error: 'Bunday login allaqachon mavjud' }, { status: 409 });
+  if (exists) return NextResponse.json({ error: t('Bunday login allaqachon mavjud') }, { status: 409 });
 
   const user = await prisma.admin.create({
     data: { username, passwordHash: await hashPassword(password), role, fullName: fullName || null, steps, active: true },

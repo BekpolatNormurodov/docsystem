@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAccess } from '@/lib/auth';
 import { addPinflAndCheck, ensureManualReport } from '@/lib/mib/add-pinfl';
 import { getMibConfig } from '@/lib/mib/config';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -11,10 +12,11 @@ export const maxDuration = 60;
 // saqlanadi. Qaytadi: reportId + clientId (mijoz sahifasini ochish uchun).
 export async function POST(req: NextRequest) {
   const user = await requireAccess('mib-report');
+  const t = getT();
   const body = await req.json().catch(() => ({}));
   // Yaroqsiz PINFL'da bo'sh «Qo'lda» report yaratilmasin — avval tekshiramiz.
   const pinfl = String(body?.pinfl ?? '').replace(/\D/g, '');
-  if (pinfl.length !== 14) return NextResponse.json({ error: 'PINFL 14 ta raqamdan iborat boʻlishi kerak' }, { status: 400 });
+  if (pinfl.length !== 14) return NextResponse.json({ error: t('PINFL 14 ta raqamdan iborat boʻlishi kerak') }, { status: 400 });
   const reportId = await ensureManualReport(user.username);
   const res = await addPinflAndCheck(reportId, pinfl, (String(body?.fio ?? '').trim() || null));
   if (!res.ok) return NextResponse.json({ error: res.error }, { status: 400 });

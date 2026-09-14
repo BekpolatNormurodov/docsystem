@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -16,6 +17,7 @@ const LABEL: Record<string, string> = { GUVOHNOMA: 'guvohnoma', SHARTNOMA: 'shar
 // «Ariza yaratish» that some firms' attachment documents are incomplete.
 export async function GET(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const sp = req.nextUrl.searchParams;
   const num = (v: string | null): number | undefined => { const n = Number(v); return v != null && v !== '' && Number.isInteger(n) && n > 0 ? n : undefined; };
   const snapshotId = num(sp.get('snapshotId'));
@@ -52,8 +54,8 @@ export async function GET(req: NextRequest) {
     return {
       firmId: id,
       firmName: nameById.get(id) ?? `firma-${id}`,
-      present: present.map((k) => LABEL[k] ?? k),
-      missing: missing.map((k) => LABEL[k] ?? k),
+      present: present.map((k) => t(LABEL[k] ?? k)),
+      missing: missing.map((k) => t(LABEL[k] ?? k)),
       complete: missing.length === 0,
     };
   });

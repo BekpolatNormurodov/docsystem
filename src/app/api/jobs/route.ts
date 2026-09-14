@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -8,6 +9,7 @@ export const runtime = 'nodejs';
 // import. For the «Partiyalar tarixi» view. Enriches each with its firm name (from params.firmId).
 export async function GET(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const limit = Math.min(200, Math.max(1, Number(req.nextUrl.searchParams.get('limit')) || 50));
   const type = req.nextUrl.searchParams.get('type') || undefined;
 
@@ -37,7 +39,7 @@ export async function GET(req: NextRequest) {
       // firmId ham qaytadi: sahifa yangilangach ketayotgan ZIP'ni AYNAN o'z firmasiga
       // qaytarib ulash uchun kerak (nom bo'yicha moslash mo'rt).
       firmId: Number.isInteger(fid) && fid > 0 ? fid : null,
-      firmName: Number.isInteger(fid) && fid > 0 ? (nameById.get(fid) ?? `firma ${fid}`) : 'Hamma firma',
+      firmName: Number.isInteger(fid) && fid > 0 ? (nameById.get(fid) ?? `${t('firma')} ${fid}`) : t('Hamma firma'),
       arizaOnly: p.arizaOnly === true,
       createdAt: j.createdAt,
       updatedAt: j.updatedAt,

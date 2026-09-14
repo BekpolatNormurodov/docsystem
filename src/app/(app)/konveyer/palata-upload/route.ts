@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { requireUser } from '@/lib/auth';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -26,12 +27,13 @@ export async function GET() {
 // POST multipart (file, or multiple "files") — store scans into the inbox.
 export async function POST(req: NextRequest) {
   await requireUser();
+  const t = getT();
   await fs.mkdir(DIR, { recursive: true });
   const form = await req.formData();
   const items = [...form.getAll('files'), ...form.getAll('file')].filter((x): x is File => x instanceof File);
-  if (items.length === 0) return NextResponse.json({ error: 'Fayl kerak' }, { status: 400 });
-  if (items.length > 50) return NextResponse.json({ error: 'Bir martada 50 tadan ko‘p fayl bo‘lmasin' }, { status: 400 });
-  if (items.some((f) => f.size > 50 * 1024 * 1024)) return NextResponse.json({ error: 'Fayl 50MB dan katta' }, { status: 413 });
+  if (items.length === 0) return NextResponse.json({ error: t('Fayl kerak') }, { status: 400 });
+  if (items.length > 50) return NextResponse.json({ error: t('Bir martada 50 tadan ko‘p fayl bo‘lmasin') }, { status: 400 });
+  if (items.some((f) => f.size > 50 * 1024 * 1024)) return NextResponse.json({ error: t('Fayl 50MB dan katta') }, { status: 413 });
   let saved = 0;
   for (const file of items) {
     const buf = Buffer.from(await file.arrayBuffer());
@@ -43,8 +45,9 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const name = req.nextUrl.searchParams.get('name');
-  if (!name) return NextResponse.json({ error: 'name kerak' }, { status: 400 });
+  if (!name) return NextResponse.json({ error: t('name kerak') }, { status: 400 });
   await fs.rm(path.join(DIR, path.basename(name)), { force: true }).catch(() => {});
   return NextResponse.json({ ok: true });
 }

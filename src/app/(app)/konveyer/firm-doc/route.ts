@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { requireAdmin } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { getT } from '@/lib/i18n/server';
 import type { FirmDocKind } from '@prisma/client';
 
 export const runtime = 'nodejs';
@@ -14,21 +15,22 @@ const MIME: Record<string, string> = { '.pdf': 'application/pdf', '.png': 'image
 // GET ?firmId= → the firm's library docs; GET ?download=<id> → stream a file.
 export async function GET(req: NextRequest) {
   await requireAdmin();
+  const t = getT();
   const dl = req.nextUrl.searchParams.get('download');
   if (dl) {
     const dlId = Number(dl);
-    if (!Number.isInteger(dlId) || dlId <= 0) return NextResponse.json({ error: 'download id notoʻgʻri' }, { status: 400 });
+    if (!Number.isInteger(dlId) || dlId <= 0) return NextResponse.json({ error: t('download id notoʻgʻri') }, { status: 400 });
     const doc = await prisma.firmDocument.findUnique({ where: { id: dlId } });
-    if (!doc) return NextResponse.json({ error: 'Topilmadi' }, { status: 404 });
+    if (!doc) return NextResponse.json({ error: t('Topilmadi') }, { status: 404 });
     let buf: Buffer;
-    try { buf = await fs.readFile(doc.filePath); } catch { return NextResponse.json({ error: 'Fayl yo‘q' }, { status: 404 }); }
+    try { buf = await fs.readFile(doc.filePath); } catch { return NextResponse.json({ error: t('Fayl yo‘q') }, { status: 404 }); }
     const ext = path.extname(doc.filePath).toLowerCase();
     return new NextResponse(new Uint8Array(buf), {
       headers: { 'Content-Type': MIME[ext] ?? 'application/octet-stream', 'Content-Disposition': `attachment; filename="${encodeURIComponent(doc.label || doc.kind)}${ext}"` },
     });
   }
   const firmId = Number(req.nextUrl.searchParams.get('firmId'));
-  if (!Number.isInteger(firmId) || firmId <= 0) return NextResponse.json({ error: 'firmId kerak' }, { status: 400 });
+  if (!Number.isInteger(firmId) || firmId <= 0) return NextResponse.json({ error: t('firmId kerak') }, { status: 400 });
   const docs = await prisma.firmDocument.findMany({ where: { firmId }, select: { id: true, kind: true, label: true } });
   return NextResponse.json({ docs });
 }
@@ -36,20 +38,21 @@ export async function GET(req: NextRequest) {
 // POST multipart (firmId, kind, file) — upsert a firm-library doc (one per kind).
 export async function POST(req: NextRequest) {
   await requireAdmin();
+  const t = getT();
   const form = await req.formData();
   const firmId = Number(form.get('firmId'));
   const kind = String(form.get('kind') || 'BOSHQA') as FirmDocKind;
   const file = form.get('file');
-  if (!Number.isInteger(firmId) || firmId <= 0 || !(file instanceof File)) return NextResponse.json({ error: 'firmId va fayl kerak' }, { status: 400 });
-  if (file.size > 25 * 1024 * 1024) return NextResponse.json({ error: 'Fayl 25MB dan katta' }, { status: 413 });
+  if (!Number.isInteger(firmId) || firmId <= 0 || !(file instanceof File)) return NextResponse.json({ error: t('firmId va fayl kerak') }, { status: 400 });
+  if (file.size > 25 * 1024 * 1024) return NextResponse.json({ error: t('Fayl 25MB dan katta') }, { status: 413 });
   // Whitelist the enum so an unexpected kind can't 500 on prisma.create.
   const ALLOWED: FirmDocKind[] = ['GUVOHNOMA', 'ISHONCHNOMA', 'SHARTNOMA', 'OFERTA', 'BOSHQA'];
-  if (!ALLOWED.includes(kind)) return NextResponse.json({ error: 'kind notoʻgʻri' }, { status: 400 });
+  if (!ALLOWED.includes(kind)) return NextResponse.json({ error: t('kind notoʻgʻri') }, { status: 400 });
 
   // Validate the firm up front — a bad firmId must 404, not write a file and then
   // 500 on the FK, orphaning it (and destroying the existing doc below).
   const firm = await prisma.firm.findUnique({ where: { id: firmId }, select: { id: true } });
-  if (!firm) return NextResponse.json({ error: 'Firma topilmadi' }, { status: 404 });
+  if (!firm) return NextResponse.json({ error: t('Firma topilmadi') }, { status: 404 });
 
   const dir = path.join(DIR, String(firmId));
   await fs.mkdir(dir, { recursive: true });
@@ -74,8 +77,9 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   await requireAdmin();
+  const t = getT();
   const id = Number(req.nextUrl.searchParams.get('id'));
-  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'id kerak' }, { status: 400 });
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: t('id kerak') }, { status: 400 });
   const doc = await prisma.firmDocument.findUnique({ where: { id } });
   if (doc) { await fs.rm(doc.filePath, { force: true }).catch(() => {}); await prisma.firmDocument.delete({ where: { id } }); }
   return NextResponse.json({ ok: true });

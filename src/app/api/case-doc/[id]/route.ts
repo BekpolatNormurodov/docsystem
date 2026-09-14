@@ -3,6 +3,7 @@ import path from 'node:path';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireUser } from '@/lib/auth';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -21,12 +22,13 @@ const TYPE_BY_EXT: Record<string, string> = {
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   await requireUser();
+  const t = getT();
   const id = Number(params.id);
-  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: t('topilmadi') }, { status: 404 });
   const doc = await prisma.caseDocument.findUnique({ where: { id } });
-  if (!doc || !doc.filePath) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
+  if (!doc || !doc.filePath) return NextResponse.json({ error: t('topilmadi') }, { status: 404 });
   const abs = path.isAbsolute(doc.filePath) ? doc.filePath : path.join(process.cwd(), doc.filePath);
-  if (!fs.existsSync(abs)) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
+  if (!fs.existsSync(abs)) return NextResponse.json({ error: t('topilmadi') }, { status: 404 });
   const stat = fs.statSync(abs);
   const ext = path.extname(doc.fileName || abs).toLowerCase();
   const stream = fs.createReadStream(abs);

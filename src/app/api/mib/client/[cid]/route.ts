@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
 import { reconcileZombieClients, isMibRunActive } from '@/lib/mib/run';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,10 +11,11 @@ export const dynamic = 'force-dynamic';
 // ketayotganda) shu yerdan o'qiydi.
 export async function GET(_req: NextRequest, { params }: { params: { cid: string } }) {
   await requireAccess('mib-report');
+  const t = getT();
   const cid = Number(params.cid);
-  if (!Number.isInteger(cid) || cid <= 0) return NextResponse.json({ error: 'id noto‘g‘ri' }, { status: 400 });
+  if (!Number.isInteger(cid) || cid <= 0) return NextResponse.json({ error: t('id noto‘g‘ri') }, { status: 400 });
   let client = await prisma.mibClient.findUnique({ where: { id: cid }, include: { cases: { orderBy: { id: 'asc' } } } });
-  if (!client) return NextResponse.json({ error: 'Mijoz topilmadi' }, { status: 404 });
+  if (!client) return NextResponse.json({ error: t('Mijoz topilmadi') }, { status: 404 });
   // Jarayon restart bo'lsa qotib qolgan RUNNING holatini tuzatamiz, so'ng qayta o'qiymiz.
   if (client.status === 'RUNNING') {
     const fixed = await reconcileZombieClients(client.reportId).catch(() => 0);

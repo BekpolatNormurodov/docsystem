@@ -5,6 +5,7 @@ import { getSettings } from '@/lib/settings';
 import { loansToAriza } from '@/core/ariza';
 import { buildArizaDocx } from '@/lib/ariza-docx';
 import { firmPrimaryCourt } from '@/lib/court-routing';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -15,6 +16,7 @@ function asciiSafe(s: string): string {
 
 export async function GET(_req: Request, { params }: { params: { loanId: string } }) {
   await requireAdmin();
+  const t = getT();
 
   const id = Number(params.loanId);
   // A non-numeric/float id must be a clean 404, not a Prisma NaN-validation 500.
@@ -52,7 +54,7 @@ export async function GET(_req: Request, { params }: { params: { loanId: string 
   const courtName = firm ? (await firmPrimaryCourt(firm.id).catch(() => null))?.nameUz : undefined;
   const props = loansToAriza(groupLoans.length ? groupLoans : [loan], arizaFirm, settings, reportDate, courtName);
   // A ≤ 0 demand is a void petition («0 soʻm undirish») — refuse to generate it.
-  if (Number(props.debtTotal) <= 0) return NextResponse.json({ error: 'Qarzdorlik 0 — ariza yaratilmaydi' }, { status: 422 });
+  if (Number(props.debtTotal) <= 0) return NextResponse.json({ error: t('Qarzdorlik 0 — ariza yaratilmaydi') }, { status: 422 });
   const buffer = await buildArizaDocx({ ...props });
 
   const filename = asciiSafe(`${loan.clientName ?? ''} ${arizaFirm.shortName}`.trim());

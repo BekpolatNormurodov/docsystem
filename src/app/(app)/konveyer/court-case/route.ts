@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -10,11 +11,12 @@ const RANK: Record<string, number> = { FINISHED: 7, DECIDED: 6, IN_PROCESS: 5, R
 // hearing date, result, article (modda) + executor (ijrochi) probed from the detail JSON. Read-only.
 export async function GET(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const caseId = Number(req.nextUrl.searchParams.get('caseId'));
-  if (!Number.isInteger(caseId) || caseId <= 0) return NextResponse.json({ error: 'caseId kerak' }, { status: 400 });
+  if (!Number.isInteger(caseId) || caseId <= 0) return NextResponse.json({ error: t('caseId kerak') }, { status: 400 });
 
   const ac = await prisma.arizaCase.findUnique({ where: { id: caseId }, select: { pinfl: true, kod: true, snapshotId: true, courtCaseId: true } });
-  if (!ac?.pinfl) return NextResponse.json({ error: 'Case maʼlumoti yoʻq' }, { status: 404 });
+  if (!ac?.pinfl) return NextResponse.json({ error: t('Case maʼlumoti yoʻq') }, { status: 404 });
 
   const rows = await prisma.clientCaseStatus.findMany({
     where: { source: 'CABINET', pinfl: ac.pinfl, ...(ac.kod ? { branchCode: ac.kod } : {}) },

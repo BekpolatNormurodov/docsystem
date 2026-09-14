@@ -3,6 +3,7 @@ import { requireAccess } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { getSyncStates, isSyncRunning, syncFirm, AUTO_EVERY_MS } from '@/lib/billing-check/sync';
 import { FIRMS, type FirmCfg } from '@/lib/firms';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -19,6 +20,7 @@ export async function GET(_req: NextRequest) {
 // (foydalanuvchi sahifadan chiqib ketsa ham to'xtamaydi). Boshqa yig'ish ketayotgan bo'lsa — 409.
 export async function POST(req: NextRequest) {
   const user = await requireAccess('invoice-check');
+  const t = getT();
   const body = await req.json().catch(() => ({}));
   const firmCode = String(body?.firm ?? '').trim();
   // all=true → hamma firma ketma-ket (bittalab bosib chiqmaslik uchun).
@@ -26,10 +28,10 @@ export async function POST(req: NextRequest) {
   // limit — «oxirgi N ta»; berilmasa butun ro'yxat.
   const rawLimit = Number(body?.limit);
   const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 20_000) : undefined;
-  if (!all && !firmCode) return NextResponse.json({ error: 'Firma kerak' }, { status: 400 });
+  if (!all && !firmCode) return NextResponse.json({ error: t('Firma kerak') }, { status: 400 });
 
   if (await isSyncRunning()) {
-    return NextResponse.json({ error: 'Yangilanish ketyapti — tugashini kuting' }, { status: 409 });
+    return NextResponse.json({ error: t('Yangilanish ketyapti — tugashini kuting') }, { status: 409 });
   }
 
   const targets = all ? FIRMS.map((f: FirmCfg) => f.branchCode) : [firmCode];

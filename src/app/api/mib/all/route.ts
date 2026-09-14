@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
 import { computeStats } from '@/lib/mib/stats';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,6 +12,7 @@ export const dynamic = 'force-dynamic';
 // tekshirilgan) yozuv olinadi. Dashboard buni /api/mib/[id] o'rniga o'qiydi (aggregate rejimi).
 export async function GET(_req: NextRequest) {
   await requireAccess('mib-report');
+  const t = getT();
   const all = await prisma.mibClient.findMany({ orderBy: { id: 'asc' }, include: { cases: { orderBy: { id: 'asc' } } } });
 
   const byPinfl = new Map<string, (typeof all)[number]>();
@@ -23,6 +25,6 @@ export async function GET(_req: NextRequest) {
   }
   const clients = [...byPinfl.values()];
   const stats = computeStats(clients);
-  const report = { id: 0, createdAt: new Date().toISOString(), label: 'Umumiy', sourceFileName: 'aggregate', statusFilter: null, total: clients.length, autoRun: false, runJobId: null };
+  const report = { id: 0, createdAt: new Date().toISOString(), label: t('Umumiy'), sourceFileName: 'aggregate', statusFilter: null, total: clients.length, autoRun: false, runJobId: null };
   return NextResponse.json({ report, clients, stats, holatValues: [], sentDateRange: { min: null, max: null } });
 }

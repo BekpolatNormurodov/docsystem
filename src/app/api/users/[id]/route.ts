@@ -4,6 +4,7 @@ import { requireAdmin } from '@/lib/auth';
 import { hashPassword } from '@/core/password';
 import { parseSteps } from '@/lib/access';
 import { audit, AuditAction } from '@/lib/audit';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -16,14 +17,15 @@ async function lastActiveAdmin(id: number): Promise<boolean> {
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const me = await requireAdmin();
+  const t = getT();
   const id = Number(params.id);
-  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'id notoʻgʻri' }, { status: 400 });
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: t('id notoʻgʻri') }, { status: 400 });
 
   const target = await prisma.admin.findUnique({ where: { id }, select: { id: true, username: true, role: true, active: true } });
-  if (!target) return NextResponse.json({ error: 'Foydalanuvchi topilmadi' }, { status: 404 });
+  if (!target) return NextResponse.json({ error: t('Foydalanuvchi topilmadi') }, { status: 404 });
 
   let body: unknown;
-  try { body = await req.json(); } catch { return NextResponse.json({ error: 'Notoʻgʻri soʻrov' }, { status: 400 }); }
+  try { body = await req.json(); } catch { return NextResponse.json({ error: t('Notoʻgʻri soʻrov') }, { status: 400 }); }
   const b = (body ?? {}) as Record<string, unknown>;
 
   const data: Record<string, unknown> = {};
@@ -35,25 +37,25 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (finalRole === 'ADMIN') data.steps = [];
   else if (Array.isArray(b.steps)) data.steps = parseSteps(b.steps);
   if (typeof b.password === 'string' && b.password.length > 0) {
-    if (b.password.length < 4) return NextResponse.json({ error: 'Parol kamida 4 belgidan iborat boʻlsin' }, { status: 400 });
+    if (b.password.length < 4) return NextResponse.json({ error: t('Parol kamida 4 belgidan iborat boʻlsin') }, { status: 400 });
     data.passwordHash = await hashPassword(b.password);
   }
 
-  if (Object.keys(data).length === 0) return NextResponse.json({ error: 'Oʻzgartirish yoʻq' }, { status: 400 });
+  if (Object.keys(data).length === 0) return NextResponse.json({ error: t('Oʻzgartirish yoʻq') }, { status: 400 });
 
   // Lock-out guards: only relevant when the target is currently an active admin.
   if (target.role === 'ADMIN' && target.active) {
     const demoting = data.role === 'YURIST';
     const deactivating = data.active === false;
     if ((demoting || deactivating) && (await lastActiveAdmin(id))) {
-      return NextResponse.json({ error: 'Bu oxirgi faol admin — rolini/holatini oʻzgartirib boʻlmaydi' }, { status: 409 });
+      return NextResponse.json({ error: t('Bu oxirgi faol admin — rolini/holatini oʻzgartirib boʻlmaydi') }, { status: 409 });
     }
     if (target.id === me.id && (demoting || deactivating)) {
-      return NextResponse.json({ error: 'Oʻzingizni admin huquqidan mahrum qila olmaysiz' }, { status: 409 });
+      return NextResponse.json({ error: t('Oʻzingizni admin huquqidan mahrum qila olmaysiz') }, { status: 409 });
     }
   }
   if (finalRole === 'YURIST' && Array.isArray(data.steps) && (data.steps as string[]).length === 0) {
-    return NextResponse.json({ error: 'Yuristga kamida bitta bosqich bering' }, { status: 400 });
+    return NextResponse.json({ error: t('Yuristga kamida bitta bosqich bering') }, { status: 400 });
   }
 
   const user = await prisma.admin.update({
@@ -67,14 +69,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const me = await requireAdmin();
+  const t = getT();
   const id = Number(params.id);
-  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'id notoʻgʻri' }, { status: 400 });
-  if (id === me.id) return NextResponse.json({ error: 'Oʻzingizni oʻchira olmaysiz' }, { status: 409 });
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: t('id notoʻgʻri') }, { status: 400 });
+  if (id === me.id) return NextResponse.json({ error: t('Oʻzingizni oʻchira olmaysiz') }, { status: 409 });
 
   const target = await prisma.admin.findUnique({ where: { id }, select: { id: true, username: true, role: true, active: true } });
-  if (!target) return NextResponse.json({ error: 'Foydalanuvchi topilmadi' }, { status: 404 });
+  if (!target) return NextResponse.json({ error: t('Foydalanuvchi topilmadi') }, { status: 404 });
   if (target.role === 'ADMIN' && target.active && (await lastActiveAdmin(id))) {
-    return NextResponse.json({ error: 'Bu oxirgi faol admin — oʻchirib boʻlmaydi' }, { status: 409 });
+    return NextResponse.json({ error: t('Bu oxirgi faol admin — oʻchirib boʻlmaydi') }, { status: 409 });
   }
 
   await prisma.admin.delete({ where: { id } });

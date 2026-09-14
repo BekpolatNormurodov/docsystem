@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
+import { getT } from '@/lib/i18n/server';
 import { getStoredHippoSession } from '@/lib/hippo/session';
 import { resolveContext, checkBalanceFor, createRegistryInternal } from '@/lib/hippo/xat';
 import { talabnomaRowsToMails, sendNonce } from '@/lib/hippo/talabnoma-send';
@@ -17,22 +18,23 @@ export const maxDuration = 120;
 // default mode 'draft' (autoSend:false) — a real dispatch needs mode:'send' AND confirm:true.
 export async function POST(req: NextRequest, { params }: { params: { batchId: string } }) {
   const user = await requireAccess('talabnoma-form');
+  const t = getT();
   const id = Number(params.batchId);
-  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'batchId noto‘g‘ri' }, { status: 400 });
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: t('batchId noto‘g‘ri') }, { status: 400 });
 
   const batch = await prisma.talabnomaFormBatch.findUnique({ where: { id }, select: { candidatesPath: true, status: true } });
-  if (!batch?.candidatesPath || batch.status !== 'READY') return NextResponse.json({ error: 'Batch tayyor emas' }, { status: 409 });
+  if (!batch?.candidatesPath || batch.status !== 'READY') return NextResponse.json({ error: t('Batch tayyor emas') }, { status: 409 });
 
   const body = await req.json().catch(() => ({}));
   const firmCode = String(body?.firmCode ?? '').trim();
-  if (!firmCode) return NextResponse.json({ error: 'firmCode majburiy' }, { status: 400 });
+  if (!firmCode) return NextResponse.json({ error: t('firmCode majburiy') }, { status: 400 });
   const includeUnready = body?.includeUnready === true;
   if (!isReadyFirm(firmCode) && !includeUnready) {
-    return NextResponse.json({ needsConfirm: true, error: 'Firma to‘liq forma tayyor emas — tasdiqlang' }, { status: 409 });
+    return NextResponse.json({ needsConfirm: true, error: t('Firma to‘liq forma tayyor emas — tasdiqlang') }, { status: 409 });
   }
 
   const firm = FIRMS.find((f) => canonCode(f.branchCode) === canonCode(firmCode));
-  if (!firm?.stir) return NextResponse.json({ error: 'Bu firma xat.hippo uchun sozlanmagan (STIR yo‘q)' }, { status: 422 });
+  if (!firm?.stir) return NextResponse.json({ error: t('Bu firma xat.hippo uchun sozlanmagan (STIR yo‘q)') }, { status: 422 });
 
   const thresholdTotal = numOr(body?.thresholdTotal, DEFAULT_THRESHOLD);
   const perFirmMin = numOr(body?.perFirmMin, 0);
@@ -40,19 +42,19 @@ export async function POST(req: NextRequest, { params }: { params: { batchId: st
 
   const file = await readCandidates(batch.candidatesPath);
   let rows = buildRowsForFirm(file, firmCode, { thresholdTotal, perFirmMin });
-  if (!rows.length) return NextResponse.json({ error: 'Yuboriladigan qator yo‘q' }, { status: 422 });
+  if (!rows.length) return NextResponse.json({ error: t('Yuboriladigan qator yo‘q') }, { status: 422 });
   if (limit) rows = rows.slice(0, limit);
 
   let session;
   try {
     session = await getStoredHippoSession(firm.stir.replace(/\D+/g, ''));
   } catch {
-    return NextResponse.json({ error: 'xat.hippo ga ulanmagan — E-IMZO orqali ulang' }, { status: 409 });
+    return NextResponse.json({ error: t('xat.hippo ga ulanmagan — E-IMZO orqali ulang') }, { status: 409 });
   }
 
   // Pin this firm's exact talabnoma template (Urban 119 / Bright 42 / Community 123) — see firms.ts.
   const ctx = await resolveContext(session, 'talabnoma', firm.hippoTemplateId);
-  if (!ctx.organizationId) return NextResponse.json({ error: 'hippo konteksti aniqlanmadi (organizationId yo‘q)' }, { status: 422 });
+  if (!ctx.organizationId) return NextResponse.json({ error: t('hippo konteksti aniqlanmadi (organizationId yo‘q)') }, { status: 422 });
 
   const mode = body?.mode === 'send' && body?.confirm === true ? 'send' : 'draft';
   const autoSend = mode === 'send';
@@ -60,7 +62,7 @@ export async function POST(req: NextRequest, { params }: { params: { batchId: st
   if (autoSend) {
     const bal = await checkBalanceFor(session, rows.length);
     if (!bal.enough) {
-      return NextResponse.json({ error: `Balans yetarli emas — ${bal.shortfall} so‘m kam`, balance: bal }, { status: 422 });
+      return NextResponse.json({ error: `${t('Balans yetarli emas')} — ${bal.shortfall} ${t('so‘m kam')}`, balance: bal }, { status: 422 });
     }
   }
 
@@ -73,7 +75,7 @@ export async function POST(req: NextRequest, { params }: { params: { batchId: st
   });
   const j = (res as any)?.json ?? {};
   // HTTP 200 with an error envelope (e.g. «Invalid targeting setup.») must NOT count as success.
-  const errText = j?.error ?? j?.message ?? (j?.success === false ? 'xat.hippo rad etdi' : null);
+  const errText = j?.error ?? j?.message ?? (j?.success === false ? t('xat.hippo rad etdi') : null);
   const registryId = j?.id ?? j?.data?.id ?? null;
   if (errText && !registryId) {
     await prisma.talabnomaFormRun.create({

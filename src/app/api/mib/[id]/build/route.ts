@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
 import { parseHisobot } from '@/lib/mib/parse';
 import { MANUAL_HOLAT } from '@/lib/mib/run';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -11,11 +12,12 @@ export const maxDuration = 120;
 // «Holat» equals statusFilter (empty = all). Replaces any existing clients for this report.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   await requireAccess('mib-report');
+  const t = getT();
   const id = Number(params.id);
-  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'id noto‘g‘ri' }, { status: 400 });
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: t('id noto‘g‘ri') }, { status: 400 });
   const report = await prisma.mibReport.findUnique({ where: { id }, select: { sourcePath: true, autoRun: true } });
-  if (!report) return NextResponse.json({ error: 'Hisobot topilmadi' }, { status: 404 });
-  if (report.autoRun) return NextResponse.json({ error: 'Avtomator ishlayapti — avval to‘xtating' }, { status: 409 });
+  if (!report) return NextResponse.json({ error: t('Hisobot topilmadi') }, { status: 404 });
+  if (report.autoRun) return NextResponse.json({ error: t('Avtomator ishlayapti — avval to‘xtating') }, { status: 409 });
 
   const body = await req.json().catch(() => ({}));
   const statusFilter = (String(body?.statusFilter ?? '').trim() || null) as string | null;

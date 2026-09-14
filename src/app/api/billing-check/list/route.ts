@@ -3,6 +3,7 @@ import { requireAccess } from '@/lib/auth';
 import { searchMyChecks } from '@/lib/billing-check/search';
 import { upsertCheckedInvoice } from '@/lib/billing-check/store';
 import { prisma } from '@/lib/db';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
@@ -13,6 +14,7 @@ export const maxDuration = 30;
 // kvitansiya keshga upsert qilinadi.
 export async function POST(req: NextRequest) {
   const user = await requireAccess('invoice-check');
+  const t = getT();
   const body = await req.json().catch(() => ({}));
   const inn = body?.inn ? String(body.inn).trim() : undefined;
   const passportNumber = body?.passportNumber ? String(body.passportNumber).trim() : undefined;
@@ -23,7 +25,7 @@ export async function POST(req: NextRequest) {
   // yaratilsa jurnal ko'milib ketardi. Mijoz oxirida BITTA umumiy yozuv qo'shadi (POST /history).
   const silent = body?.silent === true;
 
-  if (!inn && !passportNumber) return NextResponse.json({ error: 'STIR yoki pasport kerak' }, { status: 400 });
+  if (!inn && !passportNumber) return NextResponse.json({ error: t('STIR yoki pasport kerak') }, { status: 400 });
 
   try {
     const result = await searchMyChecks({ inn, passportNumber, page, size });
@@ -56,7 +58,7 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json(result);
   } catch (e: any) {
-    const message = e?.message || 'Qidirishda xato';
+    const message = e?.message || t('Qidirishda xato');
     await prisma.billingCheckQuery.create({
       data: { createdBy: user.username, mode: 'LIST', query, page, resultCount: 0, status: 'FAILED', message },
     });

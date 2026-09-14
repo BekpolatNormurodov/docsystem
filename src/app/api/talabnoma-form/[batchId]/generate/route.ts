@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
+import { getT } from '@/lib/i18n/server';
 import { enqueueJob } from '@/lib/job-dispatch';
 import { readCandidates } from '@/lib/talabnoma-form/parse';
 import { buildRowsForFirm, writeReyestr } from '@/lib/talabnoma-form/generate';
@@ -16,16 +17,17 @@ export const maxDuration = 300;
 //  · REYESTR is built inline (fast); LETTERS goes to a background job (chromium PDF).
 export async function POST(req: NextRequest, { params }: { params: { batchId: string } }) {
   const user = await requireAccess('talabnoma-form');
+  const t = getT();
   const id = Number(params.batchId);
-  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'batchId noto‘g‘ri' }, { status: 400 });
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: t('batchId noto‘g‘ri') }, { status: 400 });
 
   const batch = await prisma.talabnomaFormBatch.findUnique({ where: { id }, select: { candidatesPath: true, status: true } });
-  if (!batch) return NextResponse.json({ error: 'Batch topilmadi' }, { status: 404 });
-  if (batch.status !== 'READY' || !batch.candidatesPath) return NextResponse.json({ error: 'Batch tayyor emas' }, { status: 409 });
+  if (!batch) return NextResponse.json({ error: t('Batch topilmadi') }, { status: 404 });
+  if (batch.status !== 'READY' || !batch.candidatesPath) return NextResponse.json({ error: t('Batch tayyor emas') }, { status: 409 });
 
   const body = await req.json().catch(() => ({}));
   const firmCode = String(body?.firmCode ?? '').trim();
-  if (!firmCode) return NextResponse.json({ error: 'firmCode majburiy' }, { status: 400 });
+  if (!firmCode) return NextResponse.json({ error: t('firmCode majburiy') }, { status: 400 });
   const kind = body?.kind === 'LETTERS' ? 'LETTERS' : 'REYESTR';
   const thresholdTotal = numOr(body?.thresholdTotal, DEFAULT_THRESHOLD);
   const perFirmMin = numOr(body?.perFirmMin, 0);
@@ -35,7 +37,7 @@ export async function POST(req: NextRequest, { params }: { params: { batchId: st
   const ready = isReadyFirm(firmCode);
   if (!ready && !includeUnready) {
     return NextResponse.json(
-      { needsConfirm: true, error: 'Bu firma to‘liq forma tayyor emas — tasdiqlang' },
+      { needsConfirm: true, error: t('Bu firma to‘liq forma tayyor emas — tasdiqlang') },
       { status: 409 },
     );
   }
@@ -46,7 +48,7 @@ export async function POST(req: NextRequest, { params }: { params: { batchId: st
   if (kind === 'REYESTR') {
     const file = await readCandidates(batch.candidatesPath);
     const rows = buildRowsForFirm(file, firmCode, opts);
-    if (!rows.length) return NextResponse.json({ error: 'Tanlangan filtr uchun qator yo‘q' }, { status: 422 });
+    if (!rows.length) return NextResponse.json({ error: t('Tanlangan filtr uchun qator yo‘q') }, { status: 422 });
     const run = await prisma.talabnomaFormRun.create({
       data: { batchId: id, createdBy: user.username, kind: 'REYESTR', firmCode, firmName, filters, status: 'RUNNING' },
     });

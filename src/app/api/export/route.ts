@@ -3,11 +3,13 @@ import { prisma } from '@/lib/db';
 import { requireAdmin } from '@/lib/auth';
 import { runExportJob } from '@/lib/export-arizas';
 import { buildLoanWhere, type LoanFilters } from '@/core/loan-filters';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
   await requireAdmin();
+  const t = getT();
 
   const body = await req.json();
   const date = String(body?.date ?? '');
@@ -19,17 +21,17 @@ export async function POST(req: NextRequest) {
   const onlyExcluded = body?.onlyExcluded === true;
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return NextResponse.json({ error: 'date notoʻgʻri (YYYY-MM-DD)' }, { status: 400 });
+    return NextResponse.json({ error: t('date notoʻgʻri (YYYY-MM-DD)') }, { status: 400 });
   }
 
   const reportDate = new Date(`${date}T00:00:00.000Z`);
   // Shape alone isn't enough: 2026-13-45 is an Invalid Date (→ Prisma 500) and
   // 2026-02-30 rolls to Mar 1 (→ wrong snapshot). Reject both before the query.
   if (Number.isNaN(reportDate.getTime()) || reportDate.toISOString().slice(0, 10) !== date) {
-    return NextResponse.json({ error: 'date notoʻgʻri (YYYY-MM-DD)' }, { status: 400 });
+    return NextResponse.json({ error: t('date notoʻgʻri (YYYY-MM-DD)') }, { status: 400 });
   }
   const snapshot = await prisma.snapshot.findUnique({ where: { reportDate } });
-  if (!snapshot) return NextResponse.json({ error: 'Bu sana uchun snapshot topilmadi' }, { status: 404 });
+  if (!snapshot) return NextResponse.json({ error: t('Bu sana uchun snapshot topilmadi') }, { status: 404 });
 
   // minDebt is a CLIENT-total filter: the export produces one ariza per loan of the matching clients.
   const where = { ...buildLoanWhere(snapshot.id, { q, branches, page: 1 } satisfies LoanFilters), excluded: onlyExcluded };

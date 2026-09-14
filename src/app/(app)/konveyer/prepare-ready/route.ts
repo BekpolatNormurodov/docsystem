@@ -7,6 +7,7 @@ import { selectReadyCaseIds, validateSelectedCaseIds, FIRM_REQUIRED_DOCS, FIRM_D
 import { MAX_ZIP_BATCH } from '@/lib/court-batch';
 import { allocateFirmCases, consumeCourtSend, firmCourtBudgets } from '@/lib/court-routing';
 import { isQueuePaused } from '@/lib/cabinet/pacer';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -23,16 +24,17 @@ export async function POST(req: NextRequest) {
   // Match the read routes + the /sud page guard — the side-effectful export must
   // not be reachable by a user who has no 'sud' step grant.
   await requireStep('sud:send');
+  const t = getT();
   const body = await req.json().catch(() => ({}));
 
   const firmId = num(body?.firmId);
-  if (!firmId) return NextResponse.json({ error: 'firmId kerak (har firma alohida chiqariladi)' }, { status: 400 });
+  if (!firmId) return NextResponse.json({ error: t('firmId kerak (har firma alohida chiqariladi)') }, { status: 400 });
 
   // Firma hujjatlari (guvohnoma/ishonchnoma/shartnoma) TO'LIQ bo'lmasa — sudga yubormaymiz
   // (paket chala ketmasin). UI ham bloklaydi; bu — chetlab o'tishga qarshi server himoyasi.
   const haveDocs = new Set((await prisma.firmDocument.findMany({ where: { firmId }, select: { kind: true } })).map((d) => String(d.kind)));
   const missDocs = FIRM_REQUIRED_DOCS.filter((k) => !haveDocs.has(k));
-  if (missDocs.length) return NextResponse.json({ error: `Firma hujjatlari yetishmaydi: ${missDocs.map((k) => FIRM_DOC_LABEL[k] ?? k).join(', ')}. Firmalar → «Hujjatlar»dan yuklang.` }, { status: 400 });
+  if (missDocs.length) return NextResponse.json({ error: `${t('Firma hujjatlari yetishmaydi')}: ${missDocs.map((k) => FIRM_DOC_LABEL[k] ?? k).join(', ')}. ${t('Firmalar → «Hujjatlar»dan yuklang.')}` }, { status: 400 });
   // Resolve snapshot like the GET routes (validate against real snapshots, else latest)
   // so a missing/invalid snapshotId never runs downstream queries with NO snapshot filter.
   const snaps = await konveyerSnapshots();
@@ -68,7 +70,7 @@ export async function POST(req: NextRequest) {
     : await selectReadyCaseIds({ snapshotId, firmId, limit, includeExported, forExport: isExportOnly });
   if (caseIds.length === 0) {
     return NextResponse.json(
-      { error: includeExported ? 'Chiqarish uchun tayyor mijoz yoʻq' : 'Yuborishga tayyor (chiqarilmagan) mijoz yoʻq' },
+      { error: includeExported ? t('Chiqarish uchun tayyor mijoz yoʻq') : t('Yuborishga tayyor (chiqarilmagan) mijoz yoʻq') },
       { status: 400 },
     );
   }
@@ -142,8 +144,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           {
             error: courtIds?.length
-              ? `ZIP tayyorlanmadi: tanlangan sud(lar) bo‘yicha mos mijoz yo‘q — ${alloc.deferred.length} ta ish boshqa sudga biriktirilgan yoki bu sud firmaga ruxsat etilmagan. Sud tanlovini o‘zgartiring.`
-              : 'ZIP tayyorlanmadi: tanlangan mijozlar topilmadi (ro‘yxat eskirgan bo‘lishi mumkin). Sahifani yangilab qayta urinib ko‘ring.',
+              ? `${t('ZIP tayyorlanmadi: tanlangan sud(lar) bo‘yicha mos mijoz yo‘q')} — ${alloc.deferred.length} ${t('ta ish boshqa sudga biriktirilgan yoki bu sud firmaga ruxsat etilmagan. Sud tanlovini o‘zgartiring.')}`
+              : t('ZIP tayyorlanmadi: tanlangan mijozlar topilmadi (ro‘yxat eskirgan bo‘lishi mumkin). Sahifani yangilab qayta urinib ko‘ring.'),
           },
           { status: 400 },
         );
@@ -151,13 +153,13 @@ export async function POST(req: NextRequest) {
       // Bugun hech nima ketmaydi — sababini tushuntiramiz (yopiq oyna yoki limit tugagan).
       const budgets = await firmCourtBudgets(firmId);
       const parts = budgets.map((b) => {
-        const w = b.window.reason === 'weekend' ? 'ish kuni emas'
-          : b.window.reason === 'past-cutoff' ? 'vaqt tugagan'
-          : b.window.reason === 'inactive' ? 'o‘chirilgan'
-          : `${b.remaining}/${b.court.dailyQuota} qoldi`;
+        const w = b.window.reason === 'weekend' ? t('ish kuni emas')
+          : b.window.reason === 'past-cutoff' ? t('vaqt tugagan')
+          : b.window.reason === 'inactive' ? t('o‘chirilgan')
+          : `${b.remaining}/${b.court.dailyQuota} ${t('qoldi')}`;
         return `${b.court.shortName}: ${w}`;
       });
-      const courtNote = courtIds?.length ? ' (faqat tanlangan sud(lar) hisobga olindi)' : '';
+      const courtNote = courtIds?.length ? ` ${t('(faqat tanlangan sud(lar) hisobga olindi)')}` : '';
       // Bugun bittasi ham ketmaydi — LEKIN bu xato emas. Ishlar navbatga qo'yiladi va bu
       // MUVAFFAQIYAT deb qaytariladi: ular keyingi ish kunida o'zi ketadi. Ilgari bu yerda
       // 400 qaytarilib, ishlar butunlay yo'qolardi.
@@ -165,11 +167,11 @@ export async function POST(req: NextRequest) {
       if (parked > 0) {
         return NextResponse.json({
           jobId: null, queued: parked, reason: 'QUOTA',
-          message: `${parked} ta ish navbatga qo‘yildi — keyingi ish kunida avtomat yuboriladi${courtNote}. ${parts.join(' · ')}`,
+          message: `${parked} ${t('ta ish navbatga qo‘yildi — keyingi ish kunida avtomat yuboriladi')}${courtNote}. ${parts.join(' · ')}`,
         });
       }
       return NextResponse.json(
-        { error: `Bugun sudga yuborib bo‘lmaydi (keyingi ish kuniga suriladi)${courtNote}. ${parts.join(' · ')}` },
+        { error: `${t('Bugun sudga yuborib bo‘lmaydi (keyingi ish kuniga suriladi)')}${courtNote}. ${parts.join(' · ')}` },
         { status: 400 },
       );
     }
@@ -204,7 +206,7 @@ export async function POST(req: NextRequest) {
     });
     if (activeZip && Number((activeZip.params as { firmId?: number } | null)?.firmId) === firmId) {
       return NextResponse.json(
-        { error: `Bu firma uchun ZIP allaqachon ${activeZip.status === 'RUNNING' ? `tayyorlanmoqda (${activeZip.progress}/${activeZip.total})` : 'navbatda'}. Tugashini kuting yoki «Bekor» qiling.` },
+        { error: `${t('Bu firma uchun ZIP allaqachon')} ${activeZip.status === 'RUNNING' ? `${t('tayyorlanmoqda')} (${activeZip.progress}/${activeZip.total})` : t('navbatda')}. ${t('Tugashini kuting yoki «Bekor» qiling.')}` },
         { status: 409 },
       );
     }
@@ -224,10 +226,10 @@ export async function POST(req: NextRequest) {
       // ishlamaydi. Xabar aynan qaysi rejim ketayotganini aytadi: operator «real ketyapti,
       // qoralama kuting» yoki aksincha ekanini darrov tushunsin (2026-09-08 operator qarori).
       const activeDraft = (active.params as { draftMode?: boolean } | null)?.draftMode === true;
-      const activeWord = activeDraft ? 'qoralama tayyorlanmoqda' : 'sudga yuborilmoqda';
-      const wantWord = isDraftMode ? 'qoralama tayyorlash' : 'sudga yuborish';
+      const activeWord = activeDraft ? t('qoralama tayyorlanmoqda') : t('sudga yuborilmoqda');
+      const wantWord = isDraftMode ? t('qoralama tayyorlash') : t('sudga yuborish');
       return NextResponse.json(
-        { error: `Bu firmada hozir ${activeWord} (#${active.id}, ${active.status === 'RUNNING' ? 'ketyapti' : 'navbatda'}). Tugashini kuting — «${wantWord}» birga ishlamaydi (ikkalasi bir vaqtda portalga chiqmasligi kerak).` },
+        { error: `${t('Bu firmada hozir')} ${activeWord} (#${active.id}, ${active.status === 'RUNNING' ? t('ketyapti') : t('navbatda')}). ${t('Tugashini kuting')} — «${wantWord}» ${t('birga ishlamaydi (ikkalasi bir vaqtda portalga chiqmasligi kerak).')}` },
         { status: 409 },
       );
     }
@@ -235,7 +237,7 @@ export async function POST(req: NextRequest) {
 
   if (!isExportOnly && (await isQueuePaused(firmId))) {
     return NextResponse.json(
-      { error: 'Sudga yuborish jarayoni pauzada. Davom ettirish uchun «Davom ettirish» tugmasini bosing.' },
+      { error: t('Sudga yuborish jarayoni pauzada. Davom ettirish uchun «Davom ettirish» tugmasini bosing.') },
       { status: 409 },
     );
   }

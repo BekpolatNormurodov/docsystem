@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireStep } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -17,8 +18,9 @@ const num = (v: string | null): number | undefined => {
 // qayta yuborishi uchun. Xato bergan ishlar birinchi chiqadi.
 export async function GET(req: NextRequest) {
   await requireStep('sud:send');
+  const t = getT();
   const firmId = num(req.nextUrl.searchParams.get('firmId'));
-  if (!firmId) return NextResponse.json({ error: 'firmId kerak' }, { status: 400 });
+  if (!firmId) return NextResponse.json({ error: t('firmId kerak') }, { status: 400 });
 
   // RAQAMLAR — BUTUN NAVBAT bo'yicha, ro'yxat esa cheklangan.
   //

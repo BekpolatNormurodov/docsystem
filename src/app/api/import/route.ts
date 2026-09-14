@@ -5,6 +5,7 @@ import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
 import { runImportJob } from '@/lib/jobs';
 import { audit, AuditAction } from '@/lib/audit';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -12,6 +13,7 @@ const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
 
 export async function POST(req: NextRequest) {
   await requireAccess('docs-manage');
+  const t = getT();
 
   const form = await req.formData();
   const file = form.get('file') as File | null;
@@ -20,16 +22,16 @@ export async function POST(req: NextRequest) {
 
   // Faqat Portfel majburiy — sud (istisno) ro'yxati endi IXTIYORIY (foydalanuvchi so'rovi).
   // Sud fayli bo'lmasa, hech kim istisno qilinmaydi (excluded bo'sh) — keyin qo'shib yuklasa bo'ladi.
-  if (!file) return NextResponse.json({ error: 'Portfel fayli majburiy' }, { status: 400 });
+  if (!file) return NextResponse.json({ error: t('Portfel fayli majburiy') }, { status: 400 });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return NextResponse.json({ error: 'date notoʻgʻri (YYYY-MM-DD)' }, { status: 400 });
+    return NextResponse.json({ error: t('date notoʻgʻri (YYYY-MM-DD)') }, { status: 400 });
   }
 
   const reportDate = new Date(`${date}T00:00:00.000Z`);
   // Shape alone isn't enough: 2026-13-45 is an Invalid Date and 2026-02-30 rolls forward to Mar 1 —
   // validate it's a REAL calendar date so a snapshot never lands on the wrong day (or 500s later).
   if (Number.isNaN(reportDate.getTime()) || reportDate.toISOString().slice(0, 10) !== date) {
-    return NextResponse.json({ error: 'date notoʻgʻri (mavjud sana emas)' }, { status: 400 });
+    return NextResponse.json({ error: t('date notoʻgʻri (mavjud sana emas)') }, { status: 400 });
   }
 
   // Concurrency guard: never delete a snapshot that is still importing. Two imports racing on the
@@ -48,7 +50,7 @@ export async function POST(req: NextRequest) {
     const stillRunning = liveJob && Date.now() - liveJob.updatedAt.getTime() < 90_000;
     if (stillRunning) {
       return NextResponse.json(
-        { error: 'Bu sana uchun import hozir ketyapti. Tugashini kuting yoki boshqa sana tanlang.' },
+        { error: t('Bu sana uchun import hozir ketyapti. Tugashini kuting yoki boshqa sana tanlang.') },
         { status: 409 },
       );
     }
@@ -67,7 +69,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (e) {
     if ((e as { code?: string })?.code === 'P2002' || (e as { code?: string })?.code === 'P2025') {
-      return NextResponse.json({ error: 'Bu sana uchun import boshqa jarayonda ketyapti. Qayta urinib koʻring.' }, { status: 409 });
+      return NextResponse.json({ error: t('Bu sana uchun import boshqa jarayonda ketyapti. Qayta urinib koʻring.') }, { status: 409 });
     }
     throw e;
   }

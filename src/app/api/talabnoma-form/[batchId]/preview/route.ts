@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
+import { getT } from '@/lib/i18n/server';
 import { readCandidates } from '@/lib/talabnoma-form/parse';
 import { evaluate, DEFAULT_THRESHOLD } from '@/lib/talabnoma-form/filter';
 
@@ -11,13 +12,14 @@ export const dynamic = 'force-dynamic';
 // anything. Returns per-firm buckets (ready flag), qualified/ready/unready people.
 export async function POST(req: NextRequest, { params }: { params: { batchId: string } }) {
   await requireAccess('talabnoma-form');
+  const t = getT();
   const id = Number(params.batchId);
-  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'batchId noto‘g‘ri' }, { status: 400 });
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: t('batchId noto‘g‘ri') }, { status: 400 });
 
   const batch = await prisma.talabnomaFormBatch.findUnique({ where: { id }, select: { candidatesPath: true, status: true } });
-  if (!batch) return NextResponse.json({ error: 'Batch topilmadi' }, { status: 404 });
+  if (!batch) return NextResponse.json({ error: t('Batch topilmadi') }, { status: 404 });
   if (batch.status !== 'READY' || !batch.candidatesPath) {
-    return NextResponse.json({ error: 'Batch hali tayyor emas' }, { status: 409 });
+    return NextResponse.json({ error: t('Batch hali tayyor emas') }, { status: 409 });
   }
 
   const body = await req.json().catch(() => ({}));

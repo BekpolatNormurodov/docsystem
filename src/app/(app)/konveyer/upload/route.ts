@@ -4,6 +4,7 @@ import path from 'node:path';
 import { requireAdmin, requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { dueForStage } from '@/lib/konveyer-sla';
+import { getT } from '@/lib/i18n/server';
 import type { CaseStage } from '@prisma/client';
 
 export const runtime = 'nodejs';
@@ -17,8 +18,9 @@ export async function GET(req: NextRequest) {
   // requireUser (not requireAdmin): a yurist granted a step (e.g. «sud:send») opens the per-client doc
   // card in CourtManager, so reading a case's docs/status must work for them too — else the card 403s.
   await requireUser();
+  const t = getT();
   const caseId = Number(req.nextUrl.searchParams.get('caseId'));
-  if (!caseId) return NextResponse.json({ error: 'caseId kerak' }, { status: 400 });
+  if (!caseId) return NextResponse.json({ error: t('caseId kerak') }, { status: 400 });
   const [docs, ac] = await Promise.all([
     prisma.caseDocument.findMany({
       where: { caseId },
@@ -45,15 +47,16 @@ export async function GET(req: NextRequest) {
 // POST multipart (caseId, kind, file) — store the file and record it.
 export async function POST(req: NextRequest) {
   await requireAdmin();
+  const t = getT();
   const form = await req.formData();
   const caseId = Number(form.get('caseId'));
   const kind = String(form.get('kind') || 'BOSHQA');
   const file = form.get('file');
-  if (!caseId || !(file instanceof File)) return NextResponse.json({ error: 'caseId va fayl kerak' }, { status: 400 });
-  if (file.size > 25 * 1024 * 1024) return NextResponse.json({ error: 'Fayl 25MB dan katta' }, { status: 413 });
+  if (!caseId || !(file instanceof File)) return NextResponse.json({ error: t('caseId va fayl kerak') }, { status: 400 });
+  if (file.size > 25 * 1024 * 1024) return NextResponse.json({ error: t('Fayl 25MB dan katta') }, { status: 413 });
 
   const ac = await prisma.arizaCase.findUnique({ where: { id: caseId }, select: { id: true } });
-  if (!ac) return NextResponse.json({ error: 'Case topilmadi' }, { status: 404 });
+  if (!ac) return NextResponse.json({ error: t('Case topilmadi') }, { status: 404 });
 
   const bytes = Buffer.from(await file.arrayBuffer());
   const dir = path.join(DIR, String(caseId));
@@ -92,8 +95,9 @@ async function autoAdvanceOnDoc(caseId: number, kind: string): Promise<string | 
 // DELETE ?id= — remove an uploaded document (file + record).
 export async function DELETE(req: NextRequest) {
   await requireAdmin();
+  const t = getT();
   const id = Number(req.nextUrl.searchParams.get('id'));
-  if (!id) return NextResponse.json({ error: 'id kerak' }, { status: 400 });
+  if (!id) return NextResponse.json({ error: t('id kerak') }, { status: 400 });
   const doc = await prisma.caseDocument.findUnique({ where: { id } });
   if (doc) {
     await fs.rm(doc.filePath, { force: true }).catch(() => {});

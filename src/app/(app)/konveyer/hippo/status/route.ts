@@ -5,6 +5,7 @@ import { getStoredHippoSession } from '@/lib/hippo/session';
 import { getBalance, listRegistries } from '@/lib/hippo/xat';
 import { summarizeRegistryMails } from '@/lib/hippo/mail-status';
 import { reconcileTraceAgainstLive } from '@/lib/hippo/talabnoma-trace';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -50,7 +51,7 @@ async function computeOverall() {
 }
 
 // ONE firm: wallet balance + the most recent reyestrs with delivery tallies. Read-only.
-async function computeFirmStatus(firmId: number) {
+async function computeFirmStatus(firmId: number, t: ReturnType<typeof getT>) {
   const firm = await prisma.firm.findUnique({ where: { id: firmId }, select: { shortName: true, stir: true, code: true } });
   if (!firm) return { notFound: true as const };
 
@@ -86,7 +87,7 @@ async function computeFirmStatus(firmId: number) {
         try { sum = await summarizeRegistryMails(session!, r.id); } catch { sum = null; }
         return {
           id: r.id,
-          name: r.name ?? `Reyestr ${r.id}`,
+          name: r.name ?? `${t('Reyestr')} ${r.id}`,
           createdAt: regDate(r),
           total: sum?.total ?? (r.mailCount ?? 0),
           delivered: sum?.delivered ?? 0,
@@ -99,7 +100,7 @@ async function computeFirmStatus(firmId: number) {
     return { connected: true, firmName: firm.shortName, balance, free, registries, checkedAt: new Date().toISOString() };
   } catch (e) {
     console.error('hippo status failed', e);
-    return { connected: false, firmName: firm.shortName, error: 'hippo bilan aloqa yoʻq (token eskirgan boʻlishi mumkin)' };
+    return { connected: false, firmName: firm.shortName, error: t('hippo bilan aloqa yoʻq (token eskirgan boʻlishi mumkin)') };
   }
 }
 
@@ -107,6 +108,7 @@ async function computeFirmStatus(firmId: number) {
 // live from xat.hippo, persist to the cache, and return it.
 export async function GET(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const raw = Number(req.nextUrl.searchParams.get('firmId'));
   const firmId = Number.isInteger(raw) && raw > 0 ? raw : null;
   const refresh = req.nextUrl.searchParams.get('refresh') === '1';
@@ -122,8 +124,8 @@ export async function GET(req: NextRequest) {
   }
 
   // Live pull from xat.hippo → recompute + persist the cache.
-  const data = firmId ? await computeFirmStatus(firmId) : await computeOverall();
-  if ('notFound' in data && data.notFound) return NextResponse.json({ error: 'Firma topilmadi' }, { status: 404 });
+  const data = firmId ? await computeFirmStatus(firmId, t) : await computeOverall();
+  if ('notFound' in data && data.notFound) return NextResponse.json({ error: t('Firma topilmadi') }, { status: 404 });
   try {
     const value = JSON.stringify(data);
     await prisma.setting.upsert({ where: { key }, create: { key, value }, update: { value } });

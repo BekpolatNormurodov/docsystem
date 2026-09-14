@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
 import { parseHisobot } from '@/lib/mib/parse';
 import { mibReportDir, mibSourceXlsxPath } from '@/lib/mib/store';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -12,11 +13,12 @@ export const maxDuration = 120;
 // values (with counts) so the operator can pick which status to run (e.g. «MIBda»).
 export async function POST(req: NextRequest) {
   const user = await requireAccess('mib-report');
+  const t = getT();
   const form = await req.formData();
   const file = form.get('file') as File | null;
   const label = (String(form.get('label') ?? '').trim() || null) as string | null;
-  if (!file) return NextResponse.json({ error: 'file majburiy' }, { status: 400 });
-  if (!/\.xlsx$/i.test(file.name)) return NextResponse.json({ error: 'Fayl .xlsx bo‘lishi kerak' }, { status: 400 });
+  if (!file) return NextResponse.json({ error: t('file majburiy') }, { status: 400 });
+  if (!/\.xlsx$/i.test(file.name)) return NextResponse.json({ error: t('Fayl .xlsx bo‘lishi kerak') }, { status: 400 });
 
   const report = await prisma.mibReport.create({
     data: { createdBy: user.username, label, sourceFileName: file.name, sourcePath: '' },
@@ -33,7 +35,7 @@ export async function POST(req: NextRequest) {
     holatValues = parsed.holatValues;
     totalRows = parsed.rows.length;
   } catch (e) {
-    return NextResponse.json({ error: `Excel o‘qilmadi: ${(e as Error).message}`, reportId: report.id }, { status: 422 });
+    return NextResponse.json({ error: `${t('Excel o‘qilmadi')}: ${(e as Error).message}`, reportId: report.id }, { status: 422 });
   }
 
   return NextResponse.json({ reportId: report.id, holatValues, totalRows });

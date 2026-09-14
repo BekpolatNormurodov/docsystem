@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
+import { getT } from '@/lib/i18n/server';
 import { enqueueJob } from '@/lib/job-dispatch';
 import { audit, AuditAction } from '@/lib/audit';
 import { batchDir, sourceXlsxPath, portfolioXlsxPath } from '@/lib/talabnoma-form/store';
@@ -13,17 +14,18 @@ export const maxDuration = 300;
 // keeps their paths, and enqueue a parse job. Fire-and-forget: the client polls the batch status.
 export async function POST(req: NextRequest) {
   const user = await requireAccess('talabnoma-form');
+  const t = getT();
 
   const form = await req.formData();
   const source = form.get('source') as File | null; // 20.08 talabnoma manba
   const portfolio = form.get('portfolio') as File | null; // портфель
   const label = (String(form.get('label') ?? '').trim() || null) as string | null;
 
-  if (!source) return NextResponse.json({ error: 'source (talabnoma Excel) majburiy' }, { status: 400 });
-  if (!portfolio) return NextResponse.json({ error: 'portfolio (портфель) majburiy' }, { status: 400 });
+  if (!source) return NextResponse.json({ error: t('source (talabnoma Excel) majburiy') }, { status: 400 });
+  if (!portfolio) return NextResponse.json({ error: t('portfolio (портфель) majburiy') }, { status: 400 });
   const isXlsx = (f: File) => /\.xlsx$/i.test(f.name);
   if (!isXlsx(source) || !isXlsx(portfolio)) {
-    return NextResponse.json({ error: 'Ikkala fayl ham .xlsx bo‘lishi kerak' }, { status: 400 });
+    return NextResponse.json({ error: t('Ikkala fayl ham .xlsx bo‘lishi kerak') }, { status: 400 });
   }
 
   const batch = await prisma.talabnomaFormBatch.create({

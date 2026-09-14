@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAccess } from '@/lib/auth';
 import { getOwnAmounts, setOwnAmounts, DEFAULT_OWN_AMOUNTS_TIYIN } from '@/lib/billing-check/config';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -14,8 +15,9 @@ export async function GET(_req: NextRequest) {
 // («hech biri bizniki emas» degani); default'ga qaytarish alohida amal.
 export async function POST(req: NextRequest) {
   await requireAccess('invoice-check');
+  const t = getT();
   const body = await req.json().catch(() => ({}));
-  if (!Array.isArray(body?.amounts)) return NextResponse.json({ error: 'amounts massiv bo‘lishi kerak' }, { status: 400 });
+  if (!Array.isArray(body?.amounts)) return NextResponse.json({ error: t('amounts massiv bo‘lishi kerak') }, { status: 400 });
   const saved = await setOwnAmounts(body.amounts.map(Number));
   return NextResponse.json({ ownAmounts: saved });
 }

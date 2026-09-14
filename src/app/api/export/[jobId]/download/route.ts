@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireUser } from '@/lib/auth';
 import { canAccess, type AccessKey } from '@/lib/access';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -34,24 +35,25 @@ const JOB_ACCESS: Record<string, AccessKey[]> = {
 // bilan beriladi.
 export async function GET(_req: NextRequest, { params }: { params: { jobId: string } }) {
   const user = await requireUser();
+  const t = getT();
 
   const id = Number(params.jobId);
-  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: t('topilmadi') }, { status: 404 });
   const job = await prisma.job.findUnique({ where: { id } });
   if (!job || job.status !== 'DONE' || !job.resultPath) {
-    return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
+    return NextResponse.json({ error: t('topilmadi') }, { status: 404 });
   }
 
   // 404 emas, 403 va aniq sabab: operator «yo'q ekan» deb o'ylab qidirib yurmasin — admindan
   // shu bosqich grantini so'rashi kerakligini bilsin.
   const needed = JOB_ACCESS[job.type] ?? [];
   if (user.role !== 'ADMIN' && !needed.some((k) => canAccess(user, k))) {
-    return NextResponse.json({ error: 'Bu ZIPni yuklashga ruxsat yoʻq — kerakli bosqich berilmagan' }, { status: 403 });
+    return NextResponse.json({ error: t('Bu ZIPni yuklashga ruxsat yoʻq — kerakli bosqich berilmagan') }, { status: 403 });
   }
 
   const zipPath = path.join(process.cwd(), job.resultPath);
   if (!fs.existsSync(zipPath)) {
-    return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
+    return NextResponse.json({ error: t('topilmadi') }, { status: 404 });
   }
 
   const snapshot = job.snapshotId ? await prisma.snapshot.findUnique({ where: { id: job.snapshotId } }) : null;

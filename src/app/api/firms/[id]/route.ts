@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAdmin } from '@/lib/auth';
 import { audit, AuditAction } from '@/lib/audit';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -11,10 +12,11 @@ const EDITABLE = ['shortName', 'legalName', 'address', 'region', 'district', 'ad
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   await requireAdmin();
+  const t = getT();
   const id = Number(params.id);
-  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'id notoʻgʻri' }, { status: 400 });
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: t('id notoʻgʻri') }, { status: 400 });
   let body: unknown;
-  try { body = await req.json(); } catch { return NextResponse.json({ error: 'Notoʻgʻri soʻrov' }, { status: 400 }); }
+  try { body = await req.json(); } catch { return NextResponse.json({ error: t('Notoʻgʻri soʻrov') }, { status: 400 }); }
   const b = (body ?? {}) as Record<string, unknown>;
   const data: Record<string, string | null> = {};
   for (const k of EDITABLE) {
@@ -23,10 +25,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (v == null) { data[k] = null; continue; }
     // Reject non-string values instead of String()-coercing them — a number/object/array payload
     // would silently persist as "12345"/"[object Object]" into a legally-significant firm field.
-    if (typeof v !== 'string') return NextResponse.json({ error: `${k}: matn boʻlishi kerak` }, { status: 400 });
+    if (typeof v !== 'string') return NextResponse.json({ error: `${k}: ${t('matn boʻlishi kerak')}` }, { status: 400 });
     data[k] = v;
   }
-  if (Object.keys(data).length === 0) return NextResponse.json({ error: 'Oʻzgartirish yoʻq' }, { status: 400 });
+  if (Object.keys(data).length === 0) return NextResponse.json({ error: t('Oʻzgartirish yoʻq') }, { status: 400 });
   try {
     const firm = await prisma.firm.update({ where: { id }, data });
     await audit(AuditAction.FIRM_EDIT, { target: `firm:${id}`, detail: { fields: Object.keys(data) } });
@@ -34,7 +36,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   } catch (e) {
     // ONLY P2025 (no such id) is a real 404 — a transient DB error must surface as a
     // 5xx (retryable), not be masked as "firm deleted" and dropped from the UI.
-    if ((e as { code?: string })?.code === 'P2025') return NextResponse.json({ error: 'Firma topilmadi' }, { status: 404 });
+    if ((e as { code?: string })?.code === 'P2025') return NextResponse.json({ error: t('Firma topilmadi') }, { status: 404 });
     throw e;
   }
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAccess } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -16,9 +17,10 @@ export async function GET(_req: NextRequest) {
 // tarix yozuvi. Sahifalar `silent` rejimda tortilgani uchun ular alohida yozilmaydi.
 export async function POST(req: NextRequest) {
   const user = await requireAccess('invoice-check');
+  const t = getT();
   const body = await req.json().catch(() => ({}));
   const query = String(body?.query ?? '').trim();
-  if (!query) return NextResponse.json({ error: 'query kerak' }, { status: 400 });
+  if (!query) return NextResponse.json({ error: t('query kerak') }, { status: 400 });
   const resultCount = Math.max(0, Number(body?.resultCount) || 0);
   const status = body?.status === 'FAILED' ? 'FAILED' : 'OK';
   const message = body?.message ? String(body.message).slice(0, 500) : null;

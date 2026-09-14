@@ -6,6 +6,7 @@ import { ingestHippoStatuses } from '@/lib/hippo/status-ingest';
 import { attachTalabnomaReceipts } from '@/lib/hippo/attach-receipts';
 import { liveRegistryIds } from '@/lib/hippo/xat';
 import { reconcileTraceAgainstLive } from '@/lib/hippo/talabnoma-trace';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -18,17 +19,18 @@ const digits = (s?: string | null) => (s ?? '').replace(/\D+/g, '');
 // Read from hippo, write only status rows — no talabnoma is dispatched.
 export async function POST(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const body = await req.json().catch(() => ({}));
   const firmId = Number(body?.firmId);
-  if (!firmId) return NextResponse.json({ error: 'firmId kerak' }, { status: 400 });
+  if (!firmId) return NextResponse.json({ error: t('firmId kerak') }, { status: 400 });
 
   const firm = await prisma.firm.findUnique({ where: { id: firmId }, select: { id: true, code: true, stir: true } });
-  if (!firm) return NextResponse.json({ error: 'Firma topilmadi' }, { status: 404 });
-  if (!firm.code) return NextResponse.json({ error: 'Firma kodi yoʻq' }, { status: 422 });
+  if (!firm) return NextResponse.json({ error: t('Firma topilmadi') }, { status: 404 });
+  if (!firm.code) return NextResponse.json({ error: t('Firma kodi yoʻq') }, { status: 422 });
 
   let session;
   try { session = await getStoredHippoSession(digits(firm.stir)); }
-  catch { return NextResponse.json({ error: 'Firma xat.hippo ga ulanmagan' }, { status: 409 }); }
+  catch { return NextResponse.json({ error: t('Firma xat.hippo ga ulanmagan') }, { status: 409 }); }
 
   try {
     const result = await ingestHippoStatuses(session, firm.code);
@@ -44,6 +46,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, ...result, pruned, receipts });
   } catch (e) {
     console.error('hippo sync failed', e);
-    return NextResponse.json({ error: 'Sinxronlab boʻlmadi' }, { status: 502 });
+    return NextResponse.json({ error: t('Sinxronlab boʻlmadi') }, { status: 502 });
   }
 }

@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { downloadInvoicePdf } from '@/lib/invoice-rest';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -15,8 +16,9 @@ export const maxDuration = 60;
 // davlat-bojisiz).
 export async function GET(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const caseId = Number(req.nextUrl.searchParams.get('caseId'));
-  if (!Number.isInteger(caseId) || caseId <= 0) return NextResponse.json({ error: 'caseId kerak' }, { status: 400 });
+  if (!Number.isInteger(caseId) || caseId <= 0) return NextResponse.json({ error: t('caseId kerak') }, { status: 400 });
 
   const [rec, ac] = await Promise.all([
     prisma.invoiceRecord.findFirst({ where: { caseId }, orderBy: { id: 'desc' }, select: { invoiceNo: true, pdfPath: true } }),
@@ -24,7 +26,7 @@ export async function GET(req: NextRequest) {
   ]);
   // Prefer the REAL billing number (InvoiceRecord / ArizaCase.invoiceNo); receiptNumber is the fallback.
   const invoiceNo = rec?.invoiceNo || ac?.invoiceNo || ac?.receiptNumber || null;
-  if (!invoiceNo) return NextResponse.json({ error: 'Invoice hali yaratilmagan (Invoice yaratish bosqichida)' }, { status: 409 });
+  if (!invoiceNo) return NextResponse.json({ error: t('Invoice hali yaratilmagan (Invoice yaratish bosqichida)') }, { status: 409 });
 
   // 1) Cached copy captured at mint — fastest.
   let abs = rec?.pdfPath ? path.join(process.cwd(), rec.pdfPath) : null;
@@ -35,10 +37,10 @@ export async function GET(req: NextRequest) {
       abs = path.join(process.cwd(), rel);
     } catch (e) {
       console.error('invoice-pdf live fetch failed', e);
-      return NextResponse.json({ error: `billing.sud.uz dan yuklab boʻlmadi (invoice ${invoiceNo})` }, { status: 502 });
+      return NextResponse.json({ error: `${t('billing.sud.uz dan yuklab boʻlmadi')} (invoice ${invoiceNo})` }, { status: 502 });
     }
   }
-  if (!abs || !fs.existsSync(abs)) return NextResponse.json({ error: 'PDF topilmadi' }, { status: 404 });
+  if (!abs || !fs.existsSync(abs)) return NextResponse.json({ error: t('PDF topilmadi') }, { status: 404 });
 
   const stat = fs.statSync(abs);
   const stream = fs.createReadStream(abs);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth';
 import { sendTalabnomaToHippo, type SendMode } from '@/lib/hippo/talabnoma-send';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -14,11 +15,12 @@ export const maxDuration = 120;
 // the body ALSO carries `confirm:true`, so no stray/automated call can fire live letters.
 export async function POST(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const body = await req.json().catch(() => ({}));
   const int = (v: unknown): number => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : 0; };
   const snapshotId = int(body?.snapshotId);
   const firmId = int(body?.firmId);
-  if (!snapshotId || !firmId) return NextResponse.json({ error: 'snapshotId va firmId kerak' }, { status: 400 });
+  if (!snapshotId || !firmId) return NextResponse.json({ error: t('snapshotId va firmId kerak') }, { status: 400 });
 
   // A real send needs BOTH mode:'send' and confirm:true; anything else is a safe draft.
   const mode: SendMode = body?.mode === 'send' && body?.confirm === true ? 'send' : 'draft';

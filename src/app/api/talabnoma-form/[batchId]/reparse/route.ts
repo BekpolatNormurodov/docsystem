@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
+import { getT } from '@/lib/i18n/server';
 import { enqueueJob } from '@/lib/job-dispatch';
 
 export const runtime = 'nodejs';
@@ -9,11 +10,12 @@ export const runtime = 'nodejs';
 // The uploaded Excels are already on disk, so this just resets progress and enqueues a fresh parse job.
 export async function POST(_req: NextRequest, { params }: { params: { batchId: string } }) {
   await requireAccess('talabnoma-form');
+  const t = getT();
   const id = Number(params.batchId);
-  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'batchId noto‘g‘ri' }, { status: 400 });
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: t('batchId noto‘g‘ri') }, { status: 400 });
   const batch = await prisma.talabnomaFormBatch.findUnique({ where: { id }, select: { id: true, status: true } });
-  if (!batch) return NextResponse.json({ error: 'Batch topilmadi' }, { status: 404 });
-  if (batch.status === 'READY') return NextResponse.json({ error: 'Batch allaqachon tayyor' }, { status: 409 });
+  if (!batch) return NextResponse.json({ error: t('Batch topilmadi') }, { status: 404 });
+  if (batch.status === 'READY') return NextResponse.json({ error: t('Batch allaqachon tayyor') }, { status: 409 });
 
   await prisma.talabnomaFormBatch.update({
     where: { id },

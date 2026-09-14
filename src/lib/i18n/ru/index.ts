@@ -3,9 +3,11 @@
 // SECTIONS roʻyxatiga qoʻshing.
 import { common } from './common';
 import { app } from './app';
+import { routes } from './routes';
 
 const SECTIONS: Record<string, string>[] = [
   app,      // avto-generatsiya (workflow) — sayt UI
+  routes,   // avto-generatsiya (workflow) — API route xabarlari
   common,   // qo'lda yozilgan umumiy (ustun — app'dagini bekor qiladi)
 ];
 

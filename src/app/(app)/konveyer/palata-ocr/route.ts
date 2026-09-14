@@ -4,6 +4,7 @@ import path from 'node:path';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { drainOcrQueue, reapStaleOcrJobs, resumeOcrQueueIfIdle, setQueueReplace, QUEUE_DIR } from '@/lib/palata-ocr';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,9 +32,10 @@ export async function GET() {
 // tesseract processes finish, then the loop breaks. Idempotent (no live job → 200 ok).
 export async function DELETE() {
   await requireUser();
+  const t = getT();
   const { count } = await prisma.job.updateMany({
     where: { type: 'PALATA_OCR', status: { in: ['PENDING', 'RUNNING'] } },
-    data: { status: 'FAILED', message: 'Bekor qilinmoqda…' },
+    data: { status: 'FAILED', message: t('Bekor qilinmoqda…') },
   });
   return NextResponse.json({ cancelled: count });
 }
@@ -43,15 +45,16 @@ export async function DELETE() {
 export async function POST(req: NextRequest) {
   await requireUser();
   await reapStaleOcrJobs();
+  const t = getT();
 
   const form = await req.formData();
   // «Mavjudlarni yangilash» — a re-scan of an already-saved client overwrites its
   // stored PDF instead of being skipped. Default off (never silently overwrite).
   const update = String(form.get('update') || '') === 'true';
   const items = [...form.getAll('files'), ...form.getAll('file')].filter((x): x is File => x instanceof File);
-  if (items.length === 0) return NextResponse.json({ error: 'Fayl kerak' }, { status: 400 });
-  if (items.some((f) => f.size > MAX)) return NextResponse.json({ error: 'Bitta fayl 500MB dan katta' }, { status: 413 });
-  if (items.some((f) => !/\.pdf$/i.test(f.name || ''))) return NextResponse.json({ error: 'Faqat PDF' }, { status: 415 });
+  if (items.length === 0) return NextResponse.json({ error: t('Fayl kerak') }, { status: 400 });
+  if (items.some((f) => f.size > MAX)) return NextResponse.json({ error: t('Bitta fayl 500MB dan katta') }, { status: 413 });
+  if (items.some((f) => !/\.pdf$/i.test(f.name || ''))) return NextResponse.json({ error: t('Faqat PDF') }, { status: 415 });
 
   await fs.mkdir(QUEUE_DIR, { recursive: true });
   await setQueueReplace(update); // resume (restartdan keyin) shu bayroqni o'qiydi

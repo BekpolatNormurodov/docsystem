@@ -6,6 +6,7 @@ import { loansToAriza } from '@/core/ariza';
 import { firmPrimaryCourt } from '@/lib/court-routing';
 import { buildArizaDocx } from '@/lib/ariza-docx';
 import { audit, AuditAction } from '@/lib/audit';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -13,16 +14,17 @@ export const runtime = 'nodejs';
 // the konveyer case (finds the client's loans and reuses the ariza builder).
 export async function GET(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const caseId = Number(req.nextUrl.searchParams.get('caseId'));
   // Integer guard: a float/Infinity caseId is truthy and would hit Prisma's Int
   // column ABOVE the try below → uncaught 500 instead of a clean 400.
-  if (!Number.isInteger(caseId) || caseId <= 0) return NextResponse.json({ error: 'caseId kerak' }, { status: 400 });
+  if (!Number.isInteger(caseId) || caseId <= 0) return NextResponse.json({ error: t('caseId kerak') }, { status: 400 });
 
   const ac = await prisma.arizaCase.findUnique({
     where: { id: caseId },
     select: { pinfl: true, snapshotId: true, kod: true, clientName: true },
   });
-  if (!ac?.pinfl || !ac.snapshotId) return NextResponse.json({ error: 'Case maʼlumoti yoʻq' }, { status: 404 });
+  if (!ac?.pinfl || !ac.snapshotId) return NextResponse.json({ error: t('Case maʼlumoti yoʻq') }, { status: 404 });
 
   const [firm, snapshot, settings, groupLoans] = await Promise.all([
     ac.kod ? prisma.firm.findUnique({ where: { code: ac.kod } }) : null,
@@ -33,7 +35,7 @@ export async function GET(req: NextRequest) {
       orderBy: { id: 'asc' },
     }),
   ]);
-  if (groupLoans.length === 0) return NextResponse.json({ error: 'Portfel maʼlumoti topilmadi' }, { status: 404 });
+  if (groupLoans.length === 0) return NextResponse.json({ error: t('Portfel maʼlumoti topilmadi') }, { status: 404 });
 
   const arizaFirm = {
     shortName: firm?.shortName || ac.kod || 'Unknown',
@@ -49,11 +51,11 @@ export async function GET(req: NextRequest) {
   try {
     const props = loansToAriza(groupLoans, arizaFirm, settings, reportDate, courtName);
     // A ≤ 0 demand is a void petition («0 soʻm undirish») — refuse to generate it.
-    if (Number(props.debtTotal) <= 0) return NextResponse.json({ error: 'Qarzdorlik 0 — ariza yaratilmaydi' }, { status: 422 });
+    if (Number(props.debtTotal) <= 0) return NextResponse.json({ error: t('Qarzdorlik 0 — ariza yaratilmaydi') }, { status: 422 });
     buffer = await buildArizaDocx({ ...props });
   } catch (e) {
     console.error('gen-ariza failed', e);
-    return NextResponse.json({ error: 'Ariza yaratilmadi' }, { status: 500 });
+    return NextResponse.json({ error: t('Ariza yaratilmadi') }, { status: 500 });
   }
 
   await audit(AuditAction.ARIZA_GEN, { target: `case:${caseId}`, detail: { client: ac.clientName } });

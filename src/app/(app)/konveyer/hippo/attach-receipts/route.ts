@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { runAttachReceiptsJob, reapStaleReceiptJobs, receiptSummary } from '@/lib/hippo/attach-receipts';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -27,10 +28,11 @@ export async function GET(req: NextRequest) {
 // on the Job row (polled via GET). Idempotent — re-runnable; the hippo sync also auto-attaches.
 export async function POST(req: NextRequest) {
   await requireUser();
+  const t = getT();
   await reapStaleReceiptJobs();
   const body = await req.json().catch(() => ({}));
   const firmId = Number(body?.firmId);
-  if (!firmId) return NextResponse.json({ error: 'firmId kerak' }, { status: 400 });
+  if (!firmId) return NextResponse.json({ error: t('firmId kerak') }, { status: 400 });
 
   const running = await prisma.job.findFirst({ where: { type: 'RECEIPT_ATTACH', status: { in: ['PENDING', 'RUNNING'] } } });
   if (running) return NextResponse.json({ jobId: running.id, already: true });

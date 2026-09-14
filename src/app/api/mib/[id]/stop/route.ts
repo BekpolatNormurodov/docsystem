@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -8,8 +9,9 @@ export const runtime = 'nodejs';
 // (the in-flight client finishes first, so no state is lost).
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   await requireAccess('mib-report');
+  const t = getT();
   const id = Number(params.id);
-  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'id noto‘g‘ri' }, { status: 400 });
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: t('id noto‘g‘ri') }, { status: 400 });
   await prisma.mibReport.update({ where: { id }, data: { autoRun: false } }).catch(() => {});
   return NextResponse.json({ ok: true });
 }

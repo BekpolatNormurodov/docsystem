@@ -5,6 +5,7 @@ import JSZip from 'jszip';
 import ExcelJS from 'exceljs';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { getT } from '@/lib/i18n/server';
 import { buildFarmoyishDocx } from '@/lib/farmoyish-docx';
 import { getRestBatch, getRestBatchPdfs, getRestBatchReport, type ReportRow } from '@/lib/invoice-rest';
 
@@ -20,10 +21,10 @@ const COLUMNS: { key: keyof ReportRow; header: string; width: number }[] = [
   { key: 'status', header: 'Holat', width: 30 },
 ];
 
-async function buildReportXlsx(rows: ReportRow[]): Promise<Buffer> {
+async function buildReportXlsx(rows: ReportRow[], t: (s: string) => string): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('Kvitansiyalar');
-  ws.addRow(COLUMNS.map((c) => c.header));
+  const ws = wb.addWorksheet(t('Kvitansiyalar'));
+  ws.addRow(COLUMNS.map((c) => t(c.header)));
   ws.getRow(1).font = { bold: true };
   COLUMNS.forEach((c, i) => { ws.getColumn(i + 1).width = c.width; });
   for (const r of rows) ws.addRow(COLUMNS.map((c) => r[c.key]));
@@ -33,11 +34,12 @@ async function buildReportXlsx(rows: ReportRow[]): Promise<Buffer> {
 // GET — batchning barcha PDF'lari + Excel hisoboti bitta ZIP bo'lib yuklanadi.
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   await requireUser();
+  const t = getT();
   const b = await getRestBatch(params.id);
-  if (!b) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
+  if (!b) return NextResponse.json({ error: t('topilmadi') }, { status: 404 });
 
   const [pdfs, report] = await Promise.all([getRestBatchPdfs(params.id), getRestBatchReport(params.id)]);
-  if (pdfs.length === 0 && !report) return NextResponse.json({ error: 'Yuklangan maʼlumot yoʻq' }, { status: 404 });
+  if (pdfs.length === 0 && !report) return NextResponse.json({ error: t('Yuklangan maʼlumot yoʻq') }, { status: 404 });
 
   const zip = new JSZip();
   // 1) PDF'lar.
@@ -49,7 +51,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   }
   // 2) Excel hisobot (barcha kvitansiyalar — OK va xato).
   if (report && report.rows.length > 0) {
-    zip.file('Hisobot.xlsx', await buildReportXlsx(report.rows));
+    zip.file('Hisobot.xlsx', await buildReportXlsx(report.rows, t));
   }
   // 3) Farmoyish (buxgalteriya) DOCX — invoice PDF'lari yonida, buxgalterga tayyor paket. Rest-batch →
   //    InvoiceRecord → case.batchId (InvoiceBatch) orqali topiladi. Best-effort — bo'lmasa ZIP baribir chiqadi.

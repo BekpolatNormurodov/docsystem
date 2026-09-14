@@ -3,17 +3,19 @@ import path from 'node:path';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireUser } from '@/lib/auth';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   await requireUser();
+  const t = getT();
   const id = Number(params.id);
-  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: t('topilmadi') }, { status: 404 });
   const rec = await prisma.invoiceRecord.findUnique({ where: { id } });
-  if (!rec || !rec.pdfPath) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
+  if (!rec || !rec.pdfPath) return NextResponse.json({ error: t('topilmadi') }, { status: 404 });
   const abs = path.join(process.cwd(), rec.pdfPath);
-  if (!fs.existsSync(abs)) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
+  if (!fs.existsSync(abs)) return NextResponse.json({ error: t('topilmadi') }, { status: 404 });
   const stat = fs.statSync(abs);
   const stream = fs.createReadStream(abs);
   return new NextResponse(stream as unknown as ReadableStream, {

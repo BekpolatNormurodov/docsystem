@@ -4,25 +4,27 @@ import { verifyPassword } from '@/core/password';
 import { createSession } from '@/core/session';
 import { Role } from '@/core/enums';
 import { audit, AuditAction } from '@/lib/audit';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
+  const t = getT();
   // Validate the body — invalid JSON or missing fields must be a clean 400, not a
   // 500 (req.json() throws on non-JSON; findUnique({ username: undefined }) throws).
   let body: unknown;
-  try { body = await req.json(); } catch { return NextResponse.json({ error: 'Notoʻgʻri soʻrov' }, { status: 400 }); }
+  try { body = await req.json(); } catch { return NextResponse.json({ error: t('Notoʻgʻri soʻrov') }, { status: 400 }); }
   const b = body as { username?: unknown; password?: unknown };
   const username = typeof b?.username === 'string' ? b.username.trim() : '';
   const password = typeof b?.password === 'string' ? b.password : '';
-  if (!username || !password) return NextResponse.json({ error: 'Login va parol kerak' }, { status: 400 });
+  if (!username || !password) return NextResponse.json({ error: t('Login va parol kerak') }, { status: 400 });
 
   const admin = await prisma.admin.findUnique({ where: { username } });
   if (!admin || !(await verifyPassword(password, admin.passwordHash))) {
-    return NextResponse.json({ error: 'Login yoki parol xato' }, { status: 401 });
+    return NextResponse.json({ error: t('Login yoki parol xato') }, { status: 401 });
   }
   if (!admin.active) {
-    return NextResponse.json({ error: 'Hisob faol emas — administratorga murojaat qiling' }, { status: 403 });
+    return NextResponse.json({ error: t('Hisob faol emas — administratorga murojaat qiling') }, { status: 403 });
   }
   const role = admin.role === 'YURIST' ? Role.YURIST : Role.ADMIN;
   const token = await createSession({

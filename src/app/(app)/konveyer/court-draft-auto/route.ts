@@ -5,6 +5,7 @@ import { isDraftAutoOn, setDraftAuto } from '@/lib/court-draft-auto';
 import { courtReadiness } from '@/lib/court-ready';
 import { pausedFirmIds } from '@/lib/cabinet/pacer';
 import { audit, AuditAction } from '@/lib/audit';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -16,6 +17,7 @@ export const runtime = 'nodejs';
 // HECH QACHON zid bo'lmaydi (`submitted` KENG: biz yuborgan + yurist portalda qo'lda kiritgan).
 export async function GET() {
   await requireStep('sud:send');
+  const t = getT();
 
   const [on, snap] = await Promise.all([
     isDraftAutoOn(),
@@ -43,7 +45,7 @@ export async function GET() {
     .map((f) => ({ firmId: f.firmId, firmName: f.firmName, total: f.total, draftReady: f.draftReady, submitted: f.submitted, queued: f.queued, sendable: f.sendable, active: f.firmId === activeFirmId, paused: pausedFirms.has(f.firmId) }))
     .sort((a, b) => b.sendable - a.sendable || b.draftReady - a.draftReady || b.total - a.total);
   const courtRows = (readiness?.courts ?? [])
-    .map((c) => ({ courtId: c.courtId, courtName: courtName.get(c.courtId) ?? `Sud ${c.courtId}`, total: c.total, draftReady: c.draftReady, submitted: c.submitted, queued: c.queued, sendable: c.sendable }))
+    .map((c) => ({ courtId: c.courtId, courtName: courtName.get(c.courtId) ?? `${t('Sud')} ${c.courtId}`, total: c.total, draftReady: c.draftReady, submitted: c.submitted, queued: c.queued, sendable: c.sendable }))
     .sort((a, b) => b.sendable - a.sendable || b.draftReady - a.draftReady || b.total - a.total);
 
   return NextResponse.json({

@@ -5,6 +5,7 @@ import { requireUser } from '@/lib/auth';
 import { readScannedArizas, latestSnapshotId } from '@/lib/palata-scan';
 import { SCAN_STORE } from '@/lib/palata-ocr';
 import { extractPagesPdfFromFile } from '@/lib/palata-attach';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,14 +13,15 @@ export const dynamic = 'force-dynamic';
 // GET ?pinfl= → that client's signed ariza pages, extracted from the retained scan.
 export async function GET(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const pinfl = req.nextUrl.searchParams.get('pinfl');
-  if (!pinfl) return NextResponse.json({ error: 'pinfl kerak' }, { status: 400 });
+  if (!pinfl) return NextResponse.json({ error: t('pinfl kerak') }, { status: 400 });
 
   const snap = await latestSnapshotId();
   const ariza = snap != null ? (await readScannedArizas(snap)).find((a) => a.pinfl === pinfl) : undefined;
-  if (!ariza || !ariza.source) return NextResponse.json({ error: 'Bu ariza uchun skan saqlanmagan' }, { status: 404 });
+  if (!ariza || !ariza.source) return NextResponse.json({ error: t('Bu ariza uchun skan saqlanmagan') }, { status: 404 });
   const file = path.join(SCAN_STORE, path.basename(ariza.source));
-  if (!fs.existsSync(file)) return NextResponse.json({ error: 'Skan fayli topilmadi' }, { status: 404 });
+  if (!fs.existsSync(file)) return NextResponse.json({ error: t('Skan fayli topilmadi') }, { status: 404 });
 
   const bytes = await extractPagesPdfFromFile(file, ariza.pages);
 

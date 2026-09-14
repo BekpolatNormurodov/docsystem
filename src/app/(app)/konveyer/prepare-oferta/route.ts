@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { enqueueJob } from '@/lib/job-dispatch';
+import { getT } from '@/lib/i18n/server';
 import type { CaseStage } from '@prisma/client';
 
 export const runtime = 'nodejs';
@@ -14,6 +15,7 @@ const VALID_STAGES = new Set<string>(['IMPORTED', 'TALABNOMA_SENT', 'ARIZA_GENER
 // /api/export/{jobId}/download when DONE.
 export async function POST(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const body = await req.json().catch(() => ({}));
 
   const num = (v: unknown): number | undefined => { const n = Number(v); return v != null && v !== '' && Number.isInteger(n) && n > 0 ? n : undefined; };
@@ -31,7 +33,7 @@ export async function POST(req: NextRequest) {
     // Allaqachon ofertasi chiqqan (ofertaAt) mijozlar qayta chiqmaydi.
     const cases = await prisma.arizaCase.findMany({ where: { snapshotId, ofertaAt: null, ...(firmId ? { firmId } : {}) }, select: { pinfl: true }, distinct: ['pinfl'] });
     const pinfls = cases.map((c) => c.pinfl).filter((p): p is string => !!p);
-    if (!pinfls.length) return NextResponse.json({ error: 'Court list boʻsh' }, { status: 400 });
+    if (!pinfls.length) return NextResponse.json({ error: t('Court list boʻsh') }, { status: 400 });
     const loans = await prisma.loan.findMany({ where: { snapshotId, pinfl: { in: pinfls }, summKr: { gt: 0 } }, select: { id: true } });
     const ids = loans.map((l) => l.id);
     // Store snapshotId/firmId (not the thousands of loan ids) so the worker recomputes the same set.
@@ -56,7 +58,7 @@ export async function POST(req: NextRequest) {
 
   // Require a narrowing scope so a stray body can't queue the whole table.
   if (snapshotId === undefined && firmId === undefined && stages.length === 0) {
-    return NextResponse.json({ error: 'snapshotId yoki firmId/stages kerak' }, { status: 400 });
+    return NextResponse.json({ error: t('snapshotId yoki firmId/stages kerak') }, { status: 400 });
   }
 
   const where = {
@@ -67,7 +69,7 @@ export async function POST(req: NextRequest) {
     ofertaAt: null,
   };
   const scopeTotal = await prisma.arizaCase.count({ where });
-  if (scopeTotal === 0) return NextResponse.json({ error: 'Yangi oferta yoʻq — hammasi tayyor' }, { status: 400 });
+  if (scopeTotal === 0) return NextResponse.json({ error: t('Yangi oferta yoʻq — hammasi tayyor') }, { status: 400 });
   // «Belgilangan son»: cap the job to the first N cases so pressing «1» renders 1, not the whole scope.
   const total = limit && limit < scopeTotal ? limit : scopeTotal;
 

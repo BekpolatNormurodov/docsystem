@@ -3,6 +3,7 @@ import { requireStep } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { Eimzo, parseAlias } from '@/lib/hippo/eimzo';
 import { eimzoMode } from '@/lib/eimzo-mode';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 90; // list_certificates parses every PFX and can take ~40-55s with several keys
@@ -49,6 +50,7 @@ async function scanKeysDiag(): Promise<{ keys: KeyOut[]; diag: { disks: unknown;
 // GET /konveyer/keys — signing-capable staff only (admins connect, sud-yurists court-sign).
 export async function GET(req: NextRequest) {
   await requireStep('sud:send');
+  const t = getT();
 
   // CLIENT MODE: the server has no local E-IMZO — the browser enumerates keys itself
   // (window.EimzoBrowser.listKeys). Return the flag instantly so the picker switches paths.
@@ -84,7 +86,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: true, keys: [], cached: false, checkedAt: new Date().toISOString(), debug: diag });
   } catch (e) {
     // list_disks itself failed → E-IMZO not reachable / not running. Fall back to cache if any.
-    const msg = e instanceof Error ? e.message : 'E-IMZO kalitlarini oʻqib boʻlmadi';
+    const msg = e instanceof Error ? e.message : t('E-IMZO kalitlarini oʻqib boʻlmadi');
     const row = await prisma.setting.findUnique({ where: { key: CACHE_KEY } }).catch(() => null);
     if (row?.value) {
       try { return NextResponse.json({ ...JSON.parse(row.value), cached: true, staleError: msg }); } catch { /* fall through */ }

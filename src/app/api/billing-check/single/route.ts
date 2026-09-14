@@ -3,6 +3,7 @@ import { requireAccess } from '@/lib/auth';
 import { checkInvoiceStatus } from '@/lib/billing/invoice';
 import { upsertCheckedInvoice } from '@/lib/billing-check/store';
 import { prisma } from '@/lib/db';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -10,9 +11,10 @@ export const runtime = 'nodejs';
 // Captchasiz, ochiq API (checkStatus). Natija keshga upsert qilinadi + qidiruv tarixga yoziladi.
 export async function POST(req: NextRequest) {
   const user = await requireAccess('invoice-check');
+  const t = getT();
   const body = await req.json().catch(() => ({}));
   const invoice = String(body?.invoice ?? '').trim();
-  if (!invoice) return NextResponse.json({ error: 'Kvitansiya raqami kerak' }, { status: 400 });
+  if (!invoice) return NextResponse.json({ error: t('Kvitansiya raqami kerak') }, { status: 400 });
 
   try {
     const b = await checkInvoiceStatus(invoice);
@@ -38,7 +40,7 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json({ invoice: row });
   } catch (e: any) {
-    const message = e?.message || 'Tekshirishda xato';
+    const message = e?.message || t('Tekshirishda xato');
     await prisma.billingCheckQuery.create({
       data: { createdBy: user.username, mode: 'SINGLE', query: invoice, resultCount: 0, status: 'FAILED', message },
     });

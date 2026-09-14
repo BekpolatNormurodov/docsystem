@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -15,14 +16,15 @@ const MIME: Record<string, string> = {
 // GET ?id= — stream an uploaded case document as a download.
 export async function GET(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const id = Number(req.nextUrl.searchParams.get('id'));
   // Integer guard: Infinity ('1e999') / floats are truthy and would reach Prisma's
   // Int column, throwing an uncaught 500 instead of a clean 400.
-  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'id kerak' }, { status: 400 });
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: t('id kerak') }, { status: 400 });
   const doc = await prisma.caseDocument.findUnique({ where: { id } });
-  if (!doc) return NextResponse.json({ error: 'Topilmadi' }, { status: 404 });
+  if (!doc) return NextResponse.json({ error: t('Topilmadi') }, { status: 404 });
   let buf: Buffer;
-  try { buf = await fs.readFile(doc.filePath); } catch { return NextResponse.json({ error: 'Fayl yo‘q' }, { status: 404 }); }
+  try { buf = await fs.readFile(doc.filePath); } catch { return NextResponse.json({ error: t('Fayl yo‘q') }, { status: 404 }); }
   const ext = path.extname(doc.fileName).toLowerCase();
   return new NextResponse(new Uint8Array(buf), {
     headers: {

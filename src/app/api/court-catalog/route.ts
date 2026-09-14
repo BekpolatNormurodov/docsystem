@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -14,6 +15,7 @@ let cache: { at: number; items: CourtCatalogItem[] } | null = null;
 
 export async function GET() {
   await requireAdmin();
+  const t = getT();
 
   if (cache && Date.now() - cache.at < TTL_MS) {
     return NextResponse.json({ items: cache.items, cached: true });
@@ -39,6 +41,6 @@ export async function GET() {
   } catch (e) {
     // Kesh bo'lsa — eskisini beramiz (billing.sud.uz vaqtincha yiqilса ham ishlaydi).
     if (cache) return NextResponse.json({ items: cache.items, cached: true, stale: true });
-    return NextResponse.json({ error: e instanceof Error ? e.message : 'Katalog olinmadi', items: [] }, { status: 502 });
+    return NextResponse.json({ error: e instanceof Error ? e.message : t('Katalog olinmadi'), items: [] }, { status: 502 });
   }
 }

@@ -3,6 +3,7 @@ import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { enqueueJob } from '@/lib/job-dispatch';
 import { firmCourtBudgets } from '@/lib/court-routing';
+import { getT } from '@/lib/i18n/server';
 import type { CaseStage } from '@prisma/client';
 
 export const runtime = 'nodejs';
@@ -77,6 +78,7 @@ export async function GET(req: NextRequest) {
 // /api/export/{jobId}/download when DONE.
 export async function POST(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const body = await req.json().catch(() => ({}));
 
   const num = (v: unknown): number | undefined => { const n = Number(v); return v != null && v !== '' && Number.isInteger(n) && n > 0 ? n : undefined; };
@@ -95,7 +97,7 @@ export async function POST(req: NextRequest) {
 
   // Require a narrowing scope so a stray body can't queue the whole table.
   if (snapshotId === undefined && firmId === undefined && stages.length === 0) {
-    return NextResponse.json({ error: 'snapshotId yoki firmId/stages kerak' }, { status: 400 });
+    return NextResponse.json({ error: t('snapshotId yoki firmId/stages kerak') }, { status: 400 });
   }
 
   const where = {
@@ -108,7 +110,7 @@ export async function POST(req: NextRequest) {
     ...(arizaOnly ? { totalDebt: { gt: 0 }, ...(regenerate ? {} : { arizaAt: null }) } : {}),
   };
   const scopeTotal = await prisma.arizaCase.count({ where });
-  if (scopeTotal === 0) return NextResponse.json({ error: regenerate ? 'Qayta chiqarishga ariza yoʻq' : arizaOnly ? 'Yangi ariza yoʻq — hammasi tayyor' : 'Bu tanlovda case yoʻq' }, { status: 400 });
+  if (scopeTotal === 0) return NextResponse.json({ error: regenerate ? t('Qayta chiqarishga ariza yoʻq') : arizaOnly ? t('Yangi ariza yoʻq — hammasi tayyor') : t('Bu tanlovda case yoʻq') }, { status: 400 });
 
   // «Qaytadan chiqarish»: aniq case ro'yxatini job'ga beramiz (sud taqsimlashsiz/limitsiz — to'liq
   // to'plamni qaytaradi). Runner shu caseIds'ni qayta tuzib, o'sha arizalarni ZIP qiladi.
@@ -139,7 +141,7 @@ export async function POST(req: NextRequest) {
     const q = picked.map((p) => p.id);
     const assignments: { caseId: number; courtId: number }[] = [];
     for (const c of counts) { let take = Math.min(c.count, q.length); while (take-- > 0) assignments.push({ caseId: q.shift()!, courtId: c.courtId }); }
-    if (assignments.length === 0) return NextResponse.json({ error: 'Tanlangan sonlar bo‘yicha case yo‘q' }, { status: 400 });
+    if (assignments.length === 0) return NextResponse.json({ error: t('Tanlangan sonlar bo‘yicha case yo‘q') }, { status: 400 });
     await prisma.$transaction(assignments.map((a) => prisma.arizaCase.update({ where: { id: a.caseId }, data: { courtId: a.courtId } })));
     const caseIds = assignments.map((a) => a.caseId);
     total = caseIds.length;

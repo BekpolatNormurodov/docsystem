@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { enqueueJob } from '@/lib/job-dispatch';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -11,16 +12,17 @@ export const runtime = 'nodejs';
 // /api/export/{jobId}/download when DONE. Per-firm because a hippo reyestr is per-firm.
 export async function POST(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const body = await req.json().catch(() => ({}));
   const num = (v: unknown): number | undefined => { const n = Number(v); return v != null && v !== '' && Number.isInteger(n) && n > 0 ? n : undefined; };
   const snapshotId = num(body?.snapshotId);
   const firmId = num(body?.firmId);
-  if (!snapshotId || !firmId) return NextResponse.json({ error: 'snapshotId va firmId kerak' }, { status: 400 });
+  if (!snapshotId || !firmId) return NextResponse.json({ error: t('snapshotId va firmId kerak') }, { status: 400 });
 
   // Cheap upper-bound count for the job's initial `total` (progress bar). The job overwrites it with
   // the exact rendered count when it finishes (zero-debt clients drop out inside the loader).
   const total = await prisma.arizaCase.count({ where: { snapshotId, firmId } });
-  if (total === 0) return NextResponse.json({ error: 'Bu firmada case yoʻq' }, { status: 400 });
+  if (total === 0) return NextResponse.json({ error: t('Bu firmada case yoʻq') }, { status: 400 });
 
   const job = await prisma.job.create({
     data: { type: 'TALABNOMA', status: 'PENDING', snapshotId, total, params: { snapshotId, firmId } },

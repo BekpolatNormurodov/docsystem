@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth';
 import { buildTalabnomaOverview, talabnomaOverviewBuffer } from '@/lib/hippo/talabnoma-overview';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -10,26 +11,27 @@ export const maxDuration = 120;
 // chromium, no state change — it only summarizes what the per-firm exports would produce.
 export async function POST(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const body = await req.json().catch(() => ({}));
   const n = Number(body?.snapshotId);
   const snapshotId = body?.snapshotId != null && Number.isInteger(n) && n > 0 ? n : undefined;
-  if (!snapshotId) return NextResponse.json({ error: 'snapshotId kerak' }, { status: 400 });
+  if (!snapshotId) return NextResponse.json({ error: t('snapshotId kerak') }, { status: 400 });
 
   let ov;
   try {
     ov = await buildTalabnomaOverview(snapshotId);
   } catch (e) {
     console.error('talabnoma-overview build failed', e);
-    return NextResponse.json({ error: 'Umumiy reyestr yaratilmadi' }, { status: 500 });
+    return NextResponse.json({ error: t('Umumiy reyestr yaratilmadi') }, { status: 500 });
   }
-  if (ov.firms.length === 0) return NextResponse.json({ error: 'Bu snapshotda firma yoʻq' }, { status: 422 });
+  if (ov.firms.length === 0) return NextResponse.json({ error: t('Bu snapshotda firma yoʻq') }, { status: 422 });
 
   let buf: Buffer;
   try {
     buf = await talabnomaOverviewBuffer(ov);
   } catch (e) {
     console.error('talabnoma-overview excel failed', e);
-    return NextResponse.json({ error: 'Excel yaratilmadi' }, { status: 500 });
+    return NextResponse.json({ error: t('Excel yaratilmadi') }, { status: 500 });
   }
 
   const dateStr = ov.reportDate ? ov.reportDate.toISOString().slice(0, 10) : 'reyestr';

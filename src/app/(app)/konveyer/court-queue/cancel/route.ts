@@ -3,6 +3,7 @@ import { requireStep } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { setQueuePaused } from '@/lib/cabinet/pacer';
 import { audit, AuditAction } from '@/lib/audit';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -30,13 +31,14 @@ export const runtime = 'nodejs';
 //     `courtSentAt` yozilgan, lekin ular yuborilmadi.
 export async function POST(req: NextRequest) {
   await requireStep('sud:send');
+  const t = getT();
   const body = await req.json().catch(() => ({}));
   const raw = Number(body?.firmId);
   const firmId = Number.isInteger(raw) && raw > 0 ? raw : null;
-  if (!firmId) return NextResponse.json({ error: 'firmId kerak' }, { status: 400 });
+  if (!firmId) return NextResponse.json({ error: t('firmId kerak') }, { status: 400 });
 
   const firm = await prisma.firm.findUnique({ where: { id: firmId }, select: { shortName: true } });
-  if (!firm) return NextResponse.json({ error: 'Firma topilmadi' }, { status: 404 });
+  if (!firm) return NextResponse.json({ error: t('Firma topilmadi') }, { status: 404 });
 
   // 1) Avval PAUZA — keyingi qadamlar davomida avtomat yangi partiya boshlab yubormasin.
   await setQueuePaused(true, firmId);
@@ -54,7 +56,7 @@ export async function POST(req: NextRequest) {
     if (j.status === 'PENDING') {
       const r = await prisma.job.updateMany({
         where: { id: j.id, status: 'PENDING' },
-        data: { status: 'CANCELED', message: 'Operator navbatni bekor qildi' },
+        data: { status: 'CANCELED', message: t('Operator navbatni bekor qildi') },
       });
       stoppedJobs += r.count;
     } else {

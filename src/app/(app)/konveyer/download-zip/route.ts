@@ -3,22 +3,24 @@ import fs from 'node:fs/promises';
 import JSZip from 'jszip';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
 // GET ?caseId= — download all of a case's uploaded documents as one ZIP.
 export async function GET(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const caseId = Number(req.nextUrl.searchParams.get('caseId'));
   // Integer guard: Infinity/floats are truthy and would 500 on Prisma's Int column.
-  if (!Number.isInteger(caseId) || caseId <= 0) return NextResponse.json({ error: 'caseId kerak' }, { status: 400 });
+  if (!Number.isInteger(caseId) || caseId <= 0) return NextResponse.json({ error: t('caseId kerak') }, { status: 400 });
 
   const ac = await prisma.arizaCase.findUnique({
     where: { id: caseId },
     select: { clientName: true, documents: { select: { id: true, kind: true, fileName: true, filePath: true } } },
   });
-  if (!ac) return NextResponse.json({ error: 'Case topilmadi' }, { status: 404 });
-  if (ac.documents.length === 0) return NextResponse.json({ error: 'Yuklangan hujjat yo‘q' }, { status: 404 });
+  if (!ac) return NextResponse.json({ error: t('Case topilmadi') }, { status: 404 });
+  if (ac.documents.length === 0) return NextResponse.json({ error: t('Yuklangan hujjat yo‘q') }, { status: 404 });
 
   const zip = new JSZip();
   for (const d of ac.documents) {

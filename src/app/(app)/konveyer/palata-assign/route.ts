@@ -5,6 +5,7 @@ import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { dueForStage } from '@/lib/konveyer-sla';
 import { audit, AuditAction } from '@/lib/audit';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -17,17 +18,18 @@ const STAGE_ORDER = ['IMPORTED', 'TALABNOMA_SENT', 'ARIZA_GENERATED', 'PRINTED',
 // then auto-advance the case to SIGNED_SCANNED. Removes the file from the inbox.
 export async function POST(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const body = await req.json().catch(() => ({}));
   const file = String(body?.file || '');
   const caseId = Number(body?.caseId);
-  if (!file || !caseId) return NextResponse.json({ error: 'file va caseId kerak' }, { status: 400 });
+  if (!file || !caseId) return NextResponse.json({ error: t('file va caseId kerak') }, { status: 400 });
 
   const src = path.join(INBOX, path.basename(file));
   let buf: Buffer;
-  try { buf = await fs.readFile(src); } catch { return NextResponse.json({ error: 'Skan topilmadi' }, { status: 404 }); }
+  try { buf = await fs.readFile(src); } catch { return NextResponse.json({ error: t('Skan topilmadi') }, { status: 404 }); }
 
   const ac = await prisma.arizaCase.findUnique({ where: { id: caseId }, select: { stage: true, slaDays: true } });
-  if (!ac) return NextResponse.json({ error: 'Case topilmadi' }, { status: 404 });
+  if (!ac) return NextResponse.json({ error: t('Case topilmadi') }, { status: 404 });
 
   const dir = path.join(DOCS, String(caseId));
   await fs.mkdir(dir, { recursive: true });

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 
@@ -11,6 +12,7 @@ export const runtime = 'nodejs';
 // («tayyorlanganlar»). Download/delete reuse /api/export/{jobId}[/download].
 export async function GET(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const sp = req.nextUrl.searchParams;
   const snapshotId = Number(sp.get('snapshotId')) || undefined;
   const firmId = Number(sp.get('firmId')) || undefined;
@@ -42,7 +44,7 @@ export async function GET(req: NextRequest) {
         total: j.total,
         createdAt: j.createdAt.toISOString(),
         firmId: fid,
-        firmName: fid != null ? (nameOf.get(fid) ?? `firma ${fid}`) : 'Hamma firma',
+        firmName: fid != null ? (nameOf.get(fid) ?? `${t('firma')} ${fid}`) : t('Hamma firma'),
         size,
       };
     });

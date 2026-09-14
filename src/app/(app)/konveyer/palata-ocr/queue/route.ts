@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { requireUser } from '@/lib/auth';
 import { QUEUE_DIR, pdfPageCount } from '@/lib/palata-ocr';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -37,12 +38,13 @@ export async function GET() {
 // o'qilayotgan (birinchi) faylni bu yerdan o'chirmaymiz — uni «Bekor qilish» to'xtatadi.
 export async function DELETE(req: NextRequest) {
   await requireUser();
+  const t = getT();
   const file = req.nextUrl.searchParams.get('file') || '';
   // Xavfsizlik: faqat toza fayl nomi (papkadan chiqib ketmasin).
-  if (!file || file.includes('/') || file.includes('..')) return NextResponse.json({ error: 'Nomaʼqul fayl' }, { status: 400 });
+  if (!file || file.includes('/') || file.includes('..')) return NextResponse.json({ error: t('Nomaʼqul fayl') }, { status: 400 });
   let files: string[] = [];
   try { files = (await fs.readdir(QUEUE_DIR)).filter((f) => /\.pdf$/i.test(f)).sort(); } catch { files = []; }
-  if (files[0] === file) return NextResponse.json({ error: 'Bu fayl hozir oʻqilyapti — «Bekor qilish» bilan toʻxtating' }, { status: 409 });
+  if (files[0] === file) return NextResponse.json({ error: t('Bu fayl hozir oʻqilyapti — «Bekor qilish» bilan toʻxtating') }, { status: 409 });
   if (!files.includes(file)) return NextResponse.json({ removed: 0 });
   await fs.rm(path.join(QUEUE_DIR, file), { force: true }).catch(() => {});
   pageCache.delete(file);

@@ -8,6 +8,7 @@ import { requireUser } from '@/lib/auth';
 import { canAccess } from '@/lib/access';
 import { importInvoicesFromXlsx } from '@/lib/invoice-import';
 import { audit, AuditAction } from '@/lib/audit';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -42,9 +43,10 @@ export async function GET() {
 // qarab to'langan/qaytarilgan deb belgilaydi. Hisobot (nechta topildi/belgilandi) qaytadi.
 export async function POST(req: NextRequest) {
   const u = await requireUser();
+  const t = getT();
   // Mutatsiya — buxgalteriya yoki sud:invoice ruxsati kerak (ADMIN har doim o'tadi).
   if (!canAccess(u, 'buxgalteriya') && !canAccess(u, 'sud:invoice')) {
-    return NextResponse.json({ error: 'Ruxsat yoʻq' }, { status: 403 });
+    return NextResponse.json({ error: t('Ruxsat yoʻq') }, { status: 403 });
   }
   const form = await req.formData().catch(() => null);
   const file = form?.get('file') as File | null;
@@ -53,8 +55,8 @@ export async function POST(req: NextRequest) {
   const snapshotId = sRaw ? Number(sRaw) : undefined;
   const firmId = fRaw ? Number(fRaw) : undefined;
   const apply = form?.get('mode') === 'apply'; // preview (default) → tasdiqdan keyin apply
-  if (!file) return NextResponse.json({ error: 'Fayl yoʻq' }, { status: 400 });
-  if (!/\.xlsx$/i.test(file.name)) return NextResponse.json({ error: 'Faqat .xlsx fayl' }, { status: 400 });
+  if (!file) return NextResponse.json({ error: t('Fayl yoʻq') }, { status: 400 });
+  if (!/\.xlsx$/i.test(file.name)) return NextResponse.json({ error: t('Faqat .xlsx fayl') }, { status: 400 });
 
   const tmp = path.join(os.tmpdir(), `inv-import-${crypto.randomUUID()}.xlsx`);
   await fs.writeFile(tmp, Buffer.from(await file.arrayBuffer()));
@@ -90,7 +92,7 @@ export async function POST(req: NextRequest) {
     const { notFoundRows: _nf, ...json } = result; // JSON kichik qolsin — ro'yxatni yubormaymiz
     return NextResponse.json(json);
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : 'Import xatosi' }, { status: 422 });
+    return NextResponse.json({ error: e instanceof Error ? e.message : t('Import xatosi') }, { status: 422 });
   } finally {
     await fs.unlink(tmp).catch(() => {});
   }

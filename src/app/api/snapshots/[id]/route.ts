@@ -3,6 +3,7 @@ import path from 'node:path';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAdmin } from '@/lib/auth';
+import { getT } from '@/lib/i18n/server';
 import { audit, AuditAction } from '@/lib/audit';
 
 export const runtime = 'nodejs';
@@ -10,11 +11,12 @@ export const runtime = 'nodejs';
 // Delete a snapshot: its loans cascade, and the uploaded portfolio + exclusion files are removed.
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   await requireAdmin();
+  const t = getT();
   const id = Number(params.id);
-  if (!Number.isInteger(id)) return NextResponse.json({ error: 'id notoʻgʻri' }, { status: 400 });
+  if (!Number.isInteger(id)) return NextResponse.json({ error: t('id notoʻgʻri') }, { status: 400 });
 
   const snap = await prisma.snapshot.findUnique({ where: { id } });
-  if (!snap) return NextResponse.json({ error: 'topilmadi' }, { status: 404 });
+  if (!snap) return NextResponse.json({ error: t('topilmadi') }, { status: 404 });
 
   await prisma.snapshot.delete({ where: { id } }); // Loan rows cascade via the relation
   await audit(AuditAction.SNAPSHOT_DELETE, { target: `snapshot:${id}`, detail: { sourceFileName: snap.sourceFileName, rowCount: snap.rowCount } });
