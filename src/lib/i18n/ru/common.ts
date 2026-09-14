@@ -59,4 +59,15 @@ export const common: Record<string, string> = {
   'Holat': 'Статус',
   'Firma': 'Фирма',
   'Summa': 'Сумма',
+  // login sahifasi
+  'Tizimga kirish': 'Вход в систему',
+  'Login va parolingizni kiriting': 'Введите логин и пароль',
+  'Login': 'Логин',
+  'Parol': 'Пароль',
+  'Kirish': 'Войти',
+  'Kirilmoqda…': 'Вход…',
+  'Login yoki parol xato': 'Неверный логин или пароль',
+  'Serverga ulanib bo‘lmadi. Qayta urinib ko‘ring.': 'Не удалось подключиться к серверу. Попробуйте снова.',
+  'Yashirish': 'Скрыть',
+  'Ko‘rsatish': 'Показать',
 };

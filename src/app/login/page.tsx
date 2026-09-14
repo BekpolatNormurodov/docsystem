@@ -4,9 +4,11 @@ import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { Logo } from '@/ui';
 import { Ico } from '@/ui/icons';
+import { useT } from '@/lib/i18n/client';
 
 export default function LoginPage() {
   const router = useRouter();
+  const t = useT();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -25,13 +27,13 @@ export default function LoginPage() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data.error || 'Login yoki parol xato');
+        setError(data.error || t('Login yoki parol xato'));
         return;
       }
       router.push('/');
       router.refresh();
     } catch {
-      setError('Serverga ulanib bo‘lmadi. Qayta urinib ko‘ring.');
+      setError(t('Serverga ulanib bo‘lmadi. Qayta urinib ko‘ring.'));
     } finally {
       setLoading(false);
     }
@@ -55,12 +57,12 @@ export default function LoginPage() {
         </div>
 
         <div className="rounded-2xl border border-line bg-surface p-6 shadow-xl shadow-slate-900/5">
-          <h1 className="mb-1 text-base font-semibold">Tizimga kirish</h1>
-          <p className="mb-5 text-xs text-muted">Login va parolingizni kiriting</p>
+          <h1 className="mb-1 text-base font-semibold">{t('Tizimga kirish')}</h1>
+          <p className="mb-5 text-xs text-muted">{t('Login va parolingizni kiriting')}</p>
 
           <form onSubmit={onSubmit} className="space-y-3.5">
             <div>
-              <label className="mb-1 block text-xs font-medium text-muted" htmlFor="username">Login</label>
+              <label className="mb-1 block text-xs font-medium text-muted" htmlFor="username">{t('Login')}</label>
               <div className="relative">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"><Ico.user size={17} /></span>
                 <input
@@ -78,7 +80,7 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className="mb-1 block text-xs font-medium text-muted" htmlFor="password">Parol</label>
+              <label className="mb-1 block text-xs font-medium text-muted" htmlFor="password">{t('Parol')}</label>
               <div className="relative">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"><Ico.lock size={17} /></span>
                 <input
@@ -94,7 +96,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPw((v) => !v)}
-                  aria-label={showPw ? 'Yashirish' : 'Ko‘rsatish'}
+                  aria-label={showPw ? t('Yashirish') : t('Ko‘rsatish')}
                   className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-muted transition-colors hover:text-fg"
                 >
                   {showPw ? <Ico.eyeOff size={17} /> : <Ico.eye size={17} />}
@@ -114,7 +116,7 @@ export default function LoginPage() {
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-500 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:opacity-60"
             >
               {loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-transparent" />}
-              {loading ? 'Kirilmoqda…' : 'Kirish'}
+              {loading ? t('Kirilmoqda…') : t('Kirish')}
             </button>
           </form>
         </div>
