@@ -126,7 +126,7 @@ export function canManageDocs(u: Pick<AppUser, 'role' | 'steps'>): boolean {
 /** Where to send a user who lands somewhere they may not see. Admin → Hisobot;
  *  yurist → their first granted step; nobody-granted → null (caller decides). */
 export function landingHref(u: Pick<AppUser, 'role' | 'steps'>): string | null {
-  if (u.role === 'ADMIN') return '/konveyer';
+  if (u.role === 'ADMIN') return '/boss';
   // Birinchi KIRA OLADIGAN sahifa: butun-bosqich bo'lsa o'z sahifasi, aks holda birinchi berilgan sub-item.
   for (const step of STEP_KEYS) {
     if (u.steps.includes(step)) return STEP_META[step].href;

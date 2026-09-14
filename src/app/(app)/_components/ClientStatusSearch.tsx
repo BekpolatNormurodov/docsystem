@@ -150,11 +150,12 @@ export function ClientStatusSearch({ linkDate, placeholder, className }: { linkD
                       className="flex w-full items-start gap-3 px-3 py-2.5 text-left outline-none transition-colors hover:bg-surface-2 focus-visible:bg-surface-2">
                       <span className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl text-[13px] font-bold ${avatarColor(p.pinfl)}`} aria-hidden>{initials(p.clientName)}</span>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate text-sm font-semibold leading-tight">{p.clientName || '—'}</span>
-                          {cb && <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${cb.tone}`}>{cb.label}</span>}
+                        {/* To'liq F.I.Sh — uzun ismlar kesilmasin (truncate emas, satrga bo'linadi). */}
+                        <div className="text-sm font-semibold leading-snug">{p.clientName || '—'}</div>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                          <span className="font-mono text-[11px] tabular-nums text-muted">{p.pinfl}</span>
+                          {cb && <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${cb.tone}`}>{cb.label}</span>}
                         </div>
-                        <div className="mt-0.5 font-mono text-[11px] tabular-nums text-muted">{p.pinfl}</div>
                         {/* Har firma bo'yicha bosqich (step) */}
                         <div className="mt-1.5 flex flex-wrap gap-1.5">
                           {p.cases.map((c) => {
