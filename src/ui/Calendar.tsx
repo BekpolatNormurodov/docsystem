@@ -1,3 +1,5 @@
+'use client';
+
 import React from 'react';
 import Link from 'next/link';
 import { CertStatus } from '../core/enums';
@@ -6,7 +8,7 @@ import { UZ_MONTHS_LAT, WEEKDAYS_LAT, monthGrid } from '../core/calendar';
 import { STATUS_DOT } from './tokens';
 // Named exports, not `Ico.*` — this file is a server component (see icons.tsx).
 import { IconChevronLeft, IconChevronRight } from './icons';
-import { getT } from '@/lib/i18n/server';
+import { useT } from '@/lib/i18n/client';
 
 export { UZ_MONTHS_LAT } from '../core/calendar';
 export { STATUS_DOT } from './tokens';
@@ -53,7 +55,7 @@ export function Calendar({
   /** Overrides the default cert-workflow legend/dot-colours — e.g. for a different day-status domain. */
   legend?: LegendItem[];
 }) {
-  const t = getT();
+  const t = useT();
   const [y, m] = month.split('-').map(Number);
   const cells = monthGrid(month);
   const iso = (d: number) => `${month}-${String(d).padStart(2, '0')}`;

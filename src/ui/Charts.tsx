@@ -1,5 +1,7 @@
+'use client';
+
 import React from 'react';
-import { getT } from '@/lib/i18n/server';
+import { useT } from '@/lib/i18n/client';
 
 /**
  * Pure-SVG charts — server-rendered, no chart library, no client JS.
@@ -23,7 +25,7 @@ function ChartCard({
   children: React.ReactNode;
   empty?: boolean;
 }) {
-  const t = getT();
+  const t = useT();
   return (
     <section className="card p-5">
       <header className="mb-4">
@@ -138,7 +140,7 @@ export interface Slice {
 
 /** Donut — status proportion. Max 4 statuses, so well inside the ≤5 rule. */
 export function DonutChart({ title, subtitle, slices }: { title: string; subtitle?: string; slices: Slice[] }) {
-  const t = getT();
+  const t = useT();
   const total = slices.reduce((a, s) => a + s.value, 0);
   const R = 60;
   const SW = 22;

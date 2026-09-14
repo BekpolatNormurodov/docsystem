@@ -1,5 +1,7 @@
+'use client';
+
 import Link from 'next/link';
-import { getT } from '@/lib/i18n/server';
+import { useT } from '@/lib/i18n/client';
 
 /** Windowed page list: 1 … (cur-1) cur (cur+1) … last, with `null` marking an ellipsis gap. */
 function pageWindow(cur: number, total: number): (number | null)[] {
@@ -36,7 +38,7 @@ export function Pagination({
   /** Noun for the range summary, e.g. "mijoz". */
   unit?: string;
 }) {
-  const t = getT();
+  const t = useT();
   const u = unit ?? t('natija');
   if (pages <= 1) {
     return (
