@@ -5,6 +5,7 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 import { CABINET_BASE_URL } from './constants';
 import { paceRequest, UPLOAD_GAP_MS } from '../src/lib/cabinet/pacer';
+import { proxyDispatcher } from '../src/lib/cabinet/api';
 import type { CabinetAuthSession } from './types';
 
 export interface RequestOptions extends RequestInit {
@@ -104,11 +105,16 @@ export class CabinetApiClient {
       // (avval ular ketma-ket bir zumda otilardi: aynan bloklangan naqsh).
       await paceRequest();
 
+      // Egress: CABINET_PROXY_URL o'rnatilgan bo'lsa har so'rov cabinet-proxy sidecar orqali
+      // ketadi (u esa UPSTREAM_PROXY bilan Mac tunneliga yo'naltirilishi mumkin). Aks holda
+      // to'g'ridan-to'g'ri (lokal dev). Bloklangan prod IP'da bu YAGONA ishlaydigan yo'l.
+      const disp = proxyDispatcher();
       const res = await fetch(url, {
         ...options,
         headers,
         signal: controller.signal,
-      });
+        ...(disp ? { dispatcher: disp } : {}),
+      } as RequestInit);
 
       const text = await res.text();
       let json: any;
@@ -203,6 +209,7 @@ export class CabinetApiClient {
     try {
       // Fayl yuklash — qisqaroq interval (bitta ishda 15-17 ta bo'ladi).
       await paceRequest(UPLOAD_GAP_MS);
+      const disp = proxyDispatcher();
       const res = await fetch(`${this.baseUrl}/api/cabinet/case/file/upload`, {
         method: 'POST',
         headers: {
@@ -214,7 +221,8 @@ export class CabinetApiClient {
         },
         body: fd as any,
         signal: controller.signal,
-      });
+        ...(disp ? { dispatcher: disp } : {}),
+      } as RequestInit);
 
       const text = await res.text();
       let json: any;
