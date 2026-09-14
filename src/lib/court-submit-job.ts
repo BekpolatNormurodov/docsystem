@@ -272,28 +272,46 @@ export async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
   // ESLATMA: ZIP paketda bu ATAYIN yo'q (konveyer-packet.ts izohi: raqam arizaning ichida
   // ketadi, PDF esa kerak emas). Sudga API orqali yuborishda esa operator qarori bo'yicha
   // BIRIKTIRILADI — ikkala yo'l bu nuqtada ataylab farq qiladi.
-  if (ac.invoiceNo || ac.receiptNumber) {
+  // HAR YUBORISHDA YANGIDAN: foydalanuvchi qarori (2026-09-15) — kvitansiya PDF'ni cache'dan
+  // emas, billing.sud.uz'dan HAR safar yangidan olamiz (asDocument). Egress bloklangan prod'da
+  // bu invoice-rest'ning proxyDispatcher'i orqali Mac tunnelidan o'tadi. Olinmasa — cache'ga
+  // (InvoiceRecord.pdfPath) qaytamiz, chala paket ketmasin.
+  {
     const rec = await prisma.invoiceRecord.findFirst({
       where: {
         OR: [
           { caseId: ac.id },
-          { invoiceNo: String(ac.invoiceNo ?? ac.receiptNumber) },
+          ...(ac.invoiceNo || ac.receiptNumber ? [{ invoiceNo: String(ac.invoiceNo ?? ac.receiptNumber) }] : []),
         ],
-        pdfPath: { not: null },
       },
       select: { invoiceNo: true, pdfPath: true },
       orderBy: { id: 'desc' },
     });
-    if (rec?.pdfPath) {
+    const invoiceNo = rec?.invoiceNo
+      ?? (ac.invoiceNo ? String(ac.invoiceNo) : (ac.receiptNumber ? String(ac.receiptNumber) : null));
+    if (invoiceNo) {
+      let buf: Buffer | null = null;
+      // 1) YANGI nusxa — billing.sud.uz'dan (proxy/tunnel orqali)
       try {
-        let p = rec.pdfPath;
-        if (p.startsWith('/app/')) p = path.join(process.cwd(), p.replace(/^\/app\//, ''));
-        else if (!path.isAbsolute(p)) p = path.join(process.cwd(), p);
-        const buf = await fs.readFile(p);
-        filesToUpload.push({ kind: 'BOJI_RECEIPT', fileName: `Kvitansiya_${rec.invoiceNo}.pdf`, buffer: buf });
+        const { downloadInvoicePdf } = await import('./invoice-rest');
+        let p = await downloadInvoicePdf(invoiceNo);
+        if (!path.isAbsolute(p)) p = path.join(process.cwd(), p);
+        buf = await fs.readFile(p);
       } catch (e) {
-        console.error(`[court-submit] Case #${ac.id}: boji kvitansiyasi o'qilmadi (${rec.pdfPath})`, e instanceof Error ? e.message : e);
+        console.error(`[court-submit] Case #${ac.id}: boji PDF billing'dan olinmadi (invoice ${invoiceNo}) — cache'ga qaytamiz —`, e instanceof Error ? e.message : e);
+        // 2) Fallback — cache'dagi nusxa (agar bo'lsa)
+        if (rec?.pdfPath) {
+          try {
+            let p = rec.pdfPath;
+            if (p.startsWith('/app/')) p = path.join(process.cwd(), p.replace(/^\/app\//, ''));
+            else if (!path.isAbsolute(p)) p = path.join(process.cwd(), p);
+            buf = await fs.readFile(p);
+          } catch (e2) {
+            console.error(`[court-submit] Case #${ac.id}: cache boji kvitansiyasi ham o'qilmadi (${rec.pdfPath})`, e2 instanceof Error ? e2.message : e2);
+          }
+        }
       }
+      if (buf) filesToUpload.push({ kind: 'BOJI_RECEIPT', fileName: `Kvitansiya_${invoiceNo}.pdf`, buffer: buf });
     }
   }
 

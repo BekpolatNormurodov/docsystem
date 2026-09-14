@@ -9,6 +9,7 @@ import { prisma } from '@/lib/db';
 import { getBojiAmount } from './konveyer-buxgalter';
 import { dueForStage } from './konveyer-sla';
 import { firmPrimaryCourt, firmCourtsOrdered } from './court-routing';
+import { proxyDispatcher } from './cabinet/api';
 
 const CAPTCHA_API = 'https://recaptcha.sud.uz/api/v1/captcha';
 const INVOICE_API = 'https://billing.sud.uz/api/invoice/captcha/create';
@@ -63,9 +64,15 @@ async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 20_000);
+      // billing.sud.uz is *.sud.uz — same egress block as cabinetapi. When CABINET_PROXY_URL
+      // is set (docker wires it to the cabinet-proxy sidecar, which itself may relocate egress
+      // via UPSTREAM_PROXY), ride the SAME tunnel so invoice PDFs are reachable from a blocked
+      // prod IP. Unset (local dev) → direct fetch, unchanged.
+      const disp = proxyDispatcher();
       const response = await fetch(url, {
         ...options,
         signal: controller.signal,
+        ...(disp ? { dispatcher: disp } : {}),
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
           Origin: 'https://billing.sud.uz',
@@ -73,7 +80,7 @@ async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 
           'Accept-Language': 'uz,ru;q=0.9,en;q=0.8',
           ...(options.headers as Record<string, string> | undefined),
         },
-      });
+      } as RequestInit);
       clearTimeout(timeoutId);
       return response;
     } catch (err) {

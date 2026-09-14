@@ -190,6 +190,10 @@ services:
     network_mode: host
     environment:
       PORT: "3128"
+      # Egress relocation: when the prod HOST's own IP is blocked by *.sud.uz, set
+      # CABINET_UPSTREAM_PROXY in .env.production to a CONNECT proxy that CAN reach it
+      # (e.g. a reverse-SSH tunnel to a laptop/VPS: "127.0.0.1:3130"). Empty → direct.
+      UPSTREAM_PROXY: "${CABINET_UPSTREAM_PROXY:-}"
 
   # ── nginx + certbot OLIB TASHLANDI (2026-09-08) ──────────────────────────────────────────
   # Host 80/443 ni `fininvest-nginx` (fininvest stackining edge'i) egallaydi va u
