@@ -49,6 +49,8 @@ export async function GET(req: NextRequest) {
   const firmIdByCode = new Map(firms.map((f) => [f.code, f.id]));
   const region = (rn: string | null) => regionFromText(rn ?? '') ?? t('Aniqlanmagan');
   const keyOf = (pinfl: string | null, branchCode: string | null) => { if (!pinfl) return null; const fid = firmIdByCode.get(branchCode ?? ''); return fid == null ? null : `${pinfl}|${fid}`; };
+  // PalataScan.firmKey (BRIGHT/URBAN/…) → firmId: shortName ichida firmKey bor firma (palata-attach qoidasi).
+  const resolveFirmId = (firmKey: string): number | null => { const key = (firmKey || '').toUpperCase(); if (!key) return null; return firms.find((x) => (x.shortName || '').toUpperCase().includes(key))?.id ?? null; };
 
   const pinfls = [...new Set(loans.map((l) => l.pinfl).filter(Boolean) as string[])];
 
@@ -58,14 +60,14 @@ export async function GET(req: NextRequest) {
   // bog'lanadi — aks holda eski snapshot tanlansa ustunlar bo'sh chiqadi (cabinet-status gotcha kabi).
   // Sud holati (stage/«sudga chiqarilgan») esa report snapshotiga bog'liq (caseByKey).
   const caseByKey = new Map<string, { stage: string }>();
-  const palataByPinfl = new Map<string, { reg: string; pages: string }>();
+  const palataByKey = new Map<string, { reg: string; pages: string }>(); // kalit: pinfl|firmId (firma bo'yicha aniq)
   const queueByKey = new Map<string, { state: string; lastError: string | null; draftId: string | null }>();
   if (pinfls.length) {
     const [acRows, psRows, qRows] = await Promise.all([
       // Stage — report snapshotidagi ish bo'yicha.
       prisma.arizaCase.findMany({ where: { snapshotId: snapId, pinfl: { in: pinfls } }, select: { pinfl: true, firmId: true, stage: true } }),
-      // Palata skani — pinfl bo'yicha (snapshotsiz), eng oxirgisi.
-      prisma.palataScan.findMany({ where: { pinfl: { in: pinfls } }, select: { pinfl: true, reg: true, pages: true }, orderBy: { createdAt: 'desc' } }),
+      // Palata skani — pinfl+firma bo'yicha (snapshotsiz), eng oxirgisi. firmKey → firmId.
+      prisma.palataScan.findMany({ where: { pinfl: { in: pinfls } }, select: { pinfl: true, reg: true, pages: true, firmKey: true }, orderBy: { createdAt: 'desc' } }),
       // Navbat — ish (pinfl+firma) bo'yicha (snapshotsiz), eng oxirgisi.
       prisma.courtQueueItem.findMany({ where: { case: { pinfl: { in: pinfls } } }, select: { state: true, lastError: true, draftId: true, case: { select: { pinfl: true, firmId: true } } }, orderBy: { updatedAt: 'desc' } }),
     ]);
@@ -75,7 +77,11 @@ export async function GET(req: NextRequest) {
       const cur = caseByKey.get(k);
       if (!cur || rank(a.stage) > rank(cur.stage)) caseByKey.set(k, { stage: a.stage });
     }
-    for (const p of psRows) if (!palataByPinfl.has(p.pinfl)) palataByPinfl.set(p.pinfl, { reg: p.reg, pages: p.pages });
+    for (const p of psRows) {
+      const fid = resolveFirmId(p.firmKey); if (fid == null) continue;
+      const k = `${p.pinfl}|${fid}`;
+      if (!palataByKey.has(k)) palataByKey.set(k, { reg: p.reg, pages: p.pages });
+    }
     for (const x of qRows) {
       const c = x.case; if (!c?.pinfl) continue;
       const k = `${c.pinfl}|${c.firmId}`;
@@ -95,7 +101,7 @@ export async function GET(req: NextRequest) {
     const key = keyOf(l.pinfl, l.branchCode);
     const qitem = key ? queueByKey.get(key) : undefined;
     const fee = qitem?.draftId ? feeByDraft.get(qitem.draftId) : undefined;
-    const palata = l.pinfl ? palataByPinfl.get(l.pinfl) : undefined;
+    const palata = key ? palataByKey.get(key) : undefined;
     return { stage: key ? caseByKey.get(key)?.stage : undefined, palata, queue: qitem, fee };
   };
 
