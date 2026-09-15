@@ -16,6 +16,7 @@ export const maxDuration = 120;
 // GET — import uchun NAMUNA (shablon) .xlsx: «BFF …» / farmoyish formati (Қарздор ФИО + Квитанция).
 export async function GET() {
   await requireUser();
+  const t = getT();
   const wb = new Excel.Workbook();
   const ws = wb.addWorksheet('Лист1');
   ws.columns = [
@@ -33,7 +34,7 @@ export async function GET() {
   return new NextResponse(new Uint8Array(buf as ArrayBuffer), {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="${encodeURIComponent('invoice-import-namuna.xlsx')}"`,
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(`invoice-import-${t('namuna')}.xlsx`)}"`,
     },
   });
 }
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest) {
       return new NextResponse(new Uint8Array(buf as ArrayBuffer), {
         headers: {
           'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          'Content-Disposition': `attachment; filename="${encodeURIComponent('arizasi-topilmaganlar.xlsx')}"`,
+          'Content-Disposition': `attachment; filename="${encodeURIComponent(`${t('arizasi topilmaganlar').replace(/\s+/g, '_')}.xlsx`)}"`,
         },
       });
     }

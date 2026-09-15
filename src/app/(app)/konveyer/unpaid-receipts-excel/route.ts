@@ -85,7 +85,7 @@ export async function GET(req: NextRequest) {
   return new NextResponse(buf as ArrayBuffer, {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="tolanmagan-kvitansiyalar-${rows.length}.xlsx"`,
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(`${t('Tolanmagan kvitansiyalar').replace(/\s+/g, '_')}-${rows.length}.xlsx`)}"`,
     },
   });
 }

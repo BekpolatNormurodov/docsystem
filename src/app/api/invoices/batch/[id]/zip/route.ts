@@ -51,7 +51,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   }
   // 2) Excel hisobot (barcha kvitansiyalar — OK va xato).
   if (report && report.rows.length > 0) {
-    zip.file('Hisobot.xlsx', await buildReportXlsx(report.rows, t));
+    zip.file(`${t('Hisobot')}.xlsx`, await buildReportXlsx(report.rows, t));
   }
   // 3) Farmoyish (buxgalteriya) DOCX — invoice PDF'lari yonida, buxgalterga tayyor paket. Rest-batch →
   //    InvoiceRecord → case.batchId (InvoiceBatch) orqali topiladi. Best-effort — bo'lmasa ZIP baribir chiqadi.

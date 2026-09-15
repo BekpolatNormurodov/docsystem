@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
   return new NextResponse(new Uint8Array(buf), {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="${encodeURIComponent(`Talabnoma_reyestr_${safeFirm}_${dateStr}.xlsx`)}"`,
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(`${t('Talabnoma reyestr').replace(/\s+/g, '_')}_${safeFirm}_${dateStr}.xlsx`)}"`,
     },
   });
 }

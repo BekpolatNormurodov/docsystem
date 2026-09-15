@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
 
   const buf = await wb.xlsx.writeBuffer();
   const nameBase = firmId && firms[0] ? firms[0].firmName.replace(/[^\x20-\x7E]/g, '').trim() || 'firma' : 'hammasi';
-  const fileName = `buxgalteriya_${nameBase}_${sel?.label ?? ''}.xlsx`.replace(/\s+/g, '_');
+  const fileName = `${t('Buxgalteriya')}_${nameBase}_${sel?.label ?? ''}.xlsx`.replace(/\s+/g, '_');
   return new NextResponse(new Uint8Array(buf), {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

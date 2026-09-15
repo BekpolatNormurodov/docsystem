@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import { buildBillingCheckExcel } from '@/lib/billing-check/excel';
 import { buildInvoiceWhere } from '@/lib/billing-check/filters';
 import { getOwnAmounts } from '@/lib/billing-check/config';
+import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -13,6 +14,7 @@ export const maxDuration = 60;
 // uchun yuklangan fayl ekranda ko'rinayotgan ro'yxatga aynan mos tushadi.
 export async function GET(req: NextRequest) {
   await requireAccess('invoice-check');
+  const t = getT();
   const sp = req.nextUrl.searchParams;
   const ownAmounts = await getOwnAmounts();
   const rows = await prisma.billingCheckInvoice.findMany({
@@ -21,7 +23,7 @@ export async function GET(req: NextRequest) {
   });
 
   const buf = await buildBillingCheckExcel(rows, ownAmounts);
-  const parts = ['kvitansiyalar', sp.get('firm'), sp.get('status')].filter(Boolean);
+  const parts = [t('kvitansiyalar'), sp.get('firm'), sp.get('status')].filter(Boolean);
   const name = `${parts.join('-')}.xlsx`;
   return new NextResponse(buf as unknown as BodyInit, {
     headers: {

@@ -35,7 +35,7 @@ export async function GET() {
   return new NextResponse(Buffer.from(buf), {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="palata-skan.xlsx"`,
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(`${t('Palatadan kelgan').replace(/\s+/g, '_')}.xlsx`)}"`,
       'Cache-Control': 'no-store',
     },
   });

@@ -31,7 +31,7 @@ export function ClientsExcel({ firmId, snapshotId, stages = [], talabnoma = fals
       const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd);
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = m ? decodeURIComponent(m[1]) : 'Mijozlar.xlsx';
+      a.download = m ? decodeURIComponent(m[1]) : `${t('Mijozlar')}.xlsx`;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     } catch (e) { setErr(e instanceof Error ? e.message : t('Excel yaratilmadi')); }

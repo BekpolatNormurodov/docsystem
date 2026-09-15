@@ -100,7 +100,7 @@ export function InvoiceExcelTools({ snapshotId, firmId, firms, count, onChanged,
       if (!res.ok) throw new Error(t('Yuklab boʻlmadi'));
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = 'arizasi-topilmaganlar.xlsx';
+      const a = document.createElement('a'); a.href = url; a.download = `${t('arizasi topilmaganlar').replace(/\s+/g, '_')}.xlsx`;
       document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
     } catch (e) { setErr(e instanceof Error ? e.message : t('Yuklab boʻlmadi')); }
   };

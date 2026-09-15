@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
   return new NextResponse(new Uint8Array(buf), {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="${encodeURIComponent('Suddan_qaytganlar.xlsx')}"`,
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(`${t('Suddan qaytganlar').replace(/\s+/g, '_')}.xlsx`)}"`,
     },
   });
 }

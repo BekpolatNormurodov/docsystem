@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
   await audit(AuditAction.EXPORT, { target: firmId ? `firm:${firmId}` : sheetName, detail: { list: sheetName, count: rows.length, ...(isInvoice ? { made: made || 'made' } : {}) } });
 
   const buf = await wb.xlsx.writeBuffer();
-  const fname = `${sheetName}_royxati_${rows.length}.xlsx`;
+  const fname = `${t(sheetName)}_${t('roʻyxat')}_${rows.length}.xlsx`;
   return new NextResponse(new Uint8Array(buf as ArrayBuffer), {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

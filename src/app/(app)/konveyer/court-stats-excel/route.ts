@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
   return new NextResponse(new Uint8Array(buf), {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="${encodeURIComponent('Sud_firma_statistikasi.xlsx')}"`,
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(`${t('Sud firma statistikasi').replace(/\s+/g, '_')}.xlsx`)}"`,
     },
   });
 }

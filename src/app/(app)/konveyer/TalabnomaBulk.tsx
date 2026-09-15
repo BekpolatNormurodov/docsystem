@@ -137,7 +137,7 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
         body: JSON.stringify({ snapshotId, firmId, ...(limit ? { limit } : {}) }),
       });
       if (!res.ok) { let e = t('Excel yaratilmadi'); try { e = (await res.json()).error || e; } catch {} throw new Error(e); }
-      await downloadFromResponse(res, 'Talabnoma_reyestr.xlsx');
+      await downloadFromResponse(res, `${t('Talabnoma reyestr').replace(/\s+/g, '_')}.xlsx`);
       setModalOpen(false);
     } catch (e) { setXlsErr(e instanceof Error ? e.message : t('Excel yaratilmadi')); }
     finally { setXlsBusy(false); xlsInFlight.current = false; }

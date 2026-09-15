@@ -88,7 +88,7 @@ export async function GET(req: NextRequest) {
   return new NextResponse(Buffer.from(buf), {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="Jurnal_${stamp}.xlsx"`,
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(`${t('Jurnal')}_${stamp}.xlsx`)}"`,
     },
   });
 }

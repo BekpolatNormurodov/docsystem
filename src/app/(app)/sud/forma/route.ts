@@ -313,7 +313,7 @@ export async function GET(req: NextRequest) {
   table(t('Klassifikatsiya boʻyicha'), byKlass);
 
   const buf = Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer);
-  const name = `Sud_formasi_${snapLabel.replace(/[^\p{L}\p{N}]+/gu, '_')}.xlsx`;
+  const name = `${t('Sud formasi').replace(/\s+/g, '_')}_${snapLabel.replace(/[^\p{L}\p{N}]+/gu, '_')}.xlsx`;
   return new NextResponse(new Uint8Array(buf), {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

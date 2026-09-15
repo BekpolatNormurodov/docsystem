@@ -27,7 +27,7 @@ export function TalabnomaStat({ snapshotId }: { snapshotId?: number }) {
       const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd);
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = m ? decodeURIComponent(m[1]) : 'Talabnoma_umumiy.xlsx';
+      a.download = m ? decodeURIComponent(m[1]) : `${t('Talabnoma umumiy').replace(/\s+/g, '_')}.xlsx`;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     } catch (e) { setErr(e instanceof Error ? e.message : t('Statistika yaratilmadi')); }

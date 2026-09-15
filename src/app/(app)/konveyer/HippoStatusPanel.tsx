@@ -56,7 +56,7 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
       const cd = res.headers.get('Content-Disposition') || '';
       const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd);
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob); a.download = m ? decodeURIComponent(m[1]) : 'kvitansiya.zip';
+      a.href = URL.createObjectURL(blob); a.download = m ? decodeURIComponent(m[1]) : `${t('kvitansiya')}.zip`;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     } catch (e) { setDlErr(e instanceof Error ? e.message : t('Kvitansiya yuklab bo‘lmadi')); } // inline, keeps the list
@@ -75,7 +75,7 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
       const cd = res.headers.get('Content-Disposition') || '';
       const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd);
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob); a.download = m ? decodeURIComponent(m[1]) : 'talabnoma.zip';
+      a.href = URL.createObjectURL(blob); a.download = m ? decodeURIComponent(m[1]) : `${t('talabnoma')}.zip`;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     } catch (e) { setDlErr(e instanceof Error ? e.message : t('Talabnomalar yuklab bo‘lmadi')); }
