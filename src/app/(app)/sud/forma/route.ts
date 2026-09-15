@@ -53,33 +53,38 @@ export async function GET(req: NextRequest) {
   const pinfls = [...new Set(loans.map((l) => l.pinfl).filter(Boolean) as string[])];
 
   // ArizaCase — (pinfl,firmId) → {caseId, stage, courtCaseId}. Sud holati + navbat/boj ulash uchun.
-  const caseByKey = new Map<string, { caseId: number; stage: string }>();
-  // PalataScan — imzolangan ariza skani, (snapshot,pinfl) bo'yicha.
+  // MUHIM: Palata skani / navbat / boj — bular JORIY ISHLOV HOLATI (report snapshotiga bog'liq emas,
+  // hammasi eng oxirgi snapshotda yig'iladi). Shuning uchun ular PINFL/ish bo'yicha, snapshotSIZ
+  // bog'lanadi — aks holda eski snapshot tanlansa ustunlar bo'sh chiqadi (cabinet-status gotcha kabi).
+  // Sud holati (stage/«sudga chiqarilgan») esa report snapshotiga bog'liq (caseByKey).
+  const caseByKey = new Map<string, { stage: string }>();
   const palataByPinfl = new Map<string, { reg: string; pages: string }>();
+  const queueByKey = new Map<string, { state: string; lastError: string | null; draftId: string | null }>();
   if (pinfls.length) {
-    const [acRows, psRows] = await Promise.all([
-      prisma.arizaCase.findMany({ where: { snapshotId: snapId, pinfl: { in: pinfls } }, select: { id: true, pinfl: true, firmId: true, stage: true } }),
-      prisma.palataScan.findMany({ where: { snapshotId: snapId, pinfl: { in: pinfls } }, select: { pinfl: true, reg: true, pages: true } }),
+    const [acRows, psRows, qRows] = await Promise.all([
+      // Stage — report snapshotidagi ish bo'yicha.
+      prisma.arizaCase.findMany({ where: { snapshotId: snapId, pinfl: { in: pinfls } }, select: { pinfl: true, firmId: true, stage: true } }),
+      // Palata skani — pinfl bo'yicha (snapshotsiz), eng oxirgisi.
+      prisma.palataScan.findMany({ where: { pinfl: { in: pinfls } }, select: { pinfl: true, reg: true, pages: true }, orderBy: { createdAt: 'desc' } }),
+      // Navbat — ish (pinfl+firma) bo'yicha (snapshotsiz), eng oxirgisi.
+      prisma.courtQueueItem.findMany({ where: { case: { pinfl: { in: pinfls } } }, select: { state: true, lastError: true, draftId: true, case: { select: { pinfl: true, firmId: true } } }, orderBy: { updatedAt: 'desc' } }),
     ]);
     for (const a of acRows) {
       if (!a.pinfl) continue;
       const k = `${a.pinfl}|${a.firmId}`;
       const cur = caseByKey.get(k);
-      if (!cur || rank(a.stage) > rank(cur.stage)) caseByKey.set(k, { caseId: a.id, stage: a.stage });
+      if (!cur || rank(a.stage) > rank(cur.stage)) caseByKey.set(k, { stage: a.stage });
     }
-    for (const p of psRows) palataByPinfl.set(p.pinfl, { reg: p.reg, pages: p.pages });
+    for (const p of psRows) if (!palataByPinfl.has(p.pinfl)) palataByPinfl.set(p.pinfl, { reg: p.reg, pages: p.pages });
+    for (const x of qRows) {
+      const c = x.case; if (!c?.pinfl) continue;
+      const k = `${c.pinfl}|${c.firmId}`;
+      if (!queueByKey.has(k)) queueByKey.set(k, { state: x.state, lastError: x.lastError, draftId: x.draftId });
+    }
   }
 
-  // CourtQueueItem — sudga yuborish navbati, caseId bo'yicha.
-  const caseIds = [...caseByKey.values()].map((c) => c.caseId);
-  const queueByCase = new Map<number, { state: string; lastError: string | null; draftId: string | null }>();
-  if (caseIds.length) {
-    const qi = await prisma.courtQueueItem.findMany({ where: { caseId: { in: caseIds } }, select: { caseId: true, state: true, lastError: true, draftId: true } });
-    for (const x of qi) queueByCase.set(x.caseId, { state: x.state, lastError: x.lastError, draftId: x.draftId });
-  }
-
-  // CourtFeeInvoice — davlat boji, navbatdagi draftId orqali.
-  const draftIds = [...queueByCase.values()].map((v) => v.draftId).filter(Boolean) as string[];
+  // CourtFeeInvoice — davlat boji, navbatdagi draftId orqali (hozircha kvitansiya yo'q → bo'sh).
+  const draftIds = [...queueByKey.values()].map((v) => v.draftId).filter(Boolean) as string[];
   const feeByDraft = new Map<string, { receiptNumber: string | null; claimAmount: number | null }>();
   if (draftIds.length) {
     const fees = await prisma.courtFeeInvoice.findMany({ where: { draftId: { in: draftIds } }, select: { draftId: true, receiptNumber: true, claimAmount: true } });
@@ -88,11 +93,10 @@ export async function GET(req: NextRequest) {
 
   const linkOf = (l: (typeof loans)[number]) => {
     const key = keyOf(l.pinfl, l.branchCode);
-    const c = key ? caseByKey.get(key) : undefined;
-    const qitem = c ? queueByCase.get(c.caseId) : undefined;
+    const qitem = key ? queueByKey.get(key) : undefined;
     const fee = qitem?.draftId ? feeByDraft.get(qitem.draftId) : undefined;
     const palata = l.pinfl ? palataByPinfl.get(l.pinfl) : undefined;
-    return { stage: c?.stage, palata, queue: qitem, fee };
+    return { stage: key ? caseByKey.get(key)?.stage : undefined, palata, queue: qitem, fee };
   };
 
   // ── Workbook ─────────────────────────────────────────────────────────────────
