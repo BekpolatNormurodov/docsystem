@@ -16,6 +16,13 @@ else
   warn "No git remote — skipping pull. Deploying the code currently on disk."
 fi
 
+# Build cache accumulates ~5-9GB between deploys and, on this small (48G, shared) disk, eventually fills
+# it → `dc build` dies with "no space left on device" (git pull still succeeds, so the image silently
+# stays on old code). Clearing cache BEFORE the build frees the most headroom for the web+worker rebuild.
+# See memory: prod-disk-build-cache.
+info "Freeing build cache (prevents 'no space left on device')…"
+docker builder prune -af >/dev/null 2>&1 || true
+
 info "Rebuilding the application images…"
 # Rebuild BOTH images: web (Dockerfile) AND worker (Dockerfile.worker). They are SEPARATE images now —
 # building only web would leave the worker (which runs all PDF generation) on stale code.
