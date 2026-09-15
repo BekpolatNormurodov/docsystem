@@ -39,6 +39,7 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref }: { dat
             <Ico.download size={16} /> {t('Mijozlar Excel')}
           </a>
           <a className="btn-ghost shrink-0" href="/boss/excel" title={t('Firma × bosqich matritsasi — Excel')}><Ico.download size={16} /> {t('Matritsa Excel')}</a>
+          <a className="btn-ghost shrink-0" href="/sud/forma" download title={t('Sud roʻyxati — toʻliq portfel-analitik forma (форма_суд)')}><Ico.download size={16} /> {t('Sud formasi (Excel)')}</a>
         </div>
       </header>
 
