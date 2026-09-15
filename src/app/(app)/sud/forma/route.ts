@@ -10,17 +10,14 @@ import { regionFromText } from '@/lib/mib/breakdown';
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
-// «форма_суд» — sudga topshiriladigan portfel-analitik forma. QAMROV: sud roʻyxati (Loan.excluded=1).
-// Manba: Loan ustunlari (raw kerak emas). Til: tepadagi til (getT → lang cookie). Har qator — bitta
-// shartnoma (kredit). «qoʻshimchalar»: Xulosa varagʻi (firma / viloyat / klassifikatsiya / sud holati).
+// «форма_суд» — sudga topshiriladigan portfel-analitik forma (foydalanuvchi bergan 31-ustunli spec).
+// QAMROV: sud roʻyxati (Loan.excluded=1). Har qator — bitta shartnoma (kredit). Manba: Loan ustunlari +
+// PalataScan (imzolangan ariza skani) + CourtQueueItem (sudga yuborish navbati) + CourtFeeInvoice
+// (davlat boji). Formula ustunlar (просроченная задолженность / уникальные клиенты / закрыт полностью)
+// JS'da hisoblanadi. Til: tepadagi til (getT). «qoʻshimchalar»: Xulosa varagʻi.
 
-const num = (v: unknown): number => {
-  const n = Number(v ?? 0);
-  return Number.isFinite(n) ? n : 0;
-};
-// Sudga chiqarilgan bosqichlar (ArizaCase.stage) — «Судга киритилган» ustuni shu bilan aniqlanadi.
+const num = (v: unknown): number => { const n = Number(v ?? 0); return Number.isFinite(n) ? n : 0; };
 const SUBMITTED_STAGES = new Set(['COURT_SUBMITTED', 'COURT_ACCEPTED', 'COURT_RETURNED', 'MIB_SUBMITTED', 'CLOSED']);
-// Eng ilgarilagan bosqich (bir mijozda bir necha ish bo'lsa) — tartib bo'yicha.
 const STAGE_ORDER = ['IMPORTED', 'TALABNOMA_SENT', 'ARIZA_GENERATED', 'PRINTED', 'CHAMBER_SENT', 'CHAMBER_RETURNED', 'SIGNED_SCANNED', 'INVOICE_CREATED', 'INVOICE_PAID', 'COURT_SUBMITTED', 'COURT_ACCEPTED', 'COURT_RETURNED', 'MIB_SUBMITTED', 'CLOSED'];
 const rank = (s: string) => { const i = STAGE_ORDER.indexOf(s); return i < 0 ? 0 : i; };
 
@@ -33,17 +30,16 @@ export async function GET(req: NextRequest) {
   const snapId = Number.isInteger(parsed) && parsed > 0 && snaps.some((s) => s.id === parsed) ? parsed : snaps[0]?.id;
   if (!snapId) return NextResponse.json({ error: 'Snapshot topilmadi' }, { status: 400 });
   const snapLabel = snaps.find((s) => s.id === snapId)?.label ?? '—';
-  const firmFilter = req.nextUrl.searchParams.get('firm'); // ixtiyoriy branchCode
+  const firmFilter = req.nextUrl.searchParams.get('firm');
 
-  // Sud roʻyxati loanlari (excluded=1) — faqat kerakli ustunlar (raw'siz, yengil).
+  // Sud roʻyxati loanlari (excluded=1).
   const loans = await prisma.loan.findMany({
     where: { snapshotId: snapId, excluded: true, ...(firmFilter ? { branchCode: firmFilter } : {}) },
     select: {
-      pinfl: true, clientName: true, branchCode: true, account: true, ldId: true,
-      klassName: true, statusName: true, termType: true, summKr: true, rate: true,
-      dateToCr: true, dateClose: true, debtPrincipal: true, debtTermInterest: true,
-      debtOverduePrincipal: true, debtOverdueInterest: true, totalDebt: true,
-      regionName: true, phone: true, postAddressUz: true, postAddress: true,
+      pinfl: true, clientName: true, passportSn: true, branchCode: true, account: true, ldId: true,
+      klassName: true, summKr: true, rate: true, dateToCr: true, dateClose: true, excluded: true,
+      debtPrincipal: true, debtTermInterest: true, debtOverduePrincipal: true, debtOverdueInterest: true,
+      totalDebt: true, regionName: true, phone: true, postAddressUz: true, postAddress: true,
     },
     orderBy: [{ branchCode: 'asc' }, { clientName: 'asc' }],
   });
@@ -51,34 +47,58 @@ export async function GET(req: NextRequest) {
   const firms = await prisma.firm.findMany({ select: { id: true, code: true, shortName: true } });
   const firmByCode = new Map(firms.map((f) => [f.code, f.shortName]));
   const firmIdByCode = new Map(firms.map((f) => [f.code, f.id]));
+  const region = (rn: string | null) => regionFromText(rn ?? '') ?? t('Aniqlanmagan');
+  const keyOf = (pinfl: string | null, branchCode: string | null) => { if (!pinfl) return null; const fid = firmIdByCode.get(branchCode ?? ''); return fid == null ? null : `${pinfl}|${fid}`; };
 
-  // Sud holati (ArizaCase bosqichi) — (PINFL, FIRMA) bo'yicha eng ilgarilagan bosqich. MUHIM: mijoz
-  // bir necha firmada bo'lishi mumkin (bu portfelda 2202 kishi), shuning uchun bir firma ishi boshqa
-  // firma loanini «sudga chiqarilgan» deb noto'g'ri belgilamasin — kalit pinfl+firmId.
   const pinfls = [...new Set(loans.map((l) => l.pinfl).filter(Boolean) as string[])];
-  const stageByKey = new Map<string, string>();
-  const keyOf = (pinfl: string, branchCode: string | null) => { const fid = firmIdByCode.get(branchCode ?? ''); return fid == null ? null : `${pinfl}|${fid}`; };
+
+  // ArizaCase — (pinfl,firmId) → {caseId, stage, courtCaseId}. Sud holati + navbat/boj ulash uchun.
+  const caseByKey = new Map<string, { caseId: number; stage: string }>();
+  // PalataScan — imzolangan ariza skani, (snapshot,pinfl) bo'yicha.
+  const palataByPinfl = new Map<string, { reg: string; pages: string }>();
   if (pinfls.length) {
-    const acRows = await prisma.arizaCase.findMany({ where: { snapshotId: snapId, pinfl: { in: pinfls } }, select: { pinfl: true, firmId: true, stage: true } });
+    const [acRows, psRows] = await Promise.all([
+      prisma.arizaCase.findMany({ where: { snapshotId: snapId, pinfl: { in: pinfls } }, select: { id: true, pinfl: true, firmId: true, stage: true } }),
+      prisma.palataScan.findMany({ where: { snapshotId: snapId, pinfl: { in: pinfls } }, select: { pinfl: true, reg: true, pages: true } }),
+    ]);
     for (const a of acRows) {
       if (!a.pinfl) continue;
       const k = `${a.pinfl}|${a.firmId}`;
-      const cur = stageByKey.get(k);
-      if (!cur || rank(a.stage) > rank(cur)) stageByKey.set(k, a.stage);
+      const cur = caseByKey.get(k);
+      if (!cur || rank(a.stage) > rank(cur.stage)) caseByKey.set(k, { caseId: a.id, stage: a.stage });
     }
+    for (const p of psRows) palataByPinfl.set(p.pinfl, { reg: p.reg, pages: p.pages });
   }
-  const stageOf = (pinfl: string | null, branchCode: string | null): string | undefined => {
-    if (!pinfl) return undefined;
-    const k = keyOf(pinfl, branchCode);
-    return k ? stageByKey.get(k) : undefined;
-  };
-  const region = (rn: string | null) => regionFromText(rn ?? '') ?? t('Aniqlanmagan');
 
-  // ── Workbook (professional styling) ──────────────────────────────────────────
+  // CourtQueueItem — sudga yuborish navbati, caseId bo'yicha.
+  const caseIds = [...caseByKey.values()].map((c) => c.caseId);
+  const queueByCase = new Map<number, { state: string; lastError: string | null; draftId: string | null }>();
+  if (caseIds.length) {
+    const qi = await prisma.courtQueueItem.findMany({ where: { caseId: { in: caseIds } }, select: { caseId: true, state: true, lastError: true, draftId: true } });
+    for (const x of qi) queueByCase.set(x.caseId, { state: x.state, lastError: x.lastError, draftId: x.draftId });
+  }
+
+  // CourtFeeInvoice — davlat boji, navbatdagi draftId orqali.
+  const draftIds = [...queueByCase.values()].map((v) => v.draftId).filter(Boolean) as string[];
+  const feeByDraft = new Map<string, { receiptNumber: string | null; claimAmount: number | null }>();
+  if (draftIds.length) {
+    const fees = await prisma.courtFeeInvoice.findMany({ where: { draftId: { in: draftIds } }, select: { draftId: true, receiptNumber: true, claimAmount: true } });
+    for (const f of fees) if (f.draftId) feeByDraft.set(f.draftId, { receiptNumber: f.receiptNumber, claimAmount: f.claimAmount == null ? null : Number(f.claimAmount) });
+  }
+
+  const linkOf = (l: (typeof loans)[number]) => {
+    const key = keyOf(l.pinfl, l.branchCode);
+    const c = key ? caseByKey.get(key) : undefined;
+    const qitem = c ? queueByCase.get(c.caseId) : undefined;
+    const fee = qitem?.draftId ? feeByDraft.get(qitem.draftId) : undefined;
+    const palata = l.pinfl ? palataByPinfl.get(l.pinfl) : undefined;
+    return { stage: c?.stage, palata, queue: qitem, fee };
+  };
+
+  // ── Workbook ─────────────────────────────────────────────────────────────────
   const wb = new ExcelJS.Workbook();
   wb.created = new Date();
   wb.creator = 'Yurist Tizimi';
-  // Palitra
   const C_TITLE = 'FF134E4A', C_HEAD = 'FF0F766E', C_SECT = 'FFD1EDE7', C_TOT = 'FFEEF2F6', C_BORDER = 'FFD1D5DB', C_ZEBRA = 'FFF7FAF9';
   const thin = { style: 'thin' as const, color: { argb: C_BORDER } };
   const box = { top: thin, left: thin, bottom: thin, right: thin };
@@ -86,38 +106,46 @@ export async function GET(req: NextRequest) {
   const colL = (nn: number) => { let s = ''; let n = nn; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = (n - m - 1) / 26; } return s; };
   const MONEY = '#,##0';
 
-  // 1) Sud roʻyxati — har qator bitta shartnoma
-  const s1 = wb.addWorksheet(t('Sud roʻyxati'), { views: [{ state: 'frozen', ySplit: 3 }] });
-  type Col = { key: string; w: number; h: string; money?: boolean; date?: boolean; center?: boolean };
+  const s1 = wb.addWorksheet(t('Sud roʻyxati'), { views: [{ state: 'frozen', ySplit: 4, xSplit: 1 }] });
+  type Col = { key: string; w: number; h: string; g: string; money?: boolean; date?: boolean; center?: boolean; sum?: boolean };
+  const G_PORT = t('PORTFEL KESIMI'), G_CLI = t('MIJOZ'), G_CON = t('SHARTNOMA'), G_DEBT = t('QARZDORLIK'), G_MARK = t('BELGILAR'), G_PAL = t('PALATA (imzolangan ariza)'), G_QUE = t('SUDGA YUBORISH NAVBATI'), G_FEE = t('DAVLAT BOJI');
   const COLS: Col[] = [
-    { key: 'no', w: 6, h: '№', center: true },
-    { key: 'firma', w: 22, h: t('МКО') },
-    { key: 'pinfl', w: 16, h: t('PINFL') },
-    { key: 'fio', w: 30, h: t('F.I.O.') },
-    { key: 'acc', w: 22, h: t('Ssuda hisobi') },
-    { key: 'ld', w: 12, h: t('Shartnoma'), center: true },
-    { key: 'prod', w: 16, h: t('Mahsulot') },
-    { key: 'klass', w: 16, h: t('Klassifikatsiya') },
-    { key: 'status', w: 14, h: t('Holati') },
-    { key: 'summ', w: 16, h: t('Kredit summasi'), money: true },
-    { key: 'rate', w: 9, h: t('Stavka (%)'), center: true },
-    { key: 'd1', w: 13, h: t('Berilgan sana'), date: true },
-    { key: 'd2', w: 13, h: t('Yopilish sana'), date: true },
-    { key: 'p', w: 16, h: t('Asosiy qarz'), money: true },
-    { key: 'op', w: 16, h: t('Muddati oʻtgan asosiy'), money: true },
-    { key: 'i', w: 14, h: t('Foizlar'), money: true },
-    { key: 'oi', w: 15, h: t('Muddati oʻtgan foiz'), money: true },
-    { key: 'od', w: 16, h: t('Muddati oʻtgan jami'), money: true },
-    { key: 'total', w: 18, h: t('Jami qarz (bankka)'), money: true },
-    { key: 'reg', w: 16, h: t('Viloyat') },
-    { key: 'phone', w: 14, h: t('Telefon') },
-    { key: 'addr', w: 34, h: t('Manzil') },
-    { key: 'sud', w: 15, h: t('Sudga chiqarilgan'), center: true },
+    { key: 'no', w: 5, h: '№', g: G_PORT, center: true },
+    { key: 'sana', w: 12, h: t('Hisobot sanasi'), g: G_PORT, center: true },
+    { key: 'mkoKod', w: 9, h: t('МКО коди'), g: G_PORT, center: true },
+    { key: 'mko', w: 20, h: t('МКО'), g: G_PORT },
+    { key: 'viloyat', w: 15, h: t('Viloyat'), g: G_PORT },
+    { key: 'pinfl', w: 16, h: t('PINFL'), g: G_CLI },
+    { key: 'fio', w: 28, h: t('F.I.O.'), g: G_CLI },
+    { key: 'passport', w: 12, h: t('Passport'), g: G_CLI, center: true },
+    { key: 'phone', w: 13, h: t('Telefon'), g: G_CLI },
+    { key: 'addr', w: 30, h: t('Manzil'), g: G_CLI },
+    { key: 'ld', w: 13, h: t('Shartnoma ID'), g: G_CON, center: true },
+    { key: 'acc', w: 22, h: t('Ssuda hisobi'), g: G_CON },
+    { key: 'summ', w: 15, h: t('Kredit summasi'), g: G_CON, money: true, sum: true },
+    { key: 'rate', w: 8, h: t('Foiz stavkasi'), g: G_CON, center: true },
+    { key: 'd1', w: 12, h: t('Ochilish sanasi'), g: G_CON, date: true },
+    { key: 'd2', w: 12, h: t('Yopilish sanasi'), g: G_CON, date: true },
+    { key: 'excl', w: 11, h: t('Sud roʻyxatida'), g: G_CON, center: true },
+    { key: 'p', w: 15, h: t('Asosiy qarz'), g: G_DEBT, money: true, sum: true },
+    { key: 'op', w: 15, h: t('Muddati oʻtgan asosiy'), g: G_DEBT, money: true, sum: true },
+    { key: 'i', w: 13, h: t('Muddatli foiz'), g: G_DEBT, money: true, sum: true },
+    { key: 'oi', w: 14, h: t('Muddati oʻtgan foiz'), g: G_DEBT, money: true, sum: true },
+    { key: 'overdue', w: 16, h: t('Muddati oʻtgan qarz'), g: G_DEBT, money: true, sum: true },
+    { key: 'total', w: 17, h: t('Jami qarz (МКО)'), g: G_DEBT, money: true, sum: true },
+    { key: 'uniq', w: 10, h: t('Alohida mijoz'), g: G_MARK, center: true, sum: true },
+    { key: 'closed', w: 11, h: t('Toʻliq yopilgan'), g: G_MARK, center: true, sum: true },
+    { key: 'palReg', w: 13, h: t('Palata raqami'), g: G_PAL, center: true },
+    { key: 'palPages', w: 9, h: t('Sahifalar'), g: G_PAL, center: true },
+    { key: 'qState', w: 14, h: t('Navbat holati'), g: G_QUE, center: true },
+    { key: 'qErr', w: 22, h: t('Navbat xatosi'), g: G_QUE },
+    { key: 'feeReceipt', w: 16, h: t('Boji kvitansiyasi'), g: G_FEE, center: true },
+    { key: 'feeClaim', w: 16, h: t('Daʼvo summasi'), g: G_FEE, money: true, sum: true },
   ];
   const NC = COLS.length, last = colL(NC);
   s1.columns = COLS.map((c) => ({ key: c.key, width: c.w }));
 
-  // Sarlavha bloki (1-2 qator)
+  // Sarlavha (1-2 qator)
   s1.mergeCells(`A1:${last}1`);
   const tc = s1.getCell('A1');
   tc.value = t('SUD FORMASI').toUpperCase();
@@ -131,36 +159,58 @@ export async function GET(req: NextRequest) {
   sc.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
   s1.getRow(2).height = 16;
 
-  // Sarlavha qatori (3-qator)
-  const hr = s1.getRow(3); hr.height = 30;
+  // Guruh sarlavhasi (3-qator) — birlashtirilgan
+  const g3 = s1.getRow(3); g3.height = 18;
+  for (let c = 1; c <= NC; c++) { const cell = g3.getCell(c); cell.fill = fill(C_TITLE); cell.border = box; }
+  let gi = 1;
+  while (gi <= NC) {
+    const g = COLS[gi - 1].g; let span = 1;
+    while (gi + span <= NC && COLS[gi + span - 1].g === g) span++;
+    if (span > 1) s1.mergeCells(`${colL(gi)}3:${colL(gi + span - 1)}3`);
+    const cell = g3.getCell(gi);
+    cell.value = g;
+    cell.font = { bold: true, size: 9, color: { argb: 'FFFFFFFF' } };
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    gi += span;
+  }
+
+  // Ustun sarlavhasi (4-qator)
+  const hr = s1.getRow(4); hr.height = 32;
   COLS.forEach((c, idx) => {
     const cell = hr.getCell(idx + 1);
     cell.value = c.h;
-    cell.font = { bold: true, size: 10, color: { argb: 'FFFFFFFF' } };
+    cell.font = { bold: true, size: 9, color: { argb: 'FFFFFFFF' } };
     cell.fill = fill(C_HEAD);
     cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
     cell.border = box;
   });
 
-  // Ma'lumot qatorlari (4-qatordan)
+  // Ma'lumot qatorlari (5-qatordan)
+  const seenPinfl = new Set<string>();
   let i = 0;
   for (const l of loans) {
-    const stage = stageOf(l.pinfl, l.branchCode);
+    const lk = linkOf(l);
+    const overdue = num(l.debtOverduePrincipal) + num(l.debtOverdueInterest);
+    const total = num(l.totalDebt);
+    const firstPinfl = !!l.pinfl && !seenPinfl.has(l.pinfl); if (l.pinfl) seenPinfl.add(l.pinfl);
     s1.addRow({
       no: ++i,
-      firma: firmByCode.get(l.branchCode ?? '') ?? l.branchCode ?? '',
-      pinfl: l.pinfl ?? '', fio: l.clientName ?? '', acc: l.account ?? '', ld: l.ldId ?? '',
-      prod: l.termType ?? '', klass: l.klassName ?? '', status: l.statusName ?? '',
-      summ: num(l.summKr), rate: num(l.rate),
-      d1: l.dateToCr ?? null, d2: l.dateClose ?? null,
+      sana: snapLabel,
+      mkoKod: l.branchCode ?? '',
+      mko: firmByCode.get(l.branchCode ?? '') ?? l.branchCode ?? '',
+      viloyat: region(l.regionName),
+      pinfl: l.pinfl ?? '', fio: l.clientName ?? '', passport: l.passportSn ?? '', phone: l.phone ?? '', addr: l.postAddressUz || l.postAddress || '',
+      ld: l.ldId ?? '', acc: l.account ?? '', summ: num(l.summKr), rate: num(l.rate),
+      d1: l.dateToCr ?? null, d2: l.dateClose ?? null, excl: l.excluded ? t('Ha') : t('Yoʻq'),
       p: num(l.debtPrincipal), op: num(l.debtOverduePrincipal), i: num(l.debtTermInterest), oi: num(l.debtOverdueInterest),
-      od: num(l.debtOverduePrincipal) + num(l.debtOverdueInterest), total: num(l.totalDebt),
-      reg: region(l.regionName), phone: l.phone ?? '', addr: l.postAddressUz || l.postAddress || '',
-      sud: stage && SUBMITTED_STAGES.has(stage) ? t('Ha') : t('Yoʻq'),
+      overdue, total,
+      uniq: firstPinfl ? 1 : 0, closed: total === 0 ? 1 : 0,
+      palReg: lk.palata?.reg ?? '', palPages: lk.palata?.pages ?? '',
+      qState: lk.queue?.state ?? '', qErr: lk.queue?.lastError ?? '',
+      feeReceipt: lk.fee?.receiptNumber ?? '', feeClaim: lk.fee?.claimAmount ?? null,
     });
   }
-  const dataFrom = 4, dataTo = 3 + loans.length;
-  // Ustun formatlari + tekislash (katta varaq: hujayra-chegara/zebra YO'Q — fayl shishmasin/tez).
+  const dataFrom = 5, dataTo = 4 + loans.length;
   COLS.forEach((c, idx) => {
     const col = s1.getColumn(idx + 1);
     if (c.money) col.numFmt = MONEY;
@@ -168,26 +218,26 @@ export async function GET(req: NextRequest) {
     if (c.center) col.alignment = { horizontal: 'center' };
   });
 
-  // JAMI qatori — jonli SUM formulalari
+  // JAMI — jonli SUM
   if (loans.length) {
     const tr = s1.getRow(dataTo + 1); tr.height = 18;
     tr.getCell(2).value = t('JAMI');
     for (let cidx = 1; cidx <= NC; cidx++) {
       const cell = tr.getCell(cidx);
-      cell.font = { bold: true };
-      cell.fill = fill(C_TOT);
+      cell.font = { bold: true }; cell.fill = fill(C_TOT);
       cell.border = { top: { style: 'medium', color: { argb: C_HEAD } }, bottom: thin, left: thin, right: thin };
-      if (COLS[cidx - 1].money) { cell.value = { formula: `SUM(${colL(cidx)}${dataFrom}:${colL(cidx)}${dataTo})` }; cell.numFmt = MONEY; }
+      if (COLS[cidx - 1].sum) { cell.value = { formula: `SUM(${colL(cidx)}${dataFrom}:${colL(cidx)}${dataTo})` }; if (COLS[cidx - 1].money) cell.numFmt = MONEY; }
     }
   }
-  s1.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: NC } };
+  s1.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4, column: NC } };
 
-  // ── Xulosa (qoʻshimcha analitika) ────────────────────────────────────────────
+  // ── Xulosa ───────────────────────────────────────────────────────────────────
   type Agg = { loans: number; clients: Set<string>; principal: number; overdue: number; total: number };
   const mk = (): Agg => ({ loans: 0, clients: new Set(), principal: 0, overdue: 0, total: 0 });
   const byFirm = new Map<string, Agg>(), byRegion = new Map<string, Agg>(), byKlass = new Map<string, Agg>();
   const all = mk();
   const submittedClients = new Set<string>();
+  let palataCnt = 0, queueCnt = 0, feeCnt = 0, closedCnt = 0;
   const add = (m: Map<string, Agg>, key: string, l: (typeof loans)[number]) => {
     const a = m.get(key) ?? mk(); m.set(key, a);
     a.loans += 1; if (l.pinfl) a.clients.add(l.pinfl);
@@ -199,19 +249,22 @@ export async function GET(req: NextRequest) {
     add(byKlass, l.klassName || '—', l);
     all.loans += 1; if (l.pinfl) all.clients.add(l.pinfl);
     all.principal += num(l.debtPrincipal); all.overdue += num(l.debtOverduePrincipal) + num(l.debtOverdueInterest); all.total += num(l.totalDebt);
-    const stage = stageOf(l.pinfl, l.branchCode);
-    if (l.pinfl && stage && SUBMITTED_STAGES.has(stage)) submittedClients.add(l.pinfl);
+    if (num(l.totalDebt) === 0) closedCnt += 1;
+    const lk = linkOf(l);
+    if (lk.palata) palataCnt += 1;
+    if (lk.queue) queueCnt += 1;
+    if (lk.fee?.receiptNumber) feeCnt += 1;
+    if (l.pinfl && lk.stage && SUBMITTED_STAGES.has(lk.stage)) submittedClients.add(l.pinfl);
   }
 
   const s2 = wb.addWorksheet(t('Xulosa'));
-  s2.columns = [{ key: 'k', width: 32 }, { key: 'v', width: 16 }, { key: 'c', width: 14 }, { key: 'd', width: 20 }];
+  s2.columns = [{ key: 'k', width: 34 }, { key: 'v', width: 16 }, { key: 'c', width: 14 }, { key: 'd', width: 20 }];
   s2.mergeCells('A1:D1');
   const x1 = s2.getCell('A1');
   x1.value = t('XULOSA').toUpperCase(); x1.font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
   x1.fill = fill(C_TITLE); x1.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
   s2.getRow(1).height = 24;
 
-  // KPI bloki
   const kpi = (k: string, v: string | number, money = false) => {
     const r = s2.addRow({ k, v });
     r.getCell(1).font = { bold: true }; r.getCell(1).border = box; r.getCell(1).fill = fill(C_SECT);
@@ -221,10 +274,14 @@ export async function GET(req: NextRequest) {
   kpi(t('Snapshot (sana)'), snapLabel);
   kpi(t('Shartnomalar (kredit)'), all.loans);
   kpi(t('Mijozlar (kishi)'), all.clients.size);
+  kpi(t('Toʻliq yopilgan (qarzi 0)'), closedCnt);
+  kpi(t('Palata skani biriktirilgan'), palataCnt);
+  kpi(t('Sudga yuborish navbatida'), queueCnt);
+  kpi(t('Boji kvitansiyasi bor'), feeCnt);
   kpi(t('Sudga chiqarilgan (mijoz)'), submittedClients.size);
   kpi(t('Asosiy qarz'), all.principal, true);
   kpi(t('Muddati oʻtgan jami'), all.overdue, true);
-  kpi(t('Jami qarz (bankka)'), all.total, true);
+  kpi(t('Jami qarz (МКО)'), all.total, true);
 
   const table = (title: string, m: Map<string, Agg>) => {
     s2.addRow({});
@@ -242,9 +299,8 @@ export async function GET(req: NextRequest) {
       [1, 2, 3, 4].forEach((n) => { const cl = r.getCell(n); cl.border = box; if (n > 1) cl.alignment = { horizontal: 'right' }; if (zebra) cl.fill = fill(C_ZEBRA); });
       r.getCell(4).numFmt = MONEY;
     }
-    // Bo'lim JAMI
-    const tot = [...m.values()].reduce((x, a) => ({ l: x.l + a.loans, t: x.t + a.total }), { l: 0, t: 0 });
-    const tr = s2.addRow({ k: t('JAMI'), v: tot.l, d: tot.t });
+    const tot = [...m.values()].reduce((x, a) => ({ l: x.l + a.loans, tt: x.tt + a.total }), { l: 0, tt: 0 });
+    const tr = s2.addRow({ k: t('JAMI'), v: tot.l, d: tot.tt });
     [1, 2, 3, 4].forEach((n) => { const cl = tr.getCell(n); cl.font = { bold: true }; cl.fill = fill(C_TOT); cl.border = box; if (n > 1) cl.alignment = { horizontal: 'right' }; });
     tr.getCell(4).numFmt = MONEY;
   };
