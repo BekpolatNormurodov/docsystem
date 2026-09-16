@@ -332,6 +332,19 @@ export async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
     }
   }
 
+  // G) TALABNOMA CHECK (yetkazish kvitansiyasi) — stored UZPOST kvitansiya (TALABNOMA_CHECK) BO'LMAGANDA
+  //    hippo /perform/receipt'dan olamiz (masalan FUNDFLOW'da stored yo'q). Cross-firm + multi-uid.
+  if (ac.pinfl && !filesToUpload.some((f) => f.kind === 'TALABNOMA_CHECK')) {
+    try {
+      const firmChk = await prisma.firm.findUnique({ where: { id: ac.firmId }, select: { stir: true } });
+      const { fetchTalabnomaCheck } = await import('./hippo/talabnoma-fetch');
+      const chk = await fetchTalabnomaCheck(ac.pinfl, firmChk?.stir);
+      if (chk) filesToUpload.push({ kind: 'TALABNOMA_CHECK', fileName: `Talabnoma_kvitansiya_${ac.id}.pdf`, buffer: chk });
+    } catch (e) {
+      console.error(`[court-submit] Case #${ac.id}: talabnoma check (/perform) olinmadi —`, e instanceof Error ? e.message : e);
+    }
+  }
+
   return sortCourtFiles(filesToUpload);
 }
 

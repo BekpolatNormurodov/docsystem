@@ -25,23 +25,43 @@ async function sessionFor(stir: string): Promise<any | null> {
   catch { _sessCache.set(key, { s: null, t: Date.now() }); return null; }
 }
 
-/** Mijozning (pinfl) yetkazilgan talabnoma xatini har uid × har firma sessiyasi bilan qidiradi. */
-export async function fetchDeliveredTalabnoma(pinfl: string, ownStir?: string | null): Promise<Buffer | null> {
-  if (!pinfl) return null;
+// Mijozning barcha hippo talabnoma uid'lari + ochiladigan firma sessiyalari (case firmasi birinchi).
+async function uidsAndSessions(pinfl: string, ownStir?: string | null): Promise<{ uids: string[]; sessions: any[] }> {
   const rows = await prisma.clientCaseStatus.findMany({
     where: { source: 'HIPPO', category: 'talabnoma', pinfl, caseNumber: { not: null }, NOT: { caseNumber: { startsWith: 'TLB:' } } },
     orderBy: { updatedAt: 'desc' }, select: { caseNumber: true },
   });
   const uids = [...new Set(rows.map((r) => r.caseNumber).filter((x): x is string => !!x))];
-  if (!uids.length) return null;
-  // Sessiya tartibi: avval case firmasi (eng ehtimoliy), keyin qolgan firmalar.
   const stirs = [...new Set([digits(ownStir), ...FIRMS.map((f) => digits(f.stir))].filter(Boolean))];
   const sessions: any[] = [];
   for (const st of stirs) { const s = await sessionFor(st); if (s) sessions.push(s); }
-  if (!sessions.length) return null;
+  return { uids, sessions };
+}
+
+/** Mijozning (pinfl) yetkazilgan talabnoma XATINI (/mail/download) har uid × har firma sessiyasi bilan qidiradi. */
+export async function fetchDeliveredTalabnoma(pinfl: string, ownStir?: string | null): Promise<Buffer | null> {
+  if (!pinfl) return null;
+  const { uids, sessions } = await uidsAndSessions(pinfl, ownStir);
+  if (!uids.length || !sessions.length) return null;
   for (const uid of uids) {
     for (const s of sessions) {
       try { const b: any = await downloadMailPdf(s, uid); if (b && b.length > 1000) return Buffer.from(b); } catch { /* keyingi sessiya/uid */ }
+    }
+  }
+  return null;
+}
+
+/** Talabnoma «check» = hippo yetkazish kvitansiyasi (/perform/receipt/{uid}). Firma akkauntida stored
+ *  UZPOST kvitansiyasi (TALABNOMA_RECEIPT) BO'LMAGANDA ishlatiladi (masalan FUNDFLOW). Owner'dan qat'i
+ *  nazar ochiladi, lekin baribir har uid × har sessiya sinaladi (ba'zi holatda faqat egasiga beradi). */
+export async function fetchTalabnomaCheck(pinfl: string, ownStir?: string | null): Promise<Buffer | null> {
+  if (!pinfl) return null;
+  const { uids, sessions } = await uidsAndSessions(pinfl, ownStir);
+  if (!uids.length || !sessions.length) return null;
+  const { downloadReceiptPdf } = await import('./xat');
+  for (const uid of uids) {
+    for (const s of sessions) {
+      try { const b: any = await downloadReceiptPdf(s, uid); if (b && b.length > 1000) return Buffer.from(b); } catch { /* keyingi */ }
     }
   }
   return null;

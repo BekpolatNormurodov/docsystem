@@ -260,6 +260,16 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
     } catch (e) { packetFail(caseId, 'hippo talabnoma xati', e); }
   }
 
+  // 5b) TALABNOMA CHECK (yetkazish kvitansiyasi) — stored UZPOST kvitansiya (TALABNOMA_RECEIPT) 4-bo'limda
+  //     qo'shilgan bo'lsa skip; bo'lmasa (masalan FUNDFLOW) hippo /perform/receipt'dan olamiz (cross-firm).
+  if (!arizaOnly && hasDebt && opts.hippoTalabnoma !== false && ac.pinfl && !files.some((f) => f.name.includes('TALABNOMA_RECEIPT'))) {
+    try {
+      const { fetchTalabnomaCheck } = await import('./hippo/talabnoma-fetch');
+      const chk = await fetchTalabnomaCheck(ac.pinfl, firm?.stir);
+      if (chk) files.push({ name: `Talabnoma_kvitansiya_${folder}.pdf`, buf: chk });
+    } catch (e) { packetFail(caseId, 'talabnoma check (/perform)', e); }
+  }
+
   // 6) INVOICE CHECK — billing.sud.uz boji/pochta kvitansiyasi (invoice PDF). Foydalanuvchi so'radi
   //    (2026-09-16): firma-zip'da ham bo'lsin. 2b'dagi «sudga ketmaydi» qarori shu bilan bekor.
   //    Avval billing'dan (invoice-rest tunnel/proxy), olinmasa cache (InvoiceRecord.pdfPath yoki
