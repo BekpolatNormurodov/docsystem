@@ -225,6 +225,17 @@ export class MibEngine {
         const resultHtml = await resultRes.text();
         return this.parseStep10Results(resultHtml, cleanResultPath, pinfl);
       }
+      // QARZDORLIK YO'Q → mib.uz redirect BERMAYDI, «...фуқарода қарздорлик аниқланмади» degan
+      // feedback qaytaradi (captcha TO'G'RI qabul qilingan). Ilgari buni «redirect yo'q = captcha
+      // xato» deb 10 marta qayta urinardik va oxirida «Captcha yechilmadi» (FAILED) bo'lardi —
+      // holbuki bu odam shunchaki TOZA (MIB da ijro ishi yo'q). Natijada qarzi yo'q PINFL'lar butun
+      // run'ni tiqib qo'yardi (2026-09-16 auditi: qarz yo'q PINFL → 10/10 «yechilmadi»). Endi buni
+      // toza deb qaytaramiz (run.ts uni CLEAN qiladi). Captcha haqiqatan xato bo'lsa mib.uz boshqa
+      // (himoya kodi) feedback beradi — u bu shartga tushmaydi va pastda qayta urinaveramiz.
+      if (/қарздорлик[\s\S]{0,40}аниқланмади|qarzdorlik[\s\S]{0,40}aniqlanmadi/i.test(ajaxXml)) {
+        this.log(`PINFL ${pinfl}: MIB da qarzdorlik aniqlanmadi — toza`);
+        return { success: true, pinfl, fio: '', totalDebt: '0', currentDebt: '0', cases: [], step10Url: '' };
+      }
       const newImgMatch = ajaxXml.match(/src="([^"]*antiCache=[^"]*)"/i) || ajaxXml.match(/<img[^>]*src="([^"]+)"/i);
       if (newImgMatch) currentCaptchaImg = new URL(newImgMatch[1]!.replace(/&amp;/g, '&'), `${this.baseUrl}/${baseUrl}`).href;
       await sleep(1000);
