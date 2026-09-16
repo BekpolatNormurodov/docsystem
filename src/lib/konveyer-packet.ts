@@ -55,29 +55,6 @@ const safe = (s: string, n = 70) => (s || 'hujjat').replace(/[^\p{L}\p{N}._ ()'�
 // bo'lmasa upload/route.ts orqali qo'lda qo'yilgan invoice/boshqa fayl paketga sizib chiqadi.
 const COURT_PACKET_DOC_KINDS = new Set(['SIGNED_ARIZA', 'TALABNOMA_RECEIPT']);
 
-// Firma hippo sessiyasini bulk (runPacketJob) davomida QAYTA-QAYTA yuklamaslik uchun qisqa TTL-cache.
-// Bir firma-zip'da hamma case bir xil STIR — sessiyani har case uchun DB'dan olish (yoki muddati
-// o'tgan bo'lsa har safar throw qilish) behuda. null = shu STIR sessiyasi ochilmadi (muddati o'tgan
-// yoki yo'q) — qayta urinmaymiz, log'ni ham bir marta chiqaramiz.
-const _hippoSessCache = new Map<string, { s: unknown; t: number }>();
-let _hippoSessWarned = false;
-async function firmHippoSession(stir: string): Promise<any | null> {
-  const key = String(stir).replace(/\D/g, '');
-  if (!key) return null;
-  const c = _hippoSessCache.get(key);
-  if (c && Date.now() - c.t < 120_000) return c.s as any;
-  try {
-    const { getStoredHippoSession } = await import('./hippo/session');
-    const s = await getStoredHippoSession(key);
-    _hippoSessCache.set(key, { s, t: Date.now() });
-    return s as any;
-  } catch (e) {
-    if (!_hippoSessWarned) { _hippoSessWarned = true; console.error(`konveyer-packet: hippo sessiya ochilmadi (stir ${key}) — hippo talabnoma xati qo'shilmaydi:`, e instanceof Error ? e.message : e); }
-    _hippoSessCache.set(key, { s: null, t: Date.now() });
-    return null;
-  }
-}
-
 /**
  * Build the packet file list for ONE case. `browser` (a shared Playwright
  * instance) is required to render the talabnoma PDF; omit `talabnomaPdf` (or the
@@ -272,27 +249,14 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
   //    ko'p marta yuborilgan bo'lishi mumkin (unique custom_id per send) — oxirgi uid boshqa hodim
   //    akkauntida bo'lsa 403, eskiroq send shu akkauntda ochiladi. Shunday «hammasini sinash» URBAN'da
   //    14/103 → 103/103 qildi. (2-talabnoma; UZPOST kvitansiyasi 4-bo'limda TALABNOMA_RECEIPT sifatida.)
-  if (!arizaOnly && hasDebt && opts.hippoTalabnoma !== false && ac.pinfl && firm?.stir) {
+  if (!arizaOnly && hasDebt && opts.hippoTalabnoma !== false && ac.pinfl) {
     try {
-      // branchCode BO'YICHA FILTRLAMAYMIZ: eskiroq (ochiladigan) send'ning branchCode'i null yoki boshqa
-      // bo'lishi mumkin — pinfl yetarli. Har uid sinaladi (URBAN'da 14→103 shu bilan hal bo'lgan).
-      const rows = await prisma.clientCaseStatus.findMany({
-        where: { source: 'HIPPO', category: 'talabnoma', pinfl: ac.pinfl, caseNumber: { not: null }, NOT: { caseNumber: { startsWith: 'TLB:' } } },
-        orderBy: { updatedAt: 'desc' }, select: { caseNumber: true },
-      });
-      const uids = [...new Set(rows.map((r) => r.caseNumber).filter((x): x is string => !!x))];
-      const session = uids.length ? await firmHippoSession(firm.stir) : null; // firma bo'yicha bir marta (memo)
-      if (session) {
-        const { downloadMailPdf } = await import('./hippo/xat');
-        let got = false;
-        for (const uid of uids) {
-          try {
-            const pbuf = await downloadMailPdf(session, uid);
-            if (pbuf && pbuf.length > 1000) { files.push({ name: `Talabnoma_hippo_${folder}.pdf`, buf: pbuf }); got = true; break; }
-          } catch { /* shu uid ochilmadi — keyingisini sinaymiz */ }
-        }
-        if (!got) packetFail(caseId, 'hippo talabnoma xati (barcha uid 403/ochilmadi)', 'no accessible mail');
-      }
+      // Har uid × har firma sessiyasi sinaladi (xat boshqa firma akkauntidan ketgan bo'lishi mumkin —
+      // masalan FUNDFLOW talabnomasi BRIGHT akkauntidan). Batafsil: hippo/talabnoma-fetch.ts.
+      const { fetchDeliveredTalabnoma } = await import('./hippo/talabnoma-fetch');
+      const buf = await fetchDeliveredTalabnoma(ac.pinfl, firm?.stir);
+      if (buf) files.push({ name: `Talabnoma_hippo_${folder}.pdf`, buf });
+      else packetFail(caseId, 'hippo talabnoma xati (hech qaysi firma sessiyasidan ochilmadi)', 'no accessible mail');
     } catch (e) { packetFail(caseId, 'hippo talabnoma xati', e); }
   }
 

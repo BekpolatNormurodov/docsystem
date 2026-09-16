@@ -317,31 +317,16 @@ export async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
 
   // F) HIPPO YETKAZILGAN TALABNOMA XATI — real yetkazilgan xatning O'ZI (xat.hippo shakllantirgan),
   //    biz generatsiya qilган EMAS. Sudga «talabnoma yetkazilgani» dalili sifatida ketadi.
-  //    Manba gen-talabnoma-hippo route bilan bir xil: ClientCaseStatus(source=HIPPO,
-  //    category=talabnoma) dagi mail uid → downloadMailPdf. TALABNOMA (eb37ed47) turida yuklanadi.
-  //    Yo'q/olinmasa — bu yerda faqat loglanadi; MAJBURIYligi submitter `need` ro'yxatida (TALABNOMA):
-  //    xat bo'lmasa ish SKIPPED bo'ladi, chala paket sudga ketmaydi.
+  //    fetchDeliveredTalabnoma: mijoz (pinfl) uchun HAMMA uid × HAMMA firma sessiyasi sinaladi —
+  //    xat boshqa firma akkauntidan yuborilgan bo'lsa ham topiladi (masalan FUNDFLOW talabnomasi
+  //    BRIGHT akkauntidan). Yo'q/olinmasa — loglanadi; MAJBURIYligi submitter `need` ro'yxatida.
   if (ac.pinfl && ac.firmId) {
     try {
-      const st = await prisma.clientCaseStatus.findFirst({
-        where: {
-          source: 'HIPPO', category: 'talabnoma', pinfl: ac.pinfl,
-          ...(ac.kod ? { branchCode: ac.kod } : {}),
-          caseNumber: { not: null }, NOT: { caseNumber: { startsWith: 'TLB:' } },
-        },
-        orderBy: { updatedAt: 'desc' }, select: { caseNumber: true },
-      });
       const firmRow = await prisma.firm.findUnique({ where: { id: ac.firmId }, select: { stir: true } });
-      if (st?.caseNumber && firmRow?.stir) {
-        const { getStoredHippoSession } = await import('./hippo/session');
-        const { downloadMailPdf } = await import('./hippo/xat');
-        const session = await getStoredHippoSession(String(firmRow.stir).replace(/\D/g, ''));
-        const pbuf: any = await downloadMailPdf(session, st.caseNumber);
-        const len = pbuf?.length ?? pbuf?.byteLength ?? 0;
-        if (pbuf && len > 1000) {
-          filesToUpload.push({ kind: 'TALABNOMA', fileName: `Talabnoma_hippo_${ac.id}.pdf`, buffer: Buffer.from(pbuf) });
-        }
-      }
+      const { fetchDeliveredTalabnoma } = await import('./hippo/talabnoma-fetch');
+      const buf = await fetchDeliveredTalabnoma(ac.pinfl, firmRow?.stir);
+      if (buf) filesToUpload.push({ kind: 'TALABNOMA', fileName: `Talabnoma_hippo_${ac.id}.pdf`, buffer: buf });
+      else console.error(`[court-submit] Case #${ac.id}: hippo yetkazilgan talabnoma topilmadi (hech qaysi firma sessiyasidan)`);
     } catch (e) {
       console.error(`[court-submit] Case #${ac.id}: hippo yetkazilgan talabnoma olinmadi —`, e instanceof Error ? e.message : e);
     }

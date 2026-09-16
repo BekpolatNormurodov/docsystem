@@ -21,7 +21,11 @@ export const FIRMS: FirmCfg[] = [
   { branchCode: '12842', name: 'BRIGHT FUTURE FINANCING', stir: '311976765', cabinetKey: 'akram', hippoKey: 'farrux', hippoTemplateId: 42, hippoBranchId: 56 },
   { branchCode: '06292', name: 'URBAN FINANCE SOLUTIONS', stir: '311943592', cabinetKey: 'xasanov', hippoKey: 'xasanov', hippoTemplateId: 119 },
   { branchCode: '55890', name: 'COMMUNITY MICROFINANCE', stir: '312191604', cabinetKey: 'mamadaliyev', hippoKey: 'mamadaliyev', hippoTemplateId: 123 },
-  // Fundflow (14276) / Muvaffaqiyat (05557): add once their DSKEYS keys are present.
+  // Fundflow (14276): DSKEYS kaliti bor (DS3119794130014, TIN 311979413, org «fundflow»). Direktor
+  // suvonov farruxjon — BRIGHT'niki bilan bir shaxs, shuning uchun 'farrux' EMAS, STIR selektor
+  // ('311979413' cert TIN'iga mos) yoki 'fundflow' (org) — noaniqlik bo'lmasin.
+  { branchCode: '14276', name: 'FUNDFLOW', stir: '311979413', cabinetKey: '311979413', hippoKey: '311979413' },
+  // Muvaffaqiyat (05557): add once its DSKEYS key is present.
 ];
 
 const onlyDigits = (s?: string | null) => (s ?? '').replace(/\D+/g, '');
