@@ -1,6 +1,8 @@
 // Invoice Excel IMPORT — «BFF …» / farmoyish formatidagi kvitansiya ro'yxatini yuklaydi.
-// Ustunlar: «Қарздор ФИО» + «Квитанция рақами» (+ ixtiyoriy «Код», «Почта харажати», «PINFL», «Holat»).
-// Har qatorni mijozga (F.I.O yoki PINFL bo'yicha) bog'lab, kvitansiya raqamini case'ga yozadi —
+// Ustunlar (sarlavha 2-3 xil yozilishi mumkin — o'zak bo'yicha ham topiladi): «Қарздор ФИО/FISH» +
+// «Квитанция рақами/Kvitansiya raqam» (oxirgi «i» tushsa ham) (+ ixtiyoriy «Код/UNI», «Почта
+// харажати», «PINFL», «Holat»). «Почта харажати» bo'lsa — InvoiceRecord.amount'ga saqlanadi (aks
+// holda default boji). Har qatorni mijozga (F.I.O yoki PINFL bo'yicha) bog'lab, kvitansiya raqamini case'ga yozadi —
 // shunda mijoz «invoice chiqarilgan» bo'ladi (receiptNumber/invoiceNo + stage INVOICE_CREATED, va
 // InvoiceRecord). «Holat»=to'landi bo'lsa — to'langan deb ham belgilaydi. Avval «ko'rib chiqish»
 // (preview) sonlarini beradi; tasdiqdan keyin bazaga yozadi.
@@ -43,9 +45,16 @@ const norm = (s: string) => s.toLowerCase().replace(/[\s.`'ʻ’]/g, '');
 // F.I.O ni normalize: NFKC + katta harf + faqat harf/raqam (probel/apostrof/tinish tushadi).
 // Kirill ham, lotin ham saqlanadi; «O'G'LI» va «OʻGʻLI» bir xil kalitga tushadi.
 const normName = (s: string) => s.normalize('NFKC').toUpperCase().replace(/[^\p{L}\p{N}]/gu, '');
-function findCol(header: (string | null)[], names: string[]): number {
+// Sarlavha 2-3 xil yozilishi mumkin: avval ANIQ moslik (alias ro'yxati), topilmasa —
+// o'zak (stem) bo'yicha «ichida bormi». Masalan «Kvitansiya raqam» (oxirgi «i» tushgan),
+// «Квитанция рақам», «Chek raqami» — barchasi «квитанц/kvitansiya/chek» o'zagiga tushadi.
+function findCol(header: (string | null)[], names: string[], stems: string[] = []): number {
   const wanted = names.map(norm);
   for (let i = 0; i < header.length; i++) { const h = header[i]; if (h && wanted.includes(norm(h))) return i + 1; }
+  if (stems.length) {
+    const ns = stems.map(norm);
+    for (let i = 0; i < header.length; i++) { const h = header[i]; if (h) { const hn = norm(h); if (ns.some((st) => hn.includes(st))) return i + 1; } }
+  }
   return 0;
 }
 function parsePaid(s: string | null): boolean | null {
@@ -70,12 +79,12 @@ export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotI
 
   const header: (string | null)[] = [];
   ws.getRow(1).eachCell({ includeEmpty: true }, (cell, col) => { header[col - 1] = unwrap(cell.value); });
-  const cName = findCol(header, ['Қарздор ФИО', 'Қарздор Ф.И.О', 'Qarzdor F.I.O.', 'Qarzdor FIO', 'F.I.O', 'FIO', 'ФИО', 'Mijoz', 'Клиент', 'Qarzdor']);
-  const cReceipt = findCol(header, ['Квитанция рақами', 'Квитанция', 'Kvitansiya raqami', 'Kvitansiya', 'receiptNumber', 'Kvitansiya №']);
-  const cPinfl = findCol(header, ['PINFL', 'ПИНФЛ', 'PNFL', 'ПНФЛ', 'ЖШШИР']);
-  const cKod = findCol(header, ['Код', 'Kod', 'Code', 'Кодекс']);
-  const cAmount = findCol(header, ['Почта харажати', 'Pochta harajati', 'Summa', 'Сумма', 'Amount']);
-  const cStatus = findCol(header, ['Holat', 'Холат', 'Holati', 'Status', 'Статус']);
+  const cName = findCol(header, ['Қарздор ФИО', 'Қарздор Ф.И.О', 'Qarzdor F.I.O.', 'Qarzdor FIO', 'F.I.O', 'FIO', 'ФИО', 'FISH', 'F.I.SH', 'ФИШ', 'F.I.Sh', 'Mijoz', 'Клиент', 'Qarzdor'], ['фио', 'fio', 'фиш', 'fish', 'qarzdor', 'қарздор', 'mijoz', 'клиент']);
+  const cReceipt = findCol(header, ['Квитанция рақами', 'Квитанция рақам', 'Квитанция', 'Kvitansiya raqami', 'Kvitansiya raqam', 'Kvitansiya', 'receiptNumber', 'Kvitansiya №', 'Chek raqami', 'Chek raqam', 'Чек рақами', 'Чек рақам'], ['квитанц', 'kvitansiya', 'чек', 'chek', 'receipt']);
+  const cPinfl = findCol(header, ['PINFL', 'ПИНФЛ', 'PNFL', 'ПНФЛ', 'ЖШШИР'], ['пинфл', 'pinfl', 'жшшир', 'pnfl']);
+  const cKod = findCol(header, ['Код', 'Kod', 'Code', 'Кодекс', 'UNI', 'ЮНИ', 'Uni']);
+  const cAmount = findCol(header, ['Почта харажати', 'Почта харажат', 'Pochta harajati', 'Pochta xarajati', 'Summa', 'Сумма', 'Amount'], ['почтахаражат', 'pochtaharajat', 'pochtaxarajat', 'почтахаражати']);
+  const cStatus = findCol(header, ['Holat', 'Холат', 'Holati', 'Status', 'Статус'], ['holat', 'холат', 'status', 'статус']);
   if (!cReceipt) throw new Error('«Квитанция рақами» (Kvitansiya raqami) ustuni topilmadi — «BFF …» formatidagi faylni yuklang.');
   if (!cName && !cPinfl) throw new Error('«Қарздор ФИО» yoki «PINFL» ustuni topilmadi — mijozни aniqlab boʻlmaydi.');
 
@@ -130,7 +139,7 @@ export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotI
   }
 
   const res: InvoiceImportResult = { ...empty, totalRows: rows.length, notFoundSamples: [] };
-  const plan: { caseId: number; firmId: number; receipt: string; paid: boolean }[] = [];
+  const plan: { caseId: number; firmId: number; receipt: string; paid: boolean; amount: number | null }[] = [];
   const usedCase = new Set<number>();
   const usedReceipt = new Set<string>();
   for (const r of rows) {
@@ -153,7 +162,7 @@ export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotI
     usedCase.add(target.id);
     usedReceipt.add(r.receipt as string);
     const paid = r.paid === true;
-    plan.push({ caseId: target.id, firmId: target.firmId, receipt: r.receipt as string, paid });
+    plan.push({ caseId: target.id, firmId: target.firmId, receipt: r.receipt as string, paid, amount: r.amount });
     res.willAssign += 1;
     if (paid) res.willMarkPaid += 1;
   }
@@ -166,9 +175,10 @@ export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotI
   const now = new Date();
   const dueCreated = await dueForStage('INVOICE_CREATED', now);
   const duePaid = await dueForStage('INVOICE_PAID', now);
-  // Summa — o'zimiz chiqargandagidek DEFAULT davlat boji (getBojiAmount, 22 000). Fayldagi «Почта
-  // харажати» ustuni faqat ma'lumot uchun — invoice summasi bu emas.
-  const amount = await getBojiAmount();
+  // Summa: fayldagi «Почта харажати» ustuni bo'lsa — O'SHANI saqlaymiz (foydalanuvchi so'radi:
+  // kvitansiya raqami VA pochta xarajati — ikkovi ham polega tushsin). Ustun bo'sh bo'lsa —
+  // DEFAULT davlat boji (getBojiAmount, 22 000) ga qaytamiz, chala qolmasin.
+  const defaultAmount = await getBojiAmount();
 
   for (const it of plan) {
     const stage: CaseStage = it.paid ? 'INVOICE_PAID' : 'INVOICE_CREATED';
@@ -185,10 +195,12 @@ export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotI
           // InvoiceRecord — buzmasdan: yo'q bo'lsa yaratamiz; bor-u bog'lanmagan bo'lsa faqat caseId
           // qo'yamiz; boshqa case'ga bog'langan bo'lsa TEGMAYMIZ.
           const existing = await tx.invoiceRecord.findUnique({ where: { invoiceNo: it.receipt }, select: { caseId: true } });
+          const rowAmount = it.amount ?? defaultAmount; // fayldagi pochta xarajati, bo'lmasa default boji
           if (!existing) {
-            await tx.invoiceRecord.create({ data: { invoiceNo: it.receipt, firmId: it.firmId, caseId: it.caseId, paymentType: 'Давлат божи', amount, courtType: '', courtRegion: '', court: '', status: 'CREATED' } });
+            await tx.invoiceRecord.create({ data: { invoiceNo: it.receipt, firmId: it.firmId, caseId: it.caseId, paymentType: 'Давлат божи', amount: rowAmount, courtType: '', courtRegion: '', court: '', status: 'CREATED' } });
           } else if (existing.caseId == null) {
-            await tx.invoiceRecord.update({ where: { invoiceNo: it.receipt }, data: { caseId: it.caseId } });
+            // caseId biriktiramiz; faylda pochta xarajati bo'lsa — amount'ni ham yangilaymiz.
+            await tx.invoiceRecord.update({ where: { invoiceNo: it.receipt }, data: { caseId: it.caseId, ...(it.amount != null ? { amount: it.amount } : {}) } });
           }
         }
       });
