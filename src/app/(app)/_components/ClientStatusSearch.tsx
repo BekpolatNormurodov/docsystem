@@ -43,6 +43,8 @@ const STAGE_PHASE: Record<string, string> = {
   MIB_SUBMITTED: 'EXEC', CLOSED: 'EXEC',
 };
 const phaseOf = (stage: string) => STAGE_PHASE[stage] ?? 'PREP';
+// Bosqichlar tartibi (sidebardagi stepper bilan bir xil) — chipda «nechanchi/jami» ko'rsatish uchun.
+const PHASE_ORDER = ['PREP', 'SIGN', 'BOJ', 'COURT', 'EXEC'];
 
 const AVATAR = [
   'bg-sky-500/15 text-sky-600 dark:text-sky-300',
@@ -156,15 +158,19 @@ export function ClientStatusSearch({ linkDate, placeholder, className }: { linkD
                           <span className="font-mono text-[11px] tabular-nums text-muted">{p.pinfl}</span>
                           {cb && <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${cb.tone}`}>{cb.label}</span>}
                         </div>
-                        {/* Har firma bo'yicha bosqich (step) */}
+                        {/* Har firma bo'yicha bosqich (step): «FIRMA · bosqich nomi · N/5».
+                            Batafsil holat (masalan «Imzo / skan») tooltipda — chip ixcham qoladi. */}
                         <div className="mt-1.5 flex flex-wrap gap-1.5">
                           {p.cases.map((c) => {
-                            const meta = PHASE_META[phaseOf(c.stage)];
+                            const ph = phaseOf(c.stage);
+                            const meta = PHASE_META[ph];
+                            const step = PHASE_ORDER.indexOf(ph) + 1;
                             return (
-                              <span key={c.firmId} className="inline-flex items-center gap-1 rounded-md bg-surface-2 px-1.5 py-0.5 text-[11px]" title={`${c.firmName} · ${c.stageLabel}`}>
+                              <span key={c.firmId} className="inline-flex items-center gap-1 rounded-md bg-surface-2 px-1.5 py-0.5 text-[11px]" title={`${c.firmName} · ${t(c.stageLabel)}`}>
                                 <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: meta.color }} aria-hidden />
                                 <span className="font-semibold">{firmShort(c.firmName)}</span>
-                                <span className="text-muted">· {c.stageLabel}</span>
+                                <span className="text-muted">· {t(meta.label)}</span>
+                                <span className="tabular-nums text-muted/70">· {step}/{PHASE_ORDER.length}</span>
                               </span>
                             );
                           })}
