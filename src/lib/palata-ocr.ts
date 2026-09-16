@@ -272,7 +272,7 @@ export async function drainOcrQueue(jobId: number, update = false): Promise<void
     prisma.job.updateMany({ where: { id: jobId, status: { in: ['PENDING', 'RUNNING'] } }, data: { message: 'OCR ishlayapti…' } }).catch(() => {});
   }, 30_000);
   try {
-    let added = 0, total = 0, fileIdx = 0;
+    let added = 0, updated = 0, total = 0, fileIdx = 0;
     for (;;) {
       if (await isCancelled()) throw new Error(CANCELLED);
       const nx = await nextQueueFile();
@@ -298,14 +298,17 @@ export async function drainOcrQueue(jobId: number, update = false): Promise<void
       const got = extractArizas(pages).map((a) => ({ ...a, source: sourceId }));
       // Merge THIS file's arizas immediately — a later file dying can't lose it.
       const r = await mergeArizas(got, update);
-      added += r.added; total = r.total;
+      added += r.added; updated += r.updated; total = r.total;
       await fsp.rm(out, { force: true }).catch(() => {});
     }
 
     // Navbat bo'shadi — «replace» bayrog'ini olib tashlaymiz (keyingi yuklama o'zinikini yozadi).
     await fsp.rm(REPLACE_MARK, { force: true }).catch(() => {});
     // OCR faqat OʻQIYDI — bazaga saqlash ALOHIDA, TASDIQ bilan («Bazaga saqlash» tugmasi).
-    const msg = `+${added} yangi ariza oʻqildi (jami ${total}) — «Bazaga saqlash»ni tasdiqlang`;
+    // «updated» ni ham ko'rsatamiz — «Mavjudlarni yangilash» yoqilганda qayta-skan mavjudlarни
+    // yangilaydi (added=0 bo'lsa ham). Avval faqat `added` chiqardik → foydalanuvchi «+0» ni
+    // «hech narsa bo'lmadi» deb tushunardi, aslida yuzlab ariza yangilangan bo'lardi.
+    const msg = `+${added} yangi${updated ? `, ${updated} yangilandi` : ''} ariza oʻqildi (jami ${total}) — «Bazaga saqlash»ni tasdiqlang`;
     await prisma.job.updateMany({ where: { id: jobId }, data: { status: 'DONE', message: msg, progress: 1, total: 1 } });
   } catch (e) {
     const m = e instanceof Error ? e.message : String(e);
