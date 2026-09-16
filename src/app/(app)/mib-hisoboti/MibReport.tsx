@@ -181,6 +181,15 @@ function TekshirishCard({ onUploaded }: { onUploaded: (id: number) => void }) {
             </div>
             <button className="btn-primary shrink-0" disabled={uBusy || !file} onClick={upload}>{uBusy ? <Spinner size={16} /> : <Ico.filePlus size={16} />} {t('Yuklash')}</button>
           </div>
+          <div className="mt-2 rounded-xl border border-line bg-surface-2 px-3 py-2 text-xs text-muted">
+            <div className="mb-1 font-semibold text-fg">{t('Excel ustunlari (1-qator — sarlavha)')}:</div>
+            <ul className="ml-4 list-disc space-y-0.5">
+              <li><b className="text-fg">PINFL</b> — {t('majburiy, 14 raqam; PINFL yoʻq qatorlar oʻtkazib yuboriladi')}</li>
+              <li><b className="text-fg">Holat</b> — {t('filtr (masalan «MIBda») shu ustun boʻyicha quriladi')}</li>
+              <li>{t('Ixtiyoriy')}: <span className="text-fg">F.I.SH., Telefon, MKO, Ish raqami, Viloyat, Manzil, Jami qarzdorlik, Yuborilgan sana</span></li>
+            </ul>
+            <div className="mt-1">{t('Sarlavhalar kiril yoki lotin boʻlishi mumkin. Faqat birinchi varaq oʻqiladi.')}</div>
+          </div>
           {uErr && <p className="mt-2 text-sm font-medium text-rose-600 dark:text-rose-300">{uErr}</p>}
         </>
       )}
