@@ -9,7 +9,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // mib.uz captchasi (so'z bilan yozilgan matematika) OCR uchun og'ir — ko'proq urinish = ko'proq imkon.
 const CAPTCHA_ATTEMPTS = 10;
 
-export interface Step10Case { workNumber: string; monitoringUrl: string | null }
+export interface Step10Case { workNumber: string; monitoringUrl: string | null; creditor: string | null }
 export interface Step10Result {
   success: boolean;
   message?: string;
@@ -259,7 +259,16 @@ export class MibEngine {
       const hrefMatch = l.match(/href="([^"]+)"/i);
       return hrefMatch ? hrefMatch[1]!.replace(/^\.\.\//, '') : '';
     });
-    const cases: Step10Case[] = workNumbers.map((wn, i) => ({ workNumber: wn, monitoringUrl: monitoringLinks[i] || monitoringLinks[0] || null }));
+    // «Ундирувчи» (undiruvchi/kreditor) — SMS'дан OLDIN, qidiruv natijasida ko'rinadi (MASKA bilan,
+    // masalan «"B***HT FU***RE FI***NG…"»). Buni ish tartibida yig'amiz: shu bilan bizning firma
+    // ishlarini boshqa kreditorlar (bank / «Давлат»)дan ajratib, faqat bizникиni SMS bilan tortamiz.
+    const creditors: string[] = [];
+    const credRegex = /Ундирувчи\s*<\/span>\s*<label[^>]*>([^<]*)<\/label>/gi;
+    let cm: RegExpExecArray | null;
+    while ((cm = credRegex.exec(html)) !== null) creditors.push(cm[1]!.replace(/&quot;/g, '"').trim());
+    // Faqat sanoq mos kelsa biriktiramiz (aks holda noto'g'ri juftlashmasin — null → ehtiyot uchun tortiladi).
+    const cred = creditors.length === workNumbers.length ? creditors : [];
+    const cases: Step10Case[] = workNumbers.map((wn, i) => ({ workNumber: wn, monitoringUrl: monitoringLinks[i] || monitoringLinks[0] || null, creditor: cred[i] ?? null }));
     return { success: true, pinfl, fio: fio.trim(), totalDebt: totalDebt.trim(), currentDebt: currentDebt.trim(), cases, step10Url: resultPath };
   }
 

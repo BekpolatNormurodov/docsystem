@@ -9,6 +9,7 @@ import { CaptchaSolver } from './captcha';
 import { resolveCreditor } from './companies';
 import { getMibConfig } from './config';
 import { pushMibLog } from './log-buffer';
+import { firmKeyWords, creditorIsOurs } from './creditor-match';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const SMS_TIMEOUT_MS = 120_000;
@@ -102,6 +103,10 @@ export async function runMibReportJob(jobId: number): Promise<void> {
   await prisma.mibClient.updateMany({ where: { reportId, status: 'RUNNING' }, data: { status: 'PENDING' } });
 
   const cfg = await getMibConfig();
+  // Bizning firmalar — ish undiruvchisini (kreditor) MASKA'langan holda solishtirish uchun. Faqat
+  // bizning firmalarga tegishli ishlar SMS bilan chuqur tortiladi; bank/«Давлат» ishlari o'tkaziladi.
+  const firms = await prisma.firm.findMany({ select: { shortName: true } });
+  const firmWordsList = firms.map((f) => firmKeyWords(f.shortName)).filter((w) => w.length);
   const captcha = new CaptchaSolver();
   let engine = new MibEngine(cfg.baseUrl, { captcha, log });
 
@@ -175,10 +180,24 @@ export async function runMibReportJob(jobId: number): Promise<void> {
           // Eski (oldingi urinishdan qolgan) ishlarni tozalaymiz — qayta urinishда dublikat bo'lmasin.
           await prisma.mibCase.deleteMany({ where: { clientId: client.id } });
           let smsFailed = false;
+          let oursCount = 0, otherCount = 0;
           for (const c of search.cases) {
+            // Undiruvchi (kreditor) MASKA'langan holda qidiruv ro'yxatida bor — bizning firmamizmi yoki
+            // yo'qmi shundan aniqlaymiz. FAQAT bizning ishlarni SMS bilan chuqur tortamiz.
+            const ours = creditorIsOurs(c.creditor, firmWordsList);
             const caseRow = await prisma.mibCase.create({
-              data: { clientId: client.id, workNumber: c.workNumber, monitoringUrl: c.monitoringUrl ?? null },
+              data: {
+                clientId: client.id, workNumber: c.workNumber, monitoringUrl: c.monitoringUrl ?? null,
+                firmName: c.creditor ?? null, // MASKA'langan undiruvchi; ours bo'lsa fetchCaseDetail to'liq nom yozadi
+              },
             });
+            if (!ours) {
+              // Boshqa kreditor (bank / «Давлат») — SMS/chuqur detal SO'RALMAYDI (zapros/vaqt tejaladi).
+              otherCount += 1;
+              await prisma.mibCase.updateMany({ where: { id: caseRow.id }, data: { error: 'Boshqa kreditor — detal olinmadi' } });
+              continue;
+            }
+            oursCount += 1;
             // Chuqur detal (SMS-gated) — FAQAT deepDetail yoqilgan va telefon bo'lsa. O'chirilgan
             // bo'lsa SMS so'ralmaydi, faqat ijro ishi ro'yxati qoladi (tez, «birdan»).
             if (cfg.deepDetail && cfg.phone && c.monitoringUrl) {
@@ -208,7 +227,7 @@ export async function runMibReportJob(jobId: number): Promise<void> {
             log(`report ${reportId}: PINFL ${client.pinfl} → SMS kelmadi, qayta navbatga (${attemptNo}/${MAX_SMS_ATTEMPTS})`);
           } else {
             await prisma.mibClient.update({ where: { id: client.id }, data: { status: 'DONE', checkedAt: new Date() } });
-            log(`report ${reportId}: PINFL ${client.pinfl} → ${search.cases.length} ijro ishi${smsFailed ? ` (SMS ${attemptNo} urinishда kelmadi — detalsiz)` : ''}`);
+            log(`report ${reportId}: PINFL ${client.pinfl} → ${search.cases.length} ijro (${oursCount} bizniki, ${otherCount} boshqa)${smsFailed ? ` — SMS ${attemptNo} urinishда kelmadi` : ''}`);
           }
         }
       } catch (e) {
