@@ -92,15 +92,30 @@ export class CabinetPayloadBuilder {
    * bo'lsa CABINET_CATEGORIES/CABINET_SUB_CATEGORIES'ga yangi GUID qo'shib shu yerga uzating.
    */
   static buildBaseInfo(debt: SourceCaseData['debt']): BaseInfo {
+    // Sudga BUTUN so'm ketadi (tiyinsiz) — UI/ariza ham butun so'm ko'rsatadi (foydalanuvchi
+    // qarori 2026-09-16). Har summa FLOOR qilinadi (tiyin tashlanadi — qarzdan KO'P talab
+    // qilinmasin), va umumiy summa = yaxlitlangan qismlar YIG'INDISI. NEGA total'ni alohida
+    // floor qilmaymiz: floor(total) ≠ Σ floor(parts) (1 so'mgacha farq) va portal
+    // «claim_amount == Σ parts» validatsiyasini buzardi.
+    const fl = (x: number | null | undefined) => Math.floor(Number(x) || 0);
+    const principal = fl(debt.principal);
+    const moralDamage = fl(debt.moralDamage);
+    const materialDamage = fl(debt.materialDamage);
+    const lostProfit = fl(debt.lostProfit);
+    const prepaidExpense = fl(debt.prepaidExpense);
+    const penalty = fl(debt.penalty);
+    const fine = fl(debt.fine);
+    const interest = fl(debt.interest);
+    const total = principal + moralDamage + materialDamage + lostProfit + prepaidExpense + penalty + fine + interest;
     const parts: { amount: number | null; amount_type: ClaimAmountPartType }[] = [
-      { amount: debt.principal || null, amount_type: 'DEPT' },
-      { amount: debt.moralDamage || null, amount_type: 'MORAL_DAMAGE' },
-      { amount: debt.materialDamage || null, amount_type: 'MATERIAL_DAMAGE' },
-      { amount: debt.lostProfit || null, amount_type: 'LOST_PROFIT' },
-      { amount: debt.prepaidExpense || null, amount_type: 'PREPAID_EXPENSE' },
-      { amount: debt.penalty || null, amount_type: 'PENALTY' },
-      { amount: debt.fine || null, amount_type: 'FINE' },
-      { amount: debt.interest || null, amount_type: 'PERCENT' },
+      { amount: principal || null, amount_type: 'DEPT' },
+      { amount: moralDamage || null, amount_type: 'MORAL_DAMAGE' },
+      { amount: materialDamage || null, amount_type: 'MATERIAL_DAMAGE' },
+      { amount: lostProfit || null, amount_type: 'LOST_PROFIT' },
+      { amount: prepaidExpense || null, amount_type: 'PREPAID_EXPENSE' },
+      { amount: penalty || null, amount_type: 'PENALTY' },
+      { amount: fine || null, amount_type: 'FINE' },
+      { amount: interest || null, amount_type: 'PERCENT' },
     ];
     return {
       case_number: null,
@@ -116,7 +131,7 @@ export class CabinetPayloadBuilder {
       collateral_security: false, collateral_type: null, cadastral_number: null,
       vehicle_state_number: null, vehicle_passport_series_number: null,
       claim_amounts_with_parts: [{
-        claim_amount: { amount: debt.total.toFixed(2), forfeit: null, currency_id: 'UZS' },
+        claim_amount: { amount: total.toFixed(2), forfeit: null, currency_id: 'UZS' },
         claim_amount_parts: parts,
       }],
     };
