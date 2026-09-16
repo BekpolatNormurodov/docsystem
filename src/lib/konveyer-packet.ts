@@ -60,7 +60,7 @@ const COURT_PACKET_DOC_KINDS = new Set(['SIGNED_ARIZA', 'TALABNOMA_RECEIPT']);
  * instance) is required to render the talabnoma PDF; omit `talabnomaPdf` (or the
  * browser) to skip the slow PDF step and still get Excel + ariza + firm docs.
  */
-export async function buildCasePacket(caseId: number, opts: { browser?: Browser; talabnomaPdf?: boolean; includeFirmDocs?: boolean; includeGrafik?: boolean; arizaOnly?: boolean } = {}): Promise<CasePacket | null> {
+export async function buildCasePacket(caseId: number, opts: { browser?: Browser; talabnomaPdf?: boolean; includeFirmDocs?: boolean; includeGrafik?: boolean; arizaOnly?: boolean; hippoTalabnoma?: boolean; invoiceCheck?: boolean } = {}): Promise<CasePacket | null> {
   const ac = await prisma.arizaCase.findUnique({
     where: { id: caseId },
     select: {
@@ -202,11 +202,9 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
     }
   }
 
-  // 2b) Invoice / kvitansiya: DELIBERATELY NOT in the court packet. The state-fee
-  // invoice is minted at billing.sud.uz and its NUMBER travels inside the ariza; the
-  // invoice PDF/kvitansiya itself does NOT go to court (the ariza stays davlat-bojisiz).
-  // The old synthesized Invoice_*.docx "boji form" was removed on purpose — accounting
-  // issues no payment report, so nothing invoice-shaped is filed with the court.
+  // 2b) Invoice / kvitansiya: quyida 6-BO'LIMDA qo'shiladi (foydalanuvchi qarori 2026-09-16 —
+  // «invoice check»ni firma-zip'ga ham qo'shish). Eski synthesized Invoice_*.docx «boji form» esa
+  // olib tashlangan (buxgalteriya to'lov hisoboti chiqarmaydi) — faqat billing PDF'ning O'ZI ketadi.
 
   // 3) Firm library docs (guvohnoma / ishonchnoma / shartnoma / oferta). Identical
   // for every client of a firm, so a bulk job passes includeFirmDocs:false and adds
@@ -244,6 +242,58 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
       // Generatsiya emas — saqlash muammosi, shuning uchun logga chiqadi.
       packetFail(caseId, `yuklangan hujjat ${d.kind}`, e);
     }
+  }
+
+  // 5) TALABNOMA XATI — HIPPO YETKAZGAN xatning O'ZI (pechatli «yetkazilgan», UZPOST kvitansiyasidan
+  //    boshqa). Manba court-submit-job section F bilan bir xil, LEKIN har uid sinaladi: bitta case
+  //    ko'p marta yuborilgan bo'lishi mumkin (unique custom_id per send) — oxirgi uid boshqa hodim
+  //    akkauntida bo'lsa 403, eskiroq send shu akkauntda ochiladi. Shunday «hammasini sinash» URBAN'da
+  //    14/103 → 103/103 qildi. (2-talabnoma; UZPOST kvitansiyasi 4-bo'limda TALABNOMA_RECEIPT sifatida.)
+  if (!arizaOnly && hasDebt && opts.hippoTalabnoma !== false && ac.pinfl && firm?.stir) {
+    try {
+      const rows = await prisma.clientCaseStatus.findMany({
+        where: { source: 'HIPPO', category: 'talabnoma', pinfl: ac.pinfl, ...(ac.kod ? { branchCode: ac.kod } : {}), caseNumber: { not: null }, NOT: { caseNumber: { startsWith: 'TLB:' } } },
+        orderBy: { updatedAt: 'desc' }, select: { caseNumber: true },
+      });
+      const uids = [...new Set(rows.map((r) => r.caseNumber).filter((x): x is string => !!x))];
+      if (uids.length) {
+        const { getStoredHippoSession } = await import('./hippo/session');
+        const { downloadMailPdf } = await import('./hippo/xat');
+        const session = await getStoredHippoSession(String(firm.stir).replace(/\D/g, ''));
+        let got = false;
+        for (const uid of uids) {
+          try {
+            const pbuf = await downloadMailPdf(session, uid);
+            if (pbuf && pbuf.length > 1000) { files.push({ name: `Talabnoma_hippo_${folder}.pdf`, buf: pbuf }); got = true; break; }
+          } catch { /* shu uid ochilmadi — keyingisini sinaymiz */ }
+        }
+        if (!got) packetFail(caseId, 'hippo talabnoma xati (barcha uid 403/ochilmadi)', 'no accessible mail');
+      }
+    } catch (e) { packetFail(caseId, 'hippo talabnoma xati', e); }
+  }
+
+  // 6) INVOICE CHECK — billing.sud.uz boji/pochta kvitansiyasi (invoice PDF). Foydalanuvchi so'radi
+  //    (2026-09-16): firma-zip'da ham bo'lsin. 2b'dagi «sudga ketmaydi» qarori shu bilan bekor.
+  //    Avval billing'dan (invoice-rest tunnel/proxy), olinmasa cache (InvoiceRecord.pdfPath yoki
+  //    storage/invoices/{no}.pdf). Bulk job'da billing tushsa ham cache bilan chala qolmaydi.
+  if (!arizaOnly && hasDebt && opts.invoiceCheck !== false && ac.receiptNumber) {
+    const invNo = ac.receiptNumber;
+    let invBuf: Buffer | null = null;
+    try {
+      const { downloadInvoicePdf } = await import('./invoice-rest');
+      let p = await downloadInvoicePdf(invNo);
+      if (!path.isAbsolute(p)) p = path.join(process.cwd(), p);
+      invBuf = await fs.readFile(p);
+    } catch {
+      try {
+        const rec = await prisma.invoiceRecord.findFirst({ where: { OR: [{ caseId }, { invoiceNo: invNo }] }, orderBy: { id: 'desc' }, select: { pdfPath: true } });
+        let p = rec?.pdfPath ?? path.join('storage', 'invoices', `${invNo}.pdf`);
+        if (p.startsWith('/app/')) p = path.join(process.cwd(), p.replace(/^\/app\//, ''));
+        else if (!path.isAbsolute(p)) p = path.join(process.cwd(), p);
+        invBuf = await fs.readFile(p);
+      } catch (e2) { packetFail(caseId, `invoice check (billing+cache, ${invNo})`, e2); }
+    }
+    if (invBuf) files.push({ name: `Kvitansiya_${invNo}.pdf`, buf: invBuf });
   }
 
   // Dedupe file names — two docs that sanitize to the same name would silently
