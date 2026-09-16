@@ -23,10 +23,18 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   await reconcileZombieClients(id).catch(() => {});
   const clients = await prisma.mibClient.findMany({ where: { reportId: id }, orderBy: { id: 'asc' }, include: { cases: true } });
   const stats = computeStats(clients);
-  // «Holat» + date-range filter options — re-parsed from the source only when idle.
+  // «Holat» + date-range filter options.
   let holatValues: { value: string; count: number }[] = [];
   let sentDateRange: { min: string | null; max: string | null } = { min: null, max: null };
-  if (!report.autoRun && report.sourcePath) {
+  if (clients.length) {
+    // Mijozlar allaqachon qurilgan — holat variantlarini ULARDAN olamiz. Faylni qayta parse
+    // QILMAYMIZ: katta (masalan 5 MB, ko'p varaqli) HISOBOT har GET'da ~5s parse bo'lib, report
+    // sahifasi «loading»da qotib qolardi (2026-09-16 auditi). Mijozlardan olish — bir zumda.
+    const hc = new Map<string, number>();
+    for (const c of clients) if (c.holat) hc.set(c.holat, (hc.get(c.holat) ?? 0) + 1);
+    holatValues = [...hc.entries()].map(([value, count]) => ({ value, count })).sort((a, b) => b.count - a.count);
+  } else if (!report.autoRun && report.sourcePath) {
+    // Hali qurilmagan (yangi upload) — bir martalik parse bilan variantlarni ko'rsatamiz.
     const p = await parseHisobot(report.sourcePath).catch(() => null);
     if (p) { holatValues = p.holatValues; sentDateRange = p.sentDateRange; }
   }

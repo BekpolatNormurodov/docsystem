@@ -1,5 +1,12 @@
-// Parse a HISOBOT-style .xlsx (like «HISOBOT 120.xlsx») into MIB client rows. Columns are matched by
-// header text (Cyrillic/Latin mix). The «Holat» column drives the status filter (e.g. «MIBda»).
+// Parse a HISOBOT-style .xlsx into MIB client rows. Columns are matched by header text (Cyrillic/Latin
+// mix). Ikki formatni QO'LLAB-QUVVATLAYDI:
+//   (1) mib.uz HISOBOT eksporti — bitta varaq, sarlavha 1-qatorda, «Holat» ustuni bor.
+//   (2) portfel eksporti — ko'p varaqli (Анкета + ПНФЛ + muddati bo'yicha 90+/60-90/30-60 buketlar),
+//       sarlavha 2-qatorda, PINFL ustuni «ПНФЛ» deb yozilgan, «Holat» ustuni YO'Q (varaq NOMI = holat).
+// Sarlavhа qatori har varaqда qidiriladi (1..25). «Анкета» (xom kredit portfeli — ФИО ustuni yo'q,
+// bir odam bir necha qator) va yig'indi varaqlar (PINFL/ФИО yo'q) O'TKAZIB YUBORILADI. Ko'p varaq
+// mos kelsa va ba'zilarida «Манзил» bo'lsa — faqat o'shalar (batafsil buketlar) olinadi. PINFL bo'yicha
+// varaqlararo dublikat olib tashlanadi.
 import ExcelJS from 'exceljs';
 
 export interface MibParsedRow {
@@ -21,6 +28,17 @@ export interface MibParseResult {
   holatValues: { value: string; count: number }[]; // distinct «Holat» values for the filter
   sentDateRange: { min: string | null; max: string | null }; // for the date picker hints
 }
+
+const PINFL_NAMES = ['PINFL', 'ПИНФЛ', 'ПНФЛ', 'ЖШШИР', 'JSHSHIR'];
+const FIO_NAMES = ['F.I.SH.', 'FISH', 'F.I.O', 'F.I.O.', 'ФИО', 'F I SH', 'FIO'];
+const PHONE_NAMES = ['Тел', 'Tel', 'Телефон', 'Phone', 'Тел номер', 'Тел. номер'];
+const FIRM_NAMES = ['MKO', 'МКО', 'Firma', 'МКО_Анкета'];
+const ISH_NAMES = ['Ish raqami', 'Иш рақами', 'Ish raqami '];
+const HOLAT_NAMES = ['Holat', 'Холат', 'Holati'];
+const REGION_NAMES = ['Viloyat', 'Вилоят', 'Область', 'Регион'];
+const ADDR_NAMES = ['Манзил', 'Manzil', 'Address'];
+const DEBT_NAMES = ['Жами карздорлик', 'Jami qarzdorlik', 'Умумий кредит карз', 'Жами карзи Асосий', 'Жами карзи', 'Муддати утган карз'];
+const SENT_NAMES = ['Yuborilgan sana', 'Юборилган сана', 'Ish ko`ril(adi)gan', 'Yuborilgan'];
 
 /** Normalize HISOBOT's mixed date shapes (Date, «DD-MM-YYYY», «YYYY-MM-DD …», Excel serial) → ISO date. */
 function toIsoDate(v: unknown): string | null {
@@ -57,7 +75,7 @@ function unwrap(v: unknown): string | null {
   return String(v).trim() || null;
 }
 
-const norm = (s: string) => s.toLowerCase().replace(/[\s.`']/g, '');
+const norm = (s: string) => s.toLowerCase().replace(/[\s.`'\n]/g, '');
 
 /** Find the 1-based column index whose header matches any of `names` (first match wins). */
 function findCol(header: (string | null)[], names: string[]): number {
@@ -69,55 +87,92 @@ function findCol(header: (string | null)[], names: string[]): number {
   return 0;
 }
 
+/** Read one row (1-based) into a 0-based array of cell texts. */
+function readRow(ws: ExcelJS.Worksheet, rowNo: number, maxCols: number): (string | null)[] {
+  const out: (string | null)[] = [];
+  const row = ws.getRow(rowNo);
+  for (let c = 1; c <= maxCols; c++) out[c - 1] = unwrap(row.getCell(c).value);
+  return out;
+}
+
+interface SheetHeader { ws: ExcelJS.Worksheet; headerRow: number; header: (string | null)[]; hasAddr: boolean }
+
+/** In a worksheet, find the header row (1..25) that has BOTH a PINFL and an FIO column. */
+function detectHeader(ws: ExcelJS.Worksheet): SheetHeader | null {
+  const maxCols = Math.min(40, Math.max(1, ws.columnCount || 1));
+  const scan = Math.min(25, ws.rowCount || 0);
+  for (let r = 1; r <= scan; r++) {
+    const header = readRow(ws, r, maxCols);
+    if (findCol(header, PINFL_NAMES) && findCol(header, FIO_NAMES)) {
+      return { ws, headerRow: r, header, hasAddr: !!findCol(header, ADDR_NAMES) };
+    }
+  }
+  return null;
+}
+
 export async function parseHisobot(filePath: string): Promise<MibParseResult> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(filePath);
-  const ws = wb.worksheets[0];
-  if (!ws) return { rows: [], holatValues: [], sentDateRange: { min: null, max: null } };
+  const empty: MibParseResult = { rows: [], holatValues: [], sentDateRange: { min: null, max: null } };
+  if (!wb.worksheets.length) return empty;
 
-  const headerRow = ws.getRow(1);
-  const header: (string | null)[] = [];
-  headerRow.eachCell({ includeEmpty: true }, (cell, col) => { header[col - 1] = unwrap(cell.value); });
-
-  const cPinfl = findCol(header, ['PINFL', 'ПИНФЛ', 'ЖШШИР']);
-  const cFio = findCol(header, ['F.I.SH.', 'FISH', 'F.I.O', 'ФИО', 'F I SH']);
-  const cPhone = findCol(header, ['Тел', 'Tel', 'Телефон', 'Phone']);
-  const cFirm = findCol(header, ['MKO', 'МКО', 'Firma']);
-  const cIsh = findCol(header, ['Ish raqami', 'Иш рақами', 'Ish raqami ']);
-  const cHolat = findCol(header, ['Holat', 'Холат', 'Holati']);
-  const cRegion = findCol(header, ['Viloyat', 'Вилоят', 'Область']);
-  const cAddr = findCol(header, ['Манзил', 'Manzil', 'Address']);
-  const cDebt = findCol(header, ['Жами карздорлик', 'Jami qarzdorlik', 'Умумий кредит карз']);
-  const cSent = findCol(header, ['Yuborilgan sana', 'Юборилган сана', 'Ish ko`ril(adi)gan', 'Yuborilgan']);
+  // 1) Har varaqда sarlavha (PINFL + ФИО) qatorini top. Topilmaganlar (Анкета — ФИО yo'q, yig'indi
+  //    varaqlar) tashlanadi.
+  let sheets = wb.worksheets.map(detectHeader).filter(Boolean) as SheetHeader[];
+  if (!sheets.length) return empty;
+  // 2) Bir nechta varaq mos kelsa VA ba'zilarida «Манзил» bo'lsa — faqat batafsillari (muddati bo'yicha
+  //    buketlar: 90+/60-90/30-60). Bu «ПНФЛ» birlashtirilgan varag'ini chiqarib, aniq 2716 beradi.
+  //    Bitta varaq (eski HISOBOT formati) bo'lsa — «Манзил» sharti qo'yilmaydi.
+  if (sheets.length > 1 && sheets.some((s) => s.hasAddr)) sheets = sheets.filter((s) => s.hasAddr);
 
   const rows: MibParsedRow[] = [];
+  const seen = new Set<string>(); // varaqlararo dublikat PINFL
   const holatCounts = new Map<string, number>();
   let minDate: string | null = null;
   let maxDate: string | null = null;
 
-  ws.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return;
-    const pinflRaw = cPinfl ? unwrap(row.getCell(cPinfl).value) : null;
-    const pinfl = pinflRaw ? pinflRaw.replace(/\D/g, '') : '';
-    if (!pinfl || pinfl.length < 14) return; // skip rows without a valid PINFL
-    const holat = cHolat ? unwrap(row.getCell(cHolat).value) : null;
-    if (holat) holatCounts.set(holat, (holatCounts.get(holat) ?? 0) + 1);
-    const sentDate = cSent ? toIsoDate(row.getCell(cSent).value) : null;
-    if (sentDate) { if (!minDate || sentDate < minDate) minDate = sentDate; if (!maxDate || sentDate > maxDate) maxDate = sentDate; }
-    rows.push({
-      rowNo: cPinfl ? Number(unwrap(row.getCell(1).value)) || rowNumber - 1 : rowNumber - 1,
-      pinfl,
-      fio: cFio ? unwrap(row.getCell(cFio).value) : null,
-      phone: cPhone ? unwrap(row.getCell(cPhone).value) : null,
-      firm: cFirm ? unwrap(row.getCell(cFirm).value) : null,
-      ishRaqami: cIsh ? unwrap(row.getCell(cIsh).value) : null,
-      holat,
-      region: cRegion ? unwrap(row.getCell(cRegion).value) : null,
-      address: cAddr ? unwrap(row.getCell(cAddr).value) : null,
-      totalDebtSrc: cDebt ? unwrap(row.getCell(cDebt).value) : null,
-      sentDate,
-    });
-  });
+  for (const { ws, headerRow, header } of sheets) {
+    const cPinfl = findCol(header, PINFL_NAMES);
+    const cFio = findCol(header, FIO_NAMES);
+    const cPhone = findCol(header, PHONE_NAMES);
+    const cFirm = findCol(header, FIRM_NAMES);
+    const cIsh = findCol(header, ISH_NAMES);
+    const cHolat = findCol(header, HOLAT_NAMES);
+    const cRegion = findCol(header, REGION_NAMES);
+    const cAddr = findCol(header, ADDR_NAMES);
+    // Qarz ustuni nomlari juda xilma-xil (ў/у, «\n», «Асосий») — aniq mos kelmasa, «...карз...»
+    // (yoki lotin «qarz») bo'lgan birinchi ustunni olamiz.
+    const cDebt = findCol(header, DEBT_NAMES) || (header.findIndex((h) => h && /карз|qarz/i.test(norm(h))) + 1);
+    const cSent = findCol(header, SENT_NAMES);
+    const sheetHolat = (ws.name || '').trim() || null; // «Holat» ustuni yo'q bo'lsa — varaq nomi
+
+    const lastRow = ws.rowCount || 0;
+    for (let r = headerRow + 1; r <= lastRow; r++) {
+      const row = ws.getRow(r);
+      const pinflRaw = cPinfl ? unwrap(row.getCell(cPinfl).value) : null;
+      const pinfl = pinflRaw ? pinflRaw.replace(/\D/g, '') : '';
+      if (!pinfl || pinfl.length < 14) continue; // PINFLsiz qatorlar (yig'indi/bo'sh) tashlanadi
+      if (seen.has(pinfl)) continue; // varaqlararo dublikat
+      seen.add(pinfl);
+      const holat = (cHolat ? unwrap(row.getCell(cHolat).value) : null) || sheetHolat;
+      if (holat) holatCounts.set(holat, (holatCounts.get(holat) ?? 0) + 1);
+      const sentDate = cSent ? toIsoDate(row.getCell(cSent).value) : null;
+      if (sentDate) { if (!minDate || sentDate < minDate) minDate = sentDate; if (!maxDate || sentDate > maxDate) maxDate = sentDate; }
+      rows.push({
+        rowNo: rows.length + 1,
+        pinfl,
+        fio: cFio ? unwrap(row.getCell(cFio).value) : null,
+        phone: cPhone ? unwrap(row.getCell(cPhone).value) : null,
+        firm: cFirm ? unwrap(row.getCell(cFirm).value) : null,
+        ishRaqami: cIsh ? unwrap(row.getCell(cIsh).value) : null,
+        holat,
+        region: cRegion ? unwrap(row.getCell(cRegion).value) : null,
+        address: cAddr ? unwrap(row.getCell(cAddr).value) : null,
+        totalDebtSrc: cDebt ? unwrap(row.getCell(cDebt).value) : null,
+        sentDate,
+      });
+    }
+  }
 
   const holatValues = [...holatCounts.entries()]
     .map(([value, count]) => ({ value, count }))
