@@ -85,6 +85,7 @@ export const gaps: Record<string, string> = {
   "Talabnoma (xat.hippo)": "Требование (xat.hippo)",
   "Tayyorlanmoqda…": "Готовится…",
   "Yuklab boʻlmadi — qayta urinib koʻring": "Не удалось скачать — повторите",
+  "Viloyat bo‘yicha — Talabnoma · Sud · MIB": "По области — Требование · Суд · МИБ",
   "Mijozlar holati (firma · bosqich) — Excel": "Статусы клиентов (фирма · этап) — Excel",
   "Firma × bosqich matritsasi — Excel": "Матрица фирма × этап — Excel",
   "Sud roʻyxati — toʻliq portfel-analitik forma (форма_суд)": "Судебный список — полная портфельно-аналитическая форма (форма_суд)",

@@ -109,7 +109,7 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref }: { dat
           className="flex w-full flex-wrap items-center justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-surface-2/50">
           <span className="flex items-center gap-2 text-sm font-semibold">
             <svg className={cx('h-4 w-4 shrink-0 text-muted transition-transform', regOpen && 'rotate-90')} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="m9 6 6 6-6 6" /></svg>
-            {t('Viloyat bo‘yicha — MIBga va Sud')}
+            {t('Viloyat bo‘yicha — Talabnoma · Sud · MIB')}
           </span>
           <span className="text-xs text-muted">{regOpen ? t('Manzil portfeldan · tumanlar viloyatga yig‘ilgan') : `${n(regions.length)} ${t('ta viloyat · ochish')}`}</span>
         </button>
@@ -120,11 +120,11 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref }: { dat
               <tr className="border-b border-line">
                 <th className="sticky left-0 z-10 bg-surface px-3 py-2 text-left">{t('Viloyat')}</th>
                 <th className="border-l border-line px-3 py-2 text-right">{t('Mijozlar')}</th>
-                <th className="px-3 py-2 text-right text-indigo-600 dark:text-indigo-300">{t('Talabnoma (xat.hippo)')}</th>
-                <th className="border-l border-line px-3 py-2 text-right">{t('MIBga')}</th>
+                <th className="border-l border-line px-3 py-2 text-right text-indigo-600 dark:text-indigo-300">{t('Talabnoma (xat.hippo)')}</th>
                 <th className="border-l border-line px-3 py-2 text-right">{t('Sudga (jami)')}</th>
                 <th className="px-3 py-2 text-right text-emerald-600 dark:text-emerald-300">{t('Qanoatlantirilgan')}</th>
                 <th className="px-3 py-2 text-right text-amber-600 dark:text-amber-300">{t('Qaytarilgan')}</th>
+                <th className="border-l border-line px-3 py-2 text-right text-teal-600 dark:text-teal-300">{t('MIBga')}</th>
                 <th className="border-l border-line px-3 py-2 text-right">{t('Jami qarz')}</th>
               </tr>
             </thead>
@@ -133,11 +133,11 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref }: { dat
                 <tr key={r.region} className="border-b border-line/60 transition-colors hover:bg-surface-2">
                   <td className="sticky left-0 z-10 bg-surface px-3 py-2.5 font-medium">{t(r.region)}</td>
                   <td className="border-l border-line px-3 py-2.5 text-right tabular-nums font-medium">{r.clients > 0 ? n(r.clients) : <span className="text-muted/50">·</span>}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums text-indigo-600 dark:text-indigo-300">{r.talabnoma > 0 ? n(r.talabnoma) : <span className="text-muted/50">·</span>}</td>
-                  <td className="border-l border-line px-3 py-2.5 text-right tabular-nums text-teal-600 dark:text-teal-300">{r.mib > 0 ? n(r.mib) : <span className="text-muted/50">·</span>}</td>
+                  <td className="border-l border-line px-3 py-2.5 text-right tabular-nums text-indigo-600 dark:text-indigo-300">{r.talabnoma > 0 ? n(r.talabnoma) : <span className="text-muted/50">·</span>}</td>
                   <td className="border-l border-line px-3 py-2.5 text-right tabular-nums">{r.sudTotal > 0 ? n(r.sudTotal) : <span className="text-muted/50">·</span>}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-emerald-600 dark:text-emerald-300">{r.granted > 0 ? n(r.granted) : <span className="text-muted/50">·</span>}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-amber-600 dark:text-amber-300">{r.returned > 0 ? n(r.returned) : <span className="text-muted/50">·</span>}</td>
+                  <td className="border-l border-line px-3 py-2.5 text-right tabular-nums text-teal-600 dark:text-teal-300">{r.mib > 0 ? n(r.mib) : <span className="text-muted/50">·</span>}</td>
                   <td className="border-l border-line px-3 py-2.5 text-right tabular-nums">{r.debt > 0 ? som(r.debt) : <span className="text-muted/50">·</span>}</td>
                 </tr>
               ))}
@@ -148,11 +148,11 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref }: { dat
                 <tr className="border-t-2 border-line bg-surface-2/50 font-semibold">
                   <td className="sticky left-0 z-10 bg-surface-2/50 px-3 py-2.5">{t('JAMI')}</td>
                   <td className="border-l border-line px-3 py-2.5 text-right tabular-nums">{n(rtot.clients)}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums text-indigo-600 dark:text-indigo-300">{n(rtot.talabnoma)}</td>
-                  <td className="border-l border-line px-3 py-2.5 text-right tabular-nums text-teal-600 dark:text-teal-300">{n(rtot.mib)}</td>
+                  <td className="border-l border-line px-3 py-2.5 text-right tabular-nums text-indigo-600 dark:text-indigo-300">{n(rtot.talabnoma)}</td>
                   <td className="border-l border-line px-3 py-2.5 text-right tabular-nums">{n(rtot.sudTotal)}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-emerald-600 dark:text-emerald-300">{n(rtot.granted)}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-amber-600 dark:text-amber-300">{n(rtot.returned)}</td>
+                  <td className="border-l border-line px-3 py-2.5 text-right tabular-nums text-teal-600 dark:text-teal-300">{n(rtot.mib)}</td>
                   <td className="border-l border-line px-3 py-2.5 text-right tabular-nums">{som(rtot.debt)}</td>
                 </tr>
               </tfoot>

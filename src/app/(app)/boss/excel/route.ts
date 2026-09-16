@@ -76,20 +76,21 @@ function buildBossExcel(d: BossReportData, snapLabel: string, t: ReturnType<type
   s4.addRow({ k: t('Jami qarz (soʻm)'), v: tt.debt });
   bold1(s4); s4.getColumn('v').numFmt = '#,##0';
 
-  // 5) Viloyat kesimi — MIBga + Sud
+  // 5) Viloyat kesimi — oqim tartibida: Talabnoma → Sud → MIBga
   const s5 = wb.addWorksheet(t('Viloyatlar'));
   s5.columns = [
     { header: t('Viloyat'), key: 'reg', width: 22 },
     { header: t('Mijozlar'), key: 'cli', width: 11 },
-    { header: t('MIBga'), key: 'mib', width: 12 },
+    { header: t('Talabnoma'), key: 'tal', width: 12 },
     { header: t('Sudga (jami)'), key: 'sud', width: 14 },
     { header: t('Qanoatlantirilgan'), key: 'gr', width: 18 },
     { header: t('Qaytarilgan'), key: 'ret', width: 14 },
+    { header: t('MIBga'), key: 'mib', width: 12 },
     { header: t('Jami qarz'), key: 'debt', width: 18 },
   ];
-  for (const r of d.regions) s5.addRow({ reg: r.region, cli: r.clients, mib: r.mib, sud: r.sudTotal, gr: r.granted, ret: r.returned, debt: r.debt });
-  const rt = d.regions.reduce((a, r) => ({ cli: a.cli + r.clients, mib: a.mib + r.mib, sud: a.sud + r.sudTotal, gr: a.gr + r.granted, ret: a.ret + r.returned, debt: a.debt + r.debt }), { cli: 0, mib: 0, sud: 0, gr: 0, ret: 0, debt: 0 });
-  s5.addRow({ reg: t('JAMI'), cli: rt.cli, mib: rt.mib, sud: rt.sud, gr: rt.gr, ret: rt.ret, debt: rt.debt });
+  for (const r of d.regions) s5.addRow({ reg: r.region, cli: r.clients, tal: r.talabnoma, sud: r.sudTotal, gr: r.granted, ret: r.returned, mib: r.mib, debt: r.debt });
+  const rt = d.regions.reduce((a, r) => ({ cli: a.cli + r.clients, tal: a.tal + r.talabnoma, sud: a.sud + r.sudTotal, gr: a.gr + r.granted, ret: a.ret + r.returned, mib: a.mib + r.mib, debt: a.debt + r.debt }), { cli: 0, tal: 0, sud: 0, gr: 0, ret: 0, mib: 0, debt: 0 });
+  s5.addRow({ reg: t('JAMI'), cli: rt.cli, tal: rt.tal, sud: rt.sud, gr: rt.gr, ret: rt.ret, mib: rt.mib, debt: rt.debt });
   bold1(s5); s5.lastRow!.font = { bold: true }; money(s5, 'debt');
 
   return wb.xlsx.writeBuffer().then((b) => Buffer.from(b as ArrayBuffer));
