@@ -12,6 +12,9 @@ import { pushMibLog } from './log-buffer';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const SMS_TIMEOUT_MS = 120_000;
+// SMS kod kelmasa mijoz shuncha marta QAYTA urinilib ko'riladi (keyin ish detalsiz DONE bo'ladi).
+// Qayta urinish qolgan mijozlar ishlab bo'lingandan KEYIN bo'ladi (tanlash «attempts asc»).
+const MAX_SMS_ATTEMPTS = 3;
 // Konsolga HAM yozadi, HAM web log-buferiga (/api/mib/logs jonli ko'rsatadi).
 const log = (m: string) => { console.log(`[mib] ${m}`); pushMibLog(m); };
 
@@ -136,7 +139,9 @@ export async function runMibReportJob(jobId: number): Promise<void> {
     while (await stillRunning(reportId)) {
       const client = await prisma.mibClient.findFirst({
         where: { reportId, status: 'PENDING' },
-        orderBy: { id: 'asc' },
+        // «attempts asc» — hali urinilmagan (attempts=0) mijozlar OLDIN; SMS kelmay qayta navbatga
+        // tushganlar (attempts>0) qolganlari tugagach oxirida qayta olinadi.
+        orderBy: [{ attempts: 'asc' }, { id: 'asc' }],
       });
       if (!client) break; // nothing left → done
 
@@ -167,6 +172,9 @@ export async function runMibReportJob(jobId: number): Promise<void> {
             where: { id: client.id },
             data: { fio2: search.fio || null, totalDebt: search.totalDebt || null, currentDebt: search.currentDebt || null },
           });
+          // Eski (oldingi urinishdan qolgan) ishlarni tozalaymiz — qayta urinishда dublikat bo'lmasin.
+          await prisma.mibCase.deleteMany({ where: { clientId: client.id } });
+          let smsFailed = false;
           for (const c of search.cases) {
             const caseRow = await prisma.mibCase.create({
               data: { clientId: client.id, workNumber: c.workNumber, monitoringUrl: c.monitoringUrl ?? null },
@@ -178,14 +186,30 @@ export async function runMibReportJob(jobId: number): Promise<void> {
                 await fetchCaseDetail(engine, caseRow.id, client.pinfl, c.workNumber, c.monitoringUrl, cfg.phone);
               } catch (e) {
                 // updateMany — case o'chirilgan bo'lsa ham yiqilmasin (aks holda butun mijoz XATO bo'lardi).
-                await prisma.mibCase.updateMany({ where: { id: caseRow.id }, data: { error: (e as Error).message } });
+                const m = (e as Error).message || String(e);
+                if (/sms/i.test(m)) smsFailed = true; // SMS kelmadi/so'ralmadi — qayta urinishga arziydi
+                await prisma.mibCase.updateMany({ where: { id: caseRow.id }, data: { error: m } });
               }
             } else if (cfg.deepDetail && !cfg.phone) {
               await prisma.mibCase.updateMany({ where: { id: caseRow.id }, data: { error: 'SMS telefon raqami sozlanmagan' } });
             }
           }
-          await prisma.mibClient.update({ where: { id: client.id }, data: { status: 'DONE', checkedAt: new Date() } });
-          log(`report ${reportId}: PINFL ${client.pinfl} → ${search.cases.length} ijro ishi`);
+          const attemptNo = client.attempts + 1; // shu urinish raqami (attempts DB'да ↑ qilingan)
+          if (smsFailed && attemptNo < MAX_SMS_ATTEMPTS) {
+            // SMS kod kelmadi — mijozni QAYTA NAVBATGA solamiz (PENDING). Ishlar o'chiriladi (qayta
+            // urinishда dublikat bo'lmasin). «attempts asc» tartibi tufayli bu mijoz qolgan (hali
+            // urinilmagan) mijozlar ishlanib bo'lgandan KEYIN qayta olinadi — telefon/forwarder shu
+            // orada tiklanishi mumkin. MAX_SMS_ATTEMPTS urinishdan keyin baribir DONE (ish detalsiz).
+            await prisma.mibCase.deleteMany({ where: { clientId: client.id } });
+            await prisma.mibClient.update({
+              where: { id: client.id },
+              data: { status: 'PENDING', error: `SMS kelmadi — qayta urinadi (${attemptNo}/${MAX_SMS_ATTEMPTS})` },
+            });
+            log(`report ${reportId}: PINFL ${client.pinfl} → SMS kelmadi, qayta navbatga (${attemptNo}/${MAX_SMS_ATTEMPTS})`);
+          } else {
+            await prisma.mibClient.update({ where: { id: client.id }, data: { status: 'DONE', checkedAt: new Date() } });
+            log(`report ${reportId}: PINFL ${client.pinfl} → ${search.cases.length} ijro ishi${smsFailed ? ` (SMS ${attemptNo} urinishда kelmadi — detalsiz)` : ''}`);
+          }
         }
       } catch (e) {
         const msg = (e as Error).message || String(e);
