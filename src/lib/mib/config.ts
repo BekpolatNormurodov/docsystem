@@ -25,10 +25,11 @@ export interface MibConfig {
   deepDetail: boolean;
 }
 
-// Interval kamida 60 soniya: MIB avtomatori har mijoz uchun captcha + so'rovlar qiladi,
-// undan tez-tez urish bloklanishga olib keladi.
-export const MIN_INTERVAL_SEC = 60;
-const DEFAULTS: MibConfig = { phone: '', phonePending: '', phoneConfirmedAt: '', baseUrl: 'https://mib.uz', intervalSec: 60, deepDetail: true };
+// Interval — mijozlar orasidagi pauza. Ilgari 60s edi (juda ehtiyotkor) → 2716 mijoz uchun ~45 soat
+// faqat kutishда ketardi. Endi 30s (operator qarori) — 2 barobar tez, lekin oraliq saqlanadi.
+// Chegara 2s gacha tushirildi — operator Sozlamalarда xohlagancha o'zgartiradi.
+export const MIN_INTERVAL_SEC = 2;
+const DEFAULTS: MibConfig = { phone: '', phonePending: '', phoneConfirmedAt: '', baseUrl: 'https://mib.uz', intervalSec: 30, deepDetail: true };
 
 export async function getMibConfig(): Promise<MibConfig> {
   const rows = await prisma.setting.findMany({ where: { key: { in: Object.values(K) } } });
