@@ -1,5 +1,6 @@
 import { requireAccess } from '@/lib/auth';
 import { getT } from '@/lib/i18n/server';
+import { ExcelButton } from '@/ui';
 import { loadStageData } from '../konveyer/stage-data';
 import { CourtManager } from '../konveyer/CourtManager';
 import { courtReadiness, courtStatusBoard, courtReturns } from '@/lib/court-ready';
@@ -25,7 +26,7 @@ export default async function SudPage({ searchParams }: { searchParams: { s?: st
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold tracking-tight">{t('Sud (adolat)')}</h1>
         {/* Sud roʻyxati (excluded=1) boʻyicha portfel-analitik forma (форма_суд) — tanlangan snapshot + til. */}
-        <a className="btn-ghost shrink-0" href="/sud/forma" download>{t('Sud formasi (Excel)')}</a>
+        <ExcelButton href="/sud/forma" label="Sud formasi (Excel)" />
       </div>
 
       {/* Firma boʻyicha tayyorlik (xulosa) + har firma «Batafsil» → mijozlar drilldown + status board.

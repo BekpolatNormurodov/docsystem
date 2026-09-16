@@ -11,6 +11,7 @@ export { TextField, DateField, TextArea, PasswordField } from './Field';
 export { FilePicker } from './FilePicker';
 export { Filters } from './Filters';
 export { Pagination } from './Pagination';
+export { ExcelButton } from './ExcelButton';
 export { Skeleton, SkeletonHeader, SkeletonTable, SkeletonCards } from './Skeleton';
 export { Calendar, UZ_MONTHS_LAT } from './Calendar';
 export type { DayData, LegendItem } from './Calendar';

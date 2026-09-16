@@ -4,7 +4,7 @@
 // 4 bosqich: Talabnoma · Sanoat palatasi · Sudga chiqarilgan (4 ADOLAT statusi) · MIBga. Pastda JAMI.
 // Snapshot filtri — sidebardagi umumiy sana (konv_s). Excel — /boss/excel.
 import React, { useState } from 'react';
-import { Ico } from '@/ui';
+import { Ico, ExcelButton } from '@/ui';
 import { useT } from '@/lib/i18n/client';
 import { ClientStatusSearch } from '../_components/ClientStatusSearch';
 import type { BossReportData, BossFirmRow, BossTotals } from '@/lib/boss-report';
@@ -35,18 +35,16 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref }: { dat
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           {linkDate && <ClientStatusSearch linkDate={linkDate} />}
-          <a className="btn-ghost shrink-0" href={statusExcelHref} title={t('Mijozlar holati (firma · bosqich) — Excel')}>
-            <Ico.download size={16} /> {t('Mijozlar Excel')}
-          </a>
-          <a className="btn-ghost shrink-0" href="/boss/excel" title={t('Firma × bosqich matritsasi — Excel')}><Ico.download size={16} /> {t('Matritsa Excel')}</a>
-          <a className="btn-ghost shrink-0" href="/sud/forma" download title={t('Sud roʻyxati — toʻliq portfel-analitik forma (форма_суд)')}><Ico.download size={16} /> {t('Sud formasi (Excel)')}</a>
+          <ExcelButton href={statusExcelHref} label="Mijozlar Excel" title="Mijozlar holati (firma · bosqich) — Excel" />
+          <ExcelButton href="/boss/excel" label="Matritsa Excel" title="Firma × bosqich matritsasi — Excel" />
+          <ExcelButton href="/sud/forma" label="Sud formasi (Excel)" title="Sud roʻyxati — toʻliq portfel-analitik forma (форма_суд)" />
         </div>
       </header>
 
       {/* KPI: umumiy oqim. Jami qarz katta son (mlrd) — 2 ustun egallaydi, aks holda sig'maydi. */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
         <Kpi label={t('Mijozlar (kishi)')} value={n(totals.clients)} icon={<Ico.users size={18} />} tone="slate" />
-        <Kpi label={t('Talabnoma')} value={n(totals.talabnoma)} icon={<Ico.send size={18} />} tone="indigo" />
+        <Kpi label={t('Talabnoma (xat.hippo)')} value={n(totals.talabnoma)} icon={<Ico.send size={18} />} tone="indigo" />
         <Kpi label={t('Sanoat palatasi')} value={n(totals.sanoat)} icon={<Ico.stamp size={18} />} tone="violet" />
         <Kpi label={t('Sudga chiqarilgan')} value={n(totals.sud.total)} icon={<Ico.judge size={18} />} tone="sky" />
         <Kpi label={t('— qanoatlantirilgan')} value={n(totals.sud.granted)} icon={<Ico.check size={18} />} tone="emerald" />
@@ -66,7 +64,7 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref }: { dat
               <tr className="border-b border-line">
                 <th rowSpan={2} className="sticky left-0 z-10 bg-surface px-3 py-2 text-left align-bottom">{t('Firma')}</th>
                 <th rowSpan={2} className="px-3 py-2 text-right align-bottom">{t('Mijozlar')}</th>
-                <th rowSpan={2} className="px-3 py-2 text-right align-bottom">{t('Talabnoma')}</th>
+                <th rowSpan={2} className="px-3 py-2 text-right align-bottom">{t('Talabnoma (xat.hippo)')}</th>
                 <th rowSpan={2} className="px-3 py-2 text-right align-bottom">{t('Sanoat palatasi')}</th>
                 <th colSpan={5} className="border-l border-line px-3 py-1.5 text-center">{t('Sudga chiqarilgan')}</th>
                 <th rowSpan={2} className="border-l border-line px-3 py-2 text-right align-bottom">{t('MIBga')}</th>
@@ -122,7 +120,7 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref }: { dat
               <tr className="border-b border-line">
                 <th className="sticky left-0 z-10 bg-surface px-3 py-2 text-left">{t('Viloyat')}</th>
                 <th className="border-l border-line px-3 py-2 text-right">{t('Mijozlar')}</th>
-                <th className="px-3 py-2 text-right text-indigo-600 dark:text-indigo-300">{t('Talabnoma')}</th>
+                <th className="px-3 py-2 text-right text-indigo-600 dark:text-indigo-300">{t('Talabnoma (xat.hippo)')}</th>
                 <th className="border-l border-line px-3 py-2 text-right">{t('MIBga')}</th>
                 <th className="border-l border-line px-3 py-2 text-right">{t('Sudga (jami)')}</th>
                 <th className="px-3 py-2 text-right text-emerald-600 dark:text-emerald-300">{t('Qanoatlantirilgan')}</th>

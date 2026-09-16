@@ -78,4 +78,14 @@ export const gaps: Record<string, string> = {
   "Invoice (buxgalteriya)": "Инвойс (бухгалтерия)",
   "Sud (adolat javobi)": "Суд (ответ Adolat)",
   "Yuklanmoqda": "Загрузка",
+  // Excel yuklab olish tugmalari + Talabnoma (xat.hippo) aniqlashtirmasi.
+  "Matritsa Excel": "Матрица (Excel)",
+  "Mijozlar Excel": "Клиенты (Excel)",
+  "Sud formasi (Excel)": "Судебная форма (Excel)",
+  "Talabnoma (xat.hippo)": "Требование (xat.hippo)",
+  "Tayyorlanmoqda…": "Готовится…",
+  "Yuklab boʻlmadi — qayta urinib koʻring": "Не удалось скачать — повторите",
+  "Mijozlar holati (firma · bosqich) — Excel": "Статусы клиентов (фирма · этап) — Excel",
+  "Firma × bosqich matritsasi — Excel": "Матрица фирма × этап — Excel",
+  "Sud roʻyxati — toʻliq portfel-analitik forma (форма_суд)": "Судебный список — полная портфельно-аналитическая форма (форма_суд)",
 };
