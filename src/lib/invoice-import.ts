@@ -80,7 +80,9 @@ export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotI
   const header: (string | null)[] = [];
   ws.getRow(1).eachCell({ includeEmpty: true }, (cell, col) => { header[col - 1] = unwrap(cell.value); });
   const cName = findCol(header, ['Қарздор ФИО', 'Қарздор Ф.И.О', 'Qarzdor F.I.O.', 'Qarzdor FIO', 'F.I.O', 'FIO', 'ФИО', 'FISH', 'F.I.SH', 'ФИШ', 'F.I.Sh', 'Mijoz', 'Клиент', 'Qarzdor'], ['фио', 'fio', 'фиш', 'fish', 'qarzdor', 'қарздор', 'mijoz', 'клиент']);
-  const cReceipt = findCol(header, ['Квитанция рақами', 'Квитанция рақам', 'Квитанция', 'Kvitansiya raqami', 'Kvitansiya raqam', 'Kvitansiya', 'receiptNumber', 'Kvitansiya №', 'Chek raqami', 'Chek raqam', 'Чек рақами', 'Чек рақам'], ['квитанц', 'kvitansiya', 'чек', 'chek', 'receipt']);
+  // stem'lar FAQAT o'ziga xos «kvitansiya/квитанц» — «чек/chek/receipt» bare-substring boshqa ustunga
+  // (masalan «Chek sanasi») noto'g'ri tushishi mumkin, shuning uchun ular faqat aniq-alias sifatida qoladi.
+  const cReceipt = findCol(header, ['Квитанция рақами', 'Квитанция рақам', 'Квитанция', 'Kvitansiya raqami', 'Kvitansiya raqam', 'Kvitansiya', 'receiptNumber', 'Kvitansiya №', 'Chek raqami', 'Chek raqam', 'Чек рақами', 'Чек рақам'], ['квитанц', 'kvitansiya']);
   const cPinfl = findCol(header, ['PINFL', 'ПИНФЛ', 'PNFL', 'ПНФЛ', 'ЖШШИР'], ['пинфл', 'pinfl', 'жшшир', 'pnfl']);
   const cKod = findCol(header, ['Код', 'Kod', 'Code', 'Кодекс', 'UNI', 'ЮНИ', 'Uni']);
   const cAmount = findCol(header, ['Почта харажати', 'Почта харажат', 'Pochta harajati', 'Pochta xarajati', 'Summa', 'Сумма', 'Amount'], ['почтахаражат', 'pochtaharajat', 'pochtaxarajat', 'почтахаражати']);
@@ -98,7 +100,14 @@ export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotI
     const pinfl = pinflRaw ? (pinflRaw.replace(/\D/g, '') || null) : null;
     const kod = cKod ? unwrap(row.getCell(cKod).value) : null;
     const amtRaw = cAmount ? unwrap(row.getCell(cAmount).value) : null;
-    const amount = amtRaw ? (Number(amtRaw.replace(/[^\d]/g, '')) || null) : null;
+    // «Почта харажати»: bo'shliq/apostrof = ming ajratgich; oxirgi «,dd»/«.dd» = kasr. «0» ni null qilmaymiz.
+    const amount = ((): number | null => {
+      if (!amtRaw) return null;
+      let c = amtRaw.replace(/[\s'`ʻ’]/g, '').replace(/,(\d{1,2})$/, '.$1').replace(/[^\d.]/g, '');
+      if (c === '') return null;
+      const n = Number(c);
+      return Number.isFinite(n) ? n : null;
+    })();
     const paid = cStatus ? parsePaid(unwrap(row.getCell(cStatus).value)) : null;
     if (!receipt || (!rawName && !(pinfl && pinfl.length >= 14))) return; // kalitsiz/bo'sh qator
     rows.push({ rawName, normName: rawName ? normName(rawName) : null, pinfl: pinfl && pinfl.length >= 14 ? pinfl : null, kod, receipt, amount, paid });
@@ -199,8 +208,10 @@ export async function importInvoicesFromXlsx(filePath: string, opts: { snapshotI
           if (!existing) {
             await tx.invoiceRecord.create({ data: { invoiceNo: it.receipt, firmId: it.firmId, caseId: it.caseId, paymentType: 'Давлат божи', amount: rowAmount, courtType: '', courtRegion: '', court: '', status: 'CREATED' } });
           } else if (existing.caseId == null) {
-            // caseId biriktiramiz; faylda pochta xarajati bo'lsa — amount'ni ham yangilaymiz.
-            await tx.invoiceRecord.update({ where: { invoiceNo: it.receipt }, data: { caseId: it.caseId, ...(it.amount != null ? { amount: it.amount } : {}) } });
+            // Faqat caseId biriktiramiz. `amount`ni USTIDAN YOZMAYMIZ: mavjud yozuvni REST paketi to'g'ri
+            // boji summasi bilan yaratgan bo'lishi mumkin — faylning pochta xarajati bilan almashtirish uni
+            // buzardi. Yangi yozuvlar (create) esa fayldagi summani oladi.
+            await tx.invoiceRecord.update({ where: { invoiceNo: it.receipt }, data: { caseId: it.caseId } });
           }
         }
       });

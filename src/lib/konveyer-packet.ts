@@ -55,6 +55,29 @@ const safe = (s: string, n = 70) => (s || 'hujjat').replace(/[^\p{L}\p{N}._ ()'�
 // bo'lmasa upload/route.ts orqali qo'lda qo'yilgan invoice/boshqa fayl paketga sizib chiqadi.
 const COURT_PACKET_DOC_KINDS = new Set(['SIGNED_ARIZA', 'TALABNOMA_RECEIPT']);
 
+// Firma hippo sessiyasini bulk (runPacketJob) davomida QAYTA-QAYTA yuklamaslik uchun qisqa TTL-cache.
+// Bir firma-zip'da hamma case bir xil STIR — sessiyani har case uchun DB'dan olish (yoki muddati
+// o'tgan bo'lsa har safar throw qilish) behuda. null = shu STIR sessiyasi ochilmadi (muddati o'tgan
+// yoki yo'q) — qayta urinmaymiz, log'ni ham bir marta chiqaramiz.
+const _hippoSessCache = new Map<string, { s: unknown; t: number }>();
+let _hippoSessWarned = false;
+async function firmHippoSession(stir: string): Promise<any | null> {
+  const key = String(stir).replace(/\D/g, '');
+  if (!key) return null;
+  const c = _hippoSessCache.get(key);
+  if (c && Date.now() - c.t < 120_000) return c.s as any;
+  try {
+    const { getStoredHippoSession } = await import('./hippo/session');
+    const s = await getStoredHippoSession(key);
+    _hippoSessCache.set(key, { s, t: Date.now() });
+    return s as any;
+  } catch (e) {
+    if (!_hippoSessWarned) { _hippoSessWarned = true; console.error(`konveyer-packet: hippo sessiya ochilmadi (stir ${key}) — hippo talabnoma xati qo'shilmaydi:`, e instanceof Error ? e.message : e); }
+    _hippoSessCache.set(key, { s: null, t: Date.now() });
+    return null;
+  }
+}
+
 /**
  * Build the packet file list for ONE case. `browser` (a shared Playwright
  * instance) is required to render the talabnoma PDF; omit `talabnomaPdf` (or the
@@ -64,7 +87,7 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
   const ac = await prisma.arizaCase.findUnique({
     where: { id: caseId },
     select: {
-      pinfl: true, snapshotId: true, kod: true, clientName: true, firmId: true, receiptNumber: true, courtId: true,
+      pinfl: true, snapshotId: true, kod: true, clientName: true, firmId: true, receiptNumber: true, invoiceNo: true, courtId: true,
       stageEnteredAt: true, batch: { select: { createdAt: true } },
       documents: { select: { kind: true, fileName: true, filePath: true } },
       court: { select: { nameUz: true } },
@@ -251,15 +274,16 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
   //    14/103 → 103/103 qildi. (2-talabnoma; UZPOST kvitansiyasi 4-bo'limda TALABNOMA_RECEIPT sifatida.)
   if (!arizaOnly && hasDebt && opts.hippoTalabnoma !== false && ac.pinfl && firm?.stir) {
     try {
+      // branchCode BO'YICHA FILTRLAMAYMIZ: eskiroq (ochiladigan) send'ning branchCode'i null yoki boshqa
+      // bo'lishi mumkin — pinfl yetarli. Har uid sinaladi (URBAN'da 14→103 shu bilan hal bo'lgan).
       const rows = await prisma.clientCaseStatus.findMany({
-        where: { source: 'HIPPO', category: 'talabnoma', pinfl: ac.pinfl, ...(ac.kod ? { branchCode: ac.kod } : {}), caseNumber: { not: null }, NOT: { caseNumber: { startsWith: 'TLB:' } } },
+        where: { source: 'HIPPO', category: 'talabnoma', pinfl: ac.pinfl, caseNumber: { not: null }, NOT: { caseNumber: { startsWith: 'TLB:' } } },
         orderBy: { updatedAt: 'desc' }, select: { caseNumber: true },
       });
       const uids = [...new Set(rows.map((r) => r.caseNumber).filter((x): x is string => !!x))];
-      if (uids.length) {
-        const { getStoredHippoSession } = await import('./hippo/session');
+      const session = uids.length ? await firmHippoSession(firm.stir) : null; // firma bo'yicha bir marta (memo)
+      if (session) {
         const { downloadMailPdf } = await import('./hippo/xat');
-        const session = await getStoredHippoSession(String(firm.stir).replace(/\D/g, ''));
         let got = false;
         for (const uid of uids) {
           try {
@@ -276,22 +300,26 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
   //    (2026-09-16): firma-zip'da ham bo'lsin. 2b'dagi «sudga ketmaydi» qarori shu bilan bekor.
   //    Avval billing'dan (invoice-rest tunnel/proxy), olinmasa cache (InvoiceRecord.pdfPath yoki
   //    storage/invoices/{no}.pdf). Bulk job'da billing tushsa ham cache bilan chala qolmaydi.
-  if (!arizaOnly && hasDebt && opts.invoiceCheck !== false && ac.receiptNumber) {
-    const invNo = ac.receiptNumber;
+  const invNo = ac.receiptNumber ?? ac.invoiceNo ?? null; // ba'zi case receiptNumber'siz, faqat invoiceNo bilan
+  if (!arizaOnly && hasDebt && opts.invoiceCheck !== false && invNo) {
     let invBuf: Buffer | null = null;
+    // 1) CACHE avval (tez, tarmoqsiz) — InvoiceRecord.pdfPath yoki storage/invoices/{no}.pdf.
+    //    Kvitansiya PDF o'zgarmas, shuning uchun cache to'g'ri. Bu bulk'ni sekinlashtirmaydi.
     try {
-      const { downloadInvoicePdf } = await import('./invoice-rest');
-      let p = await downloadInvoicePdf(invNo);
-      if (!path.isAbsolute(p)) p = path.join(process.cwd(), p);
+      const rec = await prisma.invoiceRecord.findFirst({ where: { OR: [{ caseId }, { invoiceNo: invNo }] }, orderBy: { id: 'desc' }, select: { pdfPath: true } });
+      let p = rec?.pdfPath ?? path.join('storage', 'invoices', `${invNo}.pdf`);
+      if (p.startsWith('/app/')) p = path.join(process.cwd(), p.replace(/^\/app\//, ''));
+      else if (!path.isAbsolute(p)) p = path.join(process.cwd(), p);
       invBuf = await fs.readFile(p);
     } catch {
+      // 2) Cache yo'q — billing'dan, LEKIN QISQA timeout bilan: buildCasePacket runPacketJob'da
+      //    withTimeout(60s) ichida — billing tushsa uzoq retry butun case'ni (ariza/oferta ham)
+      //    tushirib yuboradi. 12s'da kesamiz: chala qolsa faqat invoice yo'q, boshqasi qoladi.
       try {
-        const rec = await prisma.invoiceRecord.findFirst({ where: { OR: [{ caseId }, { invoiceNo: invNo }] }, orderBy: { id: 'desc' }, select: { pdfPath: true } });
-        let p = rec?.pdfPath ?? path.join('storage', 'invoices', `${invNo}.pdf`);
-        if (p.startsWith('/app/')) p = path.join(process.cwd(), p.replace(/^\/app\//, ''));
-        else if (!path.isAbsolute(p)) p = path.join(process.cwd(), p);
-        invBuf = await fs.readFile(p);
-      } catch (e2) { packetFail(caseId, `invoice check (billing+cache, ${invNo})`, e2); }
+        const { downloadInvoicePdf } = await import('./invoice-rest');
+        const dl = downloadInvoicePdf(invNo).then((pp) => fs.readFile(path.isAbsolute(pp) ? pp : path.join(process.cwd(), pp)));
+        invBuf = await Promise.race([dl, new Promise<Buffer>((_, rej) => setTimeout(() => rej(new Error('billing timeout 12s')), 12_000))]);
+      } catch (e2) { packetFail(caseId, `invoice check (${invNo})`, e2); }
     }
     if (invBuf) files.push({ name: `Kvitansiya_${invNo}.pdf`, buf: invBuf });
   }
