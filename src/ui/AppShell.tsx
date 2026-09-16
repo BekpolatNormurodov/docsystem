@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Ico, NAV_ICONS } from './icons';
@@ -78,6 +78,17 @@ const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ')
  *  (e.g. the snapshot-date picker) fold themselves to fit instead of vanishing. */
 export const SidebarRailContext = React.createContext(false);
 
+/**
+ * Snapshot-almashtirish yuklanish holati. SnapshotPicker `router.refresh()`ni `run()` orqali
+ * transition ichida chaqiradi; server komponentlar qayta hisoblanguncha `pending=true` turadi.
+ * Sahifalar (masalan Hisobot) buni o'qib, eski sonlar o'rniga shimmer ko'rsatadi — aks holda
+ * refresh paytida ~2s davomida hech qanday feedback bo'lmaydi (router.refresh loading.tsx'ni
+ * ishga tushirmaydi). Default `run` — provider tashqarisida ham xavfsiz ishlashi uchun. */
+export const SnapshotRefreshContext = React.createContext<{ pending: boolean; run: (fn: () => void) => void }>({
+  pending: false,
+  run: (fn) => fn(),
+});
+
 export function AppShell({
   appName,
   nav,
@@ -105,6 +116,9 @@ export function AppShell({
   const [collapsed, setCollapsed] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
+  // Snapshot-refresh transition — picker `run()` bilan boshlanadi, kontent shimmer'i shu bo'yicha.
+  const [pending, startRefresh] = useTransition();
+  const refreshCtx = React.useMemo(() => ({ pending, run: (fn: () => void) => startRefresh(fn) }), [pending]);
 
   useEffect(() => {
     setCollapsed(localStorage.getItem('spravka.sidebar.collapsed') === '1');
@@ -301,6 +315,7 @@ export function AppShell({
   );
 
   return (
+    <SnapshotRefreshContext.Provider value={refreshCtx}>
     <SidebarRailContext.Provider value={rail}>
     <div className="min-h-screen">
       {open && (
@@ -447,11 +462,18 @@ export function AppShell({
           </div>
         </header>
 
+        {/* Snapshot-refresh chizig'i — router.refresh() loading.tsx'ni ishga tushirmagani uchun
+            almashtirish paytida (~2s) yagona global feedback. Sticky, header ostida. */}
+        <div aria-hidden className={cx('sticky top-16 z-20 h-0.5 overflow-hidden transition-opacity duration-200', pending ? 'opacity-100' : 'opacity-0')}>
+          <div className="h-full w-full animate-pulse bg-brand-500" />
+        </div>
+
         <main className="p-4 md:p-6 lg:p-8">
           <div className="mx-auto max-w-screen-2xl animate-fade-in">{children}</div>
         </main>
       </div>
     </div>
     </SidebarRailContext.Provider>
+    </SnapshotRefreshContext.Provider>
   );
 }

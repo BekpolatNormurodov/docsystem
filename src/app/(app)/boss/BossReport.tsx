@@ -3,8 +3,9 @@
 // Boshliq (director) hisoboti — Firma × bosqich matritsasi. Har qatorda bitta firma; ustunlarda
 // 4 bosqich: Talabnoma · Sanoat palatasi · Sudga chiqarilgan (4 ADOLAT statusi) · MIBga. Pastda JAMI.
 // Snapshot filtri — sidebardagi umumiy sana (konv_s). Excel — /boss/excel.
-import React, { useState } from 'react';
-import { Ico, ExcelButton } from '@/ui';
+import React, { useContext, useState } from 'react';
+import { Ico, ExcelButton, Skeleton } from '@/ui';
+import { SnapshotRefreshContext } from '@/ui/AppShell';
 import { useT } from '@/lib/i18n/client';
 import { ClientStatusSearch } from '../_components/ClientStatusSearch';
 import type { BossReportData, BossFirmRow, BossTotals } from '@/lib/boss-report';
@@ -16,6 +17,7 @@ const cellNum = (x: number, cls?: string) => <td className={cx('px-3 py-2.5 text
 
 export function BossReport({ data, snapLabel, linkDate, statusExcelHref }: { data: BossReportData; snapLabel: string | null; linkDate: string; statusExcelHref: string }) {
   const t = useT();
+  const { pending } = useContext(SnapshotRefreshContext); // snapshot almashtirilyapti — shimmer ko'rsatiladi
   const { firms, totals, regions } = data;
   const [regOpen, setRegOpen] = useState(false); // default YOPIQ — bosib ochiladi
   const rtot = regions.reduce((a, r) => ({ clients: a.clients + r.clients, talabnoma: a.talabnoma + r.talabnoma, mib: a.mib + r.mib, sudTotal: a.sudTotal + r.sudTotal, granted: a.granted + r.granted, returned: a.returned + r.returned, debt: a.debt + r.debt }), { clients: 0, talabnoma: 0, mib: 0, sudTotal: 0, granted: 0, returned: 0, debt: 0 });
@@ -41,6 +43,7 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref }: { dat
         </div>
       </header>
 
+      {pending ? <BossShimmer /> : (<>
       {/* KPI: umumiy oqim. Jami qarz katta son (mlrd) — 2 ustun egallaydi, aks holda sig'maydi. */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
         <Kpi label={t('Mijozlar (kishi)')} value={n(totals.clients)} icon={<Ico.users size={18} />} tone="slate" />
@@ -161,7 +164,44 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref }: { dat
         </div>
         )}
       </div>
+      </>)}
     </div>
+  );
+}
+
+// Snapshot almashtirilayotganda (router.refresh pending) — Hisobot tarkibi shakliga mos shimmer:
+// KPI kartalari to'ri + matritsa + viloyat jadvali. Sarlavha (tugmalar) o'zgarmaydi, shunda joyida qoladi.
+function BossShimmer() {
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+        {Array.from({ length: 7 }).map((_, i) => (
+          <div key={i} className={cx('card flex items-center gap-3 p-3', i === 6 && 'sm:col-span-2')}>
+            <Skeleton className="h-9 w-9 rounded-xl" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <Skeleton className="h-5 w-20" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+          </div>
+        ))}
+      </div>
+      {[6, 3].map((rows, k) => (
+        <div key={k} className="card overflow-hidden">
+          <div className="flex items-center justify-between border-b border-line px-4 py-3">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-3 w-24" />
+          </div>
+          <div className="divide-y divide-line">
+            {Array.from({ length: rows }).map((_, r) => (
+              <div key={r} className="flex items-center gap-4 px-4 py-3">
+                <Skeleton className="h-4 w-28" />
+                {Array.from({ length: 6 }).map((_, c) => <Skeleton key={c} className="h-4 flex-1" />)}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </>
   );
 }
 

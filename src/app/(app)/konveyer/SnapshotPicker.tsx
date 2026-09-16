@@ -3,7 +3,7 @@
 import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
-import { SidebarRailContext } from '@/ui/AppShell';
+import { SidebarRailContext, SnapshotRefreshContext } from '@/ui/AppShell';
 import { useT } from '@/lib/i18n/client';
 
 export interface SnapOpt { id: number; label: string; cases: number }
@@ -35,6 +35,7 @@ export function SnapshotPicker({ options, value }: { options: SnapOpt[]; value: 
   const t = useT();
   const router = useRouter();
   const rail = useContext(SidebarRailContext);
+  const { pending, run } = useContext(SnapshotRefreshContext);
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [rect, setRect] = useState<DOMRect | null>(null);
@@ -71,9 +72,11 @@ export function SnapshotPicker({ options, value }: { options: SnapOpt[]; value: 
   const sel = options.find((o) => o.id === value) ?? options[0];
 
   const pick = (id: number) => {
+    if (id === value) { setOpen(false); return; }
     setOpen(false);
     document.cookie = `konv_s=${id}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
-    router.refresh();
+    // Transition ichida — server qayta hisoblanguncha `pending=true` (kontent shimmer + top chiziq).
+    run(() => router.refresh());
   };
 
   const panelWidth = rect ? Math.max(rect.width, 184) : 184;
@@ -94,7 +97,14 @@ export function SnapshotPicker({ options, value }: { options: SnapOpt[]; value: 
           rail && 'lg:flex-col lg:gap-0.5 lg:border-transparent lg:bg-transparent lg:px-1 lg:shadow-none lg:hover:bg-surface-2',
         )}
       >
-        <CalendarIcon className={cx('h-[15px] w-[15px] shrink-0 text-brand-600 dark:text-brand-400', rail && 'lg:h-[18px] lg:w-[18px]')} />
+        {pending ? (
+          <svg className={cx('h-[15px] w-[15px] shrink-0 animate-spin text-brand-600 dark:text-brand-400', rail && 'lg:h-[18px] lg:w-[18px]')} viewBox="0 0 24 24" fill="none" aria-hidden>
+            <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" opacity="0.25" />
+            <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+          </svg>
+        ) : (
+          <CalendarIcon className={cx('h-[15px] w-[15px] shrink-0 text-brand-600 dark:text-brand-400', rail && 'lg:h-[18px] lg:w-[18px]')} />
+        )}
         <span className={cx('flex-1 text-left font-semibold tabular-nums text-fg', rail && 'lg:flex-none lg:text-[10px] lg:leading-none')}>{short(sel.label)}</span>
         <svg
           className={cx('h-4 w-4 shrink-0 text-muted transition-transform duration-200', open && 'rotate-180', rail && 'lg:hidden')}
