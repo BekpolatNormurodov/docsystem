@@ -165,17 +165,22 @@ export async function runMibReportJob(jobId: number): Promise<void> {
           const valid = !!(d && d.executor && d.executor.name && d.executor.name !== 'Nomaʼlum');
           if (!valid) continue; // bo'sh detal → noto'g'ri kod (boshqa ishники); consume QILMAYMIZ
           await prisma.mibSms.update({ where: { id: row.id }, data: { consumed: true } }).catch(() => {});
-          const firm = resolveCreditor(d.creditor);
+          // Klassifikatsiya (firma/isTargetFirm) allaqachon Step10 MASKASIДАN (creation'да) aniqlangan.
+          // Banner buzган Step19 uni DOWNGRADE qilmaydi (ours ish Davlat bo'lib qolmasin). Step19 faqat
+          // UPGRADE qiladi — Step10 bo'sh/noaniq bo'lса, detalда real target kreditor topilса.
+          const f19 = resolveCreditor(d.creditor);
+          const upgrade = f19.isTarget ? { firmName: f19.name, firmInn: f19.inn, isTargetFirm: true, creditor: d.creditor } : {};
           await prisma.mibCase.updateMany({
             where: { id: item.caseId },
             data: {
-              personFullName: d.personFullName, creditor: d.creditor, firmName: firm.name, firmInn: firm.inn, isTargetFirm: firm.isTarget,
+              personFullName: d.personFullName,
               executorName: d.executor.name, executorPhone: d.executor.phone, executorDept: d.executor.department,
               courtOrgan: d.court.organ, courtDocType: d.court.docType, courtDocNumber: d.court.docNumber, courtDocDate: d.court.docDate, courtEffectiveDate: d.court.effectiveDate, caseSubject: d.court.subject,
               mibReceivedDate: d.mibDates.receivedDate, mibInitiatedDate: d.mibDates.initiatedDate,
               totalAmount: d.financials.totalAmount, mainDebt: d.financials.mainDebt, executionFee: d.financials.executionFee, fine: d.financials.fine, remainingDebt: d.financials.remainingDebt,
               bankName: d.bankReceipt.bankName, bankMfo: d.bankReceipt.mfo, bankAccount: d.bankReceipt.accountNumber,
               decisions: d.decisions as any, detailFetchedAt: new Date(), error: null,
+              ...upgrade,
             },
           });
           return true;
@@ -233,8 +238,15 @@ export async function runMibReportJob(jobId: number): Promise<void> {
         // Aks holda parse xatosi tufayli bizning firma ishi jimgina «boshqa» bo'lib tushib qolardi
         // (2026-09-17 audit). resolveCreditor Step19 detalида aniq hal qiladi (isTargetFirm).
         const credStr = (c.creditor ?? '').trim();
-        const isOurs = credStr === '' ? true : creditorIsOurs(credStr, firmWordsList);
-        const caseRow = await prisma.mibCase.create({ data: { clientId: client.id, workNumber: c.workNumber, monitoringUrl: c.monitoringUrl ?? null, firmName: c.creditor ?? null } });
+        // KLASSIFIKATSIYA — ISHONCHLI Step10 (qidiruv natijasi) MASKASIDAN, resolveCreditor (mask-aware).
+        // Step19 detali ba'zан banner/slogan bilan buzilib, kreditor bo'sh bo'lardi → ours ish «Davlat»
+        // bo'lib qolardi (2026-09-17: BRIGHT ishi Davlat bo'lib ketgan). Endi Step19 FAQAT ijrochi/summa
+        // detali uchun; firma/isTargetFirm bu yerda, maskadan aniqlanadi va Step19'да O'ZGARMAYDI.
+        const f0 = resolveCreditor(credStr);
+        // Chuqur tortish qarori — kengroq (recall): resolveCreditor target desa YOKI creditorIsOurs desa,
+        // YOKI mask bo'sh (fail-safe). Klassifikatsiya baribir maskadan aniq bo'ladi.
+        const isOurs = credStr === '' ? true : (f0.isTarget || creditorIsOurs(credStr, firmWordsList));
+        const caseRow = await prisma.mibCase.create({ data: { clientId: client.id, workNumber: c.workNumber, monitoringUrl: c.monitoringUrl ?? null, creditor: c.creditor ?? null, firmName: f0.name, firmInn: f0.inn, isTargetFirm: f0.isTarget } });
         if (!isOurs) { other += 1; await prisma.mibCase.updateMany({ where: { id: caseRow.id }, data: { error: 'Boshqa kreditor — detal olinmadi' } }); continue; }
         ours += 1;
         if (cfg.deepDetail && cfg.phone && c.monitoringUrl) ourItems.push({ workNumber: c.workNumber, monitoringUrl: c.monitoringUrl, caseId: caseRow.id });
