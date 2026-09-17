@@ -17,7 +17,9 @@ import { pushMibLog } from './log-buffer';
 import { firmKeyWords, creditorIsOurs } from './creditor-match';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const SMS_TIMEOUT_MS = 120_000;
+// SMS OTP kutish chegarasi. 120s juda ko'p edi — kelmagan SMS'да butun 120s kutib pipeline'ni
+// sekinlashtirardi. 60s: kod odatда ~10s'да keladi, kelmasa 2× tez «kelmadi» bo'lib retry'ga tushadi.
+const SMS_TIMEOUT_MS = 60_000;
 // SMS kod kelmasa mijoz shuncha marta QAYTA urinilib ko'riladi (keyin ish detalsiz DONE bo'ladi).
 const MAX_SMS_ATTEMPTS = 3;
 // Bir vaqtда «uchishда» tutiladigan SMS soni (pipeline oynasi). mib.uz bitta sessiyada bir necha
