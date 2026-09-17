@@ -400,6 +400,8 @@ export class MibEngine {
       if (debtorField && !debtorField.includes('***')) personFullName = debtorField;
       else if (!personFullName) personFullName = debtorField;
     }
+    // Ism maydoni ham bo'sh bo'lса, yuqoridagi regex sahifа banner/sloganini olishi mumkin edi — rad etamiz.
+    if (personFullName && isFurniture(personFullName)) personFullName = null;
     const creditorName = extractField('Ундирувчи');
     const formatPhone = (raw: string | null): string => {
       if (!raw) return 'Nomaʼlum';
