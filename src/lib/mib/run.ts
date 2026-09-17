@@ -228,7 +228,12 @@ export async function runMibReportJob(jobId: number): Promise<void> {
       let ours = 0, other = 0;
       const ourItems: { workNumber: string; monitoringUrl: string; caseId: number }[] = [];
       for (const c of search.cases) {
-        const isOurs = creditorIsOurs(c.creditor, firmWordsList);
+        // Kreditor null/bo'sh bo'lsa (Step10 parse aniqlay olmadi — masalan «Ундирувчи» sanog'i ish
+        // sonига mos kelmay hammasi null bo'lib qolган) — EHTIYOT uchun BIZNIKI deb chuqur tortamiz.
+        // Aks holda parse xatosi tufayli bizning firma ishi jimgina «boshqa» bo'lib tushib qolardi
+        // (2026-09-17 audit). resolveCreditor Step19 detalида aniq hal qiladi (isTargetFirm).
+        const credStr = (c.creditor ?? '').trim();
+        const isOurs = credStr === '' ? true : creditorIsOurs(credStr, firmWordsList);
         const caseRow = await prisma.mibCase.create({ data: { clientId: client.id, workNumber: c.workNumber, monitoringUrl: c.monitoringUrl ?? null, firmName: c.creditor ?? null } });
         if (!isOurs) { other += 1; await prisma.mibCase.updateMany({ where: { id: caseRow.id }, data: { error: 'Boshqa kreditor — detal olinmadi' } }); continue; }
         ours += 1;
@@ -240,7 +245,11 @@ export async function runMibReportJob(jobId: number): Promise<void> {
       if (ourItems.length === 0) { await finalizeClient(client.id, client.pinfl); return true; }
       remaining.set(client.id, ourItems.length);
       // SMS so'rovlarini KETMA-KET yuboramiz (bitta sessiyada xavfsiz) — kutishlari keyin ustma-ust bo'ladi.
+      // OVERFILL'ni oldini olamiz: bitta mijozда ko'p (>SMS_WINDOW) bizniki ish bo'lsa, hammasini birdan
+      // «uchishга» qo'ymaymiz — aks holda completeCase pooldа SMS_WINDOW'дан ko'p kod bo'lib, MAX_CODE_TRIES=3
+      // ichida to'g'ri kod sinalmay qolishi mumkin edi (2026-09-17 audit). Oyna to'lsa — eng eskisini tugatamiz.
       for (const it of ourItems) {
+        while (inflight.length >= SMS_WINDOW) await drainOldest();
         const markerId = await maxSmsId();
         const sms = await engine.prepareAndRequestSms(it.monitoringUrl, client.pinfl, it.workNumber, cfg.phone);
         inflight.push({ clientId: client.id, pinfl: client.pinfl, workNumber: it.workNumber, caseId: it.caseId, verifyFormAction: sms.verifyFormAction, markerId });
@@ -251,6 +260,10 @@ export async function runMibReportJob(jobId: number): Promise<void> {
       const msg = (e as Error).message || String(e);
       log(`report ${reportId}: PINFL ${client.pinfl} XATO: ${msg}`);
       await prisma.mibClient.update({ where: { id: client.id }, data: { status: 'FAILED', error: msg, checkedAt: new Date() } });
+      // Sessiyani ALMASHTIRISHDAN OLDIN «uchishдаги» ishларни tugatamiz: ularning verify-formasi ESKI
+      // sessiya (JSESSIONID)ga bog'liq — yangi sessiya cookie bilan yuborilsa mib.uz uni tanimaydi va
+      // SMS'i kelgan bo'lsa ham «kelmadi» bo'lib buziladi (2026-09-17 audit). Eski sessiyada tugatib olamiz.
+      while (inflight.length) await drainOldest();
       try { engine = new MibEngine(cfg.baseUrl, { captcha, log }); await bootSession(); } catch { /* keyingi tick */ }
       return true;
     }

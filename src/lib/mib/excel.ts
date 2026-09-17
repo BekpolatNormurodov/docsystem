@@ -5,30 +5,78 @@
 import ExcelJS from 'exceljs';
 import type { MibCase, MibClient, MibReport } from '@prisma/client';
 import { parseMoney } from './stats';
-import { groupBreakdown, type Dim } from './breakdown';
+import { groupBreakdown, regionFromText, clean, type Dim } from './breakdown';
 
 type ClientWithCases = MibClient & { cases: MibCase[] };
 
 const num = (s: string | null) => (s ? parseMoney(s) : 0);
 const txt = (s: string | null) => (s && s !== 'Nomaʼlum' ? s : '');
+const UNK = 'Aniqlanmagan';
 
 const DIMS: Dim[] = ['firma', 'region', 'hudud', 'bank'];
 const DIM_SHEET: Record<Dim, string> = { firma: 'Firma boʻyicha', region: 'Region boʻyicha', hudud: 'Hudud (MIB)', bank: 'Bank boʻyicha' };
 const DIM_HEAD: Record<Dim, string> = { firma: 'Firma', region: 'Region', hudud: 'Hudud (MIB boʻlimi)', bank: 'Bank' };
 
+// Kesim varag'i (Firma/Region/Bank) — 6 ustun: yorliq + hudud/region konteksti + son + summa. «Hudud»
+// uchun Region ustuni ham qo'shiladi (qaysi viloyat), «Region» uchun hudud/ijrochi soni.
 function addBreakdownSheet(wb: ExcelJS.Workbook, clients: ClientWithCases[], dim: Dim): void {
   const ws = wb.addWorksheet(DIM_SHEET[dim]);
+  const extra = dim === 'hudud' ? { header: 'Region', key: 'region', width: 18 } : null;
   ws.columns = [
     { header: DIM_HEAD[dim], key: 'label', width: 46 },
+    ...(extra ? [extra] : []),
     { header: 'Ijro ishi', key: 'cases', width: 12 },
-    { header: 'Bizniki (8 MMT)', key: 'ours', width: 16 },
+    { header: 'Bizniki (MMT)', key: 'ours', width: 14 },
     { header: 'Mijoz', key: 'clients', width: 10 },
+    { header: 'Ulush %', key: 'share', width: 10 },
     { header: 'Qoldiq qarz', key: 'debt', width: 20 },
   ];
   const rows = groupBreakdown(clients, dim);
-  for (const r of rows) ws.addRow(r);
+  const totalDebt = rows.reduce((a, r) => a + r.debt, 0) || 1;
+  for (const r of rows) {
+    const row: Record<string, unknown> = { label: r.label, cases: r.cases, ours: r.ours, clients: r.clients, share: Math.round((r.debt / totalDebt) * 1000) / 10, debt: r.debt };
+    if (extra) row.region = regionFromText(r.label) ?? (r.label === UNK ? UNK : ''); // hudud → qaysi viloyat
+    ws.addRow(row);
+  }
   const t = rows.reduce((a, r) => ({ cases: a.cases + r.cases, ours: a.ours + r.ours, debt: a.debt + r.debt }), { cases: 0, ours: 0, debt: 0 });
-  ws.addRow({ label: `Jami · ${rows.length} guruh`, cases: t.cases, ours: t.ours, clients: '', debt: t.debt });
+  ws.addRow({ label: `Jami · ${rows.length} guruh`, cases: t.cases, ours: t.ours, clients: '', share: 100, debt: t.debt });
+  ws.getRow(1).font = { bold: true };
+  ws.lastRow!.font = { bold: true };
+  ws.views = [{ state: 'frozen', ySplit: 1 }];
+  ws.getColumn('debt').numFmt = '#,##0';
+}
+
+// «Ijrochilar boʻyicha» — FAQAT bizning firma ishlari. Har ijrochi: F.I.O, telefon, MIB boʻlimi (hudud),
+// region, ishlar/mijozlar soni, qoldiq qarz. Operator ijrochi bilan bogʻlanishi uchun eng muhim varaq.
+function addExecutorSheet(wb: ExcelJS.Workbook, clients: ClientWithCases[]): void {
+  const ws = wb.addWorksheet('Ijrochilar boʻyicha');
+  ws.columns = [
+    { header: 'Davlat ijrochisi', key: 'name', width: 30 },
+    { header: 'Telefon', key: 'phone', width: 18 },
+    { header: 'MIB boʻlimi (hudud)', key: 'dept', width: 28 },
+    { header: 'Region', key: 'region', width: 18 },
+    { header: 'Ishlar', key: 'cases', width: 9 },
+    { header: 'Mijozlar', key: 'clients', width: 10 },
+    { header: 'Qoldiq qarz', key: 'debt', width: 20 },
+  ];
+  type Agg = { name: string; phone: string; dept: string; region: string; cases: number; clients: Set<number>; debt: number };
+  const map = new Map<string, Agg>();
+  for (const c of clients) {
+    for (const k of c.cases) {
+      if (!k.isTargetFirm) continue; // faqat bizniki — ijrochi detali shu ishларда bor
+      const name = txt(k.executorName) || UNK;
+      const phone = txt(k.executorPhone);
+      const dept = clean(k.executorDept) || UNK;
+      const key = `${name}|${phone}|${dept}`;
+      const a = map.get(key) ?? { name, phone, dept, region: regionFromText(txt(k.executorDept) || txt(k.courtOrgan)) ?? UNK, cases: 0, clients: new Set<number>(), debt: 0 };
+      a.cases += 1; a.clients.add(c.id); a.debt += num(k.remainingDebt);
+      map.set(key, a);
+    }
+  }
+  const rows = [...map.values()].sort((x, y) => y.debt - x.debt || y.cases - x.cases);
+  for (const a of rows) ws.addRow({ name: a.name, phone: a.phone, dept: a.dept, region: a.region, cases: a.cases, clients: a.clients.size, debt: a.debt });
+  const t = rows.reduce((s, a) => ({ cases: s.cases + a.cases, debt: s.debt + a.debt }), { cases: 0, debt: 0 });
+  ws.addRow({ name: `Jami · ${rows.length} ijrochi`, phone: '', dept: '', region: '', cases: t.cases, clients: '', debt: t.debt });
   ws.getRow(1).font = { bold: true };
   ws.lastRow!.font = { bold: true };
   ws.views = [{ state: 'frozen', ySplit: 1 }];
@@ -44,6 +92,10 @@ export async function buildMibExcel(
   wb.created = new Date();
 
   // Bitta kesim varag'i (dashboard tabidan «Excel»).
+  if (opts.tab === 'ijrochilar') {
+    addExecutorSheet(wb, clients);
+    return Buffer.from(await wb.xlsx.writeBuffer());
+  }
   if (opts.tab && DIMS.includes(opts.tab as Dim)) {
     addBreakdownSheet(wb, clients, opts.tab as Dim);
     const out = await wb.xlsx.writeBuffer();
@@ -130,7 +182,8 @@ export async function buildMibExcel(
   ['total', 'main', 'fee', 'fine', 'remaining'].forEach((k) => { const col = s2.getColumn(k); col.numFmt = '#,##0'; });
 
   // To'liq hisobotga kesim varaqlarini ham qo'shamiz (bitta mijoz eksportida shart emas).
-  if (!opts.clientId) for (const d of DIMS) addBreakdownSheet(wb, clients, d);
+  // «Ijrochilar boʻyicha» — birinchi kesim varaq (eng koʻp soʻraladi), so'ng firma/region/hudud/bank.
+  if (!opts.clientId) { addExecutorSheet(wb, clients); for (const d of DIMS) addBreakdownSheet(wb, clients, d); }
 
   const out = await wb.xlsx.writeBuffer();
   return Buffer.from(out);

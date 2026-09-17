@@ -65,24 +65,65 @@ export const REGION_TOKENS: [RegExp, string][] = [
   // «Тош обл» = Toshkent viloyati qisqartmasi.
   [/тош\s*обл|тошкент\s*вил|тошкент|toshkent|tashkent|ташкент/i, 'Toshkent viloyati'],
 ];
+
+// TUMAN → VILOYAT. MIB `executorDept` ko'pincha faqat «<Tuman> тумани» bo'ladi (viloyat yozilmaydi),
+// courtOrgan esa ko'p ish uchun MARKAZIY «Учтепа туманлараро суди» (Toshkent) — shuning uchun tumandan
+// aniqlamasak, region NOTO'G'RI Toshkent'ga tegib ketardi (2026-09-17). Ushbu xarita executorDept'dagi
+// tumanni to'g'ri viloyatiga bog'laydi. Faqat KIRILL (mib.uz shu tilda beradi); ehtiyot uchun ba'zi
+// lotin variantlar ham. «тумани»/«шаҳри» qo'shimchasidan oldingi o'zakka mos keladi.
+// Diqqat: JS `\b` faqat ASCII harflar uchun ishlaydi — KIRILL harf yonida noto'g'ri; shuning uchun
+// tuman o'zaklariga «\b» qo'yilmaydi, o'zak yetarlicha farqlovchi (kerak bo'lsa «\s*тум»/«шаҳ» bilan).
+export const DISTRICT_TOKENS: [RegExp, string][] = [
+  // Andijon
+  [/асака|балиқчи|жалақудуқ|избоскан|марҳамат|олтинкўл|пахтаобод|хўжаобод|шаҳрихон|қўрғонтепа|улуғнор|хонобод/i, 'Andijon'],
+  // Fargʻona
+  [/қўқон|марғилон|фурқат|қувасой|қува\s|учкўприк|учкуприк|данғара|риштон|ўзбекистон\s*тум|олтиариқ|қўштепа|бешариқ|бувайда|боғдод|тошлоқ|сўх|ёз[ъ]?ёвон|қувадарё/i, 'Fargʻona'],
+  // Namangan
+  [/косонсой|учқўрғон|учкурган|поп\s*тум|чуст|мингбулоқ|норин|тўрақўрғон|уйчи|чортоқ|янгиқўрғон|давлатобод/i, 'Namangan'],
+  // Samarqand
+  [/қўшрабод|пайариқ|оқдарё|пахтачи|тайлоқ|жомбой|каттақўрғон|иштихон|нарпай|нуробод|пастдарғом|ургут|булунғур|қўшработ/i, 'Samarqand'],
+  // Buxoro
+  [/жондор|шофиркон|когон|ғиждувон|вобкент|қоракўл|олот\s*тум|пешку|ромитан|қоровулбозор/i, 'Buxoro'],
+  // Sirdaryo
+  [/ховос|оқолтин|сайҳунобод|сайхунобод|гулистон|янгиер|мирзаобод|боёвут|сардоба|ширин\s*шаҳ/i, 'Sirdaryo'],
+  // Surxondaryo
+  [/узун\s*тум|бойсун|жарқўрғон|қумқўрғон|сариосиё|шеробод|ангор|бандихон|музработ|олтинсой|шўрчи|қизириқ|учқизил/i, 'Surxondaryo'],
+  // Qashqadaryo
+  [/қарши|яккабоғ|ғузор|деҳқонобод|косон\s*тум|китоб|миришкор|муборак|нишон|чироқчи|шаҳрисабз|касби|қамаши|камаши/i, 'Qashqadaryo'],
+  // Xorazm
+  [/хазорасп|хива|боғот|гурлан|қўшкўпир|урганч|хонқа|шовот|янгиариқ|янгибозор|питнак|тупроққалъа/i, 'Xorazm'],
+  // Navoiy
+  [/зарафшон|қизилтепа|навбаҳор|учқудуқ|кармана|конимех|нурота|томди|хатирчи|ғозғон|ғозгон/i, 'Navoiy'],
+  // Jizzax
+  [/пахтакор|арнасой|бахмал|дўстлик|зарбдор|зафаробод|мирзачўл|форими|ғаллаорол|шароф\s*рашидов|янгиобод|уста\s*ирисов|зомин|балиқли/i, 'Jizzax'],
+  // Toshkent viloyati (tumanlar)
+  [/бўстонлиқ|оҳангарон|ўртачирчиқ|оққўрғон|чирчиқ|чиноз|бўка\s*тум|ангрен|бекобод|зангиота|қибрай|қуйичирчиқ|паркент|пискент|янгийўл|нурафшон|олмалиқ|тошкент\s*тум/i, 'Toshkent viloyati'],
+  // Toshkent shahri (tumanlar) — Янгиҳаёт yangi tuman
+  [/сергели|юнусобод|чилонзор|олмазор|мирзо\s*улуғбек|миробод|яккасарой|яшнобод|бектемир|шайхонтоҳур|сирғали|янгиҳаёт|янгихаёт/i, 'Toshkent shahri'],
+  // Qoraqalpogʻiston
+  [/амударё|хўжайли|тўрткўл|кегейли|беруний|қонликўл|қораўзак|мойноқ|тахтакўпир|чимбой|шуман[ао]й|элликқалъа|бўзатоў|бўстон\s*тум|қўнғирот|нукус/i, 'Qoraqalpogʻiston'],
+];
+
 export function regionFromText(t: string): string | null {
   for (const [re, name] of REGION_TOKENS) if (re.test(t)) return name;
+  for (const [re, name] of DISTRICT_TOKENS) if (re.test(t)) return name;
   return null;
 }
-/** Mijoz regioni: Excel «region» bo'lsa o'sha, aks holda ijrochi bo'limi / sud organidan aniqlanadi. */
+/** Mijoz regioni: Excel «region» bo'lsa o'sha; aks holda AVVAL ijrochi bo'limi (executorDept — qarzdorning
+ *  haqiqiy tumani), so'ng sud organidan aniqlanadi. Ijrochi bo'limi USTUN — chunki courtOrgan ko'p ish
+ *  uchun markaziy «Учтепа» sudi bo'lib, region'ни noto'g'ri Toshkent'ga tortardi. */
 export function regionOf(c: BClient): string | null {
   const r = clean(c.region);
   if (r) return r;
-  for (const k of c.cases) {
-    const m = regionFromText(`${k.executorDept ?? ''} ${k.courtOrgan ?? ''}`);
-    if (m) return m;
-  }
+  for (const k of c.cases) { const m = regionFromText(k.executorDept ?? ''); if (m) return m; }
+  for (const k of c.cases) { const m = regionFromText(k.courtOrgan ?? ''); if (m) return m; }
   return null;
 }
 
-const UNKNOWN = 'Aniqlanmagan';
+export const UNKNOWN = 'Aniqlanmagan';
+export const OTHER_FIRM = 'Boshqa kreditorlar';
 export function rowKey(c: BClient, k: BCase, dim: Dim): string {
-  if (dim === 'firma') return k.firmName ? shortFirm(k.firmName) : 'Boshqa kreditorlar';
+  if (dim === 'firma') return k.firmName ? shortFirm(k.firmName) : OTHER_FIRM;
   if (dim === 'region') return regionOf(c) ?? UNKNOWN;
   if (dim === 'hudud') return clean(k.executorDept) || UNKNOWN;
   return normalizeBank(k.bankName) || UNKNOWN;

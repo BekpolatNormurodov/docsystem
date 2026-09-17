@@ -15,13 +15,13 @@ import { Ico, Spinner, DateField } from '@/ui';
 import { type ClientRow } from '../mib-hisoboti/MibClientDetail';
 import { ClientDetailFull } from '../mib-hisoboti/ClientDetailFull';
 import { MibLogPanel } from '../mib-hisoboti/MibLogPanel';
-import { regionOf, groupBreakdown, parseMoney, clean, shortFirm, normalizeBank, type Dim } from '@/lib/mib/breakdown';
+import { regionOf, groupBreakdown, parseMoney, clean, shortFirm, normalizeBank, UNKNOWN, OTHER_FIRM, type Dim } from '@/lib/mib/breakdown';
 import { useT } from '@/lib/i18n/client';
 
 interface Report { id: number; createdAt: string; label: string | null; total: number; autoRun: boolean; statusFilter: string | null; sourceFileName?: string }
 interface Stats {
   total: number; status: Record<string, number>; withCases: number; totalCases: number; detailedCases: number;
-  totalRemainingDebt: number; firms: { name: string; inn: string; cases: number; clients: number; remainingDebt: number }[];
+  totalRemainingDebt: number; ourRemainingDebt?: number; firms: { name: string; inn: string; cases: number; clients: number; remainingDebt: number }[];
 }
 
 const cx = (...c: (string | false | undefined | null)[]) => c.filter(Boolean).join(' ');
@@ -35,26 +35,31 @@ async function jpost(url: string, body?: unknown) {
 }
 
 interface Enriched extends ClientRow {
-  region2: string | null;
+  region2: string;
   depts: string[];
   banks: string[];
   ourFirms: string[];
+  firmKeys: string[];
   ours: boolean;
   remainingSum: number;
   caseCount: number;
   hay: string;
 }
 function enrich(c: ClientRow): Enriched {
-  const depts = new Set<string>(), banks = new Set<string>(), ourFirms = new Set<string>();
+  // depts/banks/firmKeys — breakdown rowKey bilan BIR XIL (bo'sh → «Aniqlanmagan»), aks holda kesim
+  // qatorini bosганда filtr mos kelmay «Filtrga mos mijoz yo'q» chiqardi (2026-09-17). ourFirms — faqat
+  // bizniki (dropdown + «bizniki» belgisi uchun); firmKeys — HAMMA kesim yorlig'i (kesimni bosish uchun).
+  const depts = new Set<string>(), banks = new Set<string>(), ourFirms = new Set<string>(), firmKeys = new Set<string>();
   let remainingSum = 0, ours = false;
   for (const k of c.cases) {
-    const d = clean(k.executorDept); if (d) depts.add(d);
-    const b = normalizeBank(k.bankName); if (b) banks.add(b);
+    depts.add(clean(k.executorDept) || UNKNOWN);
+    banks.add(normalizeBank(k.bankName) || UNKNOWN);
+    firmKeys.add(k.firmName ? shortFirm(k.firmName) : OTHER_FIRM);
     if (k.isTargetFirm && k.firmName) { ours = true; ourFirms.add(shortFirm(k.firmName)); }
     remainingSum += parseMoney(k.remainingDebt);
   }
   const hay = [c.pinfl, c.fio2, c.fio, c.firm, c.ishRaqami, ...c.cases.map((k) => k.workNumber)].filter(Boolean).join(' ').toLowerCase();
-  return { ...c, region2: regionOf(c), depts: [...depts], banks: [...banks], ourFirms: [...ourFirms], ours, remainingSum, caseCount: c.cases.length, hay };
+  return { ...c, region2: regionOf(c) ?? UNKNOWN, depts: [...depts], banks: [...banks], ourFirms: [...ourFirms], firmKeys: [...firmKeys], ours, remainingSum, caseCount: c.cases.length, hay };
 }
 
 type Tab = 'mijozlar' | Dim;
@@ -139,7 +144,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
       (!filters.region || c.region2 === filters.region) &&
       (!filters.dept || c.depts.includes(filters.dept)) &&
       (!filters.bank || c.banks.includes(filters.bank)) &&
-      (!filters.firm || c.ourFirms.includes(filters.firm)) &&
+      (!filters.firm || c.firmKeys.includes(filters.firm)) &&
       (filters.own === 'all' || (filters.own === 'ours' ? c.ours : !c.ours)),
     );
   }, [enriched, filters]);
@@ -158,7 +163,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   const breakdown = useMemo(() => (tab === 'mijozlar' ? [] : groupBreakdown(filtered, tab)), [filtered, tab]);
 
   const oursCases = stats ? stats.firms.reduce((s, f) => s + f.cases, 0) : 0;
-  const oursDebt = stats ? stats.firms.reduce((s, f) => s + f.remainingDebt, 0) : 0;
+  const oursDebt = stats ? (stats.ourRemainingDebt ?? stats.firms.reduce((s, f) => s + f.remainingDebt, 0)) : 0;
   const totalCases = stats?.totalCases ?? 0;
   const checked = (stats?.status.DONE ?? 0) + (stats?.status.CLEAN ?? 0);
   const built = (report?.total ?? 0) > 0;

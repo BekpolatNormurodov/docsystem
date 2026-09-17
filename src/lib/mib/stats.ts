@@ -15,7 +15,8 @@ export interface MibStats {
   totalCases: number;
   detailedCases: number; // cases with Step 19 detail fetched
   firms: { name: string; inn: string; cases: number; clients: number; remainingDebt: number }[];
-  totalRemainingDebt: number;
+  totalRemainingDebt: number; // HAMMA ish (bizniki + boshqa kreditor) qoldiq qarzi
+  ourRemainingDebt: number;   // FAQAT bizning firma ishlari qoldiq qarzi (yonida ko'rsatiladi)
 }
 
 export function computeStats(clients: (MibClient & { cases: MibCase[] })[]): MibStats {
@@ -24,6 +25,7 @@ export function computeStats(clients: (MibClient & { cases: MibCase[] })[]): Mib
   let totalCases = 0;
   let detailedCases = 0;
   let totalRemainingDebt = 0;
+  let ourRemainingDebt = 0;
   const firmMap = new Map<string, { name: string; inn: string; cases: number; clients: Set<number>; remainingDebt: number }>();
 
   for (const cl of clients) {
@@ -40,7 +42,11 @@ export function computeStats(clients: (MibClient & { cases: MibCase[] })[]): Mib
         f.remainingDebt += parseMoney(c.remainingDebt);
         firmMap.set(key, f);
       }
-      totalRemainingDebt += parseMoney(c.remainingDebt);
+      // «Jami» — HAMMA ish (bizniki + boshqa kreditor); «bizniki» esa alohida — operator ikkalasini
+      // YONMA-YON ko'radi («jami: X · bizniki: Y», 2026-09-17).
+      const rd = parseMoney(c.remainingDebt);
+      totalRemainingDebt += rd;
+      if (c.isTargetFirm) ourRemainingDebt += rd;
     }
   }
 
@@ -48,5 +54,5 @@ export function computeStats(clients: (MibClient & { cases: MibCase[] })[]): Mib
     .map((f) => ({ name: f.name, inn: f.inn, cases: f.cases, clients: f.clients.size, remainingDebt: f.remainingDebt }))
     .sort((a, b) => b.cases - a.cases);
 
-  return { total: clients.length, status, withCases, totalCases, detailedCases, firms, totalRemainingDebt };
+  return { total: clients.length, status, withCases, totalCases, detailedCases, firms, totalRemainingDebt, ourRemainingDebt };
 }
