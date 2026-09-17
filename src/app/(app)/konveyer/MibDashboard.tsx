@@ -363,7 +363,14 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
               </button>
             ))}
           </div>
-          {!aggregate && <a className="btn-ghost mr-1 shrink-0 text-xs" href={excelHref}><Ico.download size={14} /> Excel{tab !== 'mijozlar' ? t(' (kesim)') : ''}</a>}
+          {!aggregate && (
+            <div className="mr-1 flex shrink-0 items-center gap-1">
+              {/* «To'liq Excel» — DOIM hamma varaq (Mijozlar + Ishlar + Ijrochilar + Firma/Region/Hudud/Bank).
+                  «Faqat shu kesim» — kesim tablarда qulaylik uchun bitta varaq. */}
+              <a className="btn-ghost text-xs" href={`/api/mib/${reportId}/excel`}><Ico.download size={14} /> {t('Toʻliq Excel')}</a>
+              {tab !== 'mijozlar' && <a className="btn-ghost text-xs" href={excelHref}>{t('Faqat shu kesim')}</a>}
+            </div>
+          )}
         </div>
 
         {/* summary line for the active view */}

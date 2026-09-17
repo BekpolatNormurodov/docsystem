@@ -1,10 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
-    // MIB avtomatorini web boot'да avtomat davom ettirish (src/instrumentation.ts). Next 14.2'да
-    // instrumentation.ts faqat shu bayroq bilan ishlaydi (15'да standart). Deploy/restart'дан keyin
-    // qo'лда «GO» bosish shart bo'lmasin — autoRun=1 hisobotlar o'zi davom etadi.
-    instrumentationHook: true,
     // `iconsax-react` is a huge barrel: a named import of ~28 icons otherwise drags the WHOLE package
     // (thousands of modules) into every route's dev compile — the main cause of 15–20s "Compiling…".
     // This rewrites the barrel import into direct per-icon deep imports, so only the used icons compile.
