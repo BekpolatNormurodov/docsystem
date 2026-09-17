@@ -135,6 +135,12 @@ export function groupBreakdown(clients: BClient[], dim: Dim): BRow[] {
   for (const c of clients) {
     for (const k of c.cases) {
       const key = rowKey(c, k, dim);
+      // Region/Hudud/Bank — bu kesimlar IJRO-DETALIga tayanadi (ijrochi bo'limi, banki), u esa faqat
+      // biz chuqur tortgan (bizniki) ishlarда bor. Detalsiz boshqa-kreditor ishlari (Davlat/bank —
+      // ro'yxatning ~yarmi) bu maydonларда bo'sh → «Aniqlanmagan» bo'lardi va kesimni ko'mib tashlardi.
+      // Ularni bu 3 kesimда SANAMAYMIZ (2026-09-17). «Firma» kesimи esa hammasini ko'rsatadi
+      // («Boshqa kreditorlar» sifatida) — u detalsiz ham ma'noli.
+      if (key === UNKNOWN && dim !== 'firma') continue;
       const r = rows.get(key) ?? { label: key, cases: 0, clients: new Set<number>(), ours: 0, debt: 0 };
       r.cases += 1; r.clients.add(c.id); if (k.isTargetFirm) r.ours += 1; r.debt += parseMoney(k.remainingDebt);
       rows.set(key, r);
