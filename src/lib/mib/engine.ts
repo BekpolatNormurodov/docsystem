@@ -373,11 +373,19 @@ export class MibEngine {
   }
 
   parseStep19Details(html: string): Step19Details {
+    // Sahifa «mebeli»: yuqoridagi YANGILIK-banner («…МИБ орқали…млн…ундирилди») va pastdagi footer-SLOGAN
+    // («Рақамлаштириш … коррупция … муҳим омилдир !»). Maydon (ijrочи/бўлим/суд) BO'SH bo'lса, regex
+    // `[\s\S]*?` bilan sahifа bo'ylab sirg'алиб shu banner/sloganни ushlab olardi → 567 ishда ijrochi
+    // «yangilik», hudud/sud «slogan» bo'lib yozilgan edi (2026-09-17 audit). Bularni RAD etamiz — natijada
+    // maydon bo'sh (null) qaytadi (ours ishда bu completeCase'да «Nomaʼlum» → novalid → qayta urinadi).
+    const isFurniture = (v: string): boolean =>
+      /Рақамлаштириш|коррупци|муҳим омилдир|шаффофлик|МИБ орқали|ундирилди|қарздорлиги/i.test(v) || /!\s*$/.test(v);
+    const clean19 = (v: string): string => v.replace(/<[^>]+>/g, '').replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim();
     const extractField = (pattern: string): string | null => {
       const m1 = html.match(new RegExp(`<div class="exec-item[^"]*"[\\s\\S]*?<p>[\\s\\S]*?${pattern}[\\s\\S]*?<\\/p>\\s*<label[^>]*>([^<]+)<\\/label>`, 'i'));
-      if (m1 && m1[1] && m1[1].trim()) return m1[1].replace(/<[^>]+>/g, '').replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim();
+      if (m1 && m1[1] && m1[1].trim()) { const c = clean19(m1[1]); if (c && !isFurniture(c)) return c; }
       const m2 = html.match(new RegExp(`(?:<p[^>]*>|<span>|<th>|<td>)[\\s\\S]*?${pattern}[\\s\\S]*?(?:<\\/p>|<\\/span>|<\\/th>|<\\/td>)\\s*<(?:label|td|strong|b|span)[^>]*>([^<]+)<\\/`, 'i'));
-      if (m2 && m2[1] && m2[1].trim()) return m2[1].replace(/<[^>]+>/g, '').replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim();
+      if (m2 && m2[1] && m2[1].trim()) { const c = clean19(m2[1]); if (c && !isFurniture(c)) return c; }
       return null;
     };
     const extractSimpleList = (pattern: string): string | null => {
