@@ -10,6 +10,7 @@ const K = {
   baseUrl: 'mib.baseUrl',
   intervalSec: 'mib.intervalSec',
   deepDetail: 'mib.deepDetail',
+  smsTimeoutSec: 'mib.smsTimeoutSec',
 } as const;
 
 export interface MibConfig {
@@ -23,13 +24,16 @@ export interface MibConfig {
   /** Chuqur detal (SMS-OTP bilan har ish bo'yicha bank/sud/summa). O'chirilsa — faqat ijro ishi
    *  ro'yxati olinadi (SMS so'ralmaydi, tez va «birdan»). */
   deepDetail: boolean;
+  /** SMS OTP kutish chegarasi (soniya). Sozlamalarда o'zgartiriladi — deploy shart emas. */
+  smsTimeoutSec: number;
 }
 
 // Interval — mijozlar orasidagi pauza. Ilgari 60s edi (juda ehtiyotkor) → 2716 mijoz uchun ~45 soat
 // faqat kutishда ketardi. Endi 30s (operator qarori) — 2 barobar tez, lekin oraliq saqlanadi.
 // Chegara 2s gacha tushirildi — operator Sozlamalarда xohlagancha o'zgartiradi.
 export const MIN_INTERVAL_SEC = 2;
-const DEFAULTS: MibConfig = { phone: '', phonePending: '', phoneConfirmedAt: '', baseUrl: 'https://mib.uz', intervalSec: 30, deepDetail: true };
+const DEFAULTS: MibConfig = { phone: '', phonePending: '', phoneConfirmedAt: '', baseUrl: 'https://mib.uz', intervalSec: 30, deepDetail: true, smsTimeoutSec: 120 };
+export const MIN_SMS_TIMEOUT_SEC = 20;
 
 export async function getMibConfig(): Promise<MibConfig> {
   const rows = await prisma.setting.findMany({ where: { key: { in: Object.values(K) } } });
@@ -42,6 +46,7 @@ export async function getMibConfig(): Promise<MibConfig> {
     baseUrl: map.get(K.baseUrl) || DEFAULTS.baseUrl,
     intervalSec: Number.isFinite(intervalSec) && intervalSec >= MIN_INTERVAL_SEC ? intervalSec : DEFAULTS.intervalSec,
     deepDetail: map.get(K.deepDetail) !== '0', // default yoqilgan; faqat '0' o'chiradi
+    smsTimeoutSec: (() => { const v = Number(map.get(K.smsTimeoutSec)); return Number.isFinite(v) && v >= MIN_SMS_TIMEOUT_SEC ? v : DEFAULTS.smsTimeoutSec; })(),
   };
 }
 
@@ -53,6 +58,7 @@ export async function setMibConfig(patch: Partial<MibConfig>): Promise<void> {
   if (patch.baseUrl !== undefined) entries.push([K.baseUrl, patch.baseUrl]);
   if (patch.intervalSec !== undefined) entries.push([K.intervalSec, String(patch.intervalSec)]);
   if (patch.deepDetail !== undefined) entries.push([K.deepDetail, patch.deepDetail ? '1' : '0']);
+  if (patch.smsTimeoutSec !== undefined) entries.push([K.smsTimeoutSec, String(patch.smsTimeoutSec)]);
   for (const [key, value] of entries) {
     await prisma.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
   }

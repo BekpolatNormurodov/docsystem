@@ -17,9 +17,7 @@ import { pushMibLog } from './log-buffer';
 import { firmKeyWords, creditorIsOurs } from './creditor-match';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-// SMS OTP kutish chegarasi. 120s juda ko'p edi — kelmagan SMS'да butun 120s kutib pipeline'ni
-// sekinlashtirardi. 60s: kod odatда ~10s'да keladi, kelmasa 2× tez «kelmadi» bo'lib retry'ga tushadi.
-const SMS_TIMEOUT_MS = 60_000;
+// SMS OTP kutish chegarasi endi Sozlamalarда (cfg.smsTimeoutSec, default 120s) — deploy'siz o'zgartiriladi.
 // SMS kod kelmasa mijoz shuncha marta QAYTA urinilib ko'riladi (keyin ish detalsiz DONE bo'ladi).
 const MAX_SMS_ATTEMPTS = 3;
 // Bir vaqtда «uchishда» tutiladigan SMS soni (pipeline oynasi). mib.uz bitta sessiyada bir necha
@@ -90,6 +88,7 @@ export async function runMibReportJob(jobId: number): Promise<void> {
   await prisma.mibClient.updateMany({ where: { reportId, status: 'RUNNING' }, data: { status: 'PENDING' } });
 
   const cfg = await getMibConfig();
+  const smsTimeoutMs = (cfg.smsTimeoutSec || 120) * 1000; // Sozlamalardan — deploy'siz o'zgartiriladi
   const firms = await prisma.firm.findMany({ select: { shortName: true } });
   const firmWordsList = firms.map((f) => firmKeyWords(f.shortName)).filter((w) => w.length);
   const captcha = new CaptchaSolver();
@@ -147,7 +146,7 @@ export async function runMibReportJob(jobId: number): Promise<void> {
   // Bitta bizники ishни tugallash: pool'dан (markerId'дан keyingi) kodlarni formaga sinaydi, TO'G'Rи
   // kodni DETAL orqali aniqlaydi (ijrochi nomi bo'lsa — to'g'ri; bo'sh bo'lsa — noto'g'ri, consume qilinmaydi).
   async function completeCase(item: Inflight): Promise<boolean> {
-    const deadline = Date.now() + SMS_TIMEOUT_MS;
+    const deadline = Date.now() + smsTimeoutMs;
     const tried = new Set<string>();
     let tries = 0;
     while (Date.now() < deadline && tries < MAX_CODE_TRIES) {
