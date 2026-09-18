@@ -1,7 +1,8 @@
 import { cookies } from 'next/headers';
 import { requireUser } from '@/lib/auth';
+import { prisma } from '@/lib/db';
 import { konveyerSnapshots, konveyerStageBadges } from '@/lib/konveyer';
-import { AppShell, ConfirmProvider } from '@/ui';
+import { AppShell, ConfirmProvider, HeaderRefreshBadge } from '@/ui';
 import type { NavItem } from '@/ui/AppShell';
 import { STEP_META, allowedSteps, allowedModules, MODULE_META, canAccess, SUBITEM_KEYS, SUBITEM_META, roleLabel } from '@/lib/access';
 import { buxgalteriyaCounts } from '@/lib/buxgalteriya';
@@ -134,6 +135,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // Sana/snapshot filtri — endi HAR bir foydalanuvchiga (snapshot bo'lsa), faqat bosqichlilarga emas
   // (foydalanuvchi so'rovi: narigi userlar ham umumiy sana bo'yicha filterни tanlay olsin).
   const showPicker = snaps.length > 0;
+  // «Oxirgi yangilanish» — worker sud (ADOLAT) + talabnoma (hippo) avto-sinxron vaqtlari (Setting).
+  // Guarded: DB xatosi butun app sahifasini yiqitmasin (picker/badge shunchaki ko'rinmaydi).
+  const refreshRows = await prisma.setting.findMany({
+    where: { key: { in: ['court_status_refreshed_at', 'talabnoma_refreshed_at'] } },
+    select: { key: true, value: true },
+  }).catch(() => [] as { key: string; value: string }[]);
+  const refreshBy = Object.fromEntries(refreshRows.map((r) => [r.key, r.value]));
   const topActions: NavItem[] = isAdmin
     ? [
         { href: '/ulanishlar', label: 'Ulanishlar', icon: 'link' },
@@ -159,6 +167,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         nav={tr(nav)}
         user={{ fullName: user.fullName, roleLabel: t(onlyBux ? 'Buxgalter' : roleLabel(user.role)) }}
         topActions={tr(topActions)}
+        headerStatus={<HeaderRefreshBadge court={refreshBy['court_status_refreshed_at']} talabnoma={refreshBy['talabnoma_refreshed_at']} />}
         headerExtra={
           <div className="flex items-center gap-1.5">
             {showPicker && <div className="w-[132px]"><SnapshotPicker options={snaps} value={selectedSnap} /></div>}

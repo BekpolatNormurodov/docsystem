@@ -93,4 +93,10 @@ export const common: Record<string, string> = {
   'Ism familiya': 'Ф.И.О',
   'Saqlandi': 'Сохранено',
   'Saqlanmadi': 'Не сохранено',
+  // «Oxirgi yangilanish» — header (chap tepa) sud/talabnoma avto-sinxron vaqti
+  'Yangilangan': 'Обновлено',
+  'Oxirgi yangilanish': 'Последнее обновление',
+  'hozirgina': 'только что',
+  'daq oldin': 'мин назад',
+  'soat oldin': 'ч назад',
 };

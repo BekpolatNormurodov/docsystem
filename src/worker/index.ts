@@ -12,6 +12,12 @@ import { SessionExpiredError } from '../lib/session-store';
 import { autoResumeTick } from '../lib/court-auto-resume';
 import { draftAutoTick } from '../lib/court-draft-auto';
 import { syncCourtOutcomes, resetDeclinedForResend } from '../lib/cabinet/outcome-sync';
+import { getStoredHippoSession } from '../lib/hippo/session';
+import { ingestHippoStatuses } from '../lib/hippo/status-ingest';
+import { attachTalabnomaReceipts } from '../lib/hippo/attach-receipts';
+import { refreshDeliveredReceipts } from '../lib/hippo/refresh-delivered-receipts';
+import { reconcileTraceAgainstLive } from '../lib/hippo/talabnoma-trace';
+import { liveRegistryIds } from '../lib/hippo/xat';
 
 // Standalone background worker. Runs in its own process (a Docker container in production) and is the
 // ONLY executor of the heavy document jobs when the web app runs with JOB_MODE=worker. It polls the
@@ -459,16 +465,29 @@ async function courtDetailSyncLoop(): Promise<void> {
 const lastCourtStatusOk = new Map<string, number>();
 const STATUS_FRESH_MS = 45 * 60_000;
 
+// «Oxirgi yangilanish» — muvaffaqiyatli o'tish oxirida Setting'ga ISO vaqtni yozadi. Header (chap
+// tepada) shu ikki kalitni o'qib «Yangilangan: …» ni ko'rsatadi (src/ui/HeaderRefreshBadge.tsx).
+async function stampRefresh(key: string): Promise<void> {
+  try {
+    const value = new Date().toISOString();
+    await prisma.setting.upsert({ where: { key }, update: { value }, create: { key, value } });
+  } catch (e) {
+    console.error(`[worker] ${key} yozib bo'lmadi:`, (e as Error).message?.slice(0, 120));
+  }
+}
+
 async function courtStatusSyncLoop(): Promise<void> {
   console.log(`[worker] sud status sync: har ${Math.round(COURT_STATUS_EVERY_MS / 60_000)} daqiqada`);
   await new Promise((r) => setTimeout(r, 90_000)); // migrate/DB tayyor bo'lsin
   while (!stopping) {
+    let anyOk = false;
     for (const f of FIRMS) {
       if (stopping) break;
       try {
         const s = await getStoredCabinetSession(f.stir);
         const r = await ingestCabinetStatuses(s, f.branchCode);
         lastCourtStatusOk.set(f.branchCode, Date.now());
+        anyOk = true;
         if (r.totalCases > 0) {
           console.log(`[worker] sud status ${f.branchCode}: ${r.totalCases} ta ish (mos ${r.matched})`);
         }
@@ -481,6 +500,7 @@ async function courtStatusSyncLoop(): Promise<void> {
       }
       await new Promise((r) => setTimeout(r, COURT_STATUS_FIRM_GAP_MS));
     }
+    if (anyOk) await stampRefresh('court_status_refreshed_at'); // kamida bitta firma yangilandi
     await new Promise((r) => setTimeout(r, COURT_STATUS_EVERY_MS));
   }
 }
@@ -555,6 +575,55 @@ async function courtOutcomeSyncLoop(): Promise<void> {
       await new Promise((r) => setTimeout(r, COURT_OUTCOME_FIRM_GAP_MS));
     }
     await new Promise((r) => setTimeout(r, COURT_OUTCOME_EVERY_MS));
+  }
+}
+
+// ── TALABNOMA (xat.hippo) HOLAT SINXRONI — HAR SOAT ────────────────────────────────────
+//
+// NEGA KERAK. Sud (ADOLAT) holati worker sikllarida avtomat yangilanadi, lekin talabnoma
+// (hippo) holati BUGUNGACHA faqat QO'LDA — Talabnoma sahifasidagi «Hippodan sinxronlash»
+// tugmasi bosilganda yangilanardi. Ya'ni yetkazilganlik dalili (check) va «iz» eskirib
+// qolardi. Bu sikl `/konveyer/hippo/sync` route'ining aynan o'zini firma-firma, har soat
+// bajaradi: reyestr+xatlarni ClientCaseStatus'ga oladi (qo'lda yuklanganlar ham), «iz»ni
+// jonli reyestrga solishtiradi, yangi kvitansiyalarni biriktiradi va «yetkazildi»
+// bo'lganlarni to'ldirilgan check bilan almashtiradi. Faqat O'QIYDI — talabnoma yubormaydi.
+//
+// Portalga bir zumda urilmasin: firmalar orasida pauza + boshqa sikllardan keyin boshlanadi.
+const HIPPO_SYNC_EVERY_MS = Math.max(30 * 60_000, Number(process.env.HIPPO_SYNC_MS) || 60 * 60_000);
+const HIPPO_FIRM_GAP_MS = 20_000;
+const hippoDigits = (s?: string | null) => (s ?? '').replace(/\D+/g, '');
+
+async function hippoStatusSyncLoop(): Promise<void> {
+  console.log(`[worker] talabnoma (hippo) sinxroni: har ${Math.round(HIPPO_SYNC_EVERY_MS / 60_000)} daqiqada`);
+  await new Promise((r) => setTimeout(r, 200_000)); // sud sikllari birinchi joylashsin
+  while (!stopping) {
+    let anyOk = false;
+    for (const f of FIRMS) {
+      if (stopping) break;
+      try {
+        const firm = await prisma.firm.findFirst({ where: { code: f.branchCode }, select: { id: true, code: true, stir: true } });
+        if (!firm?.code) continue;
+        let session;
+        try { session = await getStoredHippoSession(hippoDigits(firm.stir)); }
+        catch { continue; } // firma xat.hippo'ga ulanmagan — o'tkazib yuboriladi
+        await ingestHippoStatuses(session, firm.code);
+        // «iz»ni o'z-o'zini davolash + kvitansiyalarni biriktirish + yetkazilganini to'ldirish —
+        // har biri alohida try (biri yiqilsa qolganlari ishlayversin), route'dagi kabi bounded.
+        try { await reconcileTraceAgainstLive(firm.code, await liveRegistryIds(session)); }
+        catch (e) { console.error(`[worker] talabnoma iz ${f.branchCode}:`, (e as Error).message?.slice(0, 120)); }
+        try { await attachTalabnomaReceipts(session, { id: firm.id, code: firm.code }, { limit: 60 }); }
+        catch (e) { console.error(`[worker] talabnoma kvitansiya ${f.branchCode}:`, (e as Error).message?.slice(0, 120)); }
+        try { await refreshDeliveredReceipts(session, { id: firm.id, code: firm.code }, { limit: 150 }); }
+        catch (e) { console.error(`[worker] talabnoma yetkazilgan ${f.branchCode}:`, (e as Error).message?.slice(0, 120)); }
+        anyOk = true;
+      } catch (e) {
+        const msg = e instanceof SessionExpiredError ? "sessiya yo'q" : (e as Error).message?.slice(0, 120);
+        if (!(e instanceof SessionExpiredError)) console.error(`[worker] talabnoma sinxroni ${f.branchCode}: ${msg}`);
+      }
+      await new Promise((r) => setTimeout(r, HIPPO_FIRM_GAP_MS));
+    }
+    if (anyOk) await stampRefresh('talabnoma_refreshed_at'); // kamida bitta firma yangilandi
+    await new Promise((r) => setTimeout(r, HIPPO_SYNC_EVERY_MS));
   }
 }
 
@@ -665,6 +734,7 @@ void courtDraftAutoLoop().catch((e) => console.error('[worker] avto-qoralama fat
 void courtStatusSyncLoop().catch((e) => console.error('[worker] sud status sync fatal', e));
 void courtDetailSyncLoop().catch((e) => console.error('[worker] sud detali sync fatal', e));
 void courtOutcomeSyncLoop().catch((e) => console.error('[worker] sud natijalari sinxroni fatal', e));
+void hippoStatusSyncLoop().catch((e) => console.error('[worker] talabnoma (hippo) sinxroni fatal', e));
 
 loop().catch((e) => {
   console.error('[worker] fatal', e);

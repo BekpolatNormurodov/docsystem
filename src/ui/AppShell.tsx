@@ -56,6 +56,8 @@ export interface AppShellProps {
   stepperExtra?: React.ReactNode;
   /** Rendered in the header top-right, before the theme toggle (e.g. the snapshot-date picker). */
   headerExtra?: React.ReactNode;
+  /** Rendered in the header top-LEFT, right after the page title (e.g. «Oxirgi yangilanish» rozetkasi). */
+  headerStatus?: React.ReactNode;
   /** Nav items shown as icon-only buttons in the header top-right (e.g. connections, settings). */
   topActions?: NavItem[];
   children: React.ReactNode;
@@ -97,6 +99,7 @@ export function AppShell({
   panel,
   stepperExtra,
   headerExtra,
+  headerStatus,
   topActions,
   children,
 }: AppShellProps) {
@@ -402,6 +405,7 @@ export function AppShell({
             <PanelToggle className="h-5 w-5" open={!collapsed} />
           </button>
           <h1 className="truncate text-sm font-semibold">{current?.label ?? appName}</h1>
+          {headerStatus}
           <div className="ml-auto flex items-center gap-1.5">
             {headerExtra && <SidebarRailContext.Provider value={false}>{headerExtra}</SidebarRailContext.Provider>}
             {topActions?.map((item) => {
