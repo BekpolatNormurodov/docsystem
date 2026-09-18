@@ -3,7 +3,8 @@
 // Boshliq (director) hisoboti — Firma × bosqich matritsasi. Har qatorda bitta firma; ustunlarda
 // 4 bosqich: Talabnoma · Sanoat palatasi · Sudga chiqarilgan (4 ADOLAT statusi) · MIBga. Pastda JAMI.
 // Snapshot filtri — sidebardagi umumiy sana (konv_s). Excel — /boss/excel.
-import React, { useContext, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Ico, ExcelButton, Skeleton } from '@/ui';
 import { SnapshotRefreshContext } from '@/ui/AppShell';
 import { useT } from '@/lib/i18n/client';
@@ -15,7 +16,7 @@ const n = (x: number) => (x || 0).toLocaleString('ru-RU');
 const som = (x: number) => (x || 0).toLocaleString('ru-RU', { maximumFractionDigits: 0 });
 const cellNum = (x: number, cls?: string) => <td className={cx('px-3 py-2.5 text-right tabular-nums', cls)}>{x > 0 ? n(x) : <span className="text-muted/50">·</span>}</td>;
 
-export function BossReport({ data, snapLabel, linkDate, statusExcelHref }: { data: BossReportData; snapLabel: string | null; linkDate: string; statusExcelHref: string }) {
+export function BossReport({ data, snapLabel, linkDate, statusExcelHref, generatedAt }: { data: BossReportData; snapLabel: string | null; linkDate: string; statusExcelHref: string; generatedAt: string }) {
   const t = useT();
   const { pending } = useContext(SnapshotRefreshContext); // snapshot almashtirilyapti — shimmer ko'rsatiladi
   const { firms, totals, regions } = data;
@@ -24,6 +25,7 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref }: { dat
 
   return (
     <div className="space-y-5">
+      <HisobotAutoRefresh generatedAt={generatedAt} />
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
@@ -165,6 +167,76 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref }: { dat
         )}
       </div>
       </>)}
+    </div>
+  );
+}
+
+// Tashkent vaqti bilan «kun.oy, soat:daqiqa».
+const fmtAbs = (iso: string): string => {
+  try {
+    return new Intl.DateTimeFormat('ru-RU', { timeZone: 'Asia/Tashkent', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
+  } catch { return ''; }
+};
+
+const HOUR_MS = 60 * 60 * 1000;
+
+// «Yangilanish vaqti» — hisobot tepasida. Har 1 soatda AVTOMATIK yangilanadi (router.refresh →
+// server bossReport'ni qayta hisoblaydi, shimmer bilan), qo'lda «Yangilash» tugmasi ham bor.
+// Nisbiy vaqt («N daq oldin») FAQAT mount'dan keyin (hydration mismatch bo'lmasin — avval HH:MM).
+function HisobotAutoRefresh({ generatedAt }: { generatedAt: string }) {
+  const t = useT();
+  const router = useRouter();
+  const { pending, run } = useContext(SnapshotRefreshContext);
+  const [now, setNow] = useState<number | null>(null);
+
+  // Nisbiy yorliqni har daqiqada yangilab turamiz.
+  useEffect(() => {
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Har 1 soatda avtomatik yangilash. generatedAt o'zgarganda (yangilangach) timer qayta boshlanadi,
+  // shunda tab ochiq turганда aniq soatlik interval saqlanadi.
+  useEffect(() => {
+    const id = setInterval(() => { run(() => router.refresh()); }, HOUR_MS);
+    return () => clearInterval(id);
+  }, [generatedAt, router, run]);
+
+  const abs = fmtAbs(generatedAt);
+  let rel = '';
+  if (now != null) {
+    const m = Math.max(0, Math.round((now - new Date(generatedAt).getTime()) / 60_000));
+    rel = m < 1 ? t('hozirgina')
+      : m < 60 ? `${m} ${t('daq oldin')}`
+      : `${Math.round(m / 60)} ${t('soat oldin')}`;
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-sm">
+      <span className="flex items-center gap-2 text-muted">
+        <svg className="h-4 w-4 shrink-0 text-brand-600 dark:text-brand-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />
+        </svg>
+        <span>{t('Yangilanish vaqti')}:</span>
+        <b className="tabular-nums text-fg">{abs}</b>
+        {rel && <span className="text-xs text-muted">· {rel}</span>}
+      </span>
+      <span className="flex items-center gap-2">
+        <span className="hidden text-xs text-muted sm:inline">{t('Har 1 soatda avtomatik yangilanadi')}</span>
+        <button
+          type="button"
+          onClick={() => { if (!pending) run(() => router.refresh()); }}
+          disabled={pending}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs font-medium transition-colors hover:bg-surface-2 disabled:opacity-60"
+          title={t('Hozir yangilash')}
+        >
+          <svg className={cx('h-3.5 w-3.5', pending && 'animate-spin')} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" />
+          </svg>
+          {pending ? t('Yangilanmoqda…') : t('Yangilash')}
+        </button>
+      </span>
     </div>
   );
 }

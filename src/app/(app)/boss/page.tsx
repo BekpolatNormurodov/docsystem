@@ -23,5 +23,8 @@ export default async function Page() {
   const linkDate = latest ? latest.reportDate.toISOString().slice(0, 10) : '';
   // Mijoz-holati (firma · bosqich) eksporti — matritsa Excel'idan tashqari, kishi darajasida.
   const statusExcelHref = `/mijozlar/status-excel${selectedId ? `?s=${selectedId}` : ''}`;
-  return <BossReport data={data} snapLabel={snapLabel} linkDate={linkDate} statusExcelHref={statusExcelHref} />;
+  // Hisobot QACHON hisoblangani (server vaqti) — tepadagi «Yangilanish vaqti» rozetkasi uchun.
+  // force-dynamic bo'lgani uchun har so'rov (va har avtomatik yangilanish)da yangilanadi.
+  const generatedAt = new Date().toISOString();
+  return <BossReport data={data} snapLabel={snapLabel} linkDate={linkDate} statusExcelHref={statusExcelHref} generatedAt={generatedAt} />;
 }

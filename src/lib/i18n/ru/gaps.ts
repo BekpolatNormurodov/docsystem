@@ -86,6 +86,11 @@ export const gaps: Record<string, string> = {
   "Tayyorlanmoqda…": "Готовится…",
   "Yuklab boʻlmadi — qayta urinib koʻring": "Не удалось скачать — повторите",
   "Viloyat bo‘yicha — Talabnoma · Sud · MIB": "По области — Требование · Суд · МИБ",
+  // Hisobot — «Yangilanish vaqti» rozetkasi (har 1 soatda avtomatik).
+  "Yangilanish vaqti": "Время обновления",
+  "Har 1 soatda avtomatik yangilanadi": "Обновляется автоматически каждый час",
+  "Hozir yangilash": "Обновить сейчас",
+  "hozirgina": "только что",
   // Firmalar admin — faol/nofaol boshqaruvi.
   "Nofaol": "Неактивен",
   "Nofaol qilish": "Деактивировать",
