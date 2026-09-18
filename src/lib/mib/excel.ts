@@ -88,16 +88,23 @@ export async function buildMibExcel(
   clients: ClientWithCases[],
   opts: { tab?: string; clientId?: number } = {},
 ): Promise<Buffer> {
+  // «Mijozlar» varag'i — UMUMIY (hamma mijoz). «Ishlar» + kesim varaqlari — FAQAT BIZNIKI (Davlat/bank/
+  // jarima/pochta xarajati chiqmaydi): operator ijro ro'yxatida faqat o'z firmalarimiz ishlarini
+  // ko'rishni xohlaydi (2026-09-18). Bitta mijoz eksporti (opts.clientId) — mustasno, HAMMA ishi kerak.
+  const oursClients = opts.clientId
+    ? clients
+    : clients.map((c) => ({ ...c, cases: c.cases.filter((k) => k.isTargetFirm) })).filter((c) => c.cases.length > 0);
+
   const wb = new ExcelJS.Workbook();
   wb.created = new Date();
 
-  // Bitta kesim varag'i (dashboard tabidan «Excel»).
+  // Bitta kesim varag'i (dashboard tabidan «Excel») — kesimlar FAQAT BIZNIKI.
   if (opts.tab === 'ijrochilar') {
-    addExecutorSheet(wb, clients);
+    addExecutorSheet(wb, oursClients);
     return Buffer.from(await wb.xlsx.writeBuffer());
   }
   if (opts.tab && DIMS.includes(opts.tab as Dim)) {
-    addBreakdownSheet(wb, clients, opts.tab as Dim);
+    addBreakdownSheet(wb, oursClients, opts.tab as Dim);
     const out = await wb.xlsx.writeBuffer();
     return Buffer.from(out);
   }
@@ -127,7 +134,7 @@ export async function buildMibExcel(
     });
   }
 
-  // ── Sheet 2: Ishlar (ijro) ────────────────────────────────────────────────
+  // ── Sheet 2: Ishlar (ijro) — FAQAT BIZNIKI ────────────────────────────────
   const s2 = wb.addWorksheet('Ishlar');
   s2.columns = [
     { header: '№', key: 'no', width: 6 },
@@ -156,7 +163,7 @@ export async function buildMibExcel(
     { header: 'Hisob raqami', key: 'account', width: 24 },
     { header: 'Qarorlar', key: 'decisions', width: 40 },
   ];
-  for (const c of clients) {
+  for (const c of oursClients) {
     const fullName = c.cases.map((k) => k.personFullName).find((nm) => nm && !nm.includes('***') && nm !== 'Nomaʼlum') || c.fio2 || c.fio || '';
     if (!c.cases.length) continue;
     for (const k of c.cases) {
@@ -183,7 +190,7 @@ export async function buildMibExcel(
 
   // To'liq hisobotga kesim varaqlarini ham qo'shamiz (bitta mijoz eksportida shart emas).
   // «Ijrochilar boʻyicha» — birinchi kesim varaq (eng koʻp soʻraladi), so'ng firma/region/hudud/bank.
-  if (!opts.clientId) { addExecutorSheet(wb, clients); for (const d of DIMS) addBreakdownSheet(wb, clients, d); }
+  if (!opts.clientId) { addExecutorSheet(wb, oursClients); for (const d of DIMS) addBreakdownSheet(wb, oursClients, d); }
 
   const out = await wb.xlsx.writeBuffer();
   return Buffer.from(out);
