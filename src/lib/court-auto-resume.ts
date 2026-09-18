@@ -136,8 +136,13 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH, o
   // partiya joyini egallab, endigina to'langan ish yana kutib qolardi.
   const revived: { caseId: number }[] = [];
   if (fresh.length < cap) {
+    // FAQAT boji sababli o'tkazilganlar tiriltiriladi. «ADOLAT'da da'vo ALLAQACHON bor» sababli
+    // SKIPPED bo'lgan ish (court-submit-job portal tekshiruvi) to'lov bilan bog'liq emas — uning
+    // bojisi odatda to'langan, shuning uchun ilgari har daqiqada qayta tiriltirilib, partiya uni
+    // yana SKIPPED qilardi: cheksiz sikl (2026-09-18: COMMUNITY 162 ta, job #1776…#1904+), har
+    // aylanishda portalga behuda so'rov — IP limitini yeb, egress bloklariga hissa qo'shardi.
     const skipped = await prisma.courtQueueItem.findMany({
-      where: { firmId, state: 'SKIPPED', case: { courtCaseId: null } },
+      where: { firmId, state: 'SKIPPED', case: { courtCaseId: null }, NOT: { lastError: { contains: 'ALLAQACHON' } } },
       orderBy: { id: 'asc' },
       select: { caseId: true, case: { select: { receiptNumber: true } } },
     });
