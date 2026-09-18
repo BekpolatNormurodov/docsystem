@@ -519,8 +519,21 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
       console.log(`[Job ${jobId}] ${doneIds.size} ta ish allaqachon yuborilgan — o'tkazib yuborildi.`);
     }
 
+    // USHLAB TURILGAN (meta.resendHold) ishlar navbatga oldin tushgan bo'lsa ham qoralamaga
+    // chiqmaydi: SKIPPED + sabab (createResumeJob uni tiriltirmaydi — «ushlab turilibdi»).
+    const heldRows = await prisma.arizaCase.findMany({ where: { id: { in: pendingIds } }, select: { id: true, meta: true } });
+    const heldIds = heldRows.filter((r) => (r.meta as any)?.resendHold != null).map((r) => r.id);
+    if (heldIds.length) {
+      await prisma.courtQueueItem.updateMany({
+        where: { caseId: { in: heldIds }, state: { in: ['PENDING', 'RUNNING'] } },
+        data: { state: 'SKIPPED', step: null, finishedAt: new Date(), lastError: "Qayta yuborish ushlab turilibdi — hujjat paketi tuzatilmoqda (sud qaytargan ish)." },
+      });
+      console.log(`[Job ${jobId}] ${heldIds.length} ta qaytgan ish ushlab turilibdi (paket tuzatilguncha) — o'tkazib yuborildi.`);
+    }
+    const heldSet = new Set(heldIds);
+
     let targetCases = await prisma.arizaCase.findMany({
-      where: { id: { in: pendingIds } },
+      where: { id: { in: pendingIds.filter((id) => !heldSet.has(id)) } },
       // `documents` ATAYIN tartiblangan: `orderBy`siz MySQL qaytargan tartib keladi va
       // u ishdan-ishga o'zgaradi (bir ishda ariza avval, boshqasida kvitansiya).
       // Yakuniy tartibni `sortCourtFiles` beradi, bu esa uning kirishini barqaror qiladi.

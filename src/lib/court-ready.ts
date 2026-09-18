@@ -158,7 +158,10 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
   // operator 291 tadan 200 tasini navbatga bergach ham «Tayyor 291» ko'rardi va shu
   // 200 tani qayta-qayta yuborishga urinardi.
   const queued = queuedCaseIds?.has(c.id) ?? false;
-  const sendable = ready && !submitted && !draft && !draftReady && !queued && !SENT_STAGES.has(c.stage);
+  // USHLAB TURILGAN (meta.resendHold) — sud qaytargan ish, paket tuzatilguncha qayta tayyorlanmaydi
+  // (2026-09-18: qaytishlar paket tuzilishidan — eski paket bilan qayta yuborilsa yana qaytadi).
+  const held = metaHas(c.meta, 'resendHold');
+  const sendable = ready && !submitted && !draft && !draftReady && !queued && !held && !SENT_STAGES.has(c.stage);
   return { talabnoma, scan, oferta, receipt, boji, ready, exported, submitted, submittedExternal, draft, draftReady, queued, sendable };
 }
 

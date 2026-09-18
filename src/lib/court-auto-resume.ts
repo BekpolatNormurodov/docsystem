@@ -142,7 +142,7 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH, o
     // yana SKIPPED qilardi: cheksiz sikl (2026-09-18: COMMUNITY 162 ta, job #1776…#1904+), har
     // aylanishda portalga behuda so'rov — IP limitini yeb, egress bloklariga hissa qo'shardi.
     const skipped = await prisma.courtQueueItem.findMany({
-      where: { firmId, state: 'SKIPPED', case: { courtCaseId: null }, NOT: { lastError: { contains: 'ALLAQACHON' } } },
+      where: { firmId, state: 'SKIPPED', case: { courtCaseId: null }, NOT: [{ lastError: { contains: 'ALLAQACHON' } }, { lastError: { contains: 'ushlab turilibdi' } }] },
       orderBy: { id: 'asc' },
       select: { caseId: true, lastError: true, case: { select: { receiptNumber: true, meta: true } } },
     });
