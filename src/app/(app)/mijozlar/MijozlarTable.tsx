@@ -48,8 +48,14 @@ export async function MijozlarTable({ snapshotId, linkDate, date, q, digitsOnly,
   if (step || overdue) {
     // ── Pipeline rejimi (bosqich va/yoki «osilib qolgan»): ArizaCase'dan, firmalararo birlashtirilgan ──
     countHeader = t('Firma');
-    const stages = step ? PHASES.find((p) => p.key === step)!.stages : [];
-    const data = await konveyerPersons({ stages, overdue, snapshotId, q: q || undefined, page, pageSize: PAGE });
+    // Oqim qadamlari (stepper): TALABNOMA = talabnoma bayrog'i; SANOAT (skan) = SIGNED_SCANNED;
+    // qolganlari (SUD=COURT, MIB=EXEC va h.k.) — PHASES fazasi bo'yicha.
+    let stages: CaseStage[] = [];
+    let talabnoma = false;
+    if (step === 'TALABNOMA') talabnoma = true;
+    else if (step === 'SANOAT') stages = ['SIGNED_SCANNED'];
+    else if (step) stages = PHASES.find((p) => p.key === step)?.stages ?? [];
+    const data = await konveyerPersons({ stages, talabnoma, overdue, snapshotId, q: q || undefined, page, pageSize: PAGE });
     totalClients = data.total;
     totalPages = data.pages;
     rows = data.persons.map((p) => {

@@ -90,7 +90,9 @@ export async function bossReport(snapshotId?: number): Promise<BossReportData> {
       firmName: f.firmName,
       clients: clientsByFirm.get(f.firmId) ?? 0,
       talabnoma: f.talabnomaSent,
-      sanoat: ph.SIGN ?? 0,
+      // «Sanoat palatasi» = IMZOLANGAN skan biriktirilganlar (SIGNED_SCANNED) — sudga ketadigan
+      // asosiy pool. Butun SIGN fazasi (ariza/chop/palataga yuborilgan…) emas, faqat skanerlangan.
+      sanoat: f.byStage['SIGNED_SCANNED'] ?? 0,
       sud,
       mib: ph.EXEC ?? 0,
       debt: debtByFirm.get(f.firmId) ?? 0,

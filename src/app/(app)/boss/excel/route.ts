@@ -22,7 +22,7 @@ function buildBossExcel(d: BossReportData, snapLabel: string, t: ReturnType<type
     { header: t('Firma'), key: 'firma', width: 32 },
     { header: t('Mijozlar'), key: 'cli', width: 11 },
     { header: t('Talabnoma'), key: 'tal', width: 12 },
-    { header: t('Sanoat palatasi'), key: 'san', width: 15 },
+    { header: t('Sanoat palatasi (skan)'), key: 'san', width: 15 },
     { header: t('Sud: koʻrib chiqishda'), key: 'sr', width: 18 },
     { header: t('Sud: qanoatlantirilgan'), key: 'sg', width: 20 },
     { header: t('Sud: qaytarilgan'), key: 'sret', width: 15 },

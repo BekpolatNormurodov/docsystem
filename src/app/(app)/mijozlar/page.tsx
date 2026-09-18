@@ -41,8 +41,9 @@ export default async function MijozlarPage({
   // Ignore 1-char queries: too unselective to scan 100k+ rows for.
   const q = rawQ.length >= 2 ? rawQ : '';
   const digitsOnly = /^\d+$/.test(q);
-  // Bosqich (step) filtri — pipeline fazasi. Faqat mavjud PHASES kalitlari qabul qilinadi.
-  const step = PHASES.some((p) => p.key === searchParams.step) ? (searchParams.step as string) : '';
+  // Oqim qadami (step) filtri — stepper kalitlari: TALABNOMA, SANOAT (skan), + PHASES fazalari (COURT/EXEC…).
+  const STEP_KEYS = new Set<string>(['TALABNOMA', 'SANOAT', ...PHASES.map((p) => p.key)]);
+  const step = searchParams.step && STEP_KEYS.has(searchParams.step) ? (searchParams.step as string) : '';
   // «Osilib qolgan» (muddati o'tgan) filtri — bosqichdan mustaqil, birga ishlashi mumkin.
   const overdue = searchParams.overdue === '1';
   // Floor so a fractional ?page (e.g. 1.9) can't reach Prisma as a non-integer skip

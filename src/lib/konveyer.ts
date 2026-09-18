@@ -273,7 +273,7 @@ function phaseKeyOfStage(stage: CaseStage): string {
 const emptyPhases = (): Record<string, number> => Object.fromEntries(PHASES.map((p) => [p.key, 0])) as Record<string, number>;
 
 export interface FunnelFirm { firmId: number; firmName: string; total: number; phases: Record<string, number>; talabnomaSent: number }
-export interface KonveyerFunnel { total: number; phases: Record<string, number>; talabnomaSent: number; firms: FunnelFirm[] }
+export interface KonveyerFunnel { total: number; phases: Record<string, number>; stages: Record<string, number>; talabnomaSent: number; firms: FunnelFirm[] }
 
 /** Person-level funnel: distinct persons bucketed by furthest stage, conserving
  *  to the total. A person spanning firms is placed by their furthest stage
@@ -304,11 +304,13 @@ export async function konveyerFunnel(snapshotId?: number): Promise<KonveyerFunne
   }
 
   const phases = emptyPhases();
+  const stages: Record<string, number> = {}; // eng uzoq bosqich (furthest) — kishi bo'yicha, stage darajasida
   let talTotal = 0;
   const firmAgg = new Map<number, { total: number; phases: Record<string, number>; tal: number }>();
   for (const p of prim.values()) {
     const pk = phaseKeyOfStage(p.stage);
     phases[pk]++;
+    stages[p.stage] = (stages[p.stage] ?? 0) + 1;
     if (p.tal) talTotal++;
     let fa = firmAgg.get(p.firmId);
     if (!fa) { fa = { total: 0, phases: emptyPhases(), tal: 0 }; firmAgg.set(p.firmId, fa); }
@@ -319,13 +321,13 @@ export async function konveyerFunnel(snapshotId?: number): Promise<KonveyerFunne
   for (const [fid, fa] of firmAgg) firmsOut.push({ firmId: fid, firmName: firmName.get(fid) ?? '', total: fa.total, phases: fa.phases, talabnomaSent: fa.tal });
   firmsOut.sort((a, b) => b.total - a.total);
 
-  return { total: prim.size, phases, talabnomaSent: talTotal, firms: firmsOut };
+  return { total: prim.size, phases, stages, talabnomaSent: talTotal, firms: firmsOut };
 }
 
 // Mijozlar sahifasi tepasidagi «soni bilan» xulosasi: har bosqichda nechta kishi
 // (konveyerFunnel — kishi bo'yicha, furthest-stage) + «osilib qolgan» (muddati o'tgan,
 // yopilmagan ishi bor alohida PINFL). Oxirgi bosqich — EXEC (Ijro/MIB).
-export interface MijozlarStepSummary { total: number; phases: Record<string, number>; overdue: number }
+export interface MijozlarStepSummary { total: number; phases: Record<string, number>; talabnoma: number; scanned: number; overdue: number }
 export async function mijozlarStepSummary(snapshotId?: number): Promise<MijozlarStepSummary> {
   let sid = snapshotId;
   if (sid == null) {
@@ -339,7 +341,9 @@ export async function mijozlarStepSummary(snapshotId?: number): Promise<Mijozlar
       ? prisma.arizaCase.findMany({ where: { snapshotId: sid, dueAt: { lt: new Date() }, stage: { notIn: TERMINAL }, pinfl: { not: null }, ...fa.caseWhere }, select: { pinfl: true }, distinct: ['pinfl'] })
       : Promise.resolve([]),
   ]);
-  return { total: f.total, phases: f.phases, overdue: overdueRows.length };
+  // Oqim (flow) qadamlari — kishi bo'yicha, milestone: Talabnoma (parallel bayroq), Sanoat palatasi
+  // (skanerlangan = SIGNED_SCANNED, sudga tayyor), Sud (COURT faza), MIB (EXEC). phases ham qaytadi.
+  return { total: f.total, phases: f.phases, talabnoma: f.talabnomaSent, scanned: f.stages['SIGNED_SCANNED'] ?? 0, overdue: overdueRows.length };
 }
 
 // Advancement transitions that must NOT follow the STAGES display order (which

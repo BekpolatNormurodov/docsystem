@@ -1,22 +1,23 @@
 'use client';
 
-import { useEffect, useRef, useState, useTransition } from 'react';
+import { Fragment, useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { SearchNormal1, ArrowDown2 } from 'iconsax-react';
 import { useT } from '@/lib/i18n/client';
 
 const pretty = (d: string) => d.split('-').reverse().join('.');
 
-// Pipeline bosqichlari (step) — konveyer.ts'dagi PHASES bilan bir xil (client-safe nusxa).
-const STEPS: { key: string; label: string; color: string }[] = [
-  { key: 'PREP', label: 'Tayyorlash', color: '#64748b' },
-  { key: 'SIGN', label: 'Ariza · palata', color: '#8b5cf6' },
-  { key: 'BOJ', label: 'Invoice', color: '#f59e0b' },
+// Oqim (flow) qadamlari — Boshliq hisobotidagi tartibda: Talabnoma → Sanoat palatasi (skan) →
+// Sud → MIB. «Sanoat palatasi» = imzolangan skan (SIGNED_SCANNED) = sudga ketadigan asosiy pool.
+// Har biri bosiladi → ro'yxat shu qadamga filtrlanadi (konveyerPersons).
+const FLOW: { key: string; label: string; color: string }[] = [
+  { key: 'TALABNOMA', label: 'Talabnoma', color: '#6366f1' },
+  { key: 'SANOAT', label: 'Sanoat palatasi (skan)', color: '#8b5cf6' },
   { key: 'COURT', label: 'Sud', color: '#3b82f6' },
-  { key: 'EXEC', label: 'Ijro (MIB)', color: '#14b8a6' },
+  { key: 'EXEC', label: 'MIB', color: '#14b8a6' },
 ];
 
-interface StepCounts { total: number; phases: Record<string, number>; overdue: number }
+interface StepCounts { total: number; phases: Record<string, number>; talabnoma: number; scanned: number; overdue: number }
 
 export function MijozlarFilters({ dates, date, initialQ, step, overdue, counts }: { dates: string[]; date: string; initialQ: string; step: string; overdue: boolean; counts: StepCounts }) {
   const t = useT();
@@ -150,9 +151,10 @@ export function MijozlarFilters({ dates, date, initialQ, step, overdue, counts }
       </label>
     </div>
 
-    {/* Bosqich (step) filtri — soni bilan. «Barcha» → portfelning to'liq ro'yxati. Oxirgi bosqich — Ijro (MIB). */}
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="field-label mr-0.5 mb-0">{t('Bosqich')}:</span>
+    {/* Oqim (stepper): mijoz qayerga yetgani — Talabnoma → Sanoat palatasi (skan) → Sud → MIB.
+        Har qadam bosiladi → ro'yxat shu qadamga filtrlanadi. «Barchasi» → to'liq portfel. */}
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="field-label mb-0 mr-0.5">{t('Oqim')}:</span>
       <button
         type="button"
         onClick={() => router.push(go(date, q, ''))}
@@ -163,26 +165,30 @@ export function MijozlarFilters({ dates, date, initialQ, step, overdue, counts }
         {t('Barchasi')}
         <span className="rounded bg-surface-2 px-1 text-[10px] font-semibold tabular-nums text-muted">{nfmt(counts.total)}</span>
       </button>
-      {STEPS.map((s) => {
+      {FLOW.map((s, i) => {
         const active = step === s.key;
-        const c = counts.phases[s.key] ?? 0;
+        const c = s.key === 'TALABNOMA' ? counts.talabnoma : s.key === 'SANOAT' ? counts.scanned : (counts.phases[s.key] ?? 0);
         return (
-          <button
-            key={s.key}
-            type="button"
-            onClick={() => router.push(go(date, q, s.key))}
-            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
-              active ? 'text-white shadow-sm' : 'border-line text-muted hover:bg-surface-2'
-            }`}
-            style={active ? { background: s.color, borderColor: s.color } : undefined}
-          >
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: active ? '#fff' : s.color }} aria-hidden />
-            {t(s.label)}
-            <span className={`rounded px-1 text-[10px] font-semibold tabular-nums ${active ? 'bg-white/25' : 'bg-surface-2 text-muted'}`}>{nfmt(c)}</span>
-          </button>
+          <Fragment key={s.key}>
+            <span className="select-none text-muted/40" aria-hidden>→</span>
+            <button
+              type="button"
+              onClick={() => router.push(go(date, q, s.key))}
+              title={s.key === 'SANOAT' ? t('Imzolangan skan biriktirilgan — sudga tayyor') : undefined}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+                active ? 'text-white shadow-sm' : 'border-line text-muted hover:bg-surface-2'
+              }`}
+              style={active ? { background: s.color, borderColor: s.color } : undefined}
+            >
+              <span className="grid h-4 w-4 place-items-center rounded-full text-[9px] font-bold" style={{ background: active ? 'rgba(255,255,255,.25)' : `${s.color}22`, color: active ? '#fff' : s.color }} aria-hidden>{i + 1}</span>
+              {t(s.label)}
+              <span className={`rounded px-1 text-[10px] font-semibold tabular-nums ${active ? 'bg-white/25' : 'bg-surface-2 text-muted'}`}>{nfmt(c)}</span>
+            </button>
+          </Fragment>
         );
       })}
-      {/* «Osilib qolgan» — muddati o'tgan; bosqichdan mustaqil (birga ishlaydi). */}
+      {/* «Osilib qolgan» — muddati o'tgan; qadamdan mustaqil (birga ishlaydi). */}
+      <span className="mx-1 h-4 w-px bg-line" aria-hidden />
       <button
         type="button"
         onClick={() => router.push(go(date, q, step, !overdue))}

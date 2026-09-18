@@ -86,6 +86,10 @@ export const gaps: Record<string, string> = {
   "Tayyorlanmoqda…": "Готовится…",
   "Yuklab boʻlmadi — qayta urinib koʻring": "Не удалось скачать — повторите",
   "Viloyat bo‘yicha — Talabnoma · Sud · MIB": "По области — Требование · Суд · МИБ",
+  // Oqim / stepper (Hisobot + Mijozlar) — «Sanoat palatasi» = skanerlangan (sudga tayyor).
+  "Sanoat palatasi (skan)": "Промышленная палата (скан)",
+  "Imzolangan skan biriktirilgan — sudga tayyor": "Прикреплён подписанный скан — готово в суд",
+  "Oqim": "Поток",
   // Hisobot — «Yangilanish vaqti» rozetkasi (har 1 soatda avtomatik).
   "Yangilanish vaqti": "Время обновления",
   "Har 1 soatda avtomatik yangilanadi": "Обновляется автоматически каждый час",

@@ -50,7 +50,7 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref, generat
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
         <Kpi label={t('Mijozlar (kishi)')} value={n(totals.clients)} icon={<Ico.users size={18} />} tone="slate" />
         <Kpi label={t('Talabnoma (xat.hippo)')} value={n(totals.talabnoma)} icon={<Ico.send size={18} />} tone="indigo" />
-        <Kpi label={t('Sanoat palatasi')} value={n(totals.sanoat)} icon={<Ico.stamp size={18} />} tone="violet" />
+        <Kpi label={t('Sanoat palatasi (skan)')} value={n(totals.sanoat)} icon={<Ico.stamp size={18} />} tone="violet" />
         <Kpi label={t('Sudga chiqarilgan')} value={n(totals.sud.total)} icon={<Ico.judge size={18} />} tone="sky" />
         <Kpi label={t('— qanoatlantirilgan')} value={n(totals.sud.granted)} icon={<Ico.check size={18} />} tone="emerald" />
         <Kpi label={t('MIBga chiqarilgan')} value={n(totals.mib)} icon={<Ico.building size={18} />} tone="teal" />
@@ -70,7 +70,7 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref, generat
                 <th rowSpan={2} className="sticky left-0 z-10 bg-surface px-3 py-2 text-left align-bottom">{t('Firma')}</th>
                 <th rowSpan={2} className="px-3 py-2 text-right align-bottom">{t('Mijozlar')}</th>
                 <th rowSpan={2} className="px-3 py-2 text-right align-bottom">{t('Talabnoma (xat.hippo)')}</th>
-                <th rowSpan={2} className="px-3 py-2 text-right align-bottom">{t('Sanoat palatasi')}</th>
+                <th rowSpan={2} className="px-3 py-2 text-right align-bottom" title={t('Imzolangan skan biriktirilgan — sudga tayyor')}>{t('Sanoat palatasi (skan)')}</th>
                 <th colSpan={5} className="border-l border-line px-3 py-1.5 text-center">{t('Sudga chiqarilgan')}</th>
                 <th rowSpan={2} className="border-l border-line px-3 py-2 text-right align-bottom">{t('MIBga')}</th>
                 <th rowSpan={2} className="px-3 py-2 text-right align-bottom">{t('Jami qarz')}</th>
