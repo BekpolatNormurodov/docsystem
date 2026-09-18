@@ -269,6 +269,12 @@ export async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
           `oferta va grafikni to'g'ri tuzib bo'lmaydi. Portfel faylida «date_actu_close» ni tekshiring.`,
         );
       }
+      if (res?.failed.length) {
+        throw new CourtPackageError(
+          `${res.failed.length} ta shartnoma ofertasi yaratilmadi (${res.failed.slice(0, 5).join(', ')}${res.failed.length > 5 ? ', …' : ''}) — ` +
+          `ariza barcha shartnomalarni sanaydi, bittasi yo'q paket «varaqlar to'liq emas» deb qaytadi.`,
+        );
+      }
       const ofertas = (res?.files ?? []).filter((f) => !filesToUpload.some((x) => x.fileName === f.name));
       if (ofertas.length) {
         const { mergePdfs } = await import('./pdf-merge');
@@ -276,10 +282,16 @@ export async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
         filesToUpload.push({ kind: 'OFERTA', fileName: `Kredit_shartnomalari_${ofertas.length}_ta_${ac.id}.pdf`, buffer: merged });
       }
       const grafik = await buildCaseGrafik(ac.id, browser);
+      const why = grafik.skipped.slice(0, 3).map((x) => `${x.ldId}: ${x.reason}`).join('; ');
       if (!grafik.buf) {
         throw new CourtPackageError(
-          `Kredit to'lash grafigi yaratilmadi${grafik.noTerm.length ? ` (${grafik.noTerm.length} ta kredit muddati noma'lum)` : ''} — ` +
-          `arizaning ilovalar ro'yxatida 5-band sifatida va'da qilingan.`,
+          `Kredit to'lash grafigi yaratilmadi${why ? ` (${why})` : ''} — arizaning ilovalar ro'yxatida 5-band sifatida va'da qilingan.`,
+        );
+      }
+      // Grafik ofertalar bilan AYNAN bir xil shartnomalarni qamrashi shart — qisman grafik jim ketmasin.
+      if (grafik.included !== ofertas.length) {
+        throw new CourtPackageError(
+          `Grafik ${grafik.included} ta, ofertalar ${ofertas.length} ta shartnomani qamraydi — mos emas${why ? ` (${why})` : ''}.`,
         );
       }
       filesToUpload.push({ kind: 'GRAFIK', fileName: `Kredit_tolash_grafigi_${ac.id}.pdf`, buffer: grafik.buf });

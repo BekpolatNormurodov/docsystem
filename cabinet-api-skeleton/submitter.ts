@@ -124,6 +124,10 @@ export class CabinetSubmitEngine {
         // SKIPPED/FAILED bo'ladi — chala paket (talabnomasiz) sudga ketmaydi.
         { kind: 'TALABNOMA', label: 'talabnoma xati (hippo yetkazgan)', hint: 'xat.hippo yetkazilgan talabnoma xatini biriktiring — avval jo\'natish/ingest kerak' },
         { kind: 'TALABNOMA_CHECK', label: 'talabnoma kvitansiyasi', hint: 'xat.hippo (UZPOST) yetkazish kvitansiyasini biriktiring' },
+        // KREDIT TO'LASH GRAFIGI — 2026-09-08 gacha yaratilgan (joriy BRIGHT/COMMUNITY'ning hammasi)
+        // arizalar ro'yxatida 5-band; ofertaning o'zi ham uni «1-илова» deb ataydi. Kutilmagan xato
+        // (chromium, baza) uni jim tushirib qoldirmasin — dvigatel darajasida majburiy.
+        { kind: 'GRAFIK', label: 'kredit to\'lash grafigi', hint: 'grafik kredit muddatidan yaratiladi — portfelda date_actu_close va chromium borligini tekshiring' },
       ];
       const missing = need.filter((x) => !files.some((f) => f.kind === x.kind));
       if (missing.length) {

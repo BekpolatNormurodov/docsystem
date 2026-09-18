@@ -14,10 +14,13 @@ import { prisma } from './db';
 
 type LoanLike = { ldId: string | null; branchCode?: string | null; raw?: unknown };
 
-const hasActu = (raw: unknown) => {
+/** Kreditda haqiqiy yopilish sanasi (`raw.date_actu_close`) bormi — oferta/grafik muddati shundan. */
+export const hasActualClose = (raw: unknown) => hasActu(raw);
+
+function hasActu(raw: unknown): boolean {
   const v = raw && typeof raw === 'object' ? (raw as Record<string, unknown>).date_actu_close : undefined;
   return v != null && v !== '' && Number(v) > 0;
-};
+}
 
 /** `raw.date_actu_close` bo'lmagan kreditlarga uni boshqa snapshotdagi o'sha shartnomadan qo'yadi.
  *  Topilmaganlari o'zgarmay qoladi (grafik-pdf qat'iy rejimda ularni tashlab ketadi). */

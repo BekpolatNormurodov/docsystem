@@ -8,7 +8,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Browser } from 'playwright';
 import { prisma } from './db';
-import { withActualClose } from './loan-actual-close';
+import { withActualClose, hasActualClose } from './loan-actual-close';
 import { buildGrafikPdf } from './grafik-pdf';
 import { getSettings } from './settings';
 import { buildArizaDocx } from './ariza-docx';
@@ -48,12 +48,6 @@ const packetFail = (caseId: number, kind: string, e: unknown) =>
 // Keep apostrophes (straight + Uzbek ʻ and curly) so person folders read like «… OʼGʼLI»,
 // not «… O_G_LI». All are valid Windows filename characters.
 const safe = (s: string, n = 70) => (s || 'hujjat').replace(/[^\p{L}\p{N}._ ()'ʻ‘’-]+/gu, '_').trim().slice(0, n) || 'hujjat';
-
-/** Kreditning haqiqiy yopilish sanasi (portfel `date_actu_close`) bormi — oferta/grafik muddati shundan. */
-const hasActualClose = (raw: unknown) => {
-  const v = raw && typeof raw === 'object' ? (raw as Record<string, unknown>).date_actu_close : undefined;
-  return v != null && v !== '' && Number(v) > 0;
-};
 
 // ALLOWLIST — qaysi UPLOADED case-hujjatlari sudga (court packet ZIP) kiritiladi.
 // FAQAT ikkitasi: palatada imzolangan ariza skani va xat.hippo UZPOST yetkazish
@@ -351,7 +345,7 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
  *  (client × firm) group. Lean sibling of buildCasePacket for the oferta-only bulk export.
  *  Returns the client folder name + the oferta files, or null when there's nothing to make.
  *  `browser` is required (oferta is HTML→PDF). Failures per loan are swallowed. */
-export async function buildCaseOfertas(caseId: number, browser: Browser, insurancePct = 0): Promise<{ folder: string; files: PacketFile[]; noTerm: string[] } | null> {
+export async function buildCaseOfertas(caseId: number, browser: Browser, insurancePct = 0): Promise<{ folder: string; files: PacketFile[]; noTerm: string[]; failed: string[] } | null> {
   const ac = await prisma.arizaCase.findUnique({
     where: { id: caseId },
     // `court.nameUz` — oferta 10.1.а bandi AYNAN shu ishning sudini nomlaydi (arizadagi sud).
@@ -373,6 +367,7 @@ export async function buildCaseOfertas(caseId: number, browser: Browser, insuran
   // sanasi olinadi; topilmasa oferta CHIQARILMAYDI (noTerm) — noto'g'ri shartnoma nusxasi sudga ketmasin.
   const loans = await withActualClose(loansRaw);
   const noTerm: string[] = [];
+  const failed: string[] = []; // render yiqilgan shartnomalar — sud paketi ularsiz CHALA
 
   // Sud nomi: ishga tayinlangan sud (arizadagi), bo'lmasa firma asosiy sudi.
   const courtNameUz = ac.court?.nameUz
@@ -396,20 +391,25 @@ export async function buildCaseOfertas(caseId: number, browser: Browser, insuran
       if (seen.has(name)) name = `Oferta_${safe(firmShort, 28)}_${(l as { ldId?: string | null }).ldId ?? l.id}_${l.id}.pdf`;
       seen.add(name);
       files.push({ name, buf });
-    } catch { /* skip a failed oferta, keep the rest */ }
+    } catch (e) {
+      // ZIP uchun qolganlari davom etadi; sud paketi esa `failed` bo'lsa ishni to'xtatadi (ariza
+      // barcha shartnomalarni sanaydi — bittasi yo'q paket «varaqlar to'liq emas» deb qaytadi).
+      failed.push(String((l as { ldId?: string | null }).ldId ?? l.id));
+      packetFail(caseId, `oferta ${(l as { ldId?: string | null }).ldId ?? l.id}`, e);
+    }
   }
-  return files.length || noTerm.length ? { folder, files, noTerm } : null;
+  return files.length || noTerm.length || failed.length ? { folder, files, noTerm, failed } : null;
 }
 
 /** Sud paketi uchun KREDIT TO'LASH GRAFIGI (PDF) — buildCaseOfertas bilan AYNAN bir xil kreditlar
  *  (shu snapshot + pinfl + firma kodi, summKr>0), haqiqiy muddat bilan. 2026-09-08 gacha imzolangan
  *  arizalar ilovalar ro'yxatining 5-bandida grafikni va'da qiladi — sudga esa hech qachon ketmasdi.
  *  Muddati noma'lum kredit grafikka kirmaydi (noTerm). Grafik tuzib bo'lmasa `buf: null`. */
-export async function buildCaseGrafik(caseId: number, browser: Browser): Promise<{ buf: Buffer | null; noTerm: string[] }> {
+export async function buildCaseGrafik(caseId: number, browser: Browser): Promise<{ buf: Buffer | null; noTerm: string[]; skipped: { ldId: string; reason: string }[]; included: number }> {
   const ac = await prisma.arizaCase.findUnique({
     where: { id: caseId }, select: { pinfl: true, snapshotId: true, kod: true, clientName: true },
   });
-  if (!ac?.pinfl || !ac.snapshotId) return { buf: null, noTerm: [] };
+  if (!ac?.pinfl || !ac.snapshotId) return { buf: null, noTerm: [], skipped: [], included: 0 };
   const [firm, loansRaw] = await Promise.all([
     ac.kod ? prisma.firm.findUnique({ where: { code: ac.kod }, select: { shortName: true, legalName: true } }) : Promise.resolve(null),
     prisma.loan.findMany({
@@ -418,12 +418,16 @@ export async function buildCaseGrafik(caseId: number, browser: Browser): Promise
     }),
   ]);
   const loans = (await withActualClose(loansRaw)).filter((l) => Number((l as { summKr?: unknown }).summKr) > 0);
-  const noTerm: string[] = [];
+  // Tashlangan kreditlar SABABI bilan: muddat noma'lum (date_actu_close yo'q) yoki sanalar/summa
+  // yaroqsiz — operatorga aniq xabar, va `included` oferta soni bilan solishtiriladi (qisman grafik
+  // jim ketmasin).
+  const noTerm = loans.filter((l) => !hasActualClose((l as { raw?: unknown }).raw)).map((l) => String((l as { ldId?: string | null }).ldId ?? l.id));
+  const skipped: { ldId: string; reason: string }[] = [];
   const buf = await buildGrafikPdf(
     { loans: loans as never, clientName: ac.clientName, firmName: firm?.legalName || firm?.shortName || ac.kod || '' },
-    { browser, onSkip: (ldId) => noTerm.push(String(ldId ?? '?')) },
+    { browser, onSkip: (ldId, reason) => skipped.push({ ldId: String(ldId ?? '?'), reason }) },
   );
-  return { buf, noTerm };
+  return { buf, noTerm, skipped, included: buf ? loans.length - skipped.length : 0 };
 }
 
 /** The firm-library files for ONE firm (guvohnoma/ishonchnoma/shartnoma/oferta),
