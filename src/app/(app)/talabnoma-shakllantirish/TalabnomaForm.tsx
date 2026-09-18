@@ -358,6 +358,17 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
     } finally { setBusyFirm(null); }
   };
 
+  // «Barcha firmalar — bitta Excel»: nechta firmadan bo'lsa ham hammasi bitta faylda yuklab olinadi.
+  const doGenerateAll = async () => {
+    setNote(''); setBusyFirm('__ALL__');
+    try {
+      const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/generate`, { all: true, kind: 'REYESTR', ...eff(opts) });
+      if (!ok) { setNote(json.error || `${t('Xatolik')} (${status})`); return; }
+      window.location.href = `/api/talabnoma-form/${batch.id}/download/${json.runId}`;
+      await onChanged();
+    } finally { setBusyFirm(null); }
+  };
+
   const doHippo = async (firm: FirmBucket) => {
     setNote('');
     if (!firm.ready) {
@@ -445,7 +456,13 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
 
       {/* per-firm table */}
       <div className="card overflow-hidden">
-        <div className="border-b border-line px-4 py-3 text-sm font-semibold">{t('Firmalar bo‘yicha')}</div>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
+          <span className="text-sm font-semibold">{t('Firmalar bo‘yicha')}</span>
+          {/* Nechta firma bo'lsa ham — hammasi bitta Excelda (Firma ustuni bilan). */}
+          <button className="btn-primary px-3 py-1.5 text-xs" disabled={busyFirm === '__ALL__'} onClick={doGenerateAll} title={t('Barcha firmalar bitta Excel faylda — Firma ustuni bilan')}>
+            {busyFirm === '__ALL__' ? <Spinner size={14} /> : <Ico.download size={14} />} {t('Barcha firmalar — bitta Excel')}
+          </button>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-xs uppercase tracking-wide text-muted">

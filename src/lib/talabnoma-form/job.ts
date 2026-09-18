@@ -76,7 +76,7 @@ export async function runTalabnomaFormJob(jobId: number): Promise<void> {
       await writeLettersZip(rows, firm, zip, async (made, total) => {
         await prisma.talabnomaFormRun.update({ where: { id: runId }, data: { personCount: made } }).catch(() => {});
         await prisma.job.update({ where: { id: jobId }, data: { progress: made, total } }).catch(() => {});
-      });
+      }, true /* hideStamp — bu qism uchun pastdagi muhr rasmi kerak emas */);
       await prisma.talabnomaFormRun.update({
         where: { id: runId },
         data: { status: 'DONE', rowCount: rows.length, personCount: rows.length, resultPath: zip },

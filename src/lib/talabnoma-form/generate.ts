@@ -6,6 +6,7 @@
 // a person had no portfolio match we synth one aggregate row so they are never silently dropped.
 import fs from 'node:fs';
 import archiver from 'archiver';
+import ExcelJS from 'exceljs';
 import { prisma } from '@/lib/db';
 import {
   buildTalabnomaRows,
@@ -14,6 +15,7 @@ import {
   type TalabnomaRow,
 } from '@/lib/hippo/talabnoma-excel';
 import { renderTalabnomaPdf, type TalabnomaFirm } from '@/lib/hippo/talabnoma-pdf';
+import { regionName, areaName } from '@/core/hippo-regions';
 import { canonCode, passesTotal } from './filter';
 import type { CandidatesFile, FilterOpts } from './types';
 
@@ -97,12 +99,63 @@ export async function writeReyestr(rows: TalabnomaRow[], filePath: string): Prom
   await fs.promises.writeFile(filePath, buf);
 }
 
+/** «Barcha firmalar — bitta Excel»: har firma qatorlarini BITTA varaqqa jamlaydi (Firma ustuni bilan,
+ *  o'qishga qulay: viloyat/tuman NOMlari, summa money-format). Filtr (opts) qo'llanadi. Qator sonini
+ *  qaytaradi. Bu hippo-import fayli emas — umumiy ko'rik/yuklab olish uchun. */
+export async function writeAllFirmsReyestr(file: CandidatesFile, opts: FilterOpts, outPath: string): Promise<number> {
+  const firms = await prisma.firm.findMany({ select: { code: true, shortName: true, legalName: true } });
+  const nameByCode = new Map(firms.map((f) => [canonCode(f.code), f.shortName || f.legalName || f.code]));
+  // Portfelda uchragan barcha firma kodlari.
+  const codes = [...new Set(file.people.flatMap((p) => Object.keys(p.perFirm).map(canonCode)))]
+    .sort((a, b) => (nameByCode.get(a) ?? a).localeCompare(nameByCode.get(b) ?? b));
+
+  const wb = new ExcelJS.Workbook();
+  wb.created = new Date();
+  const ws = wb.addWorksheet('Talabnoma — hammasi');
+  ws.columns = [
+    { header: 'Firma', key: 'firma', width: 26 },
+    { header: 'Qarzdor FISH', key: 'fish', width: 34 },
+    { header: 'PINFL', key: 'pinfl', width: 16 },
+    { header: 'Manzil', key: 'address', width: 40 },
+    { header: 'Shartnoma raqami', key: 'cnum', width: 18 },
+    { header: 'Shartnoma sanasi', key: 'cdate', width: 15 },
+    { header: 'Kredit summasi', key: 'loan', width: 16 },
+    { header: 'Jami qarzdorlik', key: 'debt', width: 18 },
+    { header: 'Viloyat', key: 'region', width: 18 },
+    { header: 'Tuman/Shahar', key: 'area', width: 20 },
+  ];
+  const dmy = (d: Date | null) => (d ? `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}` : '');
+  let count = 0;
+  for (const code of codes) {
+    const rows = buildRowsForFirm(file, code, opts);
+    const firma = nameByCode.get(code) ?? code;
+    for (const r of rows) {
+      ws.addRow({
+        firma, fish: r.receiver, pinfl: r.pinfl ?? '', address: r.address,
+        cnum: r.contract_number, cdate: dmy(r.contract_date),
+        loan: r.loan_amount, debt: r.total_debt,
+        region: regionName(r.region), area: areaName(r.area),
+      });
+      count += 1;
+    }
+  }
+  ws.getRow(1).font = { bold: true };
+  ws.getColumn('pinfl').numFmt = '@';
+  ws.getColumn('loan').numFmt = '#,##0';
+  ws.getColumn('debt').numFmt = '#,##0';
+  ws.autoFilter = { from: 'A1', to: `J${Math.max(1, ws.rowCount)}` };
+  ws.views = [{ state: 'frozen', ySplit: 1 }];
+  await wb.xlsx.writeFile(outPath);
+  return count;
+}
+
 /** Render every row to a PDF letter and stream them into a .zip (reyestr .xlsx at the root too). */
 export async function writeLettersZip(
   rows: TalabnomaRow[],
   firm: TalabnomaFirm | null,
   zipPath: string,
   onProgress?: (done: number, total: number) => void | Promise<void>,
+  hideStamp?: boolean, // «talabnoma shakllantirish» xatlarida pastdagi muhr rasmi kerak emas
 ): Promise<void> {
   const { chromium } = await import('playwright');
   const out = fs.createWriteStream(zipPath);
@@ -117,7 +170,7 @@ export async function writeLettersZip(
   let done = 0;
   try {
     for (const row of rows) {
-      const pdf = await renderTalabnomaPdf(row, browser, firm);
+      const pdf = await renderTalabnomaPdf(row, browser, firm, hideStamp);
       let name = `${row.contract_id.replace(/\//g, '-')}_${safeName(row.receiver)}.pdf`;
       const n = used.get(name) ?? 0;
       used.set(name, n + 1);

@@ -4,7 +4,7 @@ import { requireAccess } from '@/lib/auth';
 import { getT } from '@/lib/i18n/server';
 import { enqueueJob } from '@/lib/job-dispatch';
 import { readCandidates } from '@/lib/talabnoma-form/parse';
-import { buildRowsForFirm, writeReyestr } from '@/lib/talabnoma-form/generate';
+import { buildRowsForFirm, writeReyestr, writeAllFirmsReyestr } from '@/lib/talabnoma-form/generate';
 import { isReadyFirm, DEFAULT_THRESHOLD } from '@/lib/talabnoma-form/filter';
 import { reyestrXlsxPath } from '@/lib/talabnoma-form/store';
 
@@ -26,13 +26,31 @@ export async function POST(req: NextRequest, { params }: { params: { batchId: st
   if (batch.status !== 'READY' || !batch.candidatesPath) return NextResponse.json({ error: t('Batch tayyor emas') }, { status: 409 });
 
   const body = await req.json().catch(() => ({}));
+  const all = body?.all === true; // «Barcha firmalar — bitta Excel»
   const firmCode = String(body?.firmCode ?? '').trim();
-  if (!firmCode) return NextResponse.json({ error: t('firmCode majburiy') }, { status: 400 });
+  if (!firmCode && !all) return NextResponse.json({ error: t('firmCode majburiy') }, { status: 400 });
   const kind = body?.kind === 'LETTERS' ? 'LETTERS' : 'REYESTR';
   const thresholdTotal = numOr(body?.thresholdTotal, DEFAULT_THRESHOLD);
   const perFirmMin = numOr(body?.perFirmMin, 0);
   const includeUnready = body?.includeUnready === true;
   const opts = { thresholdTotal, perFirmMin };
+  const filtersAll = { thresholdTotal, perFirmMin, includeUnready: true };
+
+  // «Barcha firmalar — bitta Excel»: hamma firma qatorlari bitta varaqda (Firma ustuni bilan).
+  if (all) {
+    const file = await readCandidates(batch.candidatesPath);
+    const run = await prisma.talabnomaFormRun.create({
+      data: { batchId: id, createdBy: user.username, kind: 'REYESTR', firmCode: '__ALL__', firmName: t('Barcha firmalar'), filters: filtersAll, status: 'RUNNING' },
+    });
+    const outPath = reyestrXlsxPath(id, run.id);
+    const count = await writeAllFirmsReyestr(file, opts, outPath);
+    if (!count) {
+      await prisma.talabnomaFormRun.update({ where: { id: run.id }, data: { status: 'FAILED', message: t('Tanlangan filtr uchun qator yo‘q') } }).catch(() => {});
+      return NextResponse.json({ error: t('Tanlangan filtr uchun qator yo‘q') }, { status: 422 });
+    }
+    await prisma.talabnomaFormRun.update({ where: { id: run.id }, data: { status: 'DONE', rowCount: count, personCount: count, resultPath: outPath } });
+    return NextResponse.json({ runId: run.id, rowCount: count, kind: 'REYESTR' });
+  }
 
   const ready = isReadyFirm(firmCode);
   if (!ready && !includeUnready) {

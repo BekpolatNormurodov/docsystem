@@ -63,17 +63,22 @@ function firmFields(firm?: TalabnomaFirm | null): Record<string, string> {
   };
 }
 
-export function fillTemplate(row: TalabnomaRow, firm?: TalabnomaFirm | null): string {
+export function fillTemplate(row: TalabnomaRow, firm?: TalabnomaFirm | null, hideStamp?: boolean): string {
   const f = { ...talabnomaFields(row), ...firmFields(firm) };
-  return template().replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (_m, key: string) => f[key] ?? '');
+  let html = template().replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (_m, key: string) => f[key] ?? '');
+  // «talabnoma shakllantirish» oqimi uchun pastdagi muhr rasmini (stamp-container) olib tashlaymiz —
+  // asosiy konveyer talabnomasi (bu bayroqni yubormaydi) muhrni saqlab qoladi.
+  if (hideStamp) html = html.replace(/<div\s+class="stamp-container">[\s\S]*?<\/div>/i, '');
+  return html;
 }
 
 // Render one row's filled HTML to a PDF buffer. Pass a shared `browser` when
 // rendering many rows so Chromium launches once. `firm` fills the letterhead.
-export async function renderTalabnomaPdf(row: TalabnomaRow, browser: Browser, firm?: TalabnomaFirm | null): Promise<Buffer> {
+// `hideStamp` — pastdagi muhr rasmisiz chiqaradi (talabnoma-shakllantirish oqimi uchun).
+export async function renderTalabnomaPdf(row: TalabnomaRow, browser: Browser, firm?: TalabnomaFirm | null, hideStamp?: boolean): Promise<Buffer> {
   const page = await browser.newPage();
   try {
-    await page.setContent(fillTemplate(row, firm), { waitUntil: 'networkidle' });
+    await page.setContent(fillTemplate(row, firm, hideStamp), { waitUntil: 'networkidle' });
     return await page.pdf({ format: 'A4', printBackground: true, margin: { top: '12mm', bottom: '12mm', left: '12mm', right: '12mm' } });
   } finally {
     await page.close();
