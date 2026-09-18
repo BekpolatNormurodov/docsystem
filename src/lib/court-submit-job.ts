@@ -747,15 +747,25 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
         continue;
       }
 
-      // Kreditlar
+      // Kreditlar — da'vo summasi («asosiy qarz» + foiz) SHULARDAN yig'iladi, shuning uchun
+      // qidiruv HAR DOIM mijoz kodi (branchCode) bilan chegaralanadi. Ilgari oxirgi zaxira
+      // qadam FAQAT PINFL bo'yicha izlardi: bir odam ikki firmada qarzdor bo'lsa (masalan
+      // TUXTAYEV AVAZBEK — BRIGHT'da 2.1 mln, URBAN'da 47.7 mln) ikkala firmaning krediti
+      // bitta da'voga qo'shilib, sudga NOTO'G'RI summa ketardi. Bugun bu qadam hech qachon
+      // ishlamaydi (5922 ta ishning hammasi birinchi qadamda topiladi), lekin jim xato
+      // bo'lgani uchun olib tashlandi: summa aniqlanmasa — ish ANIQ xato bilan to'xtaydi.
+      const branchCode = (ac.kod ?? '').trim();
+      if (!branchCode) {
+        throw new Error(`Mijoz kodi (kod) yo'q — da'vo summasini firma doirasida aniqlab bo'lmaydi (case #${ac.id})`);
+      }
       let loans = await prisma.loan.findMany({
-        where: { snapshotId: ac.snapshotId ?? undefined, pinfl: ac.pinfl, branchCode: ac.kod ?? undefined },
+        where: { snapshotId: ac.snapshotId ?? undefined, pinfl: ac.pinfl, branchCode },
       });
       if (loans.length === 0) {
-        loans = await prisma.loan.findMany({ where: { pinfl: ac.pinfl, branchCode: ac.kod ?? undefined } });
+        loans = await prisma.loan.findMany({ where: { pinfl: ac.pinfl, branchCode } });
       }
       if (loans.length === 0) {
-        loans = await prisma.loan.findMany({ where: { pinfl: ac.pinfl } });
+        throw new Error(`Kredit topilmadi (pinfl=${ac.pinfl}, kod=${branchCode}) — da'vo summasi aniqlanmadi (case #${ac.id})`);
       }
 
       const principal = loans.reduce((s, l) => s + Number(l.debtPrincipal || 0) + Number(l.debtOverduePrincipal || 0), 0);
