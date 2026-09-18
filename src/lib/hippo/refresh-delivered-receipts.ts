@@ -43,25 +43,39 @@ export async function refreshDeliveredReceipts(
 
   const docs = await prisma.caseDocument.findMany({
     where: { kind: 'TALABNOMA_RECEIPT', case: { firmId: firm.id } },
-    select: { id: true, caseId: true, fileName: true, filePath: true, case: { select: { meta: true } } },
+    select: { id: true, caseId: true, fileName: true, filePath: true, case: { select: { meta: true, pinfl: true } } },
   });
   const withUid = docs.map((d) => ({ ...d, uid: uidOf(d) })).filter((d): d is typeof d & { uid: string } => !!d.uid);
   if (!withUid.length) return res;
 
   // Holat — xatni sinxronlagan (= kreditor) firma kodi bo'yicha; boshqa firmaning shu uid'li yozuvi olinmaydi.
   const rows = await prisma.clientCaseStatus.findMany({
-    where: { source: 'HIPPO', category: 'talabnoma', branchCode: firm.code, caseNumber: { in: withUid.map((d) => d.uid) } },
-    select: { caseNumber: true, status: true },
+    where: { source: 'HIPPO', category: 'talabnoma', branchCode: firm.code, caseNumber: { not: null } },
+    select: { caseNumber: true, status: true, pinfl: true, registryDt: true },
   });
   const statusOf = new Map(rows.map((r) => [String(r.caseNumber), r.status]));
+  // Odamning ENG YANGI yetkazilgan xati (shu firma) — saqlangan check yetkazilmagan xatniki bo'lsa, shunisi olinadi.
+  // 2026-09-18: COMMUNITY'da 73 ta ishda saqlangan check «manzil topilmadi» xatiniki edi, shu odamga
+  // qayta yuborilgan boshqa xat esa yetkazilgan — dalil bor edi, lekin ishga ulanmagandi.
+  const deliveredUidOf = new Map<string, { uid: string; t: number }>();
+  for (const r of rows) {
+    if (!r.pinfl || performLabel(r.status).bucket !== 'delivered') continue;
+    const t = r.registryDt?.getTime() ?? 0;
+    const cur = deliveredUidOf.get(r.pinfl);
+    if (!cur || t > cur.t) deliveredUidOf.set(r.pinfl, { uid: String(r.caseNumber), t });
+  }
 
-  const todo: typeof withUid = [];
+  const todo: (typeof withUid[number] & { target: string })[] = [];
   for (const d of withUid) {
     res.checked++;
-    if (performLabel(statusOf.get(d.uid) ?? null).bucket !== 'delivered') { res.notDelivered++; continue; }
+    let target: string | null = d.uid;
+    if (performLabel(statusOf.get(d.uid) ?? null).bucket !== 'delivered') {
+      target = (d.case?.pinfl && deliveredUidOf.get(d.case.pinfl)?.uid) || null;
+      if (!target) { res.notDelivered++; continue; }
+    }
     const mark = metaObj(d.case?.meta).talabnomaDelivered as { uid?: string } | undefined;
-    if (mark?.uid === d.uid) { res.alreadyFresh++; continue; }
-    todo.push(d);
+    if (mark?.uid === target) { res.alreadyFresh++; continue; }
+    todo.push({ ...d, target });
   }
   res.todo = todo.length;
 
@@ -74,20 +88,26 @@ export async function refreshDeliveredReceipts(
 
   async function refreshOne(d: (typeof todo)[number]): Promise<void> {
     try {
-      const b = Buffer.from(await downloadReceiptPdf(session, d.uid));
+      const b = Buffer.from(await downloadReceiptPdf(session, d.target));
       // Sudga ketadi — xato sahifasi/bo'sh javob PDF o'rnida saqlanmasin.
       if (!isPdf(b)) { res.failed++; return; }
       let fPath = d.filePath;
       if (fPath.startsWith('/app/')) fPath = path.join(process.cwd(), fPath.replace(/^\/app\//, ''));
-      // Jo'natish paytidagi nusxa izi uchun bir marta saqlanadi (qayta yangilashda ustidan yozilmaydi).
-      const backup = `${fPath}.dispatch.pdf`;
-      await fsp.copyFile(fPath, backup, fsp.constants.COPYFILE_EXCL).catch(() => {});
-      await fsp.writeFile(fPath, b);
-      await prisma.caseDocument.update({ where: { id: d.id }, data: { size: b.length } });
+      if (d.target === d.uid) {
+        // Shu xatning to'ldirilgan nusxasi. Jo'natish paytidagi nusxa izi bir marta saqlanadi.
+        await fsp.copyFile(fPath, `${fPath}.dispatch.pdf`, fsp.constants.COPYFILE_EXCL).catch(() => {});
+        await fsp.writeFile(fPath, b);
+        await prisma.caseDocument.update({ where: { id: d.id }, data: { size: b.length } });
+      } else {
+        // Boshqa (yetkazilgan) xat — yangi faylga yoziladi, eski (yetkazilmagan) check fayli izi qoladi.
+        const newPath = path.join(path.dirname(fPath), `TALABNOMA_RECEIPT-${d.target}.pdf`);
+        await fsp.writeFile(newPath, b);
+        await prisma.caseDocument.update({ where: { id: d.id }, data: { size: b.length, filePath: newPath, fileName: `Talabnoma_kvitansiya_${d.target}.pdf` } });
+      }
       const fresh = await prisma.arizaCase.findUnique({ where: { id: d.caseId }, select: { meta: true } });
       await prisma.arizaCase.update({
         where: { id: d.caseId },
-        data: { meta: { ...metaObj(fresh?.meta), talabnomaDelivered: { uid: d.uid, status: statusOf.get(d.uid), refreshedAt: new Date().toISOString() } } as never },
+        data: { meta: { ...metaObj(fresh?.meta), talabnomaDelivered: { uid: d.target, status: statusOf.get(d.target), refreshedAt: new Date().toISOString(), ...(d.target !== d.uid ? { replacedUndeliveredUid: d.uid } : {}) } } as never },
       });
       res.refreshed++;
     } catch {

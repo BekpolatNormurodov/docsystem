@@ -329,7 +329,9 @@ export async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
     try {
       const firmRow = await prisma.firm.findUnique({ where: { id: ac.firmId }, select: { stir: true, code: true } });
       const { fetchDeliveredTalabnoma } = await import('./hippo/talabnoma-fetch');
-      const buf = await fetchDeliveredTalabnoma(ac.pinfl, firmRow?.stir, firmRow?.code ?? ac.kod);
+      // Xat check bilan BIR XIL xatdan bo'lsin: check yetkazilgan xatga almashtirilgan bo'lsa, o'sha uid birinchi.
+      const preferUid = ((ac.meta as any)?.talabnomaDelivered?.uid as string | undefined) ?? null;
+      const buf = await fetchDeliveredTalabnoma(ac.pinfl, firmRow?.stir, firmRow?.code ?? ac.kod, { preferUid });
       if (buf) filesToUpload.push({ kind: 'TALABNOMA', fileName: `Talabnoma_hippo_${ac.id}.pdf`, buffer: buf });
       else console.error(`[court-submit] Case #${ac.id}: hippo yetkazilgan talabnoma topilmadi (hech qaysi firma sessiyasidan)`);
     } catch (e) {

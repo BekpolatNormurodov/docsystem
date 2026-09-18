@@ -58,6 +58,10 @@ export interface FetchOpts {
   /** Oldindan SAQLASH (muzlatish) uchun: faqat ENG YANGI xat, va u pochtada «yetkazildi» bo'lsa.
    *  Hippo xatga «yetkazilgan» muhrini yetkazilgandan keyin bosadi — muhrsiz nusxani muzlatmaymiz. */
   deliveredOnly?: boolean;
+  /** Avval shu uid sinalsin — sud paketida xat va check BIR XIL (yetkazilgan) xatniki bo'lishi uchun
+   *  (refresh-delivered-receipts.ts → meta.talabnomaDelivered.uid). Faqat firmaning o'z uid'lari
+   *  orasida bo'lsa ishlatiladi — kreditor chegarasi buzilmaydi. */
+  preferUid?: string | null;
 }
 
 /**
@@ -78,7 +82,8 @@ async function uidsAndSessions(pinfl: string, ownStir: string | null | undefined
   let pick = rows.filter((r) => !isDraft(r.status));
   pick.sort((a, b) => (b.registryDt?.getTime() ?? 0) - (a.registryDt?.getTime() ?? 0));
   if (opts.deliveredOnly) pick = pick.length && isDelivered(pick[0].status) ? [pick[0]] : [];
-  const uids = [...new Set(pick.map((r) => r.caseNumber).filter((x): x is string => !!x))];
+  let uids = [...new Set(pick.map((r) => r.caseNumber).filter((x): x is string => !!x))];
+  if (opts.preferUid && uids.includes(opts.preferUid)) uids = [opts.preferUid, ...uids.filter((u) => u !== opts.preferUid)];
   if (!uids.length) return none;
   const stirs = [...new Set([digits(ownStir), ...FIRMS.map((f) => digits(f.stir))].filter(Boolean))];
   const sessions: any[] = [];
