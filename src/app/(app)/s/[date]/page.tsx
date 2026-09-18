@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/db';
 import { parseLoanFilters, buildLoanWhere, loanWhereSql, loanPageHref } from '@/core/loan-filters';
+import { firmActivity } from '@/lib/active-firms';
 import { formatSumDecimal, dmy } from '@/core/document';
 import { PageHeader, StatCard, Table, Pagination, EmptyState, ClickableRow } from '@/ui';
 import { getT } from '@/lib/i18n/server';
@@ -33,7 +34,8 @@ export default async function SnapshotBrowsePage({
   if (!snapshot) notFound();
 
   const f = parseLoanFilters(searchParams);
-  const where = buildLoanWhere(snapshot.id, f);
+  const fa = await firmActivity(); // nofaol firma — portfel ro'yxati, statistika va chartda ko'rinmaydi
+  const where = buildLoanWhere(snapshot.id, f, fa.inactiveCodes);
 
   const [loans, total, sumAgg, peopleCount, firms] = await Promise.all([
     prisma.loan.findMany({
@@ -46,8 +48,8 @@ export default async function SnapshotBrowsePage({
     prisma.loan.aggregate({ where, _sum: { totalDebt: true } }),
     // Distinct people (pinfl) matching the filter — a scalar COUNT(DISTINCT) instead
     // of transferring ~63k pinfl rows to Node just to read .length.
-    prisma.$queryRaw<{ n: bigint }[]>`SELECT COUNT(DISTINCT pinfl) AS n FROM Loan WHERE ${loanWhereSql(snapshot.id, f)}`,
-    prisma.firm.findMany(),
+    prisma.$queryRaw<{ n: bigint }[]>`SELECT COUNT(DISTINCT pinfl) AS n FROM Loan WHERE ${loanWhereSql(snapshot.id, f, fa.inactiveCodes)}`,
+    prisma.firm.findMany({ where: { active: true } }),
   ]);
   const peopleTotal = Number(peopleCount[0]?.n ?? 0);
   // The per-firm debt chart (heaviest query) is NOT awaited here — it streams via

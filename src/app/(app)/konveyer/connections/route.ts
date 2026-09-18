@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
   const firmIdParam = req.nextUrl.searchParams.get('firmId');
 
   const [firms, sessions] = await Promise.all([
-    prisma.firm.findMany({ select: { id: true, shortName: true, stir: true } }),
+    prisma.firm.findMany({ where: { active: true }, select: { id: true, shortName: true, stir: true } }),
     prisma.externalSession.findMany({ select: { provider: true, account: true, status: true, updatedAt: true, expiresAt: true } }),
   ]);
   // account is bare digits; Firm.stir has spaces — normalize both.

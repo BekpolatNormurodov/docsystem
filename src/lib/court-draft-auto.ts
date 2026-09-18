@@ -116,7 +116,7 @@ export async function draftAutoTick(): Promise<string | null> {
   //   1-o'tish: sog'lom firmalar (tez, ishonchli).
   //   2-o'tish: sog'lomlarda ish qolmasa — buzuqlarni ham QAYTA urinamiz (o'tkinchi xato tuzaladi;
   //             butunlay buzuq bo'lsa faqat boshqa ish qolmaganda bitta tick sarflaydi).
-  const firms = await prisma.firm.findMany({ select: { id: true, shortName: true }, orderBy: { id: 'asc' } });
+  const firms = await prisma.firm.findMany({ where: { active: true }, select: { id: true, shortName: true }, orderBy: { id: 'asc' } });
   for (const pass of [0, 1] as const) {
     for (const f of firms) {
       if (pausedFirms.has(f.id)) continue;              // shu firma alohida to'xtatilgan

@@ -7,6 +7,8 @@ import { Modal, TextField, Select, RowAction, Ico } from '@/ui';
 import { BILLING_REGIONS, BILLING_VILOYATS } from '@/core/billing-regions-data';
 import { useT } from '@/lib/i18n/client';
 
+const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
+
 type FirmFields = Record<
   | 'shortName' | 'legalName' | 'address' | 'bankAccount' | 'mfo' | 'stir' | 'postIndex' | 'phone'
   | 'region' | 'district' | 'addressLine' | 'cabinetClaimantId',
@@ -33,11 +35,30 @@ function toFields(firm: Firm): FirmFields {
 /** One firm's row — its own edit-modal state, so the list page stays a plain server component. */
 export function FirmRow({ firm }: { firm: Firm }) {
   const t = useT();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const active = firm.active;
+
+  // Tez faol/nofaol almashtirish — modalsiz, bevosita qatordan. Nofaol firma butun patoki
+  // (hamma bo'lim + filtr) yashiriladi; ma'lumot o'chmaydi, qayta yoqilsa qaytadi.
+  async function toggleActive() {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/firms/${firm.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: !active }),
+      });
+      if (res.ok) router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <>
-      <tr className="border-t border-line">
+      <tr className={cx('border-t border-line', !active && 'opacity-55')}>
         <td className="px-4 py-3 align-top font-mono text-xs">{firm.code}</td>
         <td className="px-4 py-3 align-top">
           <div className="truncate font-medium" title={firm.legalName ?? firm.shortName}>
@@ -46,10 +67,37 @@ export function FirmRow({ firm }: { firm: Firm }) {
         </td>
         <td className="px-4 py-3 align-top text-muted">{firm.stir || '—'}</td>
         <td className="px-4 py-3 align-top font-mono text-xs text-muted">{firm.bankAccount || '—'}</td>
+        <td className="px-4 py-3 align-top">
+          <span className={cx(
+            'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium',
+            active
+              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'
+              : 'bg-rose-500/10 text-rose-600 dark:text-rose-300',
+          )}>
+            <span className={cx('h-1.5 w-1.5 rounded-full', active ? 'bg-emerald-500' : 'bg-rose-500')} aria-hidden />
+            {active ? t('Faol') : t('Nofaol')}
+          </span>
+        </td>
         <td className="px-4 py-3 text-right align-top">
-          <RowAction onClick={() => setOpen(true)} label={t('Tahrirlash')}>
-            <Ico.pen size={16} />
-          </RowAction>
+          <div className="flex items-center justify-end gap-1.5">
+            <button
+              type="button"
+              onClick={toggleActive}
+              disabled={busy}
+              title={active ? t('Nofaol qilish') : t('Faollashtirish')}
+              className={cx(
+                'rounded-lg px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50',
+                active
+                  ? 'text-rose-600 hover:bg-rose-500/10 dark:text-rose-300'
+                  : 'text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-300',
+              )}
+            >
+              {busy ? '…' : active ? t('Nofaol qilish') : t('Faollashtirish')}
+            </button>
+            <RowAction onClick={() => setOpen(true)} label={t('Tahrirlash')}>
+              <Ico.pen size={16} />
+            </RowAction>
+          </div>
         </td>
       </tr>
       {open && <FirmForm firm={firm} onClose={() => setOpen(false)} />}

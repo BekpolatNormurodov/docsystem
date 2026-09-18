@@ -10,6 +10,7 @@
 // Bu modul faqat DB o'qiydi — chiqarilgan-yo'qligini ArizaCase.meta.exportedAt
 // da saqlaymiz (schema o'zgarmasdan, db push kerak emas).
 import { prisma } from './db';
+import { firmActivity } from './active-firms';
 import { MAX_COURT_BATCH } from './court-batch';
 // Tab sonlari qoidasi — brauzer bilan YAGONA manba (court-counts.ts izohiga qarang).
 import { tallyClientCounts, emptyClientCounts, type ClientReadyCounts } from './court-counts';
@@ -405,7 +406,7 @@ export interface CourtReadiness {
  *  tayyor + qaysi hujjat yetishmayotgani (missing breakdown). */
 export async function courtReadiness(snapshotId?: number, firmId?: number): Promise<CourtReadiness> {
   const firms = await prisma.firm.findMany({
-    where: firmId ? { id: firmId } : {},
+    where: firmId ? { id: firmId } : { active: true }, // nofaol firma sud tayyorlik jadvalida ko'rinmaydi
     select: { id: true, code: true, shortName: true, stir: true },
   });
 
@@ -918,7 +919,10 @@ export async function courtStatusBoard(snapshotId?: number, firmId?: number): Pr
     const firm = await prisma.firm.findUnique({ where: { id: firmId }, select: { code: true } });
     branchCode = firm?.code ?? '__none__';
   }
-  const where = { ...(branchCode ? { branchCode } : {}), ...(snapshotId ? { snapshotId } : {}) };
+  // Aniq firma so'ralmasa (umumiy board — /boss) nofaol firma branchCode'lari chiqarib tashlanadi.
+  const fa = await firmActivity();
+  const inactiveBranchCond = !firmId && fa.hasInactive ? { branchCode: { notIn: fa.inactiveCodes } } : {};
+  const where = { ...(branchCode ? { branchCode } : {}), ...(snapshotId ? { snapshotId } : {}), ...inactiveBranchCond };
   // Group in the DB rather than loading every row: classifyStatus is a pure function of
   // (status, statusLabel, caseResult), so classifying each DISTINCT combo once and summing
   // its _count is identical to classifying every row — far less transfer + no big JS loop.
@@ -974,8 +978,9 @@ const RETURN_STAGES: CaseStage[] = ['COURT_RETURNED', 'CHAMBER_RETURNED'];
 /** Qaytgan ishlar (sud qaytardi / palatadan qaytgan) — to'ldirib, belgilab,
  *  qayta yuborish uchun. */
 export async function courtReturns(snapshotId?: number, firmId?: number): Promise<ReturnCase[]> {
+  const fa = await firmActivity();
   const rows = await prisma.arizaCase.findMany({
-    where: { stage: { in: RETURN_STAGES }, ...(snapshotId ? { snapshotId } : {}), ...(firmId ? { firmId } : {}) },
+    where: { stage: { in: RETURN_STAGES }, ...(snapshotId ? { snapshotId } : {}), ...(firmId ? { firmId } : fa.caseWhere) },
     orderBy: [{ dueAt: 'asc' }, { id: 'asc' }],
     select: {
       id: true, clientName: true, pinfl: true, firmId: true, stage: true, receiptNumber: true,

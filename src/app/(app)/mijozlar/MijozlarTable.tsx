@@ -5,6 +5,7 @@ import { formatSumDecimal } from '@/core/document';
 import { getT } from '@/lib/i18n/server';
 import { konveyerPersons, PHASES, STAGE_LABEL } from '@/lib/konveyer';
 import { courtBadge } from '@/lib/court-result';
+import { firmActivity } from '@/lib/active-firms';
 
 const PAGE = 50;
 
@@ -114,10 +115,12 @@ export async function MijozlarTable({ snapshotId, linkDate, date, q, digitsOnly,
 
     // Ushbu sahifadagi mijozlar uchun: (a) sud ro'yxati bayrog'i, (b) firma bo'yicha bosqich,
     // (c) sud holati — hammasi PINFL bo'yicha bitta partiyada (arzon, indeksli), exPinfls kabi.
+    // Nofaol firmaning bosqich-chipi va sud holati mijoz kartasida ko'rinmasin.
+    const fa = await firmActivity();
     const [exRows, caseRows, statusRows] = await Promise.all([
       pagePinfls.length ? prisma.loan.findMany({ where: { pinfl: { in: pagePinfls }, excluded: true, snapshotId }, select: { pinfl: true }, distinct: ['pinfl'] }) : Promise.resolve([]),
-      pagePinfls.length ? prisma.arizaCase.findMany({ where: { snapshotId, pinfl: { in: pagePinfls } }, orderBy: { firmId: 'asc' }, select: { pinfl: true, stage: true, firm: { select: { shortName: true } } } }) : Promise.resolve([]),
-      pagePinfls.length ? prisma.clientCaseStatus.findMany({ where: { source: 'CABINET', pinfl: { in: pagePinfls }, snapshotId }, select: { pinfl: true, status: true, statusLabel: true, caseResult: true, updatedAt: true } }) : Promise.resolve([]),
+      pagePinfls.length ? prisma.arizaCase.findMany({ where: { snapshotId, pinfl: { in: pagePinfls }, ...fa.caseWhere }, orderBy: { firmId: 'asc' }, select: { pinfl: true, stage: true, firm: { select: { shortName: true } } } }) : Promise.resolve([]),
+      pagePinfls.length ? prisma.clientCaseStatus.findMany({ where: { source: 'CABINET', pinfl: { in: pagePinfls }, snapshotId, ...(fa.hasInactive ? { branchCode: { notIn: fa.inactiveCodes } } : {}) }, select: { pinfl: true, status: true, statusLabel: true, caseResult: true, updatedAt: true } }) : Promise.resolve([]),
     ]);
 
     const exPinfls = new Set(exRows.map((r) => r.pinfl));

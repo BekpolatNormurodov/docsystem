@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db';
 import { buildLoanWhere, type LoanFilters } from '@/core/loan-filters';
+import { firmActivity } from '@/lib/active-firms';
 import { HBarChart } from '@/ui';
 import { getT } from '@/lib/i18n/server';
 
@@ -11,7 +12,8 @@ export async function FirmDebtChart({ snapshotId, f, firmByCode }: {
   snapshotId: number; f: LoanFilters; firmByCode: Map<string, string>;
 }) {
   const t = getT();
-  const byFirm = await prisma.loan.groupBy({ by: ['branchCode'], where: buildLoanWhere(snapshotId, f), _sum: { totalDebt: true } });
+  const fa = await firmActivity();
+  const byFirm = await prisma.loan.groupBy({ by: ['branchCode'], where: buildLoanWhere(snapshotId, f, fa.inactiveCodes), _sum: { totalDebt: true } });
   if (byFirm.length === 0) return null;
   return (
     <div className="mb-4">

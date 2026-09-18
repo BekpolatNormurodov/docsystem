@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { konveyerSummary, phaseTotals } from '@/lib/konveyer';
 import { courtStatusBoard, classifyStatus } from '@/lib/court-ready';
 import { regionFromText } from '@/lib/mib/breakdown';
+import { firmActivity } from '@/lib/active-firms';
 
 export interface BossSud { inReview: number; granted: number; returned: number; rejected: number; total: number }
 export interface BossFirmRow {
@@ -48,8 +49,11 @@ const PRECOURT_CODES = new Set(['DRAFT', 'CREATED']);
 
 export async function bossReport(snapshotId?: number): Promise<BossReportData> {
   const summary = await konveyerSummary(snapshotId);
-  const scope = snapshotId ? { snapshotId } : {};
+  const fa = await firmActivity();
+  const scope = { ...(snapshotId ? { snapshotId } : {}), ...fa.caseWhere };
   const snapCond = snapshotId ? Prisma.sql`AND snapshotId = ${snapshotId}` : Prisma.empty;
+  // Nofaol firma ishlarini grand-total (DISTINCT PINFL) va region agregatlaridan ham chiqaramiz.
+  const inactiveCaseCond = fa.hasInactive ? Prisma.sql`AND firmId NOT IN (${Prisma.join(fa.inactiveIds)})` : Prisma.empty;
 
   // Firma bo'yicha jami qarz (summalar) — bitta groupBy.
   const debtRows = await prisma.arizaCase.groupBy({ by: ['firmId'], where: scope, _sum: { totalDebt: true } });
@@ -60,11 +64,11 @@ export async function bossReport(snapshotId?: number): Promise<BossReportData> {
   // firmada bo'lsa: firma kesimida ikkalasida ham, UMUMIYda BIR marta sanaladi (COUNT DISTINCT).
   const clientRows = await prisma.$queryRaw<{ firmId: number; n: bigint }[]>`
     SELECT firmId, COUNT(DISTINCT pinfl) AS n FROM ArizaCase
-    WHERE pinfl IS NOT NULL ${snapCond} GROUP BY firmId`;
+    WHERE pinfl IS NOT NULL ${snapCond} ${inactiveCaseCond} GROUP BY firmId`;
   const clientsByFirm = new Map<number, number>();
   for (const r of clientRows) clientsByFirm.set(Number(r.firmId), Number(r.n));
   const totalClientsRows = await prisma.$queryRaw<{ n: bigint }[]>`
-    SELECT COUNT(DISTINCT pinfl) AS n FROM ArizaCase WHERE pinfl IS NOT NULL ${snapCond}`;
+    SELECT COUNT(DISTINCT pinfl) AS n FROM ArizaCase WHERE pinfl IS NOT NULL ${snapCond} ${inactiveCaseCond}`;
   const totalClients = Number(totalClientsRows[0]?.n ?? 0);
 
   const firms: BossFirmRow[] = await Promise.all(summary.firms.map(async (f) => {
@@ -135,9 +139,10 @@ async function regionBreakdown(snapshotId?: number): Promise<BossRegionRow[]> {
   // qotib qolardi (snapshot almashtirib bo'lmasdi). Endi region FAQAT kerakli pinfl'lar uchun,
   // pinfl-indeks bilan (FORCE INDEX Loan_pinfl_snapshotId_idx) olinadi (~2s). ArizaCase/ClientCaseStatus
   // kichik va indeksli — yig'ish JS'da. acRows/ccsRows parallel; region so'rovi ular topgan PINFL'lar bo'yicha.
+  const fa = await firmActivity();
   const [acRows, ccsRows] = await Promise.all([
-    prisma.arizaCase.findMany({ where: { snapshotId: regionSnapId, pinfl: { not: null } }, select: { pinfl: true, stage: true, totalDebt: true, talabnomaAt: true } }),
-    prisma.clientCaseStatus.findMany({ where: { source: 'CABINET', pinfl: { not: null } }, select: { pinfl: true, status: true, statusLabel: true, caseResult: true } }),
+    prisma.arizaCase.findMany({ where: { snapshotId: regionSnapId, pinfl: { not: null }, ...fa.caseWhere }, select: { pinfl: true, stage: true, totalDebt: true, talabnomaAt: true } }),
+    prisma.clientCaseStatus.findMany({ where: { source: 'CABINET', pinfl: { not: null }, ...(fa.hasInactive ? { branchCode: { notIn: fa.inactiveCodes } } : {}) }, select: { pinfl: true, status: true, statusLabel: true, caseResult: true } }),
   ]);
   // Region FAQAT kerakli PINFL'lar uchun. ILGARI: `l.pinfl IN (SELECT … UNION SELECT …)` subquery +
   // FORCE INDEX — MySQL buni DEPENDENT subquery qilib ~159k Loan qatoriga qayta bajarardi → ~46s va

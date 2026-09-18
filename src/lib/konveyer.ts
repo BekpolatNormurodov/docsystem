@@ -4,6 +4,7 @@ import { cache } from 'react';
 import { prisma } from './db';
 import { Prisma, type CaseStage } from '@prisma/client';
 import { dueForStage } from './konveyer-sla';
+import { firmActivity } from './active-firms';
 
 // React's server `cache` dedupes a call within one request. It's undefined in the plain (non-RSC)
 // vitest runtime, where invoking it throws "cache is not a function" at module load — degrade to a
@@ -89,7 +90,8 @@ export interface StageBadges { phase: Record<string, number>; talabnoma: number;
 /** Lightweight per-phase case counts for the sidebar stepper badges — one groupBy + two counts,
  *  far cheaper than the full konveyerSummary. Cached so the layout shares one hit per request. */
 export const konveyerStageBadges = memo(async (snapshotId?: number): Promise<StageBadges> => {
-  const scope = snapshotId ? { snapshotId } : {};
+  const fa = await firmActivity();
+  const scope = { ...(snapshotId ? { snapshotId } : {}), ...fa.caseWhere };
   const [byStage, talabnoma, total] = await Promise.all([
     prisma.arizaCase.groupBy({ by: ['stage'], where: scope, _count: { _all: true } }),
     prisma.arizaCase.count({ where: { ...scope, talabnomaAt: { not: null } } }),
@@ -137,7 +139,7 @@ export interface FirmConn { hippo: ConnState; cabinet: ConnState }
  */
 export async function konveyerFirmConnections(): Promise<Record<number, FirmConn>> {
   const [firms, sessions] = await Promise.all([
-    prisma.firm.findMany({ select: { id: true, stir: true } }),
+    prisma.firm.findMany({ where: { active: true }, select: { id: true, stir: true } }),
     prisma.externalSession.findMany({ select: { provider: true, account: true, status: true } }),
   ]);
   // Sessions store the account as bare digits ("311976765") but Firm.stir is
@@ -164,10 +166,12 @@ export async function konveyerFirmConnections(): Promise<Record<number, FirmConn
  *  Pass `snapshotId` to scope to one import date (dashboard dropdown). */
 export async function konveyerSummary(snapshotId?: number): Promise<KonveyerSummary> {
   const now = new Date();
-  const scope = snapshotId ? { snapshotId } : {};
+  const fa = await firmActivity();
+  // Nofaol firma → butun oqimi yashiriladi: firmalar ro'yxatidan ham, ish sonlaridan ham.
+  const scope = { ...(snapshotId ? { snapshotId } : {}), ...fa.caseWhere };
 
   const [firms, byFirmStage, overdueGroups, talabnomaGroups] = await Promise.all([
-    prisma.firm.findMany({ select: { id: true, shortName: true } }),
+    prisma.firm.findMany({ where: { active: true }, select: { id: true, shortName: true } }),
     prisma.arizaCase.groupBy({ by: ['firmId', 'stage'], where: scope, _count: { _all: true } }),
     prisma.arizaCase.groupBy({
       by: ['firmId'],
@@ -276,10 +280,11 @@ export interface KonveyerFunnel { total: number; phases: Record<string, number>;
  *  OVERALL and attributed to the firm where that furthest case sits, so the
  *  per-firm buckets partition the overall funnel exactly. */
 export async function konveyerFunnel(snapshotId?: number): Promise<KonveyerFunnel> {
-  const scope = snapshotId ? { snapshotId } : {};
+  const fa = await firmActivity();
+  const scope = { ...(snapshotId ? { snapshotId } : {}), ...fa.caseWhere };
   const [rows, firms] = await Promise.all([
     prisma.arizaCase.findMany({ where: { ...scope, pinfl: { not: null } }, select: { pinfl: true, firmId: true, stage: true, talabnomaAt: true } }),
-    prisma.firm.findMany({ select: { id: true, shortName: true } }),
+    prisma.firm.findMany({ where: { active: true }, select: { id: true, shortName: true } }),
   ]);
   const firmName = new Map(firms.map((f) => [f.id, f.shortName]));
 
@@ -327,10 +332,11 @@ export async function mijozlarStepSummary(snapshotId?: number): Promise<Mijozlar
     const l = await prisma.snapshot.findFirst({ where: { status: 'READY' }, orderBy: { reportDate: 'desc' }, select: { id: true } });
     sid = l?.id ?? undefined;
   }
+  const fa = await firmActivity();
   const [f, overdueRows] = await Promise.all([
     konveyerFunnel(sid),
     sid
-      ? prisma.arizaCase.findMany({ where: { snapshotId: sid, dueAt: { lt: new Date() }, stage: { notIn: TERMINAL }, pinfl: { not: null } }, select: { pinfl: true }, distinct: ['pinfl'] })
+      ? prisma.arizaCase.findMany({ where: { snapshotId: sid, dueAt: { lt: new Date() }, stage: { notIn: TERMINAL }, pinfl: { not: null }, ...fa.caseWhere }, select: { pinfl: true }, distinct: ['pinfl'] })
       : Promise.resolve([]),
   ]);
   return { total: f.total, phases: f.phases, overdue: overdueRows.length };
@@ -534,10 +540,12 @@ export async function mibEligibleCases(opts: { firmId?: number; snapshotId?: num
     const latest = await prisma.snapshot.findFirst({ where: { status: 'READY' }, orderBy: { reportDate: 'desc' }, select: { id: true } });
     snapshotId = latest?.id;
   }
+  const fa = await firmActivity();
   const where = {
     stage: { in: MIB_ELIGIBLE_STAGES },
     ...(opts.firmId ? { firmId: opts.firmId } : {}),
     ...(snapshotId ? { snapshotId } : {}),
+    ...(opts.firmId ? {} : fa.caseWhere), // aniq firma so'ralsa filtr shart emas; aks holda nofaollarni chiqar
   };
   const [grouped, rows, firms] = await Promise.all([
     prisma.arizaCase.groupBy({ by: ['firmId', 'stage'], where, _count: { _all: true }, _sum: { totalDebt: true } }),
@@ -547,7 +555,7 @@ export async function mibEligibleCases(opts: { firmId?: number; snapshotId?: num
       take: MIB_CASE_CAP + 1, // +1 sentinel so we know the list was truncated
       select: { id: true, firmId: true, clientName: true, pinfl: true, kod: true, stage: true, totalDebt: true, courtCaseId: true, mibRef: true },
     }),
-    prisma.firm.findMany({ select: { id: true, shortName: true } }),
+    prisma.firm.findMany({ where: { active: true }, select: { id: true, shortName: true } }),
   ]);
 
   const nameOf = new Map(firms.map((f) => [f.id, f.shortName]));
@@ -656,10 +664,12 @@ export async function mibEligibleExport(opts: { firmId?: number; snapshotId?: nu
     const latest = await prisma.snapshot.findFirst({ where: { status: 'READY' }, orderBy: { reportDate: 'desc' }, select: { id: true } });
     snapshotId = latest?.id;
   }
+  const fa = await firmActivity();
   const where = {
     stage: { in: MIB_ELIGIBLE_STAGES },
     ...(opts.firmId ? { firmId: opts.firmId } : {}),
     ...(snapshotId ? { snapshotId } : {}),
+    ...(opts.firmId ? {} : fa.caseWhere),
   };
   const [rows, firms] = await Promise.all([
     prisma.arizaCase.findMany({
@@ -667,7 +677,7 @@ export async function mibEligibleExport(opts: { firmId?: number; snapshotId?: nu
       orderBy: [{ totalDebt: 'desc' }, { id: 'asc' }],
       select: { id: true, firmId: true, clientName: true, pinfl: true, kod: true, stage: true, totalDebt: true, courtCaseId: true, mibRef: true },
     }),
-    prisma.firm.findMany({ select: { id: true, shortName: true } }),
+    prisma.firm.findMany({ where: { active: true }, select: { id: true, shortName: true } }),
   ]);
   const nameOf = new Map(firms.map((f) => [f.id, f.shortName]));
 
@@ -773,6 +783,9 @@ export async function konveyerPersons(opts: {
   const rankCase = Prisma.sql`CASE stage ${Prisma.join(STAGE_PROGRESSION.map((k, i) => Prisma.sql`WHEN ${k} THEN ${i}`), ' ')} ELSE 0 END`;
   const normCase = Prisma.sql`CASE WHEN stage IN (${Prisma.join(mainKeys)}) THEN stage ELSE ${'IMPORTED'} END`;
   const snapCond = snapshotId ? Prisma.sql`AND snapshotId = ${snapshotId}` : Prisma.empty;
+  // Nofaol firma ishlarini butunlay chiqarib tashlaymiz (qidiruv chiplarida ham ko'rinmaydi).
+  const fa = await firmActivity();
+  const inactiveCond = fa.hasInactive ? Prisma.sql`AND firmId NOT IN (${Prisma.join(fa.inactiveIds)})` : Prisma.empty;
 
   const conds: Prisma.Sql[] = [];
   if (opts.firmId) conds.push(Prisma.sql`primFirmId = ${opts.firmId}`);
@@ -788,7 +801,7 @@ export async function konveyerPersons(opts: {
     WITH scoped AS (
       SELECT id, pinfl, clientName, kod, firmId, stage, talabnomaAt, dueAt,
              ${rankCase} AS rnk, ${normCase} AS ns
-      FROM ArizaCase WHERE pinfl IS NOT NULL ${snapCond}
+      FROM ArizaCase WHERE pinfl IS NOT NULL ${snapCond} ${inactiveCond}
     ),
     ranked AS (
       SELECT id, pinfl, clientName, kod, firmId, stage, talabnomaAt, dueAt, ns,
@@ -824,7 +837,7 @@ export async function konveyerPersons(opts: {
   // Load full cases ONLY for this page's people, then build the rows (same
   // aggregation as before). orderBy id so the display/search name is stable.
   const rows = await prisma.arizaCase.findMany({
-    where: { pinfl: { in: pinfls }, ...(snapshotId ? { snapshotId } : {}) },
+    where: { pinfl: { in: pinfls }, ...(snapshotId ? { snapshotId } : {}), ...fa.caseWhere },
     orderBy: { id: 'asc' },
     select: { id: true, pinfl: true, clientName: true, kod: true, firmId: true, stage: true, dueAt: true, totalDebt: true, receiptNumber: true, courtCaseId: true, talabnomaAt: true, firm: { select: { shortName: true } } },
   });
@@ -894,7 +907,10 @@ export async function syncCasesFromSnapshot(snapshotId?: number): Promise<SyncRe
     ? await prisma.snapshot.findUniqueOrThrow({ where: { id: snapshotId } })
     : await prisma.snapshot.findFirstOrThrow({ where: { status: 'READY' }, orderBy: { reportDate: 'desc' } });
 
-  const firms = await prisma.firm.findMany({ select: { id: true, code: true } });
+  // Nofaol firma yangi ish YARATMAYDI — faqat faol firmalar code→id xaritasiga kiradi
+  // (nofaol firma loanlari `unmatched`ga tushib skip qilinadi). Qayta yoqilsa keyingi
+  // sync ularni oladi.
+  const firms = await prisma.firm.findMany({ where: { active: true }, select: { id: true, code: true } });
   const firmByCode = new Map(firms.map((f) => [f.code, f.id]));
 
   // Per (pinfl, branchCode): one representative client name + summed debt.

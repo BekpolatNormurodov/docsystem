@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { requireAdmin } from '@/lib/auth';
 import { runExportJob } from '@/lib/export-arizas';
 import { buildLoanWhere, type LoanFilters } from '@/core/loan-filters';
+import { firmActivity } from '@/lib/active-firms';
 import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
@@ -34,7 +35,8 @@ export async function POST(req: NextRequest) {
   if (!snapshot) return NextResponse.json({ error: t('Bu sana uchun snapshot topilmadi') }, { status: 404 });
 
   // minDebt is a CLIENT-total filter: the export produces one ariza per loan of the matching clients.
-  const where = { ...buildLoanWhere(snapshot.id, { q, branches, page: 1 } satisfies LoanFilters), excluded: onlyExcluded };
+  const fa = await firmActivity(); // nofaol firma arizalari eksport qilinmaydi
+  const where = { ...buildLoanWhere(snapshot.id, { q, branches, page: 1 } satisfies LoanFilters, fa.inactiveCodes), excluded: onlyExcluded };
   // One ariza per (client × firm), so the total is the number of distinct (pinfl, branchCode) groups.
   const arizaGroups = await prisma.loan.groupBy({ by: ['pinfl', 'branchCode'], where });
   let total: number;

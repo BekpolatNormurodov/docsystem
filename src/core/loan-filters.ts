@@ -28,8 +28,10 @@ export function parseLoanFilters(sp: Record<string, string | undefined>): LoanFi
   };
 }
 
-/** Turns parsed loan filters into a Prisma where clause, scoped to a snapshot. Empty filters omitted. */
-export function buildLoanWhere(snapshotId: number, f: LoanFilters): Prisma.LoanWhereInput {
+/** Turns parsed loan filters into a Prisma where clause, scoped to a snapshot. Empty filters omitted.
+ *  `inactiveBranches` — nofaol firma code'lari; berilsa (bo'sh emas) ularning loanlari chiqarib
+ *  tashlanadi (branchCode NOT IN). Bo'sh (default) → no-op (mavjud xatti-harakat, testlar buzilmaydi). */
+export function buildLoanWhere(snapshotId: number, f: LoanFilters, inactiveBranches: string[] = []): Prisma.LoanWhereInput {
   const where: Prisma.LoanWhereInput = { snapshotId };
   if (f.q) {
     where.OR = [
@@ -45,19 +47,22 @@ export function buildLoanWhere(snapshotId: number, f: LoanFilters): Prisma.LoanW
     const d = new Date(f.fromDate); // ignore an unparseable fromDate rather than crash Prisma
     if (!Number.isNaN(d.getTime())) where.dateToCr = { gte: d };
   }
+  // Nofaol firmalar — branchCode ustidan `AND` bilan (mavjud branchCode filtri bilan to'qnashmaydi).
+  if (inactiveBranches.length > 0) where.AND = [{ branchCode: { notIn: inactiveBranches } }];
   return where;
 }
 
 /** The same predicate as buildLoanWhere, as a raw SQL fragment — for a
  *  COUNT(DISTINCT pinfl) that must NOT transfer ~51k rows to Node just to count
  *  people. Keep in lockstep with buildLoanWhere above. */
-export function loanWhereSql(snapshotId: number, f: Omit<LoanFilters, 'page'>): Prisma.Sql {
+export function loanWhereSql(snapshotId: number, f: Omit<LoanFilters, 'page'>, inactiveBranches: string[] = []): Prisma.Sql {
   const parts: Prisma.Sql[] = [Prisma.sql`snapshotId = ${snapshotId}`];
   if (f.q) { const like = `%${f.q}%`; parts.push(Prisma.sql`(pinfl LIKE ${like} OR clientName LIKE ${like} OR ldId LIKE ${like})`); }
   if (f.branches && f.branches.length > 0) parts.push(Prisma.sql`branchCode IN (${Prisma.join(f.branches)})`);
   else if (f.branch) parts.push(Prisma.sql`branchCode = ${f.branch}`);
   if (f.minDebt !== undefined && Number.isFinite(f.minDebt)) parts.push(Prisma.sql`totalDebt >= ${f.minDebt}`);
   if (f.fromDate) { const d = new Date(f.fromDate); if (!Number.isNaN(d.getTime())) parts.push(Prisma.sql`dateToCr >= ${d}`); }
+  if (inactiveBranches.length > 0) parts.push(Prisma.sql`branchCode NOT IN (${Prisma.join(inactiveBranches)})`);
   return Prisma.join(parts, ' AND ');
 }
 

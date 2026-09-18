@@ -4,6 +4,7 @@
 import { prisma } from './db';
 import type { CaseStage } from '@prisma/client';
 import { getBojiAmount } from './konveyer-buxgalter';
+import { firmActivity } from './active-firms';
 
 // «To'langan» — INVOICE_PAID va undan keyingi bosqichlar (sud/MIB'ga o'tsa ham to'langan bo'lib qoladi).
 const PAID_STAGES: CaseStage[] = ['INVOICE_PAID', 'COURT_SUBMITTED', 'COURT_ACCEPTED', 'COURT_RETURNED', 'MIB_SUBMITTED', 'CLOSED'];
@@ -42,7 +43,8 @@ export interface BxData {
 
 /** Sidebar badge uchun yengil sanoq: jami kvitansiya va to'langan (kelgan) soni. */
 export async function buxgalteriyaCounts(snapshotId?: number): Promise<{ total: number; paid: number }> {
-  const scope = { receiptNumber: { not: null }, ...(snapshotId ? { snapshotId } : {}) } as const;
+  const fa = await firmActivity();
+  const scope = { receiptNumber: { not: null }, ...(snapshotId ? { snapshotId } : {}), ...fa.caseWhere } as const;
   const [total, paid] = await Promise.all([
     prisma.arizaCase.count({ where: scope }),
     prisma.arizaCase.count({ where: { ...scope, stage: { in: PAID_STAGES } } }),
@@ -53,8 +55,9 @@ export async function buxgalteriyaCounts(snapshotId?: number): Promise<{ total: 
 /** Firmalar bo'yicha boji invoice ro'yxati + holati (tanlangan snapshot uchun). */
 export async function buxgalteriyaData(snapshotId?: number): Promise<BxData> {
   const fallback = await getBojiAmount();
+  const fa = await firmActivity();
   const cases = await prisma.arizaCase.findMany({
-    where: { receiptNumber: { not: null }, ...(snapshotId ? { snapshotId } : {}) },
+    where: { receiptNumber: { not: null }, ...(snapshotId ? { snapshotId } : {}), ...fa.caseWhere },
     orderBy: [{ firmId: 'asc' }, { clientName: 'asc' }],
     select: {
       id: true, firmId: true, clientName: true, kod: true, receiptNumber: true, invoiceNo: true, stage: true,

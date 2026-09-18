@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 export default async function InvoyslarPage() {
   const t = getT();
   const [firms, records, bojiAmount] = await Promise.all([
-    prisma.firm.findMany({ orderBy: { shortName: 'asc' }, select: { id: true, shortName: true, stir: true, region: true, district: true, addressLine: true } }),
+    prisma.firm.findMany({ where: { active: true }, orderBy: { shortName: 'asc' }, select: { id: true, shortName: true, stir: true, region: true, district: true, addressLine: true } }),
     prisma.invoiceRecord.findMany({ orderBy: { createdAt: 'desc' }, take: 100, include: { firm: { select: { shortName: true } } } }),
     getBojiAmount(),
   ]);

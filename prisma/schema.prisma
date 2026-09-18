@@ -67,6 +67,10 @@ model Firm {
   // (qaytarib bo'lmaydi), shuning uchun topilmasa yuborish ATAYIN to'xtaydi.
   // Qiymat qo'lda kiritiladi yoki portaldan avtomatik aniqlanadi (src/lib/cabinet/claimant.ts).
   cabinetClaimantId String?
+  // Faol/nofaol. `false` → bu firmaning butun «patoki» (loanlar, ishlar, sud/mib/talabnoma
+  // oqimi) hamma bo'lim va filtr komponentlarida YASHIRINADI (ma'lumot o'chmaydi — qayta yoqilsa
+  // qaytadi). Faqat Firmalar admin sahifasida ko'rinadi. Filtr manbai: src/lib/active-firms.ts.
+  active      Boolean  @default(true)
   invoices    InvoiceRecord[]
   arizaCases  ArizaCase[]
   documents   FirmDocument[]

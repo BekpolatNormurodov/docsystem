@@ -8,6 +8,7 @@ import { prisma } from '@/lib/db';
 import { PageHeader, EmptyState, Pagination } from '@/ui';
 import { formatSumDecimal } from '@/core/document';
 import { buildLoanWhere } from '@/core/loan-filters';
+import { firmActivity } from '@/lib/active-firms';
 import { getT } from '@/lib/i18n/server';
 import { FilterExportBar } from './FilterExportBar';
 import { ExportsList, type ReadyExport } from './ExportsList';
@@ -64,14 +65,15 @@ export default async function HujjatlarDatePage({
 
   // Base where (firm + search). minDebt filters by the CLIENT's TOTAL debt via `having` — matching
   // the sum shown on each card, not a single loan. `excluded` selects the normal vs the excluded set.
-  const where = { ...buildLoanWhere(snapshot.id, { q, branches, page: 1 }), excluded: onlyExcluded };
+  const fa = await firmActivity(); // nofaol firma — chip, ro'yxat va eksportda ko'rinmaydi
+  const where = { ...buildLoanWhere(snapshot.id, { q, branches, page: 1 }, fa.inactiveCodes), excluded: onlyExcluded };
   const having = minDebt !== undefined ? { totalDebt: { _sum: { gte: minDebt } } } : undefined;
 
   const [firms, allGroups, clients] = await Promise.all([
-    prisma.firm.findMany({ select: { code: true, shortName: true } }),
+    prisma.firm.findMany({ where: { active: true }, select: { code: true, shortName: true } }),
     // Firm chip counts respect the current mode: «Barchasi» → whole portfolio, «Sud roʻyxati» → only
     // the court-list (excluded) contracts. So the chip numbers add up to the subtitle's total.
-    prisma.loan.groupBy({ by: ['branchCode'], where: { snapshotId: snapshot.id, excluded: onlyExcluded }, _count: true }),
+    prisma.loan.groupBy({ by: ['branchCode'], where: { snapshotId: snapshot.id, excluded: onlyExcluded, ...fa.loanWhere }, _count: true }),
     prisma.loan.groupBy({
       by: ['pinfl', 'clientName'],
       where,

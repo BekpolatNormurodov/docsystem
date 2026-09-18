@@ -11,6 +11,7 @@ import { arizaZipPath, uniqueZipPath } from './export-paths';
 import { loansToAriza, type ArizaFirm } from '@/core/ariza';
 import { firmPrimaryCourt } from './court-routing';
 import { buildLoanWhere, type LoanFilters } from '@/core/loan-filters';
+import { firmActivity } from './active-firms';
 
 const EXPORTS_DIR = path.join(process.cwd(), 'exports');
 const PAGE_SIZE = 500;
@@ -43,13 +44,14 @@ export async function runExportJob(jobId: number, filters: ExportFilters): Promi
     const settings = await getSettings();
     // minDebt filters by the CLIENT's TOTAL debt (the sum shown on the card), not a single loan.
     // Resolve the matching clients once, then skip other clients' loans while streaming.
+    const fa = await firmActivity(); // nofaol firma arizalari eksport qilinmaydi
     const where = {
       ...buildLoanWhere(filters.snapshotId, {
         q: filters.q,
         branch: filters.branch,
         branches: filters.branches,
         page: 1,
-      } satisfies LoanFilters),
+      } satisfies LoanFilters, fa.inactiveCodes),
       excluded: !!filters.onlyExcluded,
     };
     let allowedPinfls: Set<string> | null = null;

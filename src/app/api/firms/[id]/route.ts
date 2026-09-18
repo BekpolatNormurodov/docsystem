@@ -18,7 +18,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   let body: unknown;
   try { body = await req.json(); } catch { return NextResponse.json({ error: t('Notoʻgʻri soʻrov') }, { status: 400 }); }
   const b = (body ?? {}) as Record<string, unknown>;
-  const data: Record<string, string | null> = {};
+  const data: Record<string, string | boolean | null> = {};
   for (const k of EDITABLE) {
     if (!(k in b)) continue;
     const v = b[k];
@@ -27,6 +27,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     // would silently persist as "12345"/"[object Object]" into a legally-significant firm field.
     if (typeof v !== 'string') return NextResponse.json({ error: `${k}: ${t('matn boʻlishi kerak')}` }, { status: 400 });
     data[k] = v;
+  }
+  // `active` — faol/nofaol (boolean). Nofaol → firma butun patoki hamma bo'lim va filtrda yashiriladi.
+  if ('active' in b) {
+    if (typeof b.active !== 'boolean') return NextResponse.json({ error: `active: ${t('boolean boʻlishi kerak')}` }, { status: 400 });
+    data.active = b.active;
   }
   if (Object.keys(data).length === 0) return NextResponse.json({ error: t('Oʻzgartirish yoʻq') }, { status: 400 });
   try {
