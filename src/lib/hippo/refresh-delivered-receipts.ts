@@ -19,6 +19,8 @@ import { downloadReceiptPdf } from './xat';
 import { isPdf } from './talabnoma-fetch';
 import { performLabel } from './mail-status';
 
+const CONCURRENCY = 4;
+
 export interface RefreshDeliveredResult { checked: number; refreshed: number; alreadyFresh: number; notDelivered: number; failed: number; todo: number }
 
 // Saqlangan check'ning hippo uid'i fayl nomida turadi (attach-receipts.ts: `Talabnoma_kvitansiya_${uid}.pdf`,
@@ -63,11 +65,18 @@ export async function refreshDeliveredReceipts(
   }
   res.todo = todo.length;
 
-  for (const d of todo.slice(0, Math.max(1, opts.limit ?? 300))) {
+  // Parallel yuklash — attach-receipts bilan bir xil chegara (hippo rate-limit'iga ehtiyot: 4).
+  const batch = todo.slice(0, Math.max(1, opts.limit ?? 300));
+  let next = 0;
+  const worker = async () => { while (next < batch.length) await refreshOne(batch[next++]); };
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, batch.length) }, worker));
+  return res;
+
+  async function refreshOne(d: (typeof todo)[number]): Promise<void> {
     try {
       const b = Buffer.from(await downloadReceiptPdf(session, d.uid));
       // Sudga ketadi — xato sahifasi/bo'sh javob PDF o'rnida saqlanmasin.
-      if (!isPdf(b)) { res.failed++; continue; }
+      if (!isPdf(b)) { res.failed++; return; }
       let fPath = d.filePath;
       if (fPath.startsWith('/app/')) fPath = path.join(process.cwd(), fPath.replace(/^\/app\//, ''));
       // Jo'natish paytidagi nusxa izi uchun bir marta saqlanadi (qayta yangilashda ustidan yozilmaydi).
@@ -85,5 +94,4 @@ export async function refreshDeliveredReceipts(
       res.failed++;
     }
   }
-  return res;
 }
