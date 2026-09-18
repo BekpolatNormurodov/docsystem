@@ -11,16 +11,13 @@
 // shartnomaning boshqa snapshotdagi `date_actu_close` qiymati olinadi (~97% kreditda bor).
 // Faqat o'qiydi; kiruvchi obyektlar o'zgartirilmaydi (nusxa qaytadi).
 import { prisma } from './db';
+import { hasActualClose as hasActu } from './grafik-docx';
 
 type LoanLike = { ldId: string | null; branchCode?: string | null; raw?: unknown };
 
-/** Kreditda haqiqiy yopilish sanasi (`raw.date_actu_close`) bormi — oferta/grafik muddati shundan. */
-export const hasActualClose = (raw: unknown) => hasActu(raw);
-
-function hasActu(raw: unknown): boolean {
-  const v = raw && typeof raw === 'object' ? (raw as Record<string, unknown>).date_actu_close : undefined;
-  return v != null && v !== '' && Number(v) > 0;
-}
+/** Kreditda haqiqiy yopilish sanasi (`raw.date_actu_close`) bormi — oferta/grafik muddati shundan.
+ *  Yagona ta'rif grafik-docx.ts da (toza, bazasiz); bu yerda qulaylik uchun qayta eksport. */
+export { hasActualClose } from './grafik-docx';
 
 /** `raw.date_actu_close` bo'lmagan kreditlarga uni boshqa snapshotdagi o'sha shartnomadan qo'yadi.
  *  Topilmaganlari o'zgarmay qoladi (grafik-pdf qat'iy rejimda ularni tashlab ketadi). */

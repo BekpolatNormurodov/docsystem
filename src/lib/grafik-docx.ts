@@ -46,6 +46,14 @@ export function excelSerialToDate(serial: unknown): Date | null {
  *  `dateClose` is the revolving credit-line's far-off expiry (~72mo for the
  *  «3-Долгосрочные» class) and must NOT drive the schedule/term. Falls back to
  *  `dateClose` only when the actual-close serial is absent (≈0.15% of loans). */
+/** Kreditda HAQIQIY yopilish sanasi (`raw.date_actu_close`) bormi. Yo'q bo'lsa loanMaturity kredit
+ *  LINIYASI muddatiga (≈72 oy) tushadi — sud hujjati (oferta/grafik) uchun bu noto'g'ri muddat.
+ *  Toza funksiya (bazasiz) — grafik-pdf.ts shu yerdan oladi; loan-actual-close.ts qayta eksport qiladi. */
+export function hasActualClose(raw: unknown): boolean {
+  const v = raw && typeof raw === 'object' ? (raw as Record<string, unknown>).date_actu_close : undefined;
+  return v != null && v !== '' && Number(v) > 0;
+}
+
 export function loanMaturity(loan: { dateClose: Date | null; raw?: unknown }): Date | null {
   const raw = (loan?.raw ?? null) as Record<string, unknown> | null;
   const actu = raw ? excelSerialToDate(raw['date_actu_close']) : null;

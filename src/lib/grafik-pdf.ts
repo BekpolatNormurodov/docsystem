@@ -8,7 +8,7 @@
 // Raqamlar grafik-docx.ts bilan AYNAN bir xil (loanSchedule / loanMaturity / termMonths) — DOCX,
 // oferta «тўлиқ қиймати» va shu PDF tiyinigacha mos keladi. Yon ta'sirsiz: bazaga tegmaydi.
 import type { Browser } from 'playwright';
-import { loanMaturity, loanSchedule, termMonths, type GrafikLoan } from './grafik-docx';
+import { hasActualClose, loanMaturity, loanSchedule, termMonths, type GrafikLoan } from './grafik-docx';
 
 export interface GrafikPdfInput {
   /** BITTA mijoz × firma kreditlari (odatda shu snapshot + pinfl + kod). Sud uchun avval
@@ -25,11 +25,6 @@ export interface GrafikOpts {
   /** Tashlangan kredit haqida xabar (logga yozish uchun). */
   onSkip?: (ldId: string | null, reason: string) => void;
 }
-
-const hasActualClose = (raw: unknown) => {
-  const v = raw && typeof raw === 'object' ? (raw as Record<string, unknown>).date_actu_close : undefined;
-  return v != null && v !== '' && Number(v) > 0;
-};
 
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const money = (n: number) => new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n).replace(/ | /g, ' ');
