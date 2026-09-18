@@ -7,6 +7,7 @@ import { prisma } from '../db';
 import type { HippoSession } from './login';
 import { getStoredHippoSession } from './session';
 import { downloadReceiptPdf } from './xat';
+import { isPdf } from './talabnoma-fetch';
 
 const DOCS = path.join(process.cwd(), 'exports', 'case-docs');
 const digits = (s?: string | null) => (s ?? '').replace(/\D+/g, '');
@@ -30,10 +31,15 @@ async function planReceipts(firm: { id: number; code: string | null }, snapshotI
   const caseByPinfl = new Map<string, number>();
   for (const c of cases) if (c.pinfl && !caseByPinfl.has(c.pinfl)) caseByPinfl.set(c.pinfl, c.id);
 
+  // Eng yangi reyestr birinchi (registryDt = haqiqiy yuborilgan sana; updatedAt har sync'da
+  // yangilanadi). Yuborilmagan qoralama (CREATED) kvitansiya bermaydi — umuman olinmaydi.
   const rows = await prisma.clientCaseStatus.findMany({
-    where: { source: 'HIPPO', category: 'talabnoma', branchCode: firm.code, pinfl: { not: null }, caseNumber: { not: null }, NOT: { caseNumber: { startsWith: 'TLB:' } } },
+    where: {
+      source: 'HIPPO', category: 'talabnoma', branchCode: firm.code, pinfl: { not: null }, caseNumber: { not: null },
+      NOT: [{ caseNumber: { startsWith: 'TLB:' } }, { status: 'CREATED' }],
+    },
     select: { pinfl: true, caseNumber: true },
-    orderBy: { updatedAt: 'desc' },
+    orderBy: [{ registryDt: 'desc' }, { updatedAt: 'desc' }],
   });
   const uidByCase = new Map<number, string>();
   for (const r of rows) {
@@ -58,6 +64,8 @@ export async function receiptSummary(firm: { id: number; code: string | null }):
 async function attachOne(session: HippoSession, caseId: number, uid: string): Promise<boolean> {
   try {
     const b = Buffer.from(await downloadReceiptPdf(session, uid));
+    // Sudga ketadi — xato sahifasi/bo'sh javob PDF o'rnida saqlanmasin.
+    if (!isPdf(b)) return false;
     const dir = path.join(DOCS, String(caseId));
     await fsp.mkdir(dir, { recursive: true });
     const filePath = path.join(dir, `TALABNOMA_RECEIPT-${uid}.pdf`);

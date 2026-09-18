@@ -18,6 +18,8 @@ export const PERFORM_TYPE: Record<string, { label: string; bucket: 'delivered' |
   ReceiverNotAtHome: { label: "Uyda yo'q", bucket: 'failed' },
   NotAtHome: { label: "Uyda yo'q", bucket: 'failed' },
   ReceiverDidntAppearOnNotice: { label: 'Xabarnomaga kelmadi', bucket: 'failed' },
+  // Ingest aynan shu (Receiver-siz) shaklni saqlaydi — 2026-09-18: BRIGHT 21, COMMUNITY 16, URBAN 16 qator.
+  DidntAppearOnNotice: { label: 'Xabarnomaga kelmadi', bucket: 'failed' },
   OrganizationWithGivenAddressNotFound: { label: 'Manzildagi tashkilot topilmadi', bucket: 'failed' },
   TryPerform: { label: 'Urinilmoqda', bucket: 'pending' },
 };

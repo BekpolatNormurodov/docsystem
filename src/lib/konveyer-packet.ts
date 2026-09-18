@@ -53,7 +53,9 @@ const safe = (s: string, n = 70) => (s || 'hujjat').replace(/[^\p{L}\p{N}._ ()'�
 // to'lov slipi, billing.sud.uz'да yaratiladi, raqami arizaning ichiga yoziladi) SUDGA
 // KETMAYDI; qo'lda yuklangan BOSHQA/istalgan boshqa kind ham ketmaydi. Shu allowlist
 // bo'lmasa upload/route.ts orqali qo'lda qo'yilgan invoice/boshqa fayl paketga sizib chiqadi.
-const COURT_PACKET_DOC_KINDS = new Set(['SIGNED_ARIZA', 'TALABNOMA_RECEIPT']);
+// TALABNOMA_HIPPO — hippo yetkazgan xatning OLDINDAN yuklab saqlangan nusxasi (hippo/attach-letters.ts).
+// Bor bo'lsa 5-bo'lim xat.hippo'ga umuman chiqmaydi.
+const COURT_PACKET_DOC_KINDS = new Set(['SIGNED_ARIZA', 'TALABNOMA_RECEIPT', 'TALABNOMA_HIPPO']);
 
 /**
  * Build the packet file list for ONE case. `browser` (a shared Playwright
@@ -249,12 +251,13 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
   //    ko'p marta yuborilgan bo'lishi mumkin (unique custom_id per send) — oxirgi uid boshqa hodim
   //    akkauntida bo'lsa 403, eskiroq send shu akkauntda ochiladi. Shunday «hammasini sinash» URBAN'da
   //    14/103 → 103/103 qildi. (2-talabnoma; UZPOST kvitansiyasi 4-bo'limda TALABNOMA_RECEIPT sifatida.)
-  if (!arizaOnly && hasDebt && opts.hippoTalabnoma !== false && ac.pinfl) {
+  if (!arizaOnly && hasDebt && opts.hippoTalabnoma !== false && ac.pinfl && !files.some((f) => f.name.startsWith('TALABNOMA_HIPPO__'))) {
     try {
       // Har uid × har firma sessiyasi sinaladi (xat boshqa firma akkauntidan ketgan bo'lishi mumkin —
-      // masalan FUNDFLOW talabnomasi BRIGHT akkauntidan). Batafsil: hippo/talabnoma-fetch.ts.
+      // masalan FUNDFLOW talabnomasi BRIGHT akkauntidan). uid'lar esa FAQAT shu firmaniki (kod) —
+      // boshqa kreditorning talabnomasi aralashmasin. Batafsil: hippo/talabnoma-fetch.ts.
       const { fetchDeliveredTalabnoma } = await import('./hippo/talabnoma-fetch');
-      const buf = await fetchDeliveredTalabnoma(ac.pinfl, firm?.stir);
+      const buf = await fetchDeliveredTalabnoma(ac.pinfl, firm?.stir, firm?.code ?? ac.kod);
       if (buf) files.push({ name: `Talabnoma_hippo_${folder}.pdf`, buf });
       else packetFail(caseId, 'hippo talabnoma xati (hech qaysi firma sessiyasidan ochilmadi)', 'no accessible mail');
     } catch (e) { packetFail(caseId, 'hippo talabnoma xati', e); }
@@ -265,7 +268,7 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
   if (!arizaOnly && hasDebt && opts.hippoTalabnoma !== false && ac.pinfl && !files.some((f) => f.name.includes('TALABNOMA_RECEIPT'))) {
     try {
       const { fetchTalabnomaCheck } = await import('./hippo/talabnoma-fetch');
-      const chk = await fetchTalabnomaCheck(ac.pinfl, firm?.stir);
+      const chk = await fetchTalabnomaCheck(ac.pinfl, firm?.stir, firm?.code ?? ac.kod);
       if (chk) files.push({ name: `Talabnoma_kvitansiya_${folder}.pdf`, buf: chk });
     } catch (e) { packetFail(caseId, 'talabnoma check (/perform)', e); }
   }

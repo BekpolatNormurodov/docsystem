@@ -169,6 +169,9 @@ export async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
       const KIND_MAP: Record<string, CaseFileToUpload['kind']> = {
         SIGNED_ARIZA: 'ARIZA', ARIZA: 'ARIZA',
         TALABNOMA: 'TALABNOMA', TALABNOMA_RECEIPT: 'TALABNOMA_CHECK',
+        // Hippo yetkazgan xatning oldindan saqlangan nusxasi (hippo/attach-letters.ts) — bor bo'lsa
+        // quyidagi F bo'limi xat.hippo'ga chiqmaydi.
+        TALABNOMA_HIPPO: 'TALABNOMA',
         GUVOHNOMA: 'GUVOHNOMA', ISHONCHNOMA: 'ISHONCHNOMA',
         SHARTNOMA: 'SHARTNOMA', OFERTA: 'OFERTA',
       };
@@ -320,11 +323,13 @@ export async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
   //    fetchDeliveredTalabnoma: mijoz (pinfl) uchun HAMMA uid × HAMMA firma sessiyasi sinaladi —
   //    xat boshqa firma akkauntidan yuborilgan bo'lsa ham topiladi (masalan FUNDFLOW talabnomasi
   //    BRIGHT akkauntidan). Yo'q/olinmasa — loglanadi; MAJBURIYligi submitter `need` ro'yxatida.
-  if (ac.pinfl && ac.firmId) {
+  //    Oldindan saqlangan nusxa (TALABNOMA_HIPPO → A bo'limida 'TALABNOMA') bo'lsa — tarmoqqa chiqmaymiz.
+  //    uid'lar faqat SHU firma kodidan: ko'p-firmali qarzdorga boshqa kreditorning xati tushmasin.
+  if (ac.pinfl && ac.firmId && !filesToUpload.some((f) => f.kind === 'TALABNOMA')) {
     try {
-      const firmRow = await prisma.firm.findUnique({ where: { id: ac.firmId }, select: { stir: true } });
+      const firmRow = await prisma.firm.findUnique({ where: { id: ac.firmId }, select: { stir: true, code: true } });
       const { fetchDeliveredTalabnoma } = await import('./hippo/talabnoma-fetch');
-      const buf = await fetchDeliveredTalabnoma(ac.pinfl, firmRow?.stir);
+      const buf = await fetchDeliveredTalabnoma(ac.pinfl, firmRow?.stir, firmRow?.code ?? ac.kod);
       if (buf) filesToUpload.push({ kind: 'TALABNOMA', fileName: `Talabnoma_hippo_${ac.id}.pdf`, buffer: buf });
       else console.error(`[court-submit] Case #${ac.id}: hippo yetkazilgan talabnoma topilmadi (hech qaysi firma sessiyasidan)`);
     } catch (e) {
@@ -336,9 +341,9 @@ export async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
   //    hippo /perform/receipt'dan olamiz (masalan FUNDFLOW'da stored yo'q). Cross-firm + multi-uid.
   if (ac.pinfl && !filesToUpload.some((f) => f.kind === 'TALABNOMA_CHECK')) {
     try {
-      const firmChk = await prisma.firm.findUnique({ where: { id: ac.firmId }, select: { stir: true } });
+      const firmChk = await prisma.firm.findUnique({ where: { id: ac.firmId }, select: { stir: true, code: true } });
       const { fetchTalabnomaCheck } = await import('./hippo/talabnoma-fetch');
-      const chk = await fetchTalabnomaCheck(ac.pinfl, firmChk?.stir);
+      const chk = await fetchTalabnomaCheck(ac.pinfl, firmChk?.stir, firmChk?.code ?? ac.kod);
       if (chk) filesToUpload.push({ kind: 'TALABNOMA_CHECK', fileName: `Talabnoma_kvitansiya_${ac.id}.pdf`, buffer: chk });
     } catch (e) {
       console.error(`[court-submit] Case #${ac.id}: talabnoma check (/perform) olinmadi —`, e instanceof Error ? e.message : e);
