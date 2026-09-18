@@ -884,6 +884,10 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
           await prisma.arizaCase.update({
             where: { id: ac.id },
             data: {
+              // Sud qaytargan ish QAYTA tayyorlandi — «Qayta yuborish» bosqichidan chiqadi (yangi
+              // qoralama tayyor). Aks holda u qayta tayyorlangandan keyin ham «Qayta yuborish»
+              // bo'lib ko'rinardi. INVOICE_CREATED — birinchi marta tayyorlangan ishlar bilan bir xil.
+              ...(ac.stage === 'COURT_RETURNED' ? { stage: 'INVOICE_CREATED' as const, stageEnteredAt: new Date() } : {}),
               meta: {
                 ...((ac.meta as any) || {}),
                 suitReadyAt: new Date().toISOString(),

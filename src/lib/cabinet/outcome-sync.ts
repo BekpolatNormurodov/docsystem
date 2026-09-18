@@ -230,46 +230,59 @@ export async function syncCourtOutcomes(firmId: number): Promise<OutcomeSyncResu
 // Natija: stage COURT_RETURNED, qoralama/eksport belgilari tozalanadi (eski ish raqami
 // meta.declinedCaseId'da qoladi), eski DONE navbat yozuvi → FAILED (aks holda court-submit
 // idempotentligi uni «avval yuborilgan» deb o'tkazib yuborardi). Keyin Go uni o'zi oladi.
-const BAD_RESULTS = new Set(['RETURNED', 'REFUSED', 'UNCONSIDERED', 'WITHDRAWN']);
+// Qayta yuborishga ASOS: sud ishni qaytargan/rad etgan/ko'rmagan. WITHDRAWN (da'vogar — yurist —
+// o'zi qaytarib olgan) ATAYIN yo'q: bu ongli qaror, uni avtomatika bekor qilmaydi.
+const RESEND_RESULTS = new Set(['RETURNED', 'REFUSED', 'UNCONSIDERED']);
+// «Hal bo'lmagan» yakunlar (FINISHED + shu natija = da'vo mazmunan ko'rilmagan).
+const UNRESOLVED_RESULTS = new Set(['RETURNED', 'REFUSED', 'UNCONSIDERED', 'WITHDRAWN']);
 const OPEN_STATUSES = new Set(['ALLOCATE', 'CREATED', 'REGISTER', 'PENDING', 'IN_PROCESS']);
+const KNOWN_STATUSES = new Set([...OPEN_STATUSES, 'DECLINED', 'DECIDED', 'FINISHED']);
 const SENT_STAGES = new Set(['COURT_SUBMITTED', 'COURT_ACCEPTED']);
-const DAY = 24 * 3600_000;
+// Yopilgan / keyingi bosqichga (MIB) o'tgan ish — hech qachon avtomat qaytarilmaydi.
+const FINAL_STAGES = ['MIB_SUBMITTED', 'CLOSED'] as const;
 
 export interface DeclinedResetResult { firm: string; reset: number; queueFailed: number }
 
 function metaObj(meta: unknown): Record<string, unknown> {
   return meta && typeof meta === 'object' && !Array.isArray(meta) ? { ...(meta as Record<string, unknown>) } : {};
 }
-function metaDate(m: Record<string, unknown>, k: string): number | null {
-  const v = m[k];
-  const t = typeof v === 'string' ? Date.parse(v) : NaN;
-  return Number.isFinite(t) ? t : null;
-}
-/** Portal yozuvining sanasi: ro'yxatga olingan sana, bo'lmasa oxirgi ko'rilgan payt. */
-function rowTime(r: { detail: unknown; updatedAt: Date }): number {
-  const d = (r.detail as any)?.registry_dt;
-  const t = typeof d === 'string' ? Date.parse(d) : NaN;
-  return Number.isFinite(t) ? t : r.updatedAt.getTime();
-}
 
-type StatusRow = { status: string | null; caseResult: string | null; caseNumber: string | null; matchedBy: string | null; detail: unknown; updatedAt: Date };
-const isBadRow = (r: { status: string | null; caseResult: string | null }) =>
-  r.status === 'DECLINED' || (!!r.caseResult && BAD_RESULTS.has(r.caseResult));
-const isDecidedRow = (r: { status: string | null; caseResult: string | null }) =>
-  r.status === 'DECIDED' || (r.status === 'FINISHED' && !!r.caseResult && !BAD_RESULTS.has(r.caseResult));
+export type StatusRow = { branchCode: string; status: string | null; caseResult: string | null; caseNumber: string | null; claimId: string | null; updatedAt: Date };
+const isResendRow = (r: StatusRow) =>
+  r.status === 'DECLINED' ? r.caseResult !== 'WITHDRAWN' : (!!r.caseResult && RESEND_RESULTS.has(r.caseResult));
+// Ehtiyotkor: FINISHED natijasiz ham «hal bo'lgan» hisoblanadi (UI uni «Yakunlangan» deydi).
+const isDecidedRow = (r: StatusRow) =>
+  r.status === 'DECIDED' || (r.status === 'FINISHED' && !(r.caseResult && UNRESOLVED_RESULTS.has(r.caseResult)));
 
-/** Sof qaror (test qilinadi): shu ish «Qayta yuborish»ga o'tkazilsinmi. Navbat bandligi alohida. */
-export function shouldResetDeclined(c: { courtCaseId: string | null; meta: unknown }, list: StatusRow[]): boolean {
-  if (!list.length) return false;
-  if (list.some((r) => r.status && OPEN_STATUSES.has(r.status))) return false; // ochiq ish bor — tegilmaydi
+/** Ishning O'Z portal id'lari: biz yuborgan (courtCaseId) va/yoki biz tayyorlagan qoralama (meta.cabinetCaseId). */
+export function ownCaseIds(c: { courtCaseId: string | null; meta: unknown }): string[] {
   const m = metaObj(c.meta);
-  const preparedAt = metaDate(m, 'suitReadyAt') ?? metaDate(m, 'draftReadyAt');
-  // Tayyorlangan/yuborilgandan keyin sudda HAL bo'lgan ishi bo'lsa — qayta yuborilmaydi.
-  const since = (preparedAt ?? 0) - 7 * DAY;
-  if (list.some((r) => isDecidedRow(r) && rowTime(r) >= since)) return false;
-  return c.courtCaseId
-    ? list.some((r) => r.caseNumber === c.courtCaseId && isBadRow(r))
-    : preparedAt != null && list.some((r) => r.matchedBy === 'PINFL' && isBadRow(r) && rowTime(r) >= preparedAt - DAY);
+  return [c.courtCaseId, typeof m.cabinetCaseId === 'string' ? m.cabinetCaseId : null].filter((x): x is string => !!x);
+}
+const rowIs = (r: StatusRow, ids: string[]) => (!!r.caseNumber && ids.includes(r.caseNumber)) || (!!r.claimId && ids.includes(r.claimId));
+
+/**
+ * Sof qaror (test qilinadi): shu ish «Qayta yuborish»ga o'tkazilsinmi.
+ *   • ishning O'Z portal ishi (ownCaseIds) ma'lum bo'lishi shart — odam bo'yicha taxmin YO'Q;
+ *   • o'z ishining ENG YANGI yozuvi rad/qaytgan bo'lishi shart (eski «CREATED» qatori qolib ketgan
+ *     bo'lsa ham eng yangisi hal qiladi), o'z ishlaridan birortasi HAL BO'LGAN bo'lmasligi kerak;
+ *   • `personRows` — odamning BARCHA firma kodlaridagi yozuvlari: boshqa (o'ziniki bo'lmagan)
+ *     OCHIQ da'vo bo'lsa — tegilmaydi (ehtiyotkor: branchCode ilgari firmalar orasida ko'chib
+ *     yurgan, shuning uchun kod bo'yicha ajratishga ishonmaymiz); shu firma kodidagi HAL BO'LGAN
+ *     yoki NOMA'LUM holatdagi yozuv ham to'xtatadi.
+ */
+export function shouldResetDeclined(c: { courtCaseId: string | null; meta: unknown }, firmCode: string, personRows: StatusRow[], ownRows: StatusRow[]): boolean {
+  const ids = ownCaseIds(c);
+  if (!ids.length) return false;
+  const own = ownRows.filter((r) => rowIs(r, ids));
+  if (!own.length) return false;
+  const latest = [...own].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0];
+  if (!isResendRow(latest)) return false;
+  if (own.some(isDecidedRow)) return false;
+  const others = personRows.filter((r) => !rowIs(r, ids));
+  if (others.some((r) => r.status && OPEN_STATUSES.has(r.status))) return false;
+  if (others.some((r) => r.branchCode === firmCode && (isDecidedRow(r) || !r.status || !KNOWN_STATUSES.has(r.status)))) return false;
+  return true;
 }
 
 export async function resetDeclinedForResend(firmId: number, opts: { dryRun?: boolean } = {}): Promise<DeclinedResetResult> {
@@ -280,23 +293,27 @@ export async function resetDeclinedForResend(firmId: number, opts: { dryRun?: bo
   const snap = await prisma.snapshot.findFirst({ orderBy: { reportDate: 'desc' }, select: { id: true } });
   if (!snap) return res;
 
-  // «Qilingan» ko'rinishdagi ishlar (qayta yuborish nomzodlari).
+  // «Qilingan» ko'rinishdagi ishlar. COURT_RETURNED ham kiradi — qayta tayyorlangan qoralama
+  // ikkinchi marta rad etilsa ham aniqlansin (idempotentlik belgilar orqali: tozalangan ishda
+  // suitReadyAt/courtCaseId yo'q → nomzod emas).
   const all = await prisma.arizaCase.findMany({
-    where: { firmId, snapshotId: snap.id, pinfl: { not: null }, stage: { not: 'COURT_RETURNED' } },
+    where: { firmId, snapshotId: snap.id, pinfl: { not: null }, stage: { notIn: [...FINAL_STAGES] } },
     select: { id: true, pinfl: true, stage: true, courtCaseId: true, meta: true },
   });
-  const cand = all.filter((c) => {
+  const cand = all.filter((c) => ownCaseIds(c).length > 0 && (() => {
     const m = metaObj(c.meta);
     return !!c.courtCaseId || SENT_STAGES.has(c.stage) || m.suitReadyAt != null || m.draftReadyAt != null;
-  });
+  })());
   if (!cand.length) return res;
 
-  const rows = await prisma.clientCaseStatus.findMany({
-    where: { source: 'CABINET', branchCode: firm.code, pinfl: { in: cand.map((c) => c.pinfl!) } },
-    select: { pinfl: true, status: true, caseResult: true, caseNumber: true, matchedBy: true, detail: true, updatedAt: true },
-  });
-  const byPinfl = new Map<string, typeof rows>();
-  for (const r of rows) {
+  const sel = { branchCode: true, status: true, caseResult: true, caseNumber: true, claimId: true, updatedAt: true, pinfl: true } as const;
+  const ids = [...new Set(cand.flatMap(ownCaseIds))];
+  const [personRowsAll, ownRowsAll] = await Promise.all([
+    prisma.clientCaseStatus.findMany({ where: { source: 'CABINET', pinfl: { in: cand.map((c) => c.pinfl!) } }, select: sel }),
+    prisma.clientCaseStatus.findMany({ where: { source: 'CABINET', OR: [{ caseNumber: { in: ids } }, { claimId: { in: ids } }] }, select: sel }),
+  ]);
+  const byPinfl = new Map<string, StatusRow[]>();
+  for (const r of personRowsAll) {
     if (!r.pinfl) continue;
     const list = byPinfl.get(r.pinfl) ?? [];
     list.push(r);
@@ -308,12 +325,14 @@ export async function resetDeclinedForResend(firmId: number, opts: { dryRun?: bo
 
   for (const c of cand) {
     if (busy.has(c.id)) continue;
-    if (!shouldResetDeclined(c, byPinfl.get(c.pinfl!) ?? [])) continue;
-    const m = metaObj(c.meta);
+    const own = ownCaseIds(c);
+    const ownRows = ownRowsAll.filter((r) => rowIs(r, own));
+    if (!shouldResetDeclined(c, firm.code, byPinfl.get(c.pinfl!) ?? [], ownRows)) continue;
     if (opts.dryRun) { res.reset++; continue; }
+    const m = metaObj(c.meta);
     delete m.suitReadyAt; delete m.draftReadyAt; delete m.exportedAt; delete m.cabinetSubmittedAt;
     m.declinedAt = new Date().toISOString();
-    m.declinedCaseId = c.courtCaseId ?? null;
+    m.declinedCaseId = c.courtCaseId ?? (typeof m.cabinetCaseId === 'string' ? m.cabinetCaseId : null);
     m.returnResetNote = 'portal DECLINED/RETURNED — avtomat qayta yuborishga (resetDeclinedForResend)';
     const [, q] = await prisma.$transaction([
       prisma.arizaCase.update({

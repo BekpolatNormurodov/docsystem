@@ -453,6 +453,12 @@ async function courtDetailSyncLoop(): Promise<void> {
   }
 }
 
+// Firma bo'yicha oxirgi MUVAFFAQIYATLI sud holat sinxroni vaqti. Avtomat «Qayta yuborish»
+// (resetDeclinedForResend) faqat YANGI ma'lumot ustida ishlaydi: sinxron yiqilgan bo'lsa jadvalda
+// eski DECLINED qatorlari qoladi-yu, yangi OCHIQ ishlar ko'rinmaydi — ikkinchi da'vo xavfi.
+const lastCourtStatusOk = new Map<string, number>();
+const STATUS_FRESH_MS = 45 * 60_000;
+
 async function courtStatusSyncLoop(): Promise<void> {
   console.log(`[worker] sud status sync: har ${Math.round(COURT_STATUS_EVERY_MS / 60_000)} daqiqada`);
   await new Promise((r) => setTimeout(r, 90_000)); // migrate/DB tayyor bo'lsin
@@ -462,6 +468,7 @@ async function courtStatusSyncLoop(): Promise<void> {
       try {
         const s = await getStoredCabinetSession(f.stir);
         const r = await ingestCabinetStatuses(s, f.branchCode);
+        lastCourtStatusOk.set(f.branchCode, Date.now());
         if (r.totalCases > 0) {
           console.log(`[worker] sud status ${f.branchCode}: ${r.totalCases} ta ish (mos ${r.matched})`);
         }
@@ -521,7 +528,8 @@ async function courtOutcomeSyncLoop(): Promise<void> {
         try {
           const mode = (await prisma.setting.findUnique({ where: { key: 'court_declined_reset' }, select: { value: true } }))?.value;
           const dryRun = mode !== '1';
-          const d = await resetDeclinedForResend(firm.id, { dryRun });
+          const fresh = Date.now() - (lastCourtStatusOk.get(f.branchCode) ?? 0) < STATUS_FRESH_MS;
+          const d = fresh ? await resetDeclinedForResend(firm.id, { dryRun }) : { reset: 0, queueFailed: 0 };
           if (d.reset > 0) {
             console.log(dryRun
               ? `[worker] rad etilgan qoralama ${f.branchCode}: SINOV — ${d.reset} ta ish «Qayta yuborish»ga o'tardi (court_declined_reset=1 bilan yoqiladi)`
