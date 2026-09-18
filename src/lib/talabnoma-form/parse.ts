@@ -45,79 +45,112 @@ export async function parseTalabnomaForm(
 ): Promise<ParseOutput> {
   // 1) Talabnoma manba → just the set of PINFLs to build letters for (robust Latin/Cyrillic header
   //    detection, reused from the istisno parser). No FIO/amount is taken from here.
-  const wanted = await parseExclusionPinfls(sourcePath);
+  let wanted: Set<string>;
+  try {
+    wanted = await parseExclusionPinfls(sourcePath);
+  } catch (e) {
+    throw new Error(`PINFL roʻyxati faylini oʻqib boʻlmadi (fayl buzuq yoki .xlsx emas): ${e instanceof Error ? e.message : String(e)}`);
+  }
 
   // Seed a person per wanted pinfl so nobody is silently dropped even if the portfolio has no match.
   const byPinfl = new Map<string, CandidatePerson>();
-  for (const pinfl of wanted) {
-    byPinfl.set(pinfl, {
-      pinfl,
-      fio: null,
-      totalOverdue: 0,
-      address: null,
-      phone: null,
-      region: null,
-      district: null,
-      firmsText: null,
-      perFirm: {},
-      loans: [],
-    });
-  }
+  const seed = () => {
+    byPinfl.clear();
+    for (const pinfl of wanted) {
+      byPinfl.set(pinfl, { pinfl, fio: null, totalOverdue: 0, address: null, phone: null, region: null, district: null, firmsText: null, perFirm: {}, loans: [] });
+    }
+  };
+  seed();
 
-  // 2) Портфель — STREAM; keep only wanted rows, and derive ALL person detail from them.
-  const reader = new Excel.stream.xlsx.WorkbookReader(portfolioPath, {
-    worksheets: 'emit',
-    sharedStrings: 'cache',
-    entries: 'emit',
-  });
   const matched = new Set<string>();
   const firmCodes = new Set<string>();
-  let foundWorksheet = false;
   let streamed = 0;
-  for await (const worksheet of reader) {
-    if (foundWorksheet) break; // only the first pinfl-bearing sheet
-    let header: string[] | null = null;
-    for await (const r of worksheet) {
-      const raw = r.values as unknown[];
-      const values = Array.isArray(raw) ? raw.slice(1) : [];
-      if (header === null) {
-        header = values.map((v) => (v === null || v === undefined ? '' : String(v)));
-        if (!header.includes('pinfl')) break; // decoy sheet — skip the rest of it
-        foundWorksheet = true;
-        continue;
+
+  // Bitta portfel qatorini qayta ishlash — STREAM va zaxira (readFile) yoʻllari uchun umumiy.
+  const processRow = (header: string[], values: unknown[]) => {
+    streamed += 1;
+    const loan = mapRowToLoan(header, values);
+    if (!loan.pinfl) return;
+    const person = byPinfl.get(loan.pinfl);
+    if (!person) return;
+    const distrName = (loan.raw as any)?.distr_name != null ? String((loan.raw as any).distr_name) : null;
+    person.loans.push({
+      branch: loan.branchCode, clientName: loan.clientName, ldId: loan.ldId,
+      dateToCr: loan.dateToCr ? loan.dateToCr.toISOString() : null,
+      summKr: loan.summKr, totalDebt: loan.totalDebt,
+      postAddress: loan.postAddress, postAddressUz: loan.postAddressUz,
+      regionName: loan.regionName, distrName,
+    });
+    // Identity / amounts — all from portfel.
+    person.fio = person.fio ?? loan.clientName;
+    person.address = fullest(person.address, loan.postAddressUz, loan.postAddress);
+    person.region = person.region ?? loan.regionName;
+    person.district = person.district ?? distrName;
+    const code = canonCode(loan.branchCode);
+    person.perFirm[code] = (person.perFirm[code] ?? 0) + Math.abs(loan.totalDebt);
+    person.totalOverdue += Math.abs(loan.totalDebt);
+    firmCodes.add(code);
+    matched.add(loan.pinfl);
+  };
+  // Header row → normalized string[] if it carries a «pinfl» column, else null (decoy sheet).
+  const asHeader = (values: unknown[]): string[] | null => {
+    const h = values.map((v) => (v === null || v === undefined ? '' : String(v)));
+    return h.includes('pinfl') ? h : null;
+  };
+
+  // 2) Портфель — STREAM (xotira-cheklangan). Ba'zi generatorlar (openpyxl / davlat eksportlari)
+  //    «data descriptor» zip yozadi → exceljs stream reader «invalid signature: 0x…» xatosini beradi.
+  //    Shu holda bardoshli (readFile) oʻqishga oʻtamiz — fayl baribir import boʻlsin.
+  try {
+    const reader = new Excel.stream.xlsx.WorkbookReader(portfolioPath, { worksheets: 'emit', sharedStrings: 'cache', entries: 'emit' });
+    let foundWorksheet = false;
+    for await (const worksheet of reader) {
+      if (foundWorksheet) break; // only the first pinfl-bearing sheet
+      let header: string[] | null = null;
+      for await (const r of worksheet) {
+        const raw = r.values as unknown[];
+        const values = Array.isArray(raw) ? raw.slice(1) : [];
+        if (header === null) {
+          header = asHeader(values);
+          if (!header) break; // decoy sheet — skip the rest of it
+          foundWorksheet = true;
+          continue;
+        }
+        processRow(header, values);
+        if (onProgress && streamed % 2000 === 0) await onProgress(streamed);
       }
-      streamed += 1;
-      if (onProgress && streamed % 2000 === 0) await onProgress(streamed);
-      const loan = mapRowToLoan(header, values);
-      if (!loan.pinfl) continue;
-      const person = byPinfl.get(loan.pinfl);
-      if (!person) continue;
-
-      const distrName = (loan.raw as any)?.distr_name != null ? String((loan.raw as any).distr_name) : null;
-      person.loans.push({
-        branch: loan.branchCode,
-        clientName: loan.clientName,
-        ldId: loan.ldId,
-        dateToCr: loan.dateToCr ? loan.dateToCr.toISOString() : null,
-        summKr: loan.summKr,
-        totalDebt: loan.totalDebt,
-        postAddress: loan.postAddress,
-        postAddressUz: loan.postAddressUz,
-        regionName: loan.regionName,
-        distrName,
-      });
-
-      // Identity / amounts — all from portfel.
-      person.fio = person.fio ?? loan.clientName;
-      person.address = fullest(person.address, loan.postAddressUz, loan.postAddress);
-      person.region = person.region ?? loan.regionName;
-      person.district = person.district ?? distrName;
-      const code = canonCode(loan.branchCode);
-      person.perFirm[code] = (person.perFirm[code] ?? 0) + Math.abs(loan.totalDebt);
-      person.totalOverdue += Math.abs(loan.totalDebt);
-      firmCodes.add(code);
-      matched.add(loan.pinfl);
     }
+    if (!foundWorksheet) throw new Error('stream: «pinfl» ustunli varaq topilmadi');
+  } catch (streamErr) {
+    // Zaxira: bardoshli readFile (markaziy katalogni oʻqiydi → data-descriptor zip'lar bilan ishlaydi).
+    console.warn('[talabnoma-form] portfel stream oʻqishi uzildi, readFile zaxirasiga oʻtildi —', streamErr instanceof Error ? streamErr.message : streamErr);
+    const st = await fs.stat(portfolioPath).catch(() => null);
+    if (st && st.size > 100 * 1024 * 1024) {
+      throw new Error(`Portfel fayli juda katta (${Math.round(st.size / 1048576)}MB) va zip formati stream oʻqishga mos emas. Faylni Excel'da oching va qaytadan «Saqlash» (.xlsx) qilib yuklang.`);
+    }
+    seed(); matched.clear(); firmCodes.clear(); streamed = 0; // stream davomida yigʻilgani bekor — toza boshlaymiz
+    const wb = new Excel.Workbook();
+    try {
+      await wb.xlsx.readFile(portfolioPath);
+    } catch (readErr) {
+      throw new Error(`Portfel faylini oʻqib boʻlmadi (fayl buzuq yoki .xlsx emas): ${readErr instanceof Error ? readErr.message : String(readErr)}`);
+    }
+    let done = false;
+    for (const ws of wb.worksheets) {
+      if (done) break; // only the first pinfl-bearing sheet
+      let header: string[] | null = null;
+      ws.eachRow((row) => {
+        const raw = row.values as unknown[];
+        const values = Array.isArray(raw) ? raw.slice(1) : [];
+        if (header === null) {
+          header = asHeader(values);
+          if (header) done = true; // shu varaqda qoldiq qatorlarni oʻqiymiz
+          return;
+        }
+        processRow(header, values);
+      });
+    }
+    if (!done) throw new Error('Portfel faylida «pinfl» ustunli varaq topilmadi — notoʻgʻri fayl yuklangan boʻlishi mumkin');
   }
 
   // 3) Firm names from the DB (code → shortName/legalName), so the summary UI shows real names.
