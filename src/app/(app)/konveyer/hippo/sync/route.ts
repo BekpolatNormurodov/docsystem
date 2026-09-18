@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import { getStoredHippoSession } from '@/lib/hippo/session';
 import { ingestHippoStatuses } from '@/lib/hippo/status-ingest';
 import { attachTalabnomaReceipts } from '@/lib/hippo/attach-receipts';
+import { refreshDeliveredReceipts } from '@/lib/hippo/refresh-delivered-receipts';
 import { liveRegistryIds } from '@/lib/hippo/xat';
 import { reconcileTraceAgainstLive } from '@/lib/hippo/talabnoma-trace';
 import { getT } from '@/lib/i18n/server';
@@ -43,7 +44,12 @@ export async function POST(req: NextRequest) {
     let receipts = null;
     try { receipts = await attachTalabnomaReceipts(session, { id: firm.id, code: firm.code }, { limit: 60 }); }
     catch (e) { console.error('attachTalabnomaReceipts (sync) failed', e); }
-    return NextResponse.json({ ok: true, ...result, pruned, receipts });
+    // Yangi holat «yetkazildi» bo'lgan xatlarning check'ini to'ldirilgan nusxaga almashtiramiz — sud
+    // qarzdor xatni olganini aynan shundan ko'radi (refresh-delivered-receipts.ts). Bounded.
+    let delivered = null;
+    try { delivered = await refreshDeliveredReceipts(session, { id: firm.id, code: firm.code }, { limit: 150 }); }
+    catch (e) { console.error('refreshDeliveredReceipts (sync) failed', e); }
+    return NextResponse.json({ ok: true, ...result, pruned, receipts, delivered });
   } catch (e) {
     console.error('hippo sync failed', e);
     return NextResponse.json({ error: t('Sinxronlab boʻlmadi') }, { status: 502 });

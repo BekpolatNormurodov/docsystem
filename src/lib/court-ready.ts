@@ -306,7 +306,28 @@ export async function paidReceiptSet(numbers: string[]): Promise<Set<string>> {
   });
   return new Set(rows.map((r) => r.number));
 }
-const receiptCaseIdSet = (caseIds: number[]) => caseIdSetByKind(caseIds, 'TALABNOMA_RECEIPT');
+// Talabnoma YETKAZILGANLIGI majburiy firmalar (Setting `court_require_delivered:<firmId>` = '1').
+//
+// Sud buyrug'i uchun qarzdor xatni OLGANI isbotlanishi shart (FPK 171–173, 176). 2026-09-11 dan
+// Yuqorichirchiq sudi COMMUNITY arizalarini «қарздорнинг огоҳлантириш хатини олганлиги тўғрисидаги
+// маълумотлар тақдим қилинмаган» deb qaytargan: biz jo'natish paytidagi, yetkazish maydonlari BO'SH
+// check'ni yuborardik. Bunday firmada check faqat yetkazilgan nusxasi yangilangan (hippo/
+// refresh-delivered-receipts.ts → meta.talabnomaDelivered) ishlarda hisoblanadi — aks holda ish
+// «Tayyor»ga chiqmaydi va sudga qaytariladigan paket ketmaydi. Firma bo'yicha, chunki boshqa
+// firmalarning yetkazilish holati hali yangilanmagan bo'lishi mumkin.
+async function deliveryRequiredFirmIds(): Promise<Set<number>> {
+  const rows = await prisma.setting.findMany({ where: { key: { startsWith: 'court_require_delivered:' }, value: '1' }, select: { key: true } });
+  return new Set(rows.map((r) => Number(r.key.split(':')[1])).filter((n) => Number.isInteger(n) && n > 0));
+}
+async function receiptCaseIdSet(caseIds: number[]): Promise<Set<number>> {
+  const have = await caseIdSetByKind(caseIds, 'TALABNOMA_RECEIPT');
+  if (!have.size) return have;
+  const strict = await deliveryRequiredFirmIds();
+  if (!strict.size) return have;
+  const rows = await prisma.arizaCase.findMany({ where: { id: { in: [...have] }, firmId: { in: [...strict] } }, select: { id: true, meta: true } });
+  for (const r of rows) if (!metaHas(r.meta, 'talabnomaDelivered')) have.delete(r.id);
+  return have;
+}
 
 // Talabnoma xat.hippo'da YETKAZILGAN (kvitansiya/check bor) mijozlar PINFL to'plami.
 // ClientCaseStatus (source HIPPO, category 'talabnoma') hippo SYNC'da to'ladi; delivered
