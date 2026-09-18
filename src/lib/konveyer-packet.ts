@@ -8,6 +8,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Browser } from 'playwright';
 import { prisma } from './db';
+import { withActualClose } from './loan-actual-close';
+import { buildGrafikPdf } from './grafik-pdf';
 import { getSettings } from './settings';
 import { buildArizaDocx } from './ariza-docx';
 import { firmPrimaryCourt } from './court-routing';
@@ -47,6 +49,12 @@ const packetFail = (caseId: number, kind: string, e: unknown) =>
 // not «… O_G_LI». All are valid Windows filename characters.
 const safe = (s: string, n = 70) => (s || 'hujjat').replace(/[^\p{L}\p{N}._ ()'ʻ‘’-]+/gu, '_').trim().slice(0, n) || 'hujjat';
 
+/** Kreditning haqiqiy yopilish sanasi (portfel `date_actu_close`) bormi — oferta/grafik muddati shundan. */
+const hasActualClose = (raw: unknown) => {
+  const v = raw && typeof raw === 'object' ? (raw as Record<string, unknown>).date_actu_close : undefined;
+  return v != null && v !== '' && Number(v) > 0;
+};
+
 // ALLOWLIST — qaysi UPLOADED case-hujjatlari sudga (court packet ZIP) kiritiladi.
 // FAQAT ikkitasi: palatada imzolangan ariza skani va xat.hippo UZPOST yetkazish
 // kvitansiyasi (talabnoma «check»). BILLING kvitansiyasi (INVOICE — «Почта харажатлари»
@@ -74,7 +82,7 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
   });
   if (!ac?.pinfl || !ac.snapshotId) return null;
 
-  const [firm, snapshot, settings, loans] = await Promise.all([
+  const [firm, snapshot, settings, loansRaw] = await Promise.all([
     ac.kod ? prisma.firm.findUnique({ where: { code: ac.kod } }) : Promise.resolve(null),
     prisma.snapshot.findUnique({ where: { id: ac.snapshotId } }),
     getSettings(),
@@ -83,6 +91,9 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
       orderBy: { id: 'asc' },
     }),
   ]);
+  // Haqiqiy kredit muddati (grafik/oferta shundan) — joriy snapshotda yo'q, boshqa snapshotdan
+  // tiklanadi (loan-actual-close.ts). Summalar (talabnoma/ariza) bunga bog'liq emas.
+  const loans = await withActualClose(loansRaw);
 
   const folder = safe(ac.clientName || `case-${caseId}`);
   const files: PacketFile[] = [];
@@ -171,7 +182,8 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
   // Chronological dates required — a reversed pair would print a bogus 1-month
   // schedule (maturity before disbursement) on a document filed with the court.
   // Grafik is OPTIONAL — the sudga-yuborish (ready) export drops it (includeGrafik:false).
-  const grafikLoans = loans.filter(isSchedulableLoan);
+  // Muddati noma'lum kredit (date_actu_close yo'q) grafikka KIRMAYDI — aks holda 72 oylik noto'g'ri jadval.
+  const grafikLoans = loans.filter((l) => isSchedulableLoan(l as any) && hasActualClose((l as { raw?: unknown }).raw));
   if (!arizaOnly && hasDebt && opts.includeGrafik !== false && grafikLoans.length) {
     try {
       files.push({ name: `Grafik_${folder}.docx`, buf: await buildGrafikDocx(grafikLoans as any, ac.clientName, firm?.shortName || ac.kod || '') });
@@ -192,6 +204,13 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
     for (const l of loans) {
       if (Number((l as any).summKr) <= 0) continue; // no amount → no meaningful oferta
       n += 1;
+      if (!hasActualClose((l as { raw?: unknown }).raw)) {
+        // Haqiqiy muddat noma'lum — 72 oylik noto'g'ri oferta CHIQARILMAYDI, paket chala deb belgilanadi.
+        const ld = (l as { ldId?: string | null }).ldId ?? n;
+        packetFail(caseId, `oferta ${ld}`, 'haqiqiy muddat (date_actu_close) topilmadi');
+        missing.push(`oferta:${ld}`);
+        continue;
+      }
       try {
         const buf = await renderOfertaPdf(l as any, firm ?? {}, opts.browser, ac.clientName, ac.pinfl, 0, (ac as any).court?.nameUz);
         files.push({ name: `Oferta_${(l as any).ldId ?? n}_${folder}.pdf`, buf });
@@ -332,7 +351,7 @@ export async function buildCasePacket(caseId: number, opts: { browser?: Browser;
  *  (client × firm) group. Lean sibling of buildCasePacket for the oferta-only bulk export.
  *  Returns the client folder name + the oferta files, or null when there's nothing to make.
  *  `browser` is required (oferta is HTML→PDF). Failures per loan are swallowed. */
-export async function buildCaseOfertas(caseId: number, browser: Browser, insurancePct = 0): Promise<{ folder: string; files: PacketFile[] } | null> {
+export async function buildCaseOfertas(caseId: number, browser: Browser, insurancePct = 0): Promise<{ folder: string; files: PacketFile[]; noTerm: string[] } | null> {
   const ac = await prisma.arizaCase.findUnique({
     where: { id: caseId },
     // `court.nameUz` — oferta 10.1.а bandi AYNAN shu ishning sudini nomlaydi (arizadagi sud).
@@ -341,13 +360,19 @@ export async function buildCaseOfertas(caseId: number, browser: Browser, insuran
   });
   if (!ac?.pinfl || !ac.snapshotId) return null;
 
-  const [firm, loans] = await Promise.all([
+  const [firm, loansRaw] = await Promise.all([
     ac.kod ? prisma.firm.findUnique({ where: { code: ac.kod } }) : Promise.resolve(null),
     prisma.loan.findMany({
       where: { snapshotId: ac.snapshotId, pinfl: ac.pinfl, ...(ac.kod ? { branchCode: ac.kod } : {}) },
       orderBy: { id: 'asc' },
     }),
   ]);
+  // HAQIQIY MUDDAT: joriy snapshotda `date_actu_close` yo'q — loanMaturity kredit LINIYASI muddatiga
+  // (72 oy) tushib, ofertada «муддати 72 ой» va noto'g'ri «тўлиқ қиймати» chiqardi (#3540: 2 mln
+  // kredit, haqiqiy 12/24 oy, ofertada 72 oy / 6.86 mln). O'sha shartnomaning boshqa snapshotdagi
+  // sanasi olinadi; topilmasa oferta CHIQARILMAYDI (noTerm) — noto'g'ri shartnoma nusxasi sudga ketmasin.
+  const loans = await withActualClose(loansRaw);
+  const noTerm: string[] = [];
 
   // Sud nomi: ishga tayinlangan sud (arizadagi), bo'lmasa firma asosiy sudi.
   const courtNameUz = ac.court?.nameUz
@@ -361,6 +386,7 @@ export async function buildCaseOfertas(caseId: number, browser: Browser, insuran
   const seen = new Set<string>();
   for (const l of loans) {
     if (Number((l as { summKr?: unknown }).summKr) <= 0) continue; // no amount → no meaningful oferta
+    if (!hasActualClose((l as { raw?: unknown }).raw)) { noTerm.push(String((l as { ldId?: string | null }).ldId ?? l.id)); continue; }
     try {
       const buf = await renderOfertaPdf(l as never, firm ?? {}, browser, ac.clientName, ac.pinfl, insurancePct, courtNameUz);
       // Dedupe on name — two loans sharing the same (non-null) ldId must NOT overwrite each other in
@@ -372,7 +398,32 @@ export async function buildCaseOfertas(caseId: number, browser: Browser, insuran
       files.push({ name, buf });
     } catch { /* skip a failed oferta, keep the rest */ }
   }
-  return files.length ? { folder, files } : null;
+  return files.length || noTerm.length ? { folder, files, noTerm } : null;
+}
+
+/** Sud paketi uchun KREDIT TO'LASH GRAFIGI (PDF) — buildCaseOfertas bilan AYNAN bir xil kreditlar
+ *  (shu snapshot + pinfl + firma kodi, summKr>0), haqiqiy muddat bilan. 2026-09-08 gacha imzolangan
+ *  arizalar ilovalar ro'yxatining 5-bandida grafikni va'da qiladi — sudga esa hech qachon ketmasdi.
+ *  Muddati noma'lum kredit grafikka kirmaydi (noTerm). Grafik tuzib bo'lmasa `buf: null`. */
+export async function buildCaseGrafik(caseId: number, browser: Browser): Promise<{ buf: Buffer | null; noTerm: string[] }> {
+  const ac = await prisma.arizaCase.findUnique({
+    where: { id: caseId }, select: { pinfl: true, snapshotId: true, kod: true, clientName: true },
+  });
+  if (!ac?.pinfl || !ac.snapshotId) return { buf: null, noTerm: [] };
+  const [firm, loansRaw] = await Promise.all([
+    ac.kod ? prisma.firm.findUnique({ where: { code: ac.kod }, select: { shortName: true, legalName: true } }) : Promise.resolve(null),
+    prisma.loan.findMany({
+      where: { snapshotId: ac.snapshotId, pinfl: ac.pinfl, ...(ac.kod ? { branchCode: ac.kod } : {}) },
+      orderBy: { id: 'asc' },
+    }),
+  ]);
+  const loans = (await withActualClose(loansRaw)).filter((l) => Number((l as { summKr?: unknown }).summKr) > 0);
+  const noTerm: string[] = [];
+  const buf = await buildGrafikPdf(
+    { loans: loans as never, clientName: ac.clientName, firmName: firm?.legalName || firm?.shortName || ac.kod || '' },
+    { browser, onSkip: (ldId) => noTerm.push(String(ldId ?? '?')) },
+  );
+  return { buf, noTerm };
 }
 
 /** The firm-library files for ONE firm (guvohnoma/ishonchnoma/shartnoma/oferta),

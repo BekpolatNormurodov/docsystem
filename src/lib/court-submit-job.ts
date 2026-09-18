@@ -144,6 +144,11 @@ export async function assertFirmDocsBelongToFirm(firmId: number, firmName: strin
   }
 }
 
+/** Sud paketi CHALA — ish yuborilmaydi (portalga chiqishdan OLDIN aniqlanadi). */
+export class CourtPackageError extends Error {
+  constructor(message: string) { super(message); this.name = 'CourtPackageError'; }
+}
+
 /**
  * Har bir ish uchun diskdagi hujjatlarni yig'ish
  */
@@ -242,16 +247,42 @@ export async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
   //
   // Chromium worker konteynerida bor; bo'lmasa oferta yaratilmaydi va yuqoridagi
   // to'liqlik tekshiruvi ishni to'xtatadi — chala paket sudga ketmaydi.
+  //
+  // 2026-09-18 PAKET TUZATISHI (qaytishlar: «Ҳужжатлар тартибсиз ёки тескари…», kredit soni
+  // oshgan sari 50% → 97%; adolat-decline-reasons):
+  //   • BITTA ILOVA BANDI = BITTA FAYL: hamma ofertalar bitta PDF'ga birlashtiriladi (ilgari
+  //     17 kreditli mijozda 17 ta alohida «Boshqa hujjatlar»).
+  //   • KREDIT TO'LASH GRAFIGI (PDF) qo'shiladi — 2026-09-08 gacha yaratilgan arizalarning
+  //     (hozirgi BRIGHT/COMMUNITY'ning HAMMASI) ro'yxatida 5-band, lekin hech qachon biriktirilmagan.
+  //   • HAQIQIY MUDDAT: oferta/grafik muddati eski snapshotdan tiklanadi (joriy portfelda yo'q →
+  //     ilgari «72 oy»). Muddati topilmagan kredit bo'lsa — paket CHALA, ish aniq sabab bilan
+  //     to'xtaydi (noto'g'ri yoki to'liq bo'lmagan shartnoma nusxasi sudga ketmasin).
   try {
     const { chromium } = await import('playwright');
     const browser = await chromium.launch({ headless: true });
     try {
-      const { buildCaseOfertas } = await import('./konveyer-packet');
+      const { buildCaseOfertas, buildCaseGrafik } = await import('./konveyer-packet');
       const res = await buildCaseOfertas(ac.id, browser);
-      for (const f of res?.files ?? []) {
-        if (filesToUpload.some((x) => x.fileName === f.name)) continue;
-        filesToUpload.push({ kind: 'OFERTA', fileName: f.name, buffer: f.buf });
+      if (res?.noTerm.length) {
+        throw new CourtPackageError(
+          `${res.noTerm.length} ta kreditning haqiqiy muddati topilmadi (shartnoma: ${res.noTerm.slice(0, 5).join(', ')}${res.noTerm.length > 5 ? ', …' : ''}) — ` +
+          `oferta va grafikni to'g'ri tuzib bo'lmaydi. Portfel faylida «date_actu_close» ni tekshiring.`,
+        );
       }
+      const ofertas = (res?.files ?? []).filter((f) => !filesToUpload.some((x) => x.fileName === f.name));
+      if (ofertas.length) {
+        const { mergePdfs } = await import('./pdf-merge');
+        const merged = await mergePdfs(ofertas.map((f) => f.buf), { labels: ofertas.map((f) => f.name) });
+        filesToUpload.push({ kind: 'OFERTA', fileName: `Kredit_shartnomalari_${ofertas.length}_ta_${ac.id}.pdf`, buffer: merged });
+      }
+      const grafik = await buildCaseGrafik(ac.id, browser);
+      if (!grafik.buf) {
+        throw new CourtPackageError(
+          `Kredit to'lash grafigi yaratilmadi${grafik.noTerm.length ? ` (${grafik.noTerm.length} ta kredit muddati noma'lum)` : ''} — ` +
+          `arizaning ilovalar ro'yxatida 5-band sifatida va'da qilingan.`,
+        );
+      }
+      filesToUpload.push({ kind: 'GRAFIK', fileName: `Kredit_tolash_grafigi_${ac.id}.pdf`, buffer: grafik.buf });
 
       // E) TALABNOMANING O'ZI — SUDGA YUBORILMAYDI (foydalanuvchi qarori 2026-09-10).
       //
@@ -264,6 +295,9 @@ export async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
       await browser.close().catch(() => {});
     }
   } catch (e) {
+    // Paket CHALA (muddat noma'lum / grafik yo'q / oferta birlashmadi) — ish to'xtaydi, sababi
+    // navbatda ko'rinadi. Portalga hali hech narsa ketmagan (fayllar undan OLDIN yig'iladi).
+    if (e instanceof CourtPackageError || (e instanceof Error && e.name === 'PdfMergeError')) throw e;
     console.error(`[court-submit] Case #${ac.id}: oferta/talabnoma yaratilmadi —`, e instanceof Error ? e.message : e);
   }
 
@@ -374,7 +408,13 @@ export async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
  *   3. Kredit shartnomasi                    → OFERTA (har kredit uchun)   BOSHQA_HUJJATLAR
  *   4. Ogohlantirish xatlari                 → TALABNOMA                   TALABNOMA
  *      (yetkazilgani dalili, ro'yxatda yo'q) → TALABNOMA_CHECK             TALABNOMA_CHECK
- *   5. Pochta xarajati to'lov topshiriqnomasi→ BOJI_RECEIPT                POCHTA_XARAJATI…
+ *   5. Kredit to'lash grafigi                → GRAFIK (bitta PDF)          BOSHQA_HUJJATLAR
+ *   6. Pochta xarajati to'lov topshiriqnomasi→ BOJI_RECEIPT                POCHTA_XARAJATI…
+ *
+ * DIQQAT (2026-09-18): sud QOG'OZDAGI (imzolangan skan) ro'yxatni o'qiydi. 2026-09-08 gacha
+ * yaratilgan arizalarda (joriy BRIGHT/COMMUNITY'ning hammasi) 6 bandli ro'yxat — 5-band grafik.
+ * Undan keyingilarida 5 bandli (grafiksiz) — u yerda grafik ortiqcha, lekin zararsiz ilova;
+ * va'da qilingan grafikning yo'qligi esa ishni qaytaradi. Ofertalar bitta PDF (3-band = bitta fayl).
  *
  * Fayllar esa YIG'ILISH tartibida ketardi: avval `CaseDocument` qatorlari (ularning
  * o'zi `orderBy`siz — MySQL qaytargan tartibda, ya'ni bizning tizimga qachon
@@ -402,10 +442,12 @@ const COURT_FILE_ORDER: Record<CaseFileToUpload['kind'], number> = {
   // kvitansiyasi — ular juft o'qiladi (xatning mazmuni + yetkazilgani dalili).
   TALABNOMA: 5,
   TALABNOMA_CHECK: 6,
-  // 5-ilova: pochta xarajati to'lov topshiriqnomasi (billing.sud.uz kvitansiyasi PDF)
-  BOJI_RECEIPT: 7,
+  // 5-ilova (eski 6 bandli ro'yxat): kredit to'lash grafigi — bitta PDF
+  GRAFIK: 7,
+  // 6-ilova (5 bandli ro'yxatda 5-): pochta xarajati to'lov topshiriqnomasi (billing.sud.uz kvitansiyasi PDF)
+  BOJI_RECEIPT: 8,
   // Ro'yxatda yo'q, turi aniqlanmagan hujjat — oxirida.
-  BOSHQA: 8,
+  BOSHQA: 9,
 };
 
 function sortCourtFiles(files: CaseFileToUpload[]): CaseFileToUpload[] {
@@ -413,7 +455,7 @@ function sortCourtFiles(files: CaseFileToUpload[]): CaseFileToUpload[] {
   // tartibida qoladi, ya'ni kredit yozuvlari tartibi buzilmaydi.
   return files
     .map((f, i) => ({ f, i }))
-    .sort((a, b) => (COURT_FILE_ORDER[a.f.kind] ?? 9) - (COURT_FILE_ORDER[b.f.kind] ?? 9) || a.i - b.i)
+    .sort((a, b) => (COURT_FILE_ORDER[a.f.kind] ?? 10) - (COURT_FILE_ORDER[b.f.kind] ?? 10) || a.i - b.i)
     .map((x) => x.f);
 }
 

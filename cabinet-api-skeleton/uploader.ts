@@ -17,7 +17,7 @@ const CACHEABLE_KINDS = new Set(['GUVOHNOMA', 'ISHONCHNOMA', 'SHARTNOMA']);
 export interface CaseFileToUpload {
   // `BOSHQA` — turi aniqlanmagan hujjat. ATAYIN alohida: ilgari notanish tur «OFERTA»
   // bo'lib qolardi va majburiy «yozma asos bormi?» tekshiruvini aldab o'tardi.
-  kind: 'ARIZA' | 'TALABNOMA' | 'TALABNOMA_CHECK' | 'ISHONCHNOMA' | 'GUVOHNOMA' | 'OFERTA' | 'SHARTNOMA' | 'BOJI_RECEIPT' | 'BOSHQA';
+  kind: 'ARIZA' | 'TALABNOMA' | 'TALABNOMA_CHECK' | 'ISHONCHNOMA' | 'GUVOHNOMA' | 'OFERTA' | 'SHARTNOMA' | 'GRAFIK' | 'BOJI_RECEIPT' | 'BOSHQA';
   fileName: string;
   buffer: Buffer;
 }
@@ -50,6 +50,7 @@ export class CabinetFileUploader {
         return CABINET_DOC_TYPES.POCHTA_XARAJATI_KVITANSIYA;
       case 'OFERTA':
       case 'SHARTNOMA':
+      case 'GRAFIK': // portalda grafik turi yo'q — «Boshqa hujjatlar»
       default:
         return CABINET_DOC_TYPES.BOSHQA_HUJJATLAR;
     }
