@@ -20,7 +20,7 @@ import { enqueueJob } from './job-dispatch';
 import { allocateFirmCases, consumeCourtSend } from './court-routing';
 import { isQueuePaused, isFirmPaused } from './cabinet/pacer';
 import { MAX_COURT_BATCH } from './court-batch';
-import { paidReceiptSet, unpaidQueueReason } from './court-ready';
+import { paidReceiptSet, unpaidQueueReason, UNDELIVERED_MARK, hasDeliveryProof } from './court-ready';
 
 /** Blokdan keyingi kutish jadvali (daqiqa). Oxirgisi keyin ham takrorlanaveradi.
  *  2026-09-14: max 120→10 daqiqaga qisqartirildi — ADOLAT o'chib qolganда navbat soatlab
@@ -144,13 +144,17 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH, o
     const skipped = await prisma.courtQueueItem.findMany({
       where: { firmId, state: 'SKIPPED', case: { courtCaseId: null }, NOT: { lastError: { contains: 'ALLAQACHON' } } },
       orderBy: { id: 'asc' },
-      select: { caseId: true, case: { select: { receiptNumber: true } } },
+      select: { caseId: true, lastError: true, case: { select: { receiptNumber: true, meta: true } } },
     });
     if (skipped.length) {
       const paid = await paidReceiptSet(skipped.map((x) => x.case?.receiptNumber ?? ''));
       const room = cap - fresh.length;
       for (const x of skipped) {
         if (revived.length >= room) break;
+        // Talabnoma yetkazilmagani uchun o'tkazilgan ish — faqat yetkazilganlik dalili paydo bo'lgach.
+        // Aks holda (boji to'langan bo'lgani uchun) har tick'da tiriltirilib, partiya uni yana SKIPPED
+        // qilardi — «ALLAQACHON» bilan bo'lgan cheksiz sikl.
+        if (x.lastError?.includes(UNDELIVERED_MARK) && !hasDeliveryProof(x.case?.meta)) continue;
         if (x.case?.receiptNumber && paid.has(x.case.receiptNumber)) revived.push({ caseId: x.caseId });
       }
     }

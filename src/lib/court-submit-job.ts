@@ -15,7 +15,7 @@ import { paceCase, backoff, caseGapFor, isQueuePaused, isFirmPaused, REQUEST_GAP
 import { audit, AuditAction } from './audit';
 import { resolveClaimantId } from './cabinet/claimant';
 import { releaseCourtSend } from './court-routing';
-import { paidReceiptSet, unpaidQueueReason } from './court-ready';
+import { paidReceiptSet, unpaidQueueReason, deliveryRequiredFirmIds, hasDeliveryProof, undeliveredQueueReason } from './court-ready';
 import { noteQueueBlocked, resetQueueBackoff } from './court-auto-resume';
 import { resolveCabinetCourtGuid, regionForCourt } from '../../cabinet-api-skeleton/constants';
 import type { SourceCaseData } from '../../cabinet-api-skeleton/builder';
@@ -662,6 +662,33 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
       console.log(`[Job ${jobId}] ${unpaid.length} ta ish boji to'lanmagani uchun o'tkazib yuborildi (portalga chiqilmadi).`);
     }
     targetCases = sendCases;
+
+    // ── TALABNOMA YETKAZILGANLIGI PREFLIGHT ─────────────────────────────────────────────
+    //
+    // Sud buyrug'i uchun qarzdor talabnomani OLGANI isbotlanishi shart (FPK 171–173, 176):
+    // Yuqorichirchiq sudi COMMUNITY arizalarini aynan shu bilan qaytargan. `court-ready`
+    // bunday ishni «Tayyor»ga chiqarmaydi, lekin navbatga gate'dan OLDIN olingan ishlar
+    // (pauza/resume/avto-davom) filtrni chetlab o'tadi — shuning uchun to'siq dvigatelda ham
+    // turadi. Yetkazilgan (to'ldirilgan) check yo'q ish SKIPPED bo'ladi; check yangilangach
+    // (hippo/refresh-delivered-receipts.ts) avto-tiklash uni o'zi qaytaradi.
+    if ((await deliveryRequiredFirmIds()).has(firm.id)) {
+      const noProof = targetCases.filter((c) => !hasDeliveryProof(c.meta));
+      if (noProof.length) {
+        for (const ac of noProof) {
+          await prisma.courtQueueItem.upsert({
+            where: { caseId: ac.id },
+            create: { caseId: ac.id, firmId: firm.id, account: firmStir, state: 'SKIPPED', jobId, draftMode: isDraftMode, suitMode: isSuitMode, lastError: undeliveredQueueReason(), finishedAt: new Date() },
+            update: { state: 'SKIPPED', jobId, draftMode: isDraftMode, suitMode: isSuitMode, lastError: undeliveredQueueReason(), finishedAt: new Date(), step: null },
+          });
+        }
+        await prisma.arizaCase.updateMany({
+          where: { id: { in: noProof.map((c) => c.id) }, stage: { not: 'COURT_SUBMITTED' } },
+          data: { courtSentAt: null },
+        });
+        console.log(`[Job ${jobId}] ${noProof.length} ta ish talabnoma yetkazilganligi tasdiqlanmagani uchun o'tkazib yuborildi.`);
+      }
+      targetCases = targetCases.filter((c) => hasDeliveryProof(c.meta));
+    }
     // Partiya haqiqiy hajmi — o'tkazib yuborilganlarsiz. Busiz progress «0/195» bo'lib
     // qotib turardi, holbuki yuboriladigan ish 115 ta edi.
     await prisma.job.update({ where: { id: jobId }, data: { total: targetCases.length } }).catch(() => {});

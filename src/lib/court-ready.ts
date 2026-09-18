@@ -315,7 +315,12 @@ export async function paidReceiptSet(numbers: string[]): Promise<Set<string>> {
 // refresh-delivered-receipts.ts → meta.talabnomaDelivered) ishlarda hisoblanadi — aks holda ish
 // «Tayyor»ga chiqmaydi va sudga qaytariladigan paket ketmaydi. Firma bo'yicha, chunki boshqa
 // firmalarning yetkazilish holati hali yangilanmagan bo'lishi mumkin.
-async function deliveryRequiredFirmIds(): Promise<Set<number>> {
+/** SKIPPED sababidagi belgi — avto-tiklash shu bo'yicha «yetkazilmagani uchun o'tkazilgan»ni taniydi. */
+export const UNDELIVERED_MARK = 'TALABNOMA YETKAZILMAGAN';
+export const undeliveredQueueReason = (): string =>
+  `${UNDELIVERED_MARK}: sud buyrug'i uchun qarzdor xatni olgani isbotlanishi shart — yetkazilgan (to'ldirilgan) check yo'q. Hippo'da yetkazilib, check yangilangach ish o'zi navbatga qaytadi.`;
+export const hasDeliveryProof = (meta: unknown): boolean => metaHas(meta, 'talabnomaDelivered');
+export async function deliveryRequiredFirmIds(): Promise<Set<number>> {
   const rows = await prisma.setting.findMany({ where: { key: { startsWith: 'court_require_delivered:' }, value: '1' }, select: { key: true } });
   return new Set(rows.map((r) => Number(r.key.split(':')[1])).filter((n) => Number.isInteger(n) && n > 0));
 }
@@ -325,7 +330,7 @@ async function receiptCaseIdSet(caseIds: number[]): Promise<Set<number>> {
   const strict = await deliveryRequiredFirmIds();
   if (!strict.size) return have;
   const rows = await prisma.arizaCase.findMany({ where: { id: { in: [...have] }, firmId: { in: [...strict] } }, select: { id: true, meta: true } });
-  for (const r of rows) if (!metaHas(r.meta, 'talabnomaDelivered')) have.delete(r.id);
+  for (const r of rows) if (!hasDeliveryProof(r.meta)) have.delete(r.id);
   return have;
 }
 
