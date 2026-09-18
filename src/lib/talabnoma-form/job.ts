@@ -68,10 +68,15 @@ export async function runTalabnomaFormJob(jobId: number): Promise<void> {
       const file = await readCandidates(batch.candidatesPath);
       const rows = buildRowsForFirm(file, firmCode, opts);
       if (!rows.length) throw new Error('Tanlangan filtr uchun qator yo‘q');
+      // total ni oldindan yozamiz — UI «X / Y ta yasalmoqda» ni ko'rsata olsin (personCount = tayyor bo'lgani).
+      await prisma.talabnomaFormRun.update({ where: { id: runId }, data: { rowCount: rows.length, personCount: 0 } }).catch(() => {});
       const firm = await firmLetterhead(firmCode);
       const zip = lettersZipPath(batchId, runId);
       await fs.mkdir(batchDir(batchId), { recursive: true });
-      await writeLettersZip(rows, firm, zip);
+      await writeLettersZip(rows, firm, zip, async (made, total) => {
+        await prisma.talabnomaFormRun.update({ where: { id: runId }, data: { personCount: made } }).catch(() => {});
+        await prisma.job.update({ where: { id: jobId }, data: { progress: made, total } }).catch(() => {});
+      });
       await prisma.talabnomaFormRun.update({
         where: { id: runId },
         data: { status: 'DONE', rowCount: rows.length, personCount: rows.length, resultPath: zip },

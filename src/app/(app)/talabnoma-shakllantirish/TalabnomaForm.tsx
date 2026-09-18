@@ -53,10 +53,11 @@ export function TalabnomaForm() {
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  // Poll while any batch is still parsing.
+  // Poll while any batch is parsing OR any run (xatlar) is still being generated.
   useEffect(() => {
-    if (!batches.some((b) => b.status === 'PARSING')) return;
-    const t = setInterval(() => void refresh(), 2500);
+    const busy = batches.some((b) => b.status === 'PARSING' || b.runs.some((r) => r.status === 'PENDING' || r.status === 'RUNNING'));
+    if (!busy) return;
+    const t = setInterval(() => void refresh(), 2000);
     return () => clearInterval(t);
   }, [batches, refresh]);
 
@@ -111,23 +112,36 @@ function UploadCard({ onDone }: { onDone: (batchId: number) => void }) {
   const [portfolio, setPortfolio] = useState<File | null>(null);
   const [label, setLabel] = useState('');
   const [busy, setBusy] = useState(false);
+  const [pct, setPct] = useState(0); // «manabuncha yuklandi» — fayl yuklanish foizi
   const [err, setErr] = useState('');
 
   const submit = async () => {
     setErr('');
     if (!source || !portfolio) { setErr(t('Ikkala fayl ham kerak')); return; }
-    setBusy(true);
+    setBusy(true); setPct(0);
     try {
       const fd = new FormData();
       fd.append('source', source);
       fd.append('portfolio', portfolio);
       if (label.trim()) fd.append('label', label.trim());
-      const res = await fetch('/api/talabnoma-form/upload', { method: 'POST', body: fd });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok) { setErr(j.error || t('Xatolik')); return; }
+      // XHR — fetch upload progressni bermaydi; katta портфель uchun «manabuncha yuklandi» ko'rsatamiz.
+      const j = await new Promise<{ ok: boolean; batchId?: number; error?: string }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/talabnoma-form/upload');
+        xhr.upload.onprogress = (e) => { if (e.lengthComputable) setPct(Math.round((e.loaded / e.total) * 100)); };
+        xhr.onload = () => {
+          let body: any = {}; try { body = JSON.parse(xhr.responseText || '{}'); } catch {}
+          resolve({ ok: xhr.status >= 200 && xhr.status < 300, batchId: body.batchId, error: body.error });
+        };
+        xhr.onerror = () => reject(new Error(t('Tarmoq xatosi')));
+        xhr.send(fd);
+      });
+      if (!j.ok) { setErr(j.error || t('Xatolik')); return; }
       setSource(null); setPortfolio(null); setLabel('');
-      onDone(j.batchId);
-    } finally { setBusy(false); }
+      if (j.batchId) onDone(j.batchId);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : t('Xatolik'));
+    } finally { setBusy(false); setPct(0); }
   };
 
   const ready = !!source && !!portfolio;
@@ -143,9 +157,19 @@ function UploadCard({ onDone }: { onDone: (batchId: number) => void }) {
           <input className="field-input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder={t('masalan: 20.08.2026')} />
         </div>
         <button className="btn-primary shrink-0" disabled={busy || !ready} onClick={submit}>
-          {busy ? <Spinner size={16} /> : <Ico.filePlus size={16} />} {t('Yuklash va tahlil')}
+          {busy ? <Spinner size={16} /> : <Ico.filePlus size={16} />} {busy ? (pct < 100 ? `${t('Yuklanmoqda')} ${pct}%` : t('Tahlil qilinmoqda…')) : t('Yuklash va tahlil')}
         </button>
       </div>
+      {busy && (
+        <div className="mt-3">
+          <div className="h-2 overflow-hidden rounded-full bg-surface-2">
+            <div className="h-full rounded-full bg-brand-600 transition-all duration-300 dark:bg-brand-400" style={{ width: `${Math.max(3, pct)}%` }} />
+          </div>
+          <p className="mt-1.5 text-xs text-muted">
+            {pct < 100 ? `${t('Fayllar yuklanmoqda')} — ${pct}%` : t('Fayllar yuklandi — tahlil boshlanmoqda…')}
+          </p>
+        </div>
+      )}
       {err && <p className="mt-2 text-sm font-medium text-rose-600 dark:text-rose-300">{err}</p>}
     </div>
   );
@@ -256,6 +280,11 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
   const [applying, setApplying] = useState(false);
   const [busyFirm, setBusyFirm] = useState<string | null>(null);
   const [note, setNote] = useState('');
+  // Qarzdorlik filtri — DEFAULT O'CHIQ: hech qanday chegara qo'yilmaydi (barcha shaxslar kiradi).
+  // Yoqilganda pastdagi summa (Umumiy ≥ / har firmadan ≥) qo'llanadi.
+  const [filterOn, setFilterOn] = useState(false);
+  // O'chiq bo'lsa chegara 0 — hamma o'tadi; yoqilganda kiritilgan summa.
+  const eff = useCallback((o: { thresholdTotal: number; perFirmMin: number }) => (filterOn ? o : { thresholdTotal: 0, perFirmMin: 0 }), [filterOn]);
 
   const runPreview = useCallback(async (o: { thresholdTotal: number; perFirmMin: number }) => {
     setApplying(true);
@@ -267,10 +296,11 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
   const applyInline = (t = totalStr, pf = perFirmStr) => {
     const o = { thresholdTotal: Number(t) || 0, perFirmMin: Number(pf) || 0 };
     setTotalStr(String(o.thresholdTotal)); setPerFirmStr(String(o.perFirmMin));
-    setOpts(o); void runPreview(o);
+    setOpts(o); void runPreview(eff(o));
   };
 
-  useEffect(() => { if (batch.status === 'READY') void runPreview(opts); /* eslint-disable-next-line */ }, [batch.status, batch.id]);
+  // READY bo'lganda yoki filtr yoqil/o'chirilganda — ko'rinishni qayta hisoblaymiz.
+  useEffect(() => { if (batch.status === 'READY') void runPreview(eff(opts)); /* eslint-disable-next-line */ }, [batch.status, batch.id, filterOn]);
 
   if (batch.status === 'PARSING') {
     const pct = batch.totalRows > 0 ? Math.min(99, Math.round((batch.processedRows / batch.totalRows) * 100)) : 0;
@@ -316,7 +346,7 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
     setBusyFirm(firm.code + kind);
     try {
       const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/generate`, {
-        firmCode: firm.code, firmName: firm.name, kind, ...opts, includeUnready: !firm.ready,
+        firmCode: firm.code, firmName: firm.name, kind, ...eff(opts), includeUnready: !firm.ready,
       });
       if (!ok) { setNote(json.error || `${t('Xatolik')} (${status})`); return; }
       if (kind === 'REYESTR') {
@@ -343,7 +373,7 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
     setBusyFirm(firm.code + 'HIPPO');
     try {
       const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/hippo`, {
-        firmCode: firm.code, mode: 'draft', ...opts, includeUnready: !firm.ready,
+        firmCode: firm.code, mode: 'draft', ...eff(opts), includeUnready: !firm.ready,
       });
       if (!ok) { setNote(json.error || `${t('Xatolik')} (${status})`); return; }
       setNote(`${t('xat.hippo qoralama yaratildi')} (#${json.registryId ?? '—'}, ${n(json.count)} ${t('ta')}).`);
@@ -363,34 +393,52 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
 
       {/* inline filter bar — always visible */}
       <div className="card p-4">
-        <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-sm font-semibold">
           <Ico.layer size={16} className="text-brand-600 dark:text-brand-400" /> {t('Filtr')}
           {applying && <Spinner size={14} />}
+          {/* Qarzdorlik filtri — yoq/o'chir. Default o'chiq → barcha shaxslar kiradi. */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={filterOn}
+            onClick={() => { const nf = !filterOn; if (nf && !(Number(totalStr) > 0)) { setTotalStr('2000000'); setOpts((o) => ({ ...o, thresholdTotal: 2_000_000 })); } setFilterOn(nf); }}
+            className="ml-auto inline-flex items-center gap-2 text-xs font-medium"
+            title={t('Qarzdorlik summasi bo‘yicha filtrni yoqish/o‘chirish')}
+          >
+            <span className={cx('relative inline-flex h-5 w-9 items-center rounded-full transition-colors', filterOn ? 'bg-brand-600 dark:bg-brand-500' : 'bg-surface-2 border border-line')}>
+              <span className={cx('inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform', filterOn ? 'translate-x-4' : 'translate-x-0.5')} />
+            </span>
+            <span className={filterOn ? 'text-brand-600 dark:text-brand-400' : 'text-muted'}>
+              {filterOn ? t('Qarzdorlik filtri: yoqilgan') : t('Qarzdorlik filtri: o‘chiq (hammasi)')}
+            </span>
+          </button>
         </div>
-        <div className="flex flex-wrap items-end gap-3">
+        <div className={cx('flex flex-wrap items-end gap-3 transition-opacity', !filterOn && 'pointer-events-none opacity-40')}>
           <label className="min-w-[180px] flex-1">
             <span className="field-label">{t('1) Umumiy qarzdorlik ≥ (so‘m)')}</span>
-            <input className="field-input tabular-nums" inputMode="numeric" value={fmtInt(totalStr)}
+            <input className="field-input tabular-nums" inputMode="numeric" disabled={!filterOn} value={fmtInt(totalStr)}
               onChange={(e) => setTotalStr(e.target.value.replace(/\D/g, ''))}
               onKeyDown={(e) => e.key === 'Enter' && applyInline()} />
           </label>
           <label className="min-w-[180px] flex-1">
             <span className="field-label">{t('2) Har firmadan ≥ (so‘m) · ixtiyoriy')}</span>
-            <input className="field-input tabular-nums" inputMode="numeric" value={fmtInt(perFirmStr)}
+            <input className="field-input tabular-nums" inputMode="numeric" disabled={!filterOn} value={fmtInt(perFirmStr)}
               onChange={(e) => setPerFirmStr(e.target.value.replace(/\D/g, ''))}
               onKeyDown={(e) => e.key === 'Enter' && applyInline()} />
           </label>
-          <button className="btn-primary shrink-0" onClick={() => applyInline()}>{t('Qo‘llash')}</button>
+          <button className="btn-primary shrink-0" disabled={!filterOn} onClick={() => applyInline()}>{t('Qo‘llash')}</button>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="text-xs text-muted">{t('Tez tanlov')}:</span>
-          {[2_000_000, 3_000_000, 5_000_000, 10_000_000].map((v) => (
-            <button key={v} onClick={() => applyInline(String(v))}
-              className={cx('badge transition-colors hover:bg-surface-2', opts.thresholdTotal === v ? 'border-brand-500/40 text-brand-600 dark:text-brand-400' : 'border-line text-muted')}>
-              {n(v)}
-            </button>
-          ))}
-        </div>
+        {filterOn && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted">{t('Tez tanlov')}:</span>
+            {[2_000_000, 3_000_000, 5_000_000, 10_000_000].map((v) => (
+              <button key={v} onClick={() => applyInline(String(v))}
+                className={cx('badge transition-colors hover:bg-surface-2', opts.thresholdTotal === v ? 'border-brand-500/40 text-brand-600 dark:text-brand-400' : 'border-line text-muted')}>
+                {n(v)} {t('so‘m')}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {note && <div className="card border-brand-500/30 bg-brand-500/5 p-3 text-sm text-fg">{note}</div>}
@@ -491,6 +539,10 @@ function RunsTable({ batch }: { batch: Batch }) {
                     <span className="text-xs text-emerald-600 dark:text-emerald-300">#{r.hippoRegistryId ?? '—'}</span>
                   ) : r.status === 'FAILED' ? (
                     <span className="text-xs text-rose-600 dark:text-rose-300" title={r.message ?? ''}>{r.message?.slice(0, 30) ?? t('xato')}</span>
+                  ) : r.kind === 'LETTERS' && r.status === 'RUNNING' && r.rowCount > 0 ? (
+                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium tabular-nums text-amber-600 dark:text-amber-300" title={t('Xatlar tayyorlanmoqda')}>
+                      <Spinner size={12} /> {n(r.personCount)} / {n(r.rowCount)} {t('ta yasalmoqda')}
+                    </span>
                   ) : <Spinner size={14} />}
                 </td>
               </tr>

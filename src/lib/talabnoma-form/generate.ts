@@ -102,6 +102,7 @@ export async function writeLettersZip(
   rows: TalabnomaRow[],
   firm: TalabnomaFirm | null,
   zipPath: string,
+  onProgress?: (done: number, total: number) => void | Promise<void>,
 ): Promise<void> {
   const { chromium } = await import('playwright');
   const out = fs.createWriteStream(zipPath);
@@ -113,6 +114,7 @@ export async function writeLettersZip(
 
   const browser = await chromium.launch({ headless: true });
   const used = new Map<string, number>();
+  let done = 0;
   try {
     for (const row of rows) {
       const pdf = await renderTalabnomaPdf(row, browser, firm);
@@ -123,6 +125,9 @@ export async function writeLettersZip(
       archive.append(pdf, { name });
       // Backpressure: let the zip flush to disk before queueing the next PDF (same as runTalabnomaJob).
       if (out.writableNeedDrain) await new Promise<void>((r) => out.once('drain', () => r()));
+      done += 1;
+      // «Manabuncha yasalmoqda» — har 3 xatda (yoki oxirida) progressni yangilaymiz.
+      if (onProgress && (done % 3 === 0 || done === rows.length)) await onProgress(done, rows.length);
     }
   } finally {
     await browser.close();

@@ -11,6 +11,7 @@ import Excel from 'exceljs';
 import { mapRowToLoan } from '@/core/portfolio';
 import { parseExclusionPinfls } from '@/lib/parse-exclusion';
 import { canonCode, DEFAULT_THRESHOLD, evaluate } from './filter';
+import { streamXlsxRowsViaUnzipper } from './xlsx-stream';
 import type { CandidatePerson, CandidatesFile } from './types';
 
 /** Prefer the FULLEST address seen for a person (portfolio rows vary: some carry the full street,
@@ -122,35 +123,23 @@ export async function parseTalabnomaForm(
     }
     if (!foundWorksheet) throw new Error('stream: «pinfl» ustunli varaq topilmadi');
   } catch (streamErr) {
-    // Zaxira: bardoshli readFile (markaziy katalogni oʻqiydi → data-descriptor zip'lar bilan ishlaydi).
-    console.warn('[talabnoma-form] portfel stream oʻqishi uzildi, readFile zaxirasiga oʻtildi —', streamErr instanceof Error ? streamErr.message : streamErr);
-    const st = await fs.stat(portfolioPath).catch(() => null);
-    if (st && st.size > 100 * 1024 * 1024) {
-      throw new Error(`Portfel fayli juda katta (${Math.round(st.size / 1048576)}MB) va zip formati stream oʻqishga mos emas. Faylni Excel'da oching va qaytadan «Saqlash» (.xlsx) qilib yuklang.`);
-    }
+    // Zaxira: unzipper.Open (markaziy katalog) + saxes oqim — data-descriptor zip'ni istalgan
+    // o'lchamda XOTIRA-CHEKLANGAN o'qiydi (readFile 124MB'da 8GB+ heap yeb portlaydi; bu esa yo'q).
+    console.warn('[talabnoma-form] portfel exceljs-stream uzildi, unzipper-stream zaxirasiga oʻtildi —', streamErr instanceof Error ? streamErr.message : streamErr);
     seed(); matched.clear(); firmCodes.clear(); streamed = 0; // stream davomida yigʻilgani bekor — toza boshlaymiz
-    const wb = new Excel.Workbook();
+    let found = false;
     try {
-      await wb.xlsx.readFile(portfolioPath);
+      found = await streamXlsxRowsViaUnzipper(portfolioPath, {
+        isHeaderRow: (h) => h.includes('pinfl'),
+        onRow: (header, values) => {
+          processRow(header, values);
+          if (onProgress && streamed % 2000 === 0) void onProgress(streamed); // fire-and-forget: SAX sinxron
+        },
+      });
     } catch (readErr) {
       throw new Error(`Portfel faylini oʻqib boʻlmadi (fayl buzuq yoki .xlsx emas): ${readErr instanceof Error ? readErr.message : String(readErr)}`);
     }
-    let done = false;
-    for (const ws of wb.worksheets) {
-      if (done) break; // only the first pinfl-bearing sheet
-      let header: string[] | null = null;
-      ws.eachRow((row) => {
-        const raw = row.values as unknown[];
-        const values = Array.isArray(raw) ? raw.slice(1) : [];
-        if (header === null) {
-          header = asHeader(values);
-          if (header) done = true; // shu varaqda qoldiq qatorlarni oʻqiymiz
-          return;
-        }
-        processRow(header, values);
-      });
-    }
-    if (!done) throw new Error('Portfel faylida «pinfl» ustunli varaq topilmadi — notoʻgʻri fayl yuklangan boʻlishi mumkin');
+    if (!found) throw new Error('Portfel faylida «pinfl» ustunli varaq topilmadi — notoʻgʻri fayl yuklangan boʻlishi mumkin');
   }
 
   // 3) Firm names from the DB (code → shortName/legalName), so the summary UI shows real names.
