@@ -2,6 +2,11 @@ import { cache } from 'react';
 import { Prisma } from '@prisma/client';
 import { prisma } from './db';
 
+// React's server `cache` dedupes within one request — lekin u FAQAT RSC/Next runtime'da funksiya.
+// Worker (tsx/Node) va vitest'da `cache` undefined bo'lib, module-load paytida «cache is not a
+// function» bilan yiqiladi (konveyer.ts ham xuddi shu himoyani ishlatadi). Shu sabab passthrough.
+const memo: typeof cache = typeof cache === 'function' ? cache : (((fn: unknown) => fn) as unknown as typeof cache);
+
 // Firmani «nofaol» qilganda uning butun patoki (loanlar, ishlar, sud/mib/talabnoma oqimi) hamma
 // bo'lim va filtr komponentlarida yashirilishi kerak. Loanlar firmага `branchCode` (= Firm.code)
 // orqali, ishlar (ArizaCase) `firmId` orqali bog'langani uchun bu yerda IKKALASI ham kerak.
@@ -27,7 +32,7 @@ export interface FirmActivity {
   isActiveCode: (code: string | null | undefined) => boolean;
 }
 
-export const firmActivity = cache(async (): Promise<FirmActivity> => {
+export const firmActivity = memo(async (): Promise<FirmActivity> => {
   const firms = await prisma.firm.findMany({ select: { id: true, code: true, active: true } });
   const activeIds: number[] = [];
   const activeCodes: string[] = [];
