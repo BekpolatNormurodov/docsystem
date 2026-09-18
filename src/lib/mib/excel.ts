@@ -88,9 +88,10 @@ export async function buildMibExcel(
   clients: ClientWithCases[],
   opts: { tab?: string; clientId?: number } = {},
 ): Promise<Buffer> {
-  // «Mijozlar» varag'i — UMUMIY (hamma mijoz). «Ishlar» + kesim varaqlari — FAQAT BIZNIKI (Davlat/bank/
-  // jarima/pochta xarajati chiqmaydi): operator ijro ro'yxatida faqat o'z firmalarimiz ishlarini
-  // ko'rishni xohlaydi (2026-09-18). Bitta mijoz eksporti (opts.clientId) — mustasno, HAMMA ishi kerak.
+  // FAQAT BIZNIKI — butun eksport (Mijozlar + Ishlar + kesimlar) faqat o'z firmalarimiz (isTargetFirm)
+  // ishlariga oid: Davlat jarima/pochta xarajati/bank/boshqa kreditor umuman chiqmaydi (2026-09-18,
+  // operator talabi). Bizniki ishi yo'q mijoz ham chiqmaydi. Firma kesimи → faqat 3 firma. Bitta mijoz
+  // eksporti (opts.clientId) — mustasno, o'sha mijozning HAMMA ishi kerak.
   const oursClients = opts.clientId
     ? clients
     : clients.map((c) => ({ ...c, cases: c.cases.filter((k) => k.isTargetFirm) })).filter((c) => c.cases.length > 0);
@@ -124,7 +125,7 @@ export async function buildMibExcel(
     { header: 'Tekshirilgan', key: 'checked', width: 18 },
   ];
   const STATUS_UZ: Record<string, string> = { PENDING: 'Navbatda', RUNNING: 'Tekshirilmoqda', DONE: 'Topildi', CLEAN: 'Toza', FAILED: 'Xato' };
-  for (const c of clients) {
+  for (const c of oursClients) {
     const fullName = c.cases.map((k) => k.personFullName).find((nm) => nm && !nm.includes('***') && nm !== 'Nomaʼlum');
     const remaining = c.cases.reduce((s, k) => s + num(k.remainingDebt), 0);
     s1.addRow({
