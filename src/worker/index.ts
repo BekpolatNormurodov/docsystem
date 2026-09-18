@@ -11,7 +11,7 @@ import { ingestCabinetStatuses } from '../lib/cabinet/status-ingest';
 import { SessionExpiredError } from '../lib/session-store';
 import { autoResumeTick } from '../lib/court-auto-resume';
 import { draftAutoTick } from '../lib/court-draft-auto';
-import { syncCourtOutcomes } from '../lib/cabinet/outcome-sync';
+import { syncCourtOutcomes, resetDeclinedForResend } from '../lib/cabinet/outcome-sync';
 
 // Standalone background worker. Runs in its own process (a Docker container in production) and is the
 // ONLY executor of the heavy document jobs when the web app runs with JOB_MODE=worker. It polls the
@@ -513,6 +513,23 @@ async function courtOutcomeSyncLoop(): Promise<void> {
       try {
         const firm = await prisma.firm.findFirst({ where: { code: f.branchCode }, select: { id: true } });
         if (!firm) continue;
+        // Yurist qo'lda yuborgan qoralama rad etilgan bo'lsa → «Qayta yuborish». Faqat baza
+        // (portalga so'rov yo'q) — shuning uchun portal xatosidan OLDIN, alohida try'da.
+        // Rejim: Setting `court_declined_reset` = '1' → o'zgartiradi; boshqa har qanday qiymat (yoki yo'q)
+        // → faqat SINOV (nima qilishini logga yozadi). Yangi avtomatika avval jonli ma'lumotda
+        // kuzatilib, keyin yoqiladi.
+        try {
+          const mode = (await prisma.setting.findUnique({ where: { key: 'court_declined_reset' }, select: { value: true } }))?.value;
+          const dryRun = mode !== '1';
+          const d = await resetDeclinedForResend(firm.id, { dryRun });
+          if (d.reset > 0) {
+            console.log(dryRun
+              ? `[worker] rad etilgan qoralama ${f.branchCode}: SINOV — ${d.reset} ta ish «Qayta yuborish»ga o'tardi (court_declined_reset=1 bilan yoqiladi)`
+              : `[worker] rad etilgan qoralama ${f.branchCode}: ${d.reset} ta ish «Qayta yuborish»ga o'tdi (navbat ${d.queueFailed})`);
+          }
+        } catch (e) {
+          console.error(`[worker] rad etilganlarni qayta yuborish ${f.branchCode}:`, (e as Error).message?.slice(0, 120));
+        }
         const r = await syncCourtOutcomes(firm.id);
         if (r.checked > 0) {
           console.log(

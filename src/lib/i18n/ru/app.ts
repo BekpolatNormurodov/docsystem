@@ -410,6 +410,7 @@ export const app: Record<string, string> = {
   "to‘liq (guvohnoma, ishonchnoma, shartnoma)": "полные (свидетельство, доверенность, договор)",
   "yetishmaydi —": "не хватает —",
   "Sud qaytardi": "Суд вернул",
+  "Qayta yuborish (sud qaytardi)": "Повторная отправка (суд вернул)",
   "hujjat": "документ",
   "Qo'shimcha fayllarni to'ldiring (palata skan / firma hujjatlari), so'ng «Hammasini yarat» bilan qayta paket oling.": "Заполните дополнительные файлы (скан палаты / документы фирмы), затем заново получите пакет через «Создать всё».",
   "Holatni o‘qib bo‘lmadi": "Не удалось прочитать состояние",

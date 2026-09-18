@@ -5,6 +5,27 @@
 import { prisma } from '../db';
 import { cabinetFetch } from './api';
 import type { CabinetSession } from './oneid';
+import { FIRMS } from '../firms';
+
+// DA'VOGAR BO'YICHA FIRMAGA BOG'LASH. Bitta direktor bir nechta tashkilot nomidan ish yuritadi,
+// shuning uchun bir firma sessiyasi BOSHQA firmaning ishlarini ham ko'radi (2026-09-18: FUNDFLOW
+// sessiyasi 5618 ta ish qaytardi — 5456 tasining da'vogari BRIGHT). Ilgari har ish shu sessiya
+// firmasi kodi bilan yozilardi va upsert branchCode'ni qayta yozardi: BRIGHT'ning ishlari har
+// sinxronda BRIGHT↔FUNDFLOW o'rtasida «ko'chib» yurardi. Natijada firma kodi bo'yicha ishlaydigan
+// hamma narsa — «bir odamga ikkinchi da'vo» himoyasi (ochiq ishlar), qaytganlar, hisobotlar —
+// vaqti-vaqti bilan BRIGHT'ning ishlarini ko'rmay qolardi.
+// Ro'yxatdagi CLAIMANT'ning `inn`i STIR emas (BRIGHT uchun 489244398), shuning uchun nom
+// bo'yicha: firma nomi (FIRMS.name — «BRIGHT FUTURE FINANCING», «FUNDFLOW», ...) da'vogar
+// nomida bo'lishi shart. Da'vogar ma'lumoti umuman yo'q ish — eski xatti-harakat (qabul qilinadi).
+const normOrg = (s: unknown) => String(s ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+function claimantIsFirm(c: any, branchCode: string): boolean {
+  const firm = FIRMS.find((f) => f.branchCode === branchCode);
+  if (!firm) return true;
+  const claimants = (c?.participants || []).filter((p: any) => p?.type === 'CLAIMANT');
+  if (!claimants.length) return true;
+  const want = normOrg(firm.name);
+  return claimants.some((p: any) => normOrg(p?.name).includes(want));
+}
 
 // Normalise a name for matching: strip diacritics (Karakalpak Í/Ú…), unify
 // apostrophes, fold X->H, drop non-letters. Latin + Cyrillic safe.
@@ -38,6 +59,7 @@ const toDate = (v: any) => { const d = v ? new Date(v) : null; return d && !isNa
 export interface IngestResult {
   branchCode: string; totalCases: number; matched: number; unmatched: number;
   byStatus: Record<string, number>;
+  foreign?: number; // sessiya ko'rgan, lekin da'vogari boshqa firma — yozilmadi
 }
 
 // Build norm(name) -> pinfl index from the firm's full latest-snapshot portfolio.
@@ -70,6 +92,7 @@ export async function ingestCabinetStatuses(
   const rows: any[] = [];
   const byStatus: Record<string, number> = {};
   let matched = 0;
+  let foreign = 0; // shu sessiya ko'rgan, lekin da'vogari boshqa firma bo'lgan ishlar
 
   for (const cat of CATS) for (const list of LISTS) {
     const r = await cabinetFetch(session, `/api/cabinet/case/${cat}/${list}`);
@@ -78,6 +101,7 @@ export async function ingestCabinetStatuses(
       const caseNumber = c.case_number ?? c.case_id ?? c.claim_id;
       if (!caseNumber || seen.has(caseNumber)) continue;
       seen.add(caseNumber);
+      if (!claimantIsFirm(c, branchCode)) { foreign++; continue; } // boshqa firmaning ishi
       const def = (c.participants || []).find((p: any) => p.type === 'DEFENDANT');
       const clientName = def?.name ?? '';
       const pinfl = nameIdx.get(normName(clientName)) ?? null;
@@ -112,5 +136,5 @@ export async function ingestCabinetStatuses(
     });
   }
 
-  return { branchCode, totalCases: rows.length, matched, unmatched: rows.length - matched, byStatus };
+  return { branchCode, totalCases: rows.length, matched, unmatched: rows.length - matched, byStatus, foreign };
 }

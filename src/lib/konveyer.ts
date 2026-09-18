@@ -24,7 +24,7 @@ export const STAGES: { key: CaseStage; label: string; tone: string }[] = [
   { key: 'INVOICE_PAID', label: "To'landi", tone: 'emerald' },
   { key: 'COURT_SUBMITTED', label: 'Adolatda (sudda)', tone: 'blue' },
   { key: 'COURT_ACCEPTED', label: 'Sud qabul qildi', tone: 'emerald' },
-  { key: 'COURT_RETURNED', label: 'Sud qaytardi', tone: 'rose' },
+  { key: 'COURT_RETURNED', label: 'Qayta yuborish (sud qaytardi)', tone: 'rose' },
   { key: 'MIB_SUBMITTED', label: "MIB'ga chiqdi", tone: 'teal' },
   { key: 'CLOSED', label: 'Yopildi', tone: 'slate' },
 ];
