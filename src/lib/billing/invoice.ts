@@ -4,8 +4,17 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { prisma } from '../db';
+import { proxyDispatcher } from '../cabinet/api';
 
 const BILLING = 'https://billing.sud.uz';
+
+// billing.sud.uz — *.sud.uz egress bloki ostida (2026-09-14 dan prod IP bloklangan). Tunnel
+// (CABINET_PROXY_URL) bo'lsa o'sha orqali; aks holda to'g'ridan-to'g'ri (lokal). Qattiq timeout:
+// osilib qolgan gov endpoint sud partiyasini yoki avtomatik yig'ishni to'xtatib qo'ymasin.
+function billingFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const disp = proxyDispatcher();
+  return fetch(url, { ...init, ...(disp ? { dispatcher: disp } : {}), signal: AbortSignal.timeout(20_000) } as RequestInit);
+}
 
 export interface BillingInvoice {
   invoiceStatus: string; // CREATED (unpaid) | PAID | ...
@@ -27,7 +36,7 @@ export interface BillingInvoice {
 
 // GET /api/invoice/checkStatus?invoice=..&lang=..  — payment status + details.
 export async function checkInvoiceStatus(invoice: string, lang = 'ru'): Promise<BillingInvoice> {
-  const res = await fetch(`${BILLING}/api/invoice/checkStatus?invoice=${encodeURIComponent(invoice)}&lang=${lang}`, {
+  const res = await billingFetch(`${BILLING}/api/invoice/checkStatus?invoice=${encodeURIComponent(invoice)}&lang=${lang}`, {
     headers: { accept: 'application/json' },
   });
   const j: any = await res.json();
@@ -43,7 +52,7 @@ export async function checkInvoiceStatus(invoice: string, lang = 'ru'): Promise<
 
 // GET /api/invoice/asDocument?invoice=..  — the invoice/receipt PDF (public).
 export async function downloadInvoice(invoice: string): Promise<Buffer> {
-  const res = await fetch(`${BILLING}/api/invoice/asDocument?invoice=${encodeURIComponent(invoice)}`);
+  const res = await billingFetch(`${BILLING}/api/invoice/asDocument?invoice=${encodeURIComponent(invoice)}`);
   if (!res.ok) throw new Error(`billing asDocument ${res.status}`);
   const buf = Buffer.from(await res.arrayBuffer());
   if (buf.slice(0, 4).toString() !== '%PDF') throw new Error('billing asDocument: not a PDF');

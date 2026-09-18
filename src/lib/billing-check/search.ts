@@ -5,6 +5,8 @@
 // getCaptchaToken() bilan bir xil (recaptcha.sud.uz/api/v1/captcha/analyze), faqat
 // `action` farq qiladi ("my_checks" vs "create_invoice") — shu modul o'zining kichik nusxasini
 // olib yuradi, invoice yaratish oqimiga tegmaslik uchun.
+import { proxyDispatcher } from '@/lib/cabinet/api';
+
 const CAPTCHA_API = 'https://recaptcha.sud.uz/api/v1/captcha/analyze';
 const SEARCH_API = 'https://billing.sud.uz/api/invoice/captcha/search';
 const SITE_KEY = 'site_bbdb0625df8a200e73f37ebccf0c62ac';
@@ -12,9 +14,15 @@ const SITE_KEY = 'site_bbdb0625df8a200e73f37ebccf0c62ac';
 async function fetchWithTimeout(url: string, opts: RequestInit, timeoutMs = 20_000): Promise<Response> {
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), timeoutMs);
+  // billing/recaptcha ham *.sud.uz — cabinetapi bilan BIR XIL egress bloki. Ilgari bu modul
+  // proxy'siz fetch qilardi: prod IP bloklangach (2026-09-14) har avtomatik yig'ish
+  // «fetch failed» bilan yiqildi va to'lov holatlari 4 kun eskirdi — to'langan boji ham
+  // «to'lanmagan» ko'rinib, ishlar «Tayyor»ga chiqmasdi. Endi invoice-rest bilan bir tunnel.
+  const disp = proxyDispatcher();
   try {
     return await fetch(url, {
       ...opts,
+      ...(disp ? { dispatcher: disp } : {}),
       signal: controller.signal,
       headers: {
         Origin: 'https://billing.sud.uz',

@@ -10,8 +10,13 @@ import { prisma } from '@/lib/db';
 import { FIRMS, type FirmCfg } from '@/lib/firms';
 import { searchMyChecks } from './search';
 import { upsertCheckedInvoice } from './store';
+import { checkInvoiceStatus } from '@/lib/billing/invoice';
 
-const PAGE = 50;
+// Sahifa hajmi. *.sud.uz IP'ni ~100-120 so'rovdan keyin bloklaydi (2026-09 kuzatuvi), har sahifa
+// esa 2 ta so'rov (captcha + qidiruv). 50 lik sahifada COMMUNITY'ning 2890 kvitansiyasi ~116
+// so'rov edi — yolg'iz o'zi blokka yetardi. API 500 ni qabul qiladi (2026-09-18 jonli sinov:
+// 6 sahifa, ~12 so'rov).
+const PAGE = 500;
 // Sahifalar orasidagi pauza — ketma-ket urib IP blokka tushmaslik uchun (invoice-rest.ts
 // dagi bilan bir xil mantiq; har so'rov o'z captcha tokenini ham oladi).
 const DELAY_MS = 500;
@@ -19,8 +24,12 @@ const DELAY_MS = 500;
 const STALE_MS = 15 * 60_000;
 // Avtomatik yangilash oralig'i: firma oxirgi marta shuncha vaqt oldin tugagan bo'lsa, navbatga tushadi.
 export const AUTO_EVERY_MS = 2 * 60 * 60_000; // 2 soat
-// Cheksiz sikl bo'lib qolmasligi uchun qattiq shift (50 × 400 = 20 000 kvitansiya).
-const MAX_PAGES = 400;
+// Cheksiz sikl bo'lib qolmasligi uchun qattiq shift (500 × 40 = 20 000 kvitansiya).
+const MAX_PAGES = 40;
+// Ro'yxatda CHIQMAYDIGAN o'z kvitansiyalarimizni bittalab tekshirish chegarasi (bir yig'ishda).
+// Har biri 1 so'rov; shift va pauza IP blokka tushmaslik uchun — qolgani keyingi yig'ishda.
+const RECHECK_MAX = 40;
+const RECHECK_DELAY_MS = 3000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -105,6 +114,7 @@ export async function syncFirm(
   const want = limit && limit > 0 ? limit : null;
   let done = 0;
   let total = 0;
+  const seen = new Set<string>();
   try {
     for (let page = 0; page < MAX_PAGES; page++) {
       // Oxirgi N so'ralganda oxirgi sahifada ortiqcha tortmaymiz.
@@ -124,6 +134,7 @@ export async function syncFirm(
           expiresAt: row.overdue ? new Date(row.overdue) : null,
           source: 'LIST', raw: row.raw,
         });
+        seen.add(row.number);
         done++;
       }
       await prisma.billingCheckSync.update({ where: { firmCode }, data: { done, total } });
@@ -131,6 +142,11 @@ export async function syncFirm(
       if (want && done >= want) break;
       await sleep(DELAY_MS);
     }
+
+    // To'liq yig'ishdan keyin — ro'yxatda chiqmagan o'z kvitansiyalarimiz (qisman yig'ishda
+    // «ko'rilmagan» degani «ro'yxatda yo'q» emas, shuning uchun faqat to'liqida).
+    const rechecked = want ? 0 : await recheckUnlistedCaseReceipts(firmCode, seen);
+    if (rechecked) console.log(`[billing-check] ${firmCode}: ro'yxatda yo'q ${rechecked} ta kvitansiya bittalab tekshirildi`);
 
     await prisma.billingCheckSync.update({
       where: { firmCode },
@@ -173,4 +189,70 @@ export async function firmsDueForSync(): Promise<string[]> {
       return !r.finishedAt || r.finishedAt.getTime() < cutoff;
     })
     .map((f: FirmCfg) => f.branchCode);
+}
+
+/**
+ * Firma ishlariga biriktirilgan (ArizaCase.receiptNumber), lekin STIR ro'yxatida CHIQMAGAN
+ * kvitansiyalarni bittalab (ommaviy checkStatus, captcha'siz) tekshirib keshga yozadi.
+ *
+ * NEGA: 2026-09-18 da COMMUNITY'ning 227 ta kvitansiyasi (biz REST orqali yaratganmiz, payer =
+ * COMMUNITY, TIN mos) my-checks ro'yxatida umuman chiqmadi. «Tayyor» esa to'lovni FAQAT keshdan
+ * o'qiydi (court-ready → paidReceiptSet), ya'ni ular to'langanda ham tizim buni hech qachon
+ * sezmasdi va ishlar abadiy «boji to'lanmagan» bo'lib qolardi.
+ *
+ * Faqat yakuniy holatga yetmaganlar (keshda yo'q yoki PAID/USED emas), eng uzoq
+ * tekshirilmaganlar birinchi, bir yig'ishda RECHECK_MAX tadan — qolgani keyingi yig'ishda.
+ * Tarmoq/blok xatosida darhol to'xtaydi: IP'ni qizdirib qo'ymaslik uchun.
+ */
+export async function recheckUnlistedCaseReceipts(firmCode: string, seen: Set<string>): Promise<number> {
+  const firm = await prisma.firm.findFirst({ where: { code: firmCode }, select: { id: true } });
+  if (!firm) return 0;
+  const cases = await prisma.arizaCase.findMany({
+    where: { firmId: firm.id, receiptNumber: { not: null } },
+    select: { receiptNumber: true },
+  });
+  const numbers = [...new Set(cases.map((c) => c.receiptNumber as string).filter((n) => n && !seen.has(n)))];
+  if (!numbers.length) return 0;
+
+  const cached = await prisma.billingCheckInvoice.findMany({
+    where: { number: { in: numbers } },
+    select: { number: true, invoiceStatus: true, checkedAt: true },
+  });
+  const byNum = new Map(cached.map((c) => [c.number, c]));
+  const FINAL = new Set(['PAID', 'USED']);
+  const todo = numbers
+    .filter((n) => !FINAL.has(String(byNum.get(n)?.invoiceStatus ?? '').toUpperCase()))
+    .sort((a, b) => (byNum.get(a)?.checkedAt?.getTime() ?? 0) - (byNum.get(b)?.checkedAt?.getTime() ?? 0))
+    .slice(0, RECHECK_MAX);
+
+  let checked = 0;
+  for (const num of todo) {
+    try {
+      const b = await checkInvoiceStatus(num);
+      await upsertCheckedInvoice({
+        number: b.number || num,
+        invoiceStatus: b.invoiceStatus,
+        amount: b.amount ?? null,
+        paidAmount: b.paidAmount ?? null,
+        mustPayAmount: b.mustPayAmount ?? null,
+        payer: b.payer ?? null,
+        payerTin: b.payerTin ?? null,
+        court: b.court ?? null,
+        courtId: b.courtId ?? null,
+        forAccount: b.forAccount ?? null,
+        description: b.description ?? null,
+        payCategory: b.payCategory ?? null,
+        claimCaseNumber: b.claimCaseNumber ?? null,
+        source: 'SINGLE',
+        raw: b.raw,
+      });
+      checked++;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // Portal «bunday kvitansiya yo'q» deb javob bersa — o'tkazib ketamiz; tarmoq/blok bo'lsa — to'xtaymiz.
+      if (/fetch failed|abort|timeout|ECONN|ETIMEDOUT|EAI_AGAIN|network/i.test(msg)) break;
+    }
+    await sleep(RECHECK_DELAY_MS);
+  }
+  return checked;
 }
