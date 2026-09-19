@@ -34,7 +34,10 @@ async function readSharedStrings(stream: Readable): Promise<string[]> {
       else if (tag.name === 'si') { out.push(cur); inSi = false; }
     });
     parser.on('error', reject);
-    stream.on('data', (c: Buffer) => { try { parser.write(c.toString('utf8')); } catch (e) { reject(e as Error); } });
+    // setEncoding('utf8') — StringDecoder ko'p-baytli belgini (kirill) bo'lak chegarasida BUTUN saqlaydi;
+    // xom Buffer'ni har bo'lakda toString qilsa, chegaradagi harf buziladi.
+    stream.setEncoding('utf8');
+    stream.on('data', (c: string) => { try { parser.write(c); } catch (e) { reject(e as Error); } });
     stream.on('end', () => { try { parser.close(); } catch { /* ignore */ } resolve(out); });
     stream.on('error', reject);
   });
@@ -95,7 +98,9 @@ function parseSheet(
       }
     });
     parser.on('error', (e: Error) => { if (!stopped) reject(e); });
-    stream.on('data', (c: Buffer) => { if (!stopped) { try { parser.write(c.toString('utf8')); } catch (e) { if (!stopped) reject(e as Error); } } });
+    // setEncoding('utf8') — ko'p-baytli belgini bo'lak chegarasida butun saqlaydi (kirill buzilmasin).
+    stream.setEncoding('utf8');
+    stream.on('data', (c: string) => { if (!stopped) { try { parser.write(c); } catch (e) { if (!stopped) reject(e as Error); } } });
     stream.on('end', () => { if (!stopped) { try { parser.close(); } catch { /* ignore */ } resolve(headerDecided === true); } });
     stream.on('error', (e: Error) => { if (!stopped) reject(e); });
   });
