@@ -5,8 +5,8 @@
 import fs from 'node:fs/promises';
 import { prisma } from '@/lib/db';
 import { parseTalabnomaForm, writeCandidates, readCandidates } from './parse';
-import { buildRowsForFirm, firmLetterhead, writeLettersZip } from './generate';
-import { candidatesJsonPath, batchDir, lettersZipPath } from './store';
+import { buildRowsForFirm, firmLetterhead, writeLettersZip, writeAllFirmsLettersPdf } from './generate';
+import { candidatesJsonPath, batchDir, lettersZipPath, allLettersPdfPath } from './store';
 import type { FilterOpts } from './types';
 
 export async function runTalabnomaFormJob(jobId: number): Promise<void> {
@@ -82,6 +82,37 @@ export async function runTalabnomaFormJob(jobId: number): Promise<void> {
         data: { status: 'DONE', rowCount: rows.length, personCount: rows.length, resultPath: zip },
       });
       await prisma.job.update({ where: { id: jobId }, data: { status: 'DONE', progress: rows.length, total: rows.length } });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      await prisma.talabnomaFormRun.update({ where: { id: runId }, data: { status: 'FAILED', message: msg } }).catch(() => {});
+      await failJob(jobId, msg);
+    }
+    return;
+  }
+
+  if (action === 'generate-all-pdf') {
+    // «Barcha firmalar — bitta PDF»: hamma firma xatlari bitta PDF faylda (firmalar ichida guruhlangan).
+    const batchId = Number(p.batchId);
+    const runId = Number(p.runId);
+    const opts = normalizeOpts(p.filters);
+    try {
+      await prisma.job.update({ where: { id: jobId }, data: { status: 'RUNNING' } });
+      await prisma.talabnomaFormRun.update({ where: { id: runId }, data: { status: 'RUNNING' } });
+      const batch = await prisma.talabnomaFormBatch.findUnique({ where: { id: batchId }, select: { candidatesPath: true } });
+      if (!batch?.candidatesPath) throw new Error('Candidates topilmadi — batch tayyor emas');
+      const file = await readCandidates(batch.candidatesPath);
+      const out = allLettersPdfPath(batchId, runId);
+      await fs.mkdir(batchDir(batchId), { recursive: true });
+      const total = await writeAllFirmsLettersPdf(file, opts, out, async (made, tot) => {
+        await prisma.talabnomaFormRun.update({ where: { id: runId }, data: { rowCount: tot, personCount: made } }).catch(() => {});
+        await prisma.job.update({ where: { id: jobId }, data: { progress: made, total: tot } }).catch(() => {});
+      });
+      if (!total) throw new Error('Tanlangan filtr uchun qator yo‘q');
+      await prisma.talabnomaFormRun.update({
+        where: { id: runId },
+        data: { status: 'DONE', rowCount: total, personCount: total, resultPath: out },
+      });
+      await prisma.job.update({ where: { id: jobId }, data: { status: 'DONE', progress: total, total } });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       await prisma.talabnomaFormRun.update({ where: { id: runId }, data: { status: 'FAILED', message: msg } }).catch(() => {});

@@ -149,6 +149,56 @@ export async function writeAllFirmsReyestr(file: CandidatesFile, opts: FilterOpt
   return count;
 }
 
+/** «Barcha firmalar — bitta PDF»: hamma firma xatlarini BITTA PDF faylga birlashtiradi (firmalar
+ *  ketma-ket — «firmalar ichida» guruhlangan). Muhrsiz (hideStamp). pdf-lib bilan sahifalar ko'chiriladi.
+ *  Yasalgan xatlar sonini qaytaradi. Fon jarayonida ishlaydi (chromium og'ir). */
+export async function writeAllFirmsLettersPdf(
+  file: CandidatesFile,
+  opts: FilterOpts,
+  outPath: string,
+  onProgress?: (done: number, total: number) => void | Promise<void>,
+): Promise<number> {
+  const { chromium } = await import('playwright');
+  const { PDFDocument } = await import('pdf-lib');
+  // Firma letterheadlarni bir marta olamiz.
+  const firms = await prisma.firm.findMany({
+    select: { code: true, legalName: true, shortName: true, address: true, stir: true, bankAccount: true, mfo: true, phone: true },
+  });
+  const firmByCode = new Map(firms.map((f) => [canonCode(f.code), f as TalabnomaFirm & { code: string }]));
+  const nameSort = (c: string) => firmByCode.get(c)?.shortName || firmByCode.get(c)?.legalName || c;
+  const codes = [...new Set(file.people.flatMap((p) => Object.keys(p.perFirm).map(canonCode)))]
+    .sort((a, b) => nameSort(a).localeCompare(nameSort(b)));
+
+  // Barcha (row × firma) vazifalari — firma bo'yicha tartibda.
+  const tasks: { row: TalabnomaRow; firm: TalabnomaFirm | null }[] = [];
+  for (const code of codes) {
+    const rows = buildRowsForFirm(file, code, opts);
+    const firm = firmByCode.get(code) ?? null;
+    for (const row of rows) tasks.push({ row, firm });
+  }
+  const total = tasks.length;
+  if (!total) return 0;
+
+  const merged = await PDFDocument.create();
+  const browser = await chromium.launch({ headless: true });
+  let done = 0;
+  try {
+    for (const { row, firm } of tasks) {
+      const pdf = await renderTalabnomaPdf(row, browser, firm, true); // hideStamp — bu qism uchun muhrsiz
+      const doc = await PDFDocument.load(pdf);
+      const pages = await merged.copyPages(doc, doc.getPageIndices());
+      for (const pg of pages) merged.addPage(pg);
+      done += 1;
+      if (onProgress && (done % 3 === 0 || done === total)) await onProgress(done, total);
+    }
+  } finally {
+    await browser.close();
+  }
+  const bytes = await merged.save();
+  await fs.promises.writeFile(outPath, bytes);
+  return total;
+}
+
 /** Render every row to a PDF letter and stream them into a .zip (reyestr .xlsx at the root too). */
 export async function writeLettersZip(
   rows: TalabnomaRow[],

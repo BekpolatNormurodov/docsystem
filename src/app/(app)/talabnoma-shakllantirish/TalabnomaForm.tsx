@@ -362,9 +362,20 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
   const doGenerateAll = async () => {
     setNote(''); setBusyFirm('__ALL__');
     try {
-      const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/generate`, { all: true, kind: 'REYESTR', ...eff(opts) });
+      const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/generate`, { all: true, format: 'excel', ...eff(opts) });
       if (!ok) { setNote(json.error || `${t('Xatolik')} (${status})`); return; }
       window.location.href = `/api/talabnoma-form/${batch.id}/download/${json.runId}`;
+      await onChanged();
+    } finally { setBusyFirm(null); }
+  };
+
+  // «Barcha firmalar — bitta PDF»: hamma xat bitta PDF faylda (firmalar ichida). Fon jarayoni → Tarixdan.
+  const doGenerateAllPdf = async () => {
+    setNote(''); setBusyFirm('__ALLPDF__');
+    try {
+      const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/generate`, { all: true, format: 'pdf', ...eff(opts) });
+      if (!ok) { setNote(json.error || `${t('Xatolik')} (${status})`); return; }
+      setNote(t('Bitta PDF tayyorlanmoqda (firmalar ichida) — pastdagi «Amallar tarixi»dan yuklab olasiz.'));
       await onChanged();
     } finally { setBusyFirm(null); }
   };
@@ -458,10 +469,16 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
       <div className="card overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
           <span className="text-sm font-semibold">{t('Firmalar bo‘yicha')}</span>
-          {/* Nechta firma bo'lsa ham — hammasi bitta Excelda (Firma ustuni bilan). */}
-          <button className="btn-primary px-3 py-1.5 text-xs" disabled={busyFirm === '__ALL__'} onClick={doGenerateAll} title={t('Barcha firmalar bitta Excel faylda — Firma ustuni bilan')}>
-            {busyFirm === '__ALL__' ? <Spinner size={14} /> : <Ico.download size={14} />} {t('Barcha firmalar — bitta Excel')}
-          </button>
+          {/* Nechta firma bo'lsa ham — hammasi bittada: Excel yoki PDF (firmalar ichida). */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-muted">{t('Barcha firmalar — hammasi bittada')}:</span>
+            <button className="btn-primary px-3 py-1.5 text-xs" disabled={busyFirm === '__ALL__'} onClick={doGenerateAll} title={t('Barcha firmalar bitta Excel faylda — Firma ustuni bilan')}>
+              {busyFirm === '__ALL__' ? <Spinner size={14} /> : <Ico.sheet size={14} />} Excel
+            </button>
+            <button className="btn-primary px-3 py-1.5 text-xs" disabled={busyFirm === '__ALLPDF__'} onClick={doGenerateAllPdf} title={t('Barcha firmalar bitta PDF faylda (firmalar ichida, muhrsiz)')}>
+              {busyFirm === '__ALLPDF__' ? <Spinner size={14} /> : <Ico.files size={14} />} PDF
+            </button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

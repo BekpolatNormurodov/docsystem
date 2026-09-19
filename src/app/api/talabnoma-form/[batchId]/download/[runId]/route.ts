@@ -21,13 +21,17 @@ export async function GET(_req: NextRequest, { params }: { params: { batchId: st
   }
 
   const ext = path.extname(run.resultPath).toLowerCase();
-  const isZip = ext === '.zip';
+  const CT: Record<string, string> = {
+    '.zip': 'application/zip',
+    '.pdf': 'application/pdf',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  };
   const base = `${(run.firmName || run.firmCode || 'talabnoma').replace(/[^\p{L}\p{N}]+/gu, '_').slice(0, 40)}_${run.kind}${ext}`;
   const stat = fs.statSync(run.resultPath);
   const stream = fs.createReadStream(run.resultPath);
   return new NextResponse(stream as unknown as ReadableStream, {
     headers: {
-      'Content-Type': isZip ? 'application/zip' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Type': CT[ext] ?? 'application/octet-stream',
       'Content-Disposition': `attachment; filename="${encodeURIComponent(base)}"`,
       'Content-Length': String(stat.size),
     },

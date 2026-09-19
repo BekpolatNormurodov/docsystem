@@ -36,8 +36,21 @@ export async function POST(req: NextRequest, { params }: { params: { batchId: st
   const opts = { thresholdTotal, perFirmMin };
   const filtersAll = { thresholdTotal, perFirmMin, includeUnready: true };
 
-  // «Barcha firmalar — bitta Excel»: hamma firma qatorlari bitta varaqda (Firma ustuni bilan).
+  // «Barcha firmalar — hammasi bittada»: Excel (bitta varaq) yoki PDF (bitta fayl, firmalar ichida).
   if (all) {
+    const format = body?.format === 'pdf' ? 'pdf' : 'excel';
+    if (format === 'pdf') {
+      // Bitta PDF — chromium og'ir, fon jarayoni; Tarixdan yuklab olinadi.
+      const run = await prisma.talabnomaFormRun.create({
+        data: { batchId: id, createdBy: user.username, kind: 'LETTERS', firmCode: '__ALL__', firmName: t('Barcha firmalar (PDF)'), filters: filtersAll, status: 'PENDING' },
+      });
+      const job = await prisma.job.create({
+        data: { type: 'TALABNOMA_FORM', status: 'PENDING', params: { action: 'generate-all-pdf', batchId: id, runId: run.id, filters: opts } },
+      });
+      enqueueJob(job.id);
+      return NextResponse.json({ runId: run.id, jobId: job.id, kind: 'LETTERS' });
+    }
+    // Bitta Excel — tez, inline.
     const file = await readCandidates(batch.candidatesPath);
     const run = await prisma.talabnomaFormRun.create({
       data: { batchId: id, createdBy: user.username, kind: 'REYESTR', firmCode: '__ALL__', firmName: t('Barcha firmalar'), filters: filtersAll, status: 'RUNNING' },
