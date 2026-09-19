@@ -48,6 +48,9 @@ export async function POST(req: NextRequest) {
   // portalda O'ZI yuboradi. Sud kvotasi/oynasi tekshirilmaydi (24/7), chunki qoralama
   // sudga hech narsa yubormaydi. isExportOnly (ZIP) bilan bir xil «ignoreQuota» yo'lidan.
   const isDraftMode = body?.draftMode === true;
+  // REAL yuborish (send-to-court) — faqat shunda to'lanmagan bojli ish tanlanmaydi. Qoralama va
+  // ZIP'da boji to'siq emas: invoice yuborishda (portalning oxirgi qadamida) qo'shiladi.
+  const isRealSend = !isExportOnly && !isDraftMode;
   // ZIP uchun chegara ancha katta: partiya hajmi portalni himoya qilish uchun, ZIP esa
   // portalga tegmaydi. 767 ta tayyorni 200 tadan 4 marta olish ma'nosiz edi.
   const cap = isExportOnly ? MAX_ZIP_BATCH : MAX_COURT_BATCH;
@@ -66,9 +69,22 @@ export async function POST(req: NextRequest) {
   const caseIds = uniqIds?.length
     // `forExport` — faqat ZIP oqimi allaqachon chiqarilganini o'tkazib yuboradi. Sudga
     // yuborishda ZIP olingani to'siq emas (u sudga hech narsa yubormagan).
-    ? await validateSelectedCaseIds({ snapshotId, firmId, caseIds: uniqIds, includeExported, forExport: isExportOnly })
-    : await selectReadyCaseIds({ snapshotId, firmId, limit, includeExported, forExport: isExportOnly });
+    ? await validateSelectedCaseIds({ snapshotId, firmId, caseIds: uniqIds, includeExported, forExport: isExportOnly, requireBoji: isRealSend })
+    : await selectReadyCaseIds({ snapshotId, firmId, limit, includeExported, forExport: isExportOnly, requireBoji: isRealSend });
   if (caseIds.length === 0) {
+    // Real yuborishda bo'sh chiqqan sabab boji bo'lsa — aniq aytamiz (karta «Tayyor N» ko'rsatib
+    // turgan paytda «tayyor yo'q» degan xato operatorni chalg'itardi).
+    if (isRealSend) {
+      const anyReady = uniqIds?.length
+        ? await validateSelectedCaseIds({ snapshotId, firmId, caseIds: uniqIds, includeExported, limit: 1 })
+        : await selectReadyCaseIds({ snapshotId, firmId, limit: 1, includeExported });
+      if (anyReady.length) {
+        return NextResponse.json(
+          { error: t("Tayyor ishlar bor, lekin davlat boji to'lanmagan — sudga real yuborish uchun boji to'langan bo'lishi kerak. Qoralama uchun boji shart emas («Qoralama tayyorlash» belgisini yoqing).") },
+          { status: 400 },
+        );
+      }
+    }
     return NextResponse.json(
       { error: includeExported ? t('Chiqarish uchun tayyor mijoz yoʻq') : t('Yuborishga tayyor (chiqarilmagan) mijoz yoʻq') },
       { status: 400 },

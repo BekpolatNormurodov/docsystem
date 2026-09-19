@@ -24,6 +24,8 @@ export async function GET(req: NextRequest) {
   const raw = req.nextUrl.searchParams.get('s') ?? cookies().get('konv_s')?.value ?? null;
   const parsed = num(raw);
   const snapshotId = parsed && snaps.some((s) => s.id === parsed) ? parsed : snaps[0]?.id;
-  const { courts, total } = await sendableCourtBreakdown({ snapshotId, firmId });
+  // ?paid=1 — REAL yuborish modali: faqat boji to'langanlar (qoralama uchun boji shart emas).
+  const requireBoji = req.nextUrl.searchParams.get('paid') === '1';
+  const { courts, total } = await sendableCourtBreakdown({ snapshotId, firmId, requireBoji });
   return NextResponse.json({ courts, total });
 }

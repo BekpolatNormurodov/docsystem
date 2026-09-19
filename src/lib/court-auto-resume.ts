@@ -88,8 +88,11 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH, o
   // Shuning uchun har partiyadan oldin holatni ma'lumotga qarab qayta baholaymiz:
   // kvitansiyasi to'lanmagan FAILED ish — SKIPPED. To'langach yuqoridagi «revived»
   // shoxobchasi uni o'zi navbatga qaytaradi.
+  //
+  // FAQAT REAL partiya ishlari: qoralama/suit uchun boji to'siq emas (court-ready izohi) — ularning
+  // xatosini «boji to'lanmagan» deb qayta nomlash sababni yashirardi (masalan tarmoq xatosi).
   const staleFailed = await prisma.courtQueueItem.findMany({
-    where: { firmId, state: 'FAILED', case: { courtCaseId: null } },
+    where: { firmId, state: 'FAILED', case: { courtCaseId: null }, suitMode: false, draftMode: false },
     select: { caseId: true, case: { select: { receiptNumber: true } } },
   });
   if (staleFailed.length) {
@@ -172,8 +175,10 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH, o
     where: { firmId, state: 'FAILED', case: { courtCaseId: null } },
     orderBy: { id: 'asc' },
     take: MAX_COURT_BATCH,
-    select: { caseId: true, attempts: true, case: { select: { receiptNumber: true } } },
+    select: { caseId: true, attempts: true, suitMode: true, draftMode: true, case: { select: { receiptNumber: true } } },
   });
+  // Qoralama/suit ishida boji to'siq emas — to'lanmagan bo'lsa ham xato sababi boshqa, qayta urinadi.
+  const noSendItem = (x: { suitMode: boolean; draftMode: boolean }) => x.suitMode || x.draftMode;
 
   // BOJI TO'LANMAGAN ISH «XATO» EMAS — QAYTA NOMLANADI.
   //
@@ -184,7 +189,7 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH, o
   // sabab ko'rinadi, avtomatika ularni qayta urinmaydi, to'langach esa yuqoridagi
   // `revived` ularni o'zi qaytaradi.
   const failedPaid = await paidReceiptSet(failed.map((x) => x.case?.receiptNumber ?? ''));
-  const failedUnpaid = failed.filter((x) => !x.case?.receiptNumber || !failedPaid.has(x.case.receiptNumber));
+  const failedUnpaid = failed.filter((x) => !noSendItem(x) && (!x.case?.receiptNumber || !failedPaid.has(x.case.receiptNumber)));
   for (const x of failedUnpaid) {
     await prisma.courtQueueItem.update({
       where: { caseId: x.caseId },
@@ -202,7 +207,7 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH, o
 
   const room = cap - fresh.length - revived.length;
   const retry = room <= 0 ? [] : failed
-    .filter((x) => x.attempts < MAX_AUTO_ATTEMPTS && x.case?.receiptNumber && failedPaid.has(x.case.receiptNumber))
+    .filter((x) => x.attempts < MAX_AUTO_ATTEMPTS && (noSendItem(x) || (x.case?.receiptNumber && failedPaid.has(x.case.receiptNumber))))
     .slice(0, room)
     .map((x) => ({ caseId: x.caseId }));
 

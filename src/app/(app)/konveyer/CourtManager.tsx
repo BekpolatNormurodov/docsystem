@@ -17,7 +17,7 @@ import { tallyClientCounts } from '@/lib/court-counts';
 interface Missing { talabnoma: number; scan: number; oferta: number; receipt: number; boji: number }
 interface FirmDocsStatus { complete: boolean; missing: string[]; present: string[] }
 // `submittedExternal` — `submitted` ICHIDAN: yurist ADOLAT'da qo'lda kiritgan da'volar.
-interface FirmReadiness { firmId: number; firmName: string; total: number; ready: number; exported: number; submitted: number; submittedExternal: number; draftReady: number; queued: number; sendable: number; missing: Missing; almost: Missing; docs: FirmDocsStatus }
+interface FirmReadiness { firmId: number; firmName: string; total: number; ready: number; exported: number; submitted: number; submittedExternal: number; draftReady: number; queued: number; sendable: number; /** sendable ∩ boji to'langan — REAL yuborish faqat shularni oladi */ sendablePaid: number; missing: Missing; almost: Missing; docs: FirmDocsStatus }
 // Sud paketiga qo'shiladigan firma hujjatlari — 3 tasi ham kerak.
 const FIRM_DOCS_ALL = ['guvohnoma', 'ishonchnoma', 'shartnoma'];
 interface Overall { total: number; ready: number; exported: number; submitted: number; submittedExternal: number; draftReady: number; queued: number; sendable: number; missing: Missing; almost: Missing }
@@ -1953,7 +1953,9 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   // AUTO rejim: partiya tugagach keyingisi shuncha kutib boshlanadi. 30s edi — portal
   // tezlik cheklovi uchun juda tez (bir partiya tugashi bilan darrov keyingisi urilardi).
   const AUTO_MS = 60_000;
-  const [auto, setAuto] = useState<{ firmId: number; firmName: string; limit: number } | null>(null);
+  // draftMode ham SAQLANADI: ilgari faqat {firmId, limit} saqlanardi va «Qoralama + Auto»ning
+  // keyingi partiyalari draftMode'siz — REAL yuborish bo'lib ketardi (2026-09-19 kod ko'rigi).
+  const [auto, setAuto] = useState<{ firmId: number; firmName: string; limit: number; draftMode: boolean } | null>(null);
   const autoRef = useRef<typeof auto>(null);
   useEffect(() => { autoRef.current = auto; }, [auto]);
   const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1973,8 +1975,13 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
       const a = autoRef.current;
       if (a && a.firmId === fid) {
         const fr = fresh?.readiness.firms.find((f) => f.firmId === fid);
-        const left = fr?.sendable ?? 0;
-        if (left > 0) { autoTimer.current = setTimeout(() => { if (autoRef.current?.firmId === fid) runExport(fid, { limit: a.limit }); }, AUTO_MS); }
+        // Real yuborish faqat boji TO'LANGANLARNI oladi — «qoldi» ham shunga qarab (aks holda to'lanmaganlar
+        // bor ekan deb auto cheksiz urinardi). Qoralama uchun boji shart emas.
+        const left = (a.draftMode ? fr?.sendable : fr?.sendablePaid) ?? 0;
+        // courtIds ATAYIN uzatilmaydi: `left` firma bo'yicha, tanlangan sudlar tugagach davom etish tanlanmagan
+        // sud ishlarini navbatga «park» qilib yuborardi (prepare-ready deferredByFilter). Avvalgidek — hamma sud.
+        const cont = { limit: a.limit, ...(a.draftMode ? { draftMode: true } : {}) };
+        if (left > 0) { autoTimer.current = setTimeout(() => { if (autoRef.current?.firmId === fid) runExport(fid, cont); }, AUTO_MS); }
         else setAuto(null); // tayyor tugadi — auto to'xtaydi
       }
     });
@@ -1989,7 +1996,8 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   const [gate, setGate] = useState<{ firmId: number; firmName: string; stir: string | null; extra: Record<string, unknown>; summary: string } | null>(null);
   // «Sudga yuborish» (firma darajasida) → avval SONI so'raladi (max MAX_COURT_BATCH), keyin E-IMZO gate.
   // Drilldownда qo'lda tanlanган (caseIds) yoki soni allaqachon berilган bo'lsa — to'g'ridan gate.
-  const [countAsk, setCountAsk] = useState<{ firmId: number; firmName: string; max: number; queued: number; value: number; auto: boolean; draftMode: boolean } | null>(null);
+  // max — joriy rejim chegarasi: qoralama → maxAll (hamma tayyor), real → maxPaid (boji to'langan tayyorlar).
+  const [countAsk, setCountAsk] = useState<{ firmId: number; firmName: string; max: number; maxAll: number; maxPaid: number; queued: number; value: number; auto: boolean; draftMode: boolean } | null>(null);
   // ZIP eksport modali — sudga YUBORMAYDI, faqat hujjatlarni bitta arxivga yig'adi.
   const [zipAsk, setZipAsk] = useState<{ firmId: number; firmName: string; max: number; value: number } | null>(null);
   const openGate = (fid: number, extra: Record<string, unknown> = {}) => {
@@ -2009,9 +2017,11 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     // Qo'lda tanlanган yoki soni berilган → to'g'ridan gate. Aks holda — soni so'raymiz.
     if (Array.isArray(ids) || (extra as { limit?: unknown }).limit != null) { openGate(fid, extra); return; }
     const fr = data?.readiness.firms.find((f) => f.firmId === fid);
-    const max = Math.min(MAX_COURT_BATCH, fr?.sendable ?? 0);
-    if (max <= 0) return; // yuboriladigan yo'q
-    setCountAsk({ firmId: fid, firmName: fr?.firmName ?? `${t('Firma')} ${fid}`, max, queued: fr?.queued ?? 0, value: max, auto: false, draftMode: true });
+    const maxAll = Math.min(MAX_COURT_BATCH, fr?.sendable ?? 0);
+    const maxPaid = Math.min(MAX_COURT_BATCH, fr?.sendablePaid ?? 0);
+    if (maxAll <= 0) return; // yuboriladigan yo'q
+    // Default — qoralama (boji shart emas) → hamma tayyor.
+    setCountAsk({ firmId: fid, firmName: fr?.firmName ?? `${t('Firma')} ${fid}`, max: maxAll, maxAll, maxPaid, queued: fr?.queued ?? 0, value: maxAll, auto: false, draftMode: true });
   };
 
   // ── «Sudga yuborish» modalidagi SUD taqsimoti (ko'rsatkich) ──────────────────
@@ -2023,12 +2033,13 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     let alive = true;
     const qs = new URLSearchParams({ firmId: String(countAsk.firmId) });
     if (snapshotId) qs.set('s', String(snapshotId));
+    if (!countAsk.draftMode) qs.set('paid', '1'); // real yuborish — faqat boji to'langanlar taqsimoti
     fetch(`/konveyer/court-ready/courts?${qs.toString()}`, { cache: 'no-store' })
       .then((r) => r.json())
       .then((d) => { if (alive && d && Array.isArray(d.courts)) setCourtBreak({ firmId: countAsk.firmId, courts: d.courts, total: d.total ?? 0 }); })
       .catch(() => {});
     return () => { alive = false; };
-  }, [countAsk?.firmId, snapshotId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [countAsk?.firmId, countAsk?.draftMode, snapshotId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Yuborish NAVBATI — skayner kabi 2-3 partiya ketma-ket ────────────────────
   // Har item: firma + soni. Joriy (birinchi tugamagan) item bo'yicha holat-mashina:
@@ -2599,7 +2610,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                 asosiy tugmaga aylanadi va «Yuborish» yashiriladi. Aks holda operator
                 bosadigan tugma bosilishi bilan xato bo'lardi. */}
             <button className={askBusy ? 'btn-primary' : 'btn-ghost'} type="button"
-              disabled={!countAsk.value || countAsk.value < 1 || (pickedCourts !== null && pickedCourts.length === 0)}
+              disabled={countAsk.max < 1 || !countAsk.value || countAsk.value < 1 || (pickedCourts !== null && pickedCourts.length === 0)}
               title={askBusy
                 ? `#${askBusy.jobId} ${t("tugashi bilan bu partiya o'zi boshlanadi — kalit qayta so'ralmaydi")}`
                 : t("Navbatga qo'shish — bir nechta partiyani ketma-ket yuborish (skayner kabi)")}
@@ -2608,7 +2619,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
             </button>
             {!askBusy && (
               <button className="btn-primary" type="button"
-                disabled={!countAsk.value || countAsk.value < 1 || (pickedCourts !== null && pickedCourts.length === 0)}
+                disabled={countAsk.max < 1 || !countAsk.value || countAsk.value < 1 || (pickedCourts !== null && pickedCourts.length === 0)}
                 onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const fid = countAsk.firmId; const au = countAsk.auto; const cs = pickedCourts; const dm = countAsk.draftMode; setCountAsk(null); setPickedCourts(null); openGate(fid, { limit: v, auto: au, ...(cs && cs.length ? { courtIds: cs } : {}), ...(dm ? { draftMode: true } : {}) }); }}>
                 {countAsk.draftMode ? t('Qoralama tayyorlash') : countAsk.auto ? t('Auto boshlash') : t('Yuborish')} ({Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0))})
               </button>
@@ -2638,7 +2649,12 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                 yuborishni portalning o'zi qiladi, va 24/7 tayyorlash mumkin (sud kvotasi band
                 bo'lmaydi). O'chirilsa — tizim o'zi sudga yuboradi (CABINET_ALLOW_SEND_TO_COURT). */}
             <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-emerald-500/40 bg-emerald-500/[0.05] p-2.5">
-              <input type="checkbox" checked={countAsk.draftMode} onChange={(e) => setCountAsk((c) => c && ({ ...c, draftMode: e.target.checked }))} className="mt-0.5 h-4 w-4 accent-emerald-600" />
+              <input type="checkbox" checked={countAsk.draftMode} onChange={(e) => setCountAsk((c) => {
+                if (!c) return c;
+                // Real yuborish faqat boji to'langanlarni oladi — chegara ham shunga almashadi.
+                const max = e.target.checked ? c.maxAll : c.maxPaid;
+                return { ...c, draftMode: e.target.checked, max, value: Math.min(Math.max(1, c.value), Math.max(1, max)) };
+              })} className="mt-0.5 h-4 w-4 accent-emerald-600" />
               <span className="min-w-0">
                 <span className="block text-[12px] font-medium">{t('Qoralama tayyorlash — yurist portalda o‘zi yuboradi')} <span className="text-emerald-600 dark:text-emerald-400">{t('(tavsiya)')}</span></span>
                 <span className="block text-[11px] text-muted">
@@ -2736,7 +2752,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
           onSuccess={() => {
             const ex = gate.extra as { auto?: boolean; limit?: number; resume?: boolean };
             if (ex.resume) { runResume(gate.firmId); setGate(null); return; }
-            if (ex.auto) setAuto({ firmId: gate.firmId, firmName: gate.firmName, limit: typeof ex.limit === 'number' ? ex.limit : 100 });
+            if (ex.auto) setAuto({ firmId: gate.firmId, firmName: gate.firmName, limit: typeof ex.limit === 'number' ? ex.limit : 100, draftMode: (gate.extra as { draftMode?: boolean }).draftMode === true });
             runExport(gate.firmId, gate.extra);
             setGate(null);
           }}

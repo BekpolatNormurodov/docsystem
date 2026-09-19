@@ -338,6 +338,13 @@ export async function collectCaseFiles(ac: any): Promise<CaseFileToUpload[]> {
     });
     const invoiceNo = rec?.invoiceNo
       ?? (ac.invoiceNo ? String(ac.invoiceNo) : (ac.receiptNumber ? String(ac.receiptNumber) : null));
+    // TO'LANMAGAN BO'LSA HAM biriktiriladi (2026-09-19). Qoralama/suit endi to'lanmagan boji
+    // bilan ham tayyorlanadi («invoice oxirida, yuborishda to'lanadi»), save-suit'dan keyin esa
+    // ishga hujjat qo'shadigan yo'l yo'q — shuning uchun invoice PDF'i HOZIR ketishi kerak.
+    // Invoice PDF to'lov holatidan qat'i nazar bir xil hujjat (raqamli to'lov talabnomasi): yurist
+    // yuborishdan oldin buxgalteriya uni to'laydi va o'sha hujjat kuchga kiradi. Firma-ZIP ham
+    // (konveyer-packet 6) invoice'ni to'lov holatiga qaramay qo'yadi — ikki yo'l bir qoidada.
+    // Real yuborishni esa preflight to'sadi (to'lanmagan portalga chiqmaydi).
     if (invoiceNo) {
       let buf: Buffer | null = null;
       // 1) YANGI nusxa — billing.sud.uz'dan (proxy/tunnel orqali)
@@ -699,9 +706,20 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
     // Bunday ish FAILED emas, SKIPPED bo'ladi: bu nosozlik emas, ish shunchaki hali
     // yuborishga tayyor emas. Qayta urinish hech narsani o'zgartirmaydi — to'lov kerak.
     // To'langach `invoiceStatus` PAID bo'ladi va ish o'zi navbatga qaytadi.
+    //
+    // TO'LOV FAQAT REAL YUBORISHDA talab qilinadi (2026-09-19 foydalanuvchi qarori: «invoice oxirida,
+    // yuborishda to'lanadi»). Qoralama/suit uchun faqat invoice RAQAMI bo'lishi kerak: invoice PDF'i
+    // paketga ketadi (collectCaseFiles E), save-suit'dan keyin esa ishga hujjat qo'shib bo'lmaydi.
+    // To'lanmagan kvitansiya portalga ko'rsatilmaydi (pastda caseData.receiptNumber = null), shuning
+    // uchun find-by-receipt 400 «invoiceStatus is not valid» ham, yetim qoralama ham bo'lmaydi.
+    // court-ready «Tayyor» ham xuddi shu qoida (boji = invoice raqami); bu yerda — navbatga gate'dan
+    // OLDIN tushgan ishlar (auto-resume/eski navbat) uchun ikkinchi to'siq.
     const paidNos = await paidReceiptSet(targetCases.map((c) => c.receiptNumber ?? ''));
-    const unpaid = targetCases.filter((c) => !c.receiptNumber || !paidNos.has(c.receiptNumber));
-    const sendCases = targetCases.filter((c) => c.receiptNumber && paidNos.has(c.receiptNumber));
+    const isPaid = (c: { receiptNumber: string | null }) => !!c.receiptNumber && paidNos.has(c.receiptNumber);
+    const hasInvoice = (c: { receiptNumber: string | null; invoiceNo: string | null }) => !!(c.receiptNumber || c.invoiceNo);
+    const bojiRequired = !isSuitMode && !isDraftMode;
+    const unpaid = targetCases.filter((c) => (bojiRequired ? !isPaid(c) : !hasInvoice(c)));
+    const sendCases = targetCases.filter((c) => (bojiRequired ? isPaid(c) : hasInvoice(c)));
 
     // Navbat yozuvlarini tayyorlash: har case PENDING holatida ko'rinadi (operator darhol
     // "navbatda" deb ko'radi, ish boshlanishini kutmasdan).
@@ -882,7 +900,9 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
         courtId: courtGuid,
         regionId: regionForCourt(courtGuid), // region sudning o'zidan olinadi
         claimantId,
-        receiptNumber: ac.receiptNumber ?? null,
+        // Faqat TO'LANGAN kvitansiya portalga ko'rsatiladi (find-by-receipt tekshiruvi). Qoralama/suit
+        // rejimida to'lanmagani ham o'tadi (yuqoridagi preflight) — uni ko'rsatsak portal 400 berardi.
+        receiptNumber: isPaid(ac) ? ac.receiptNumber : null,
         firm: { stir: firmStir },
         debtor: {
           pinfl: ac.pinfl || '',

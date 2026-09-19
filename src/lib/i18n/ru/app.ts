@@ -1698,4 +1698,5 @@ export const app: Record<string, string> = {
   "Skan yoʻq": "Нет скана",
   "Oferta yoʻq": "Нет оферты",
   "Boji yoʻq": "Нет госпошлины",
+  "Tayyor ishlar bor, lekin davlat boji to'lanmagan — sudga real yuborish uchun boji to'langan bo'lishi kerak. Qoralama uchun boji shart emas («Qoralama tayyorlash» belgisini yoqing).": "Готовые дела есть, но госпошлина не оплачена — для реальной отправки в суд пошлина должна быть оплачена. Для черновика пошлина не обязательна (включите «Подготовить черновик»).",
 };

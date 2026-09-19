@@ -16,6 +16,7 @@ import { getStoredHippoSession } from '../lib/hippo/session';
 import { ingestHippoStatuses } from '../lib/hippo/status-ingest';
 import { attachTalabnomaReceipts } from '../lib/hippo/attach-receipts';
 import { refreshDeliveredReceipts } from '../lib/hippo/refresh-delivered-receipts';
+import { attachTalabnomaLetters, backfillTalabnomaDates } from '../lib/hippo/attach-letters';
 import { reconcileTraceAgainstLive } from '../lib/hippo/talabnoma-trace';
 import { liveRegistryIds } from '../lib/hippo/xat';
 
@@ -591,6 +592,8 @@ async function courtOutcomeSyncLoop(): Promise<void> {
 // Portalga bir zumda urilmasin: firmalar orasida pauza + boshqa sikllardan keyin boshlanadi.
 const HIPPO_SYNC_EVERY_MS = Math.max(30 * 60_000, Number(process.env.HIPPO_SYNC_MS) || 60 * 60_000);
 const HIPPO_FIRM_GAP_MS = 20_000;
+// Bir siklda firma boshiga eng ko'p nechta yetkazilgan xat PDF'i yuklanadi (hippo rate-limit'iga ehtiyot).
+const HIPPO_LETTERS_PER_TICK = 120;
 const hippoDigits = (s?: string | null) => (s ?? '').replace(/\D+/g, '');
 
 async function hippoStatusSyncLoop(): Promise<void> {
@@ -615,6 +618,16 @@ async function hippoStatusSyncLoop(): Promise<void> {
         catch (e) { console.error(`[worker] talabnoma kvitansiya ${f.branchCode}:`, (e as Error).message?.slice(0, 120)); }
         try { await refreshDeliveredReceipts(session, { id: firm.id, code: firm.code }, { limit: 150 }); }
         catch (e) { console.error(`[worker] talabnoma yetkazilgan ${f.branchCode}:`, (e as Error).message?.slice(0, 120)); }
+        // «Tayyor emas»larning talabnomasini TORTISH (2026-09-19): check biriktirilgach talabnomaAt
+        // bo'shliqlari hippo sanasi bilan to'ldiriladi va yetkazilgan xat PDF'i oldindan saqlanadi
+        // (sud paketi xat.hippo'ga jonli chiqmasin). Ishlanmagan ishlar birinchi, bounded.
+        try {
+          const dated = await backfillTalabnomaDates(firm.id);
+          const l = await attachTalabnomaLetters(firm.id, { limit: HIPPO_LETTERS_PER_TICK, concurrency: 2 });
+          if (dated || l.attached || l.missing || l.failed) {
+            console.log(`[worker] talabnoma ${f.branchCode}: +${dated} sana · +${l.attached} xat PDF${l.missing + l.failed ? ` · ${l.missing + l.failed} ochilmadi` : ''} · qoldi ${l.pending - l.attached}`);
+          }
+        } catch (e) { console.error(`[worker] talabnoma xat ${f.branchCode}:`, (e as Error).message?.slice(0, 120)); }
         anyOk = true;
       } catch (e) {
         const msg = e instanceof SessionExpiredError ? "sessiya yo'q" : (e as Error).message?.slice(0, 120);

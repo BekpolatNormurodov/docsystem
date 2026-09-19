@@ -1,12 +1,17 @@
-// «Sudga yuborish» tayyorlik + real status hisoboti. Bir mijoz (case) sudga
-// CHIQARILISHI uchun 5 SHART (grafik SHART EMAS):
+// «Sudga yuborish» tayyorlik + real status hisoboti. Bir mijoz (case) «Tayyor» bo'lishi
+// (qoralama tayyorlanishi) uchun 5 SHART (grafik SHART EMAS):
 //   1) Talabnoma yuborilgan  (talabnomaAt)
 //   2) Palatadan imzolangan skan SHU case'ga biriktirilgan (CaseDocument SIGNED_ARIZA)
 //   3) Oferta — har shartnomaga  (firma portfelida summKr>0 loan bor)
 //   4) Talabnoma «check» — UZPOST kvitansiyasi SHU case'ga biriktirilgan (CaseDocument TALABNOMA_RECEIPT)
-//   5) Invoice RAQAMI bor (receiptNumber) — raqam ariza ichiga yoziladi (`boji`)
-// Invoice/kvitansiya PDF'i sudga KETMAYDI (ariza bojisiz), LEKIN raqami (receiptNumber)
-// bo'lmasa ariza chala — shu sabab `boji` endi MAJBURIY gate (foydalanuvchi qarori).
+//   5) Invoice RAQAMI bor (receiptNumber / invoiceNo) — `boji`
+// TO'LOV (invoice PAID) — «Tayyor» gate'i EMAS (2026-09-19 foydalanuvchi qarori: «invoice oxirida,
+// yuborishda to'lanadi»). Ilgari to'lov ham gate edi va BRIGHT/COMMUNITY'da ~380 ta hujjati to'liq
+// ish faqat to'lanmagani uchun «tayyor emas»da turardi. Qoralama invoice PDF'i bilan tayyorlanadi
+// (court-submit-job E) — buxgalteriya yurist yuborishidan oldin to'laydi. Invoice RAQAMI esa baribir
+// shart: save-suit'dan keyin ishga hujjat qo'shib bo'lmaydi, invoice'siz tayyorlangan paket «Pochta
+// xarajati to'lov topshiriqnomasi»siz qolib ketardi. REAL yuborishda (send-to-court) to'lov majburiy:
+// `bojiPaid` / `sendablePaid`, prepare-ready requireBoji va court-submit-job preflight.
 // Bu modul faqat DB o'qiydi — chiqarilgan-yo'qligini ArizaCase.meta.exportedAt
 // da saqlaymiz (schema o'zgarmasdan, db push kerak emas).
 import { prisma } from './db';
@@ -28,7 +33,10 @@ export interface DocFlags {
   scan: boolean;
   oferta: boolean;
   receipt: boolean;   // talabnoma «check» (UZPOST kvitansiya) SHU case'ga biriktirilgan — MAJBURIY
+  /** Invoice RAQAMI bor (receiptNumber yoki invoiceNo) — GATE. To'lov bu yerda tekshirilmaydi. */
   boji: boolean;
+  /** Invoice TO'LANGAN (BillingCheckInvoice PAID) — «Tayyor» gate'i emas; REAL yuborish shuni talab qiladi. */
+  bojiPaid: boolean;
   ready: boolean;
   exported: boolean;  // ZIP paketi chiqarilgan YOKI sudga yuborilgan — «ishlov ko'rgan»
   /**
@@ -76,6 +84,7 @@ interface CaseRow {
   stage: CaseStage;
   talabnomaAt: Date | null;
   receiptNumber: string | null;
+  invoiceNo?: string | null;
   courtCaseId?: string | null;
   courtId?: number | null; // biz biriktirgan sud — sud kesimidagi tallilar uchun (flagsFor ishlatmaydi)
   meta: unknown;
@@ -97,12 +106,11 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
   // CHECK = talabnoma UZPOST kvitansiyasi SHU case'ga biriktirilgan (CaseDocument
   // TALABNOMA_RECEIPT). MAJBURIY (foydalanuvchi qarori): check'siz sudga chala ketmasin.
   const receipt = receiptCaseIds.has(c.id);
-  // `boji` = invoice RAQAMI (receiptNumber) bor. Invoice PDF sudga ketmaydi, ammo raqami
-  // ariza ichiga yoziladi — raqamsiz ariza chala, shuning uchun `boji` MAJBURIY gate.
-  // `boji` = kvitansiya raqami bor VA U TO'LANGAN. To'lanmagani portalda 400 beradi, ya'ni
-  // «tayyor» deb ko'rsatish yolg'on bo'lardi. `paidReceipts` berilmagan eski chaqiruvlarda
-  // eski xatti-harakat saqlanadi (faqat raqam borligi).
-  const boji = !!c.receiptNumber && (!paidReceipts || paidReceipts.has(c.receiptNumber));
+  // `boji` = invoice RAQAMI bor — gate (qoralamaga invoice PDF'i ketadi). `bojiPaid` = u TO'LANGAN —
+  // faqat real yuborish uchun (fayl boshidagi izoh). `paidReceipts` berilmagan eski chaqiruvlarda
+  // bojiPaid faqat raqam borligi.
+  const boji = !!(c.receiptNumber || c.invoiceNo);
+  const bojiPaid = !!c.receiptNumber && (!paidReceipts || paidReceipts.has(c.receiptNumber));
   const ready = talabnoma && scan && oferta && receipt && boji;
   // «Yuborilgan» — meta.exportedAt (ZIP paket chiqarilgani) YOKI bosqichi allaqachon sudda.
   //
@@ -163,7 +171,7 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
   // (2026-09-18: qaytishlar paket tuzilishidan — eski paket bilan qayta yuborilsa yana qaytadi).
   const held = metaHas(c.meta, 'resendHold');
   const sendable = ready && !submitted && !draft && !draftReady && !queued && !held && !SENT_STAGES.has(c.stage);
-  return { talabnoma, scan, oferta, receipt, boji, ready, exported, submitted, submittedExternal, draft, draftReady, queued, sendable };
+  return { talabnoma, scan, oferta, receipt, boji, bojiPaid, ready, exported, submitted, submittedExternal, draft, draftReady, queued, sendable };
 }
 
 /**
@@ -388,6 +396,9 @@ export interface FirmReadiness {
   /** Partiyaga olingan, hali sudga yetib bormagan (CourtQueueItem PENDING/RUNNING). */
   queued: number;
   sendable: number;
+  /** `sendable` ichidan boji TO'LANGANI — REAL yuborish (send-to-court) faqat shularni oladi
+   *  (prepare-ready requireBoji). Qoralama uchun `sendable`, real yuborish modali uchun shu. */
+  sendablePaid: number;
   missing: DocQuad;
   almost: DocQuad; // missing exactly this one doc (1 qadam qolgan)
   docs: FirmDocsStatus; // firma hujjatlari (guvohnoma/ishonchnoma/shartnoma) to'liqmi
@@ -426,7 +437,7 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
     const [cases, ofertaPinfls] = await Promise.all([
       prisma.arizaCase.findMany({
         where: { firmId: f.id, ...(snapshotId ? { snapshotId } : {}) },
-        select: { id: true, pinfl: true, stage: true, talabnomaAt: true, receiptNumber: true, courtCaseId: true, courtId: true, meta: true },
+        select: { id: true, pinfl: true, stage: true, talabnomaAt: true, receiptNumber: true, invoiceNo: true, courtCaseId: true, courtId: true, meta: true },
         orderBy: { id: 'asc' },
       }),
       ofertaPinflSet(snapshotId, f.code),
@@ -447,7 +458,7 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
 
     const fr: FirmReadiness = {
       firmId: f.id, firmName: f.shortName, total: cases.length,
-      ready: 0, exported: 0, submitted: 0, submittedExternal: 0, draft: 0, draftReady: 0, queued: 0, sendable: 0,
+      ready: 0, exported: 0, submitted: 0, submittedExternal: 0, draft: 0, draftReady: 0, queued: 0, sendable: 0, sendablePaid: 0,
       missing: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 },
       almost: { talabnoma: 0, scan: 0, oferta: 0, receipt: 0, boji: 0 },
       docs: firmDocsStatus(f.id),
@@ -463,6 +474,7 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
       if (fl.draft) fr.draft++;
       if (fl.draftReady) fr.draftReady++;
       if (fl.sendable) fr.sendable++;
+      if (fl.sendable && fl.bojiPaid) fr.sendablePaid++;
       if (c.courtId != null) {
         const ct = courtMap.get(c.courtId) ?? { courtId: c.courtId, total: 0, ready: 0, submitted: 0, draftReady: 0, sendable: 0, queued: 0 };
         ct.total++;
@@ -479,7 +491,7 @@ export async function courtReadiness(snapshotId?: number, firmId?: number): Prom
       if (!fl.receipt) fr.missing.receipt++;
       if (!fl.boji) fr.missing.boji++;
       // «1 qadam qolgan» — gate'ning 5 shartidan AYNAN bittasi yetishmaydi (talabnoma/skan/
-      // oferta/check/boji). Barchasi endi majburiy gate, shuning uchun beshovi ham hisobga olinadi.
+      // oferta/check/invoice raqami). To'lov gate emas — hisobga olinmaydi.
       const gaps = (fl.talabnoma ? 0 : 1) + (fl.scan ? 0 : 1) + (fl.oferta ? 0 : 1) + (fl.receipt ? 0 : 1) + (fl.boji ? 0 : 1);
       if (gaps === 1 && !fl.exported && !SENT_STAGES.has(c.stage)) {
         if (!fl.talabnoma) fr.almost.talabnoma++;
@@ -586,7 +598,7 @@ export async function firmReadyClients(opts: {
     prisma.arizaCase.findMany({
       where: { firmId: firm.id, ...(opts.snapshotId ? { snapshotId: opts.snapshotId } : {}) },
       select: {
-        id: true, pinfl: true, clientName: true, stage: true, talabnomaAt: true, receiptNumber: true,
+        id: true, pinfl: true, clientName: true, stage: true, talabnomaAt: true, receiptNumber: true, invoiceNo: true,
         meta: true, totalDebt: true, dueAt: true,
         // Sud — «Batafsil» ro'yxatida filtr uchun. Firmaning ishlari bir necha sudga
         // bo'lingan bo'lishi mumkin (BRIGHT: Yuqorichirchiq + Uchtepa) va ulardan biri
@@ -644,13 +656,13 @@ export interface CourtBreakdownItem {
   /** Yopiq bo'lsa — sababi (operatorga ko'rsatiladi). */
   note: string | null;
 }
-export async function sendableCourtBreakdown(opts: { snapshotId?: number; firmId: number }): Promise<{ courts: CourtBreakdownItem[]; total: number }> {
+export async function sendableCourtBreakdown(opts: { snapshotId?: number; firmId: number; requireBoji?: boolean }): Promise<{ courts: CourtBreakdownItem[]; total: number }> {
   const firm = await prisma.firm.findUnique({ where: { id: opts.firmId }, select: { id: true, code: true, stir: true } });
   if (!firm) return { courts: [], total: 0 };
   const [cases, ofertaPinfls] = await Promise.all([
     prisma.arizaCase.findMany({
       where: { firmId: firm.id, ...(opts.snapshotId ? { snapshotId: opts.snapshotId } : {}) },
-      select: { id: true, pinfl: true, stage: true, talabnomaAt: true, receiptNumber: true, courtCaseId: true, meta: true, courtId: true, court: { select: { shortName: true } } },
+      select: { id: true, pinfl: true, stage: true, talabnomaAt: true, receiptNumber: true, invoiceNo: true, courtCaseId: true, meta: true, courtId: true, court: { select: { shortName: true } } },
     }),
     ofertaPinflSet(opts.snapshotId, firm.code),
   ]);
@@ -683,6 +695,7 @@ export async function sendableCourtBreakdown(opts: { snapshotId?: number; firmId
   for (const c of cases) {
     const fl = flagsFor(c as CaseRow, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds, portalCases);
     if (!fl.sendable) continue;
+    if (opts.requireBoji && !fl.bojiPaid) continue; // real yuborish modali: faqat to'langanlar
     total++;
     const key = String(c.courtId ?? 'none');
     const item = byCourt.get(key) ?? {
@@ -716,13 +729,17 @@ export async function sendableCourtBreakdown(opts: { snapshotId?: number; firmId
  *  tashlangan (operator qarori). */
 export async function selectReadyCaseIds(opts: {
   snapshotId?: number; firmId: number; limit: number; includeExported?: boolean; forExport?: boolean;
+  /** REAL yuborish (send-to-court) uchun: boji TO'LANMAGAN ishni tanlamaslik (`bojiPaid`). To'lov
+   *  «Tayyor» gate'i emas (qoralama to'lanmagan invoice bilan tayyorlanadi), lekin real partiya uni
+   *  baribir SKIPPED qiladi — tanlovda joy egallab, sud limitini behuda band qilmasin. */
+  requireBoji?: boolean;
 }): Promise<number[]> {
   const firm = await prisma.firm.findUnique({ where: { id: opts.firmId }, select: { id: true, code: true, stir: true } });
   if (!firm) return [];
   const [cases, ofertaPinfls] = await Promise.all([
     prisma.arizaCase.findMany({
       where: { firmId: firm.id, ...(opts.snapshotId ? { snapshotId: opts.snapshotId } : {}) },
-      select: { id: true, pinfl: true, stage: true, talabnomaAt: true, receiptNumber: true, courtCaseId: true, meta: true },
+      select: { id: true, pinfl: true, stage: true, talabnomaAt: true, receiptNumber: true, invoiceNo: true, courtCaseId: true, meta: true },
       orderBy: [{ dueAt: 'asc' }, { id: 'asc' }],
     }),
     ofertaPinflSet(opts.snapshotId, firm.code),
@@ -749,6 +766,7 @@ export async function selectReadyCaseIds(opts: {
     // sudga hech narsa yubormaydi, shunchaki fayl yuklab olish — shuning uchun «allaqachon
     // chiqarilgan» filtri 2026-09-07 da butunlay olib tashlangan (operator qarori).
     if (!fl.sendable) continue;
+    if (opts.requireBoji && !fl.bojiPaid) continue;
     picked.push(c.id);
     if (picked.length >= opts.limit) break;
   }
@@ -761,13 +779,15 @@ export async function selectReadyCaseIds(opts: {
  *  «olib kira» olmaydi (client filtri hech qachon avtorizatsiya sifatida ishonilmaydi). */
 export async function validateSelectedCaseIds(opts: {
   snapshotId?: number; firmId: number; caseIds: number[]; includeExported?: boolean; forExport?: boolean; limit?: number;
+  /** selectReadyCaseIds bilan bir xil: real yuborishda to'lanmagan bojli ish tanlanmaydi. */
+  requireBoji?: boolean;
 }): Promise<number[]> {
   const firm = await prisma.firm.findUnique({ where: { id: opts.firmId }, select: { id: true, code: true, stir: true } });
   if (!firm || !opts.caseIds.length) return [];
   const [cases, ofertaPinfls] = await Promise.all([
     prisma.arizaCase.findMany({
       where: { id: { in: opts.caseIds }, firmId: firm.id, ...(opts.snapshotId ? { snapshotId: opts.snapshotId } : {}) },
-      select: { id: true, pinfl: true, stage: true, talabnomaAt: true, receiptNumber: true, courtCaseId: true, meta: true },
+      select: { id: true, pinfl: true, stage: true, talabnomaAt: true, receiptNumber: true, invoiceNo: true, courtCaseId: true, meta: true },
       orderBy: [{ dueAt: 'asc' }, { id: 'asc' }],
     }),
     ofertaPinflSet(opts.snapshotId, firm.code),
@@ -794,7 +814,7 @@ export async function validateSelectedCaseIds(opts: {
       // mijozning hujjatlarini yuklab olishni to'sish noto'g'ri bo'lardi. Lekin SUDGA
       // ketgan ish u yerda ham chiqarilmaydi.
       if (opts.forExport) return fl.ready && !fl.submitted && !SENT_STAGES.has(c.stage);
-      return fl.sendable;
+      return fl.sendable && (!opts.requireBoji || fl.bojiPaid);
     })
     .map((c) => c.id)
     .slice(0, Math.min(MAX_COURT_BATCH, opts.limit ?? MAX_COURT_BATCH));

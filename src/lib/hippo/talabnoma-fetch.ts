@@ -62,6 +62,10 @@ export interface FetchOpts {
    *  (refresh-delivered-receipts.ts → meta.talabnomaDelivered.uid). Faqat firmaning o'z uid'lari
    *  orasida bo'lsa ishlatiladi — kreditor chegarasi buzilmaydi. */
   preferUid?: string | null;
+  /** FAQAT shu uid (boshqasiga tushilmaydi) — oldindan saqlashda (attach-letters.ts) xat aynan
+   *  yetkazilgan xatning o'zi bo'lishi uchun: u 403 bersa, yetkazilmagan boshqa xat muzlatilmasin.
+   *  Firmaning o'z uid'lari orasida bo'lmasa — hech narsa (kreditor chegarasi). */
+  onlyUid?: string | null;
 }
 
 /**
@@ -84,6 +88,7 @@ async function uidsAndSessions(pinfl: string, ownStir: string | null | undefined
   if (opts.deliveredOnly) pick = pick.length && isDelivered(pick[0].status) ? [pick[0]] : [];
   let uids = [...new Set(pick.map((r) => r.caseNumber).filter((x): x is string => !!x))];
   if (opts.preferUid && uids.includes(opts.preferUid)) uids = [opts.preferUid, ...uids.filter((u) => u !== opts.preferUid)];
+  if (opts.onlyUid) uids = uids.includes(opts.onlyUid) ? [opts.onlyUid] : [];
   if (!uids.length) return none;
   const stirs = [...new Set([digits(ownStir), ...FIRMS.map((f) => digits(f.stir))].filter(Boolean))];
   const sessions: any[] = [];
