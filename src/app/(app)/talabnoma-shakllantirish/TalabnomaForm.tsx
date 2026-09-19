@@ -380,29 +380,6 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
     } finally { setBusyFirm(null); }
   };
 
-  const doHippo = async (firm: FirmBucket) => {
-    setNote('');
-    if (!firm.ready) {
-      const ok = await confirm({ title: t('To‘liq forma tayyor emas'), description: `«${firm.name}» ${t('to‘liq emas. xat.hippo ga baribir yuborilsinmi?')}`, confirmLabel: t('Ha'), danger: true });
-      if (!ok) return;
-    }
-    const ok = await confirm({
-      title: t('xat.hippo ga yuborish'),
-      description: `«${firm.name}» — ${t('QORALAMA (draft) reyestr yaratiladi. Haqiqiy jo‘natish emas. Davom etilsinmi?')}`,
-      confirmLabel: t('Qoralama yaratish'),
-    });
-    if (!ok) return;
-    setBusyFirm(firm.code + 'HIPPO');
-    try {
-      const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/hippo`, {
-        firmCode: firm.code, mode: 'draft', ...eff(opts), includeUnready: !firm.ready,
-      });
-      if (!ok) { setNote(json.error || `${t('Xatolik')} (${status})`); return; }
-      setNote(`${t('xat.hippo qoralama yaratildi')} (#${json.registryId ?? '—'}, ${n(json.count)} ${t('ta')}).`);
-      await onChanged();
-    } finally { setBusyFirm(null); }
-  };
-
   return (
     <div className="space-y-5">
       {/* summary stats */}
@@ -508,7 +485,6 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
                     <div className="flex justify-end gap-1.5">
                       <ActBtn busy={busyFirm === f.code + 'REYESTR'} onClick={() => doGenerate(f, 'REYESTR')} icon="sheet">{t('Reyestr')}</ActBtn>
                       <ActBtn busy={busyFirm === f.code + 'LETTERS'} onClick={() => doGenerate(f, 'LETTERS')} icon="files">{t('Xatlar')}</ActBtn>
-                      <ActBtn busy={busyFirm === f.code + 'HIPPO'} onClick={() => doHippo(f)} icon="send">xat.hippo</ActBtn>
                     </div>
                   </td>
                 </tr>
