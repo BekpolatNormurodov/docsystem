@@ -5,8 +5,8 @@
 import fs from 'node:fs/promises';
 import { prisma } from '@/lib/db';
 import { parseTalabnomaForm, writeCandidates, readCandidates } from './parse';
-import { buildRowsForFirm, firmLetterhead, writeLettersZip, writeAllFirmsLettersPdf } from './generate';
-import { candidatesJsonPath, batchDir, lettersZipPath, allLettersPdfPath } from './store';
+import { buildRowsForFirm, firmLetterhead, writeLettersZip, writeAllFirmsLettersZip } from './generate';
+import { candidatesJsonPath, batchDir, lettersZipPath, allLettersZipPath } from './store';
 import type { FilterOpts } from './types';
 
 export async function runTalabnomaFormJob(jobId: number): Promise<void> {
@@ -90,8 +90,8 @@ export async function runTalabnomaFormJob(jobId: number): Promise<void> {
     return;
   }
 
-  if (action === 'generate-all-pdf') {
-    // «Barcha firmalar — bitta PDF»: hamma firma xatlari bitta PDF faylda (firmalar ichida guruhlangan).
+  if (action === 'generate-all-zip') {
+    // «Barcha firmalar — ZIP»: hamma firma xatlari bitta .zip da, har firma o'z papkasida (alohida PDF).
     const batchId = Number(p.batchId);
     const runId = Number(p.runId);
     const opts = normalizeOpts(p.filters);
@@ -101,9 +101,9 @@ export async function runTalabnomaFormJob(jobId: number): Promise<void> {
       const batch = await prisma.talabnomaFormBatch.findUnique({ where: { id: batchId }, select: { candidatesPath: true } });
       if (!batch?.candidatesPath) throw new Error('Candidates topilmadi — batch tayyor emas');
       const file = await readCandidates(batch.candidatesPath);
-      const out = allLettersPdfPath(batchId, runId);
+      const out = allLettersZipPath(batchId, runId);
       await fs.mkdir(batchDir(batchId), { recursive: true });
-      const total = await writeAllFirmsLettersPdf(file, opts, out, async (made, tot) => {
+      const total = await writeAllFirmsLettersZip(file, opts, out, async (made, tot) => {
         await prisma.talabnomaFormRun.update({ where: { id: runId }, data: { rowCount: tot, personCount: made } }).catch(() => {});
         await prisma.job.update({ where: { id: jobId }, data: { progress: made, total: tot } }).catch(() => {});
       });

@@ -149,53 +149,62 @@ export async function writeAllFirmsReyestr(file: CandidatesFile, opts: FilterOpt
   return count;
 }
 
-/** «Barcha firmalar — bitta PDF»: hamma firma xatlarini BITTA PDF faylga birlashtiradi (firmalar
- *  ketma-ket — «firmalar ichida» guruhlangan). Muhrsiz (hideStamp). pdf-lib bilan sahifalar ko'chiriladi.
+/** «Barcha firmalar — ZIP (firma bo'yicha)»: hamma firma xatlarini BITTA .zip ga chiqaradi, lekin
+ *  har FIRMA o'z papkasida (alohida PDF fayllar + o'sha firma reyestri). Muhrsiz (hideStamp).
  *  Yasalgan xatlar sonini qaytaradi. Fon jarayonida ishlaydi (chromium og'ir). */
-export async function writeAllFirmsLettersPdf(
+export async function writeAllFirmsLettersZip(
   file: CandidatesFile,
   opts: FilterOpts,
   outPath: string,
   onProgress?: (done: number, total: number) => void | Promise<void>,
 ): Promise<number> {
   const { chromium } = await import('playwright');
-  const { PDFDocument } = await import('pdf-lib');
   // Firma letterheadlarni bir marta olamiz.
   const firms = await prisma.firm.findMany({
     select: { code: true, legalName: true, shortName: true, address: true, stir: true, bankAccount: true, mfo: true, phone: true },
   });
   const firmByCode = new Map(firms.map((f) => [canonCode(f.code), f as TalabnomaFirm & { code: string }]));
-  const nameSort = (c: string) => firmByCode.get(c)?.shortName || firmByCode.get(c)?.legalName || c;
-  const codes = [...new Set(file.people.flatMap((p) => Object.keys(p.perFirm).map(canonCode)))]
-    .sort((a, b) => nameSort(a).localeCompare(nameSort(b)));
+  const nameOf = (c: string) => firmByCode.get(c)?.shortName || firmByCode.get(c)?.legalName || c;
 
-  // Barcha (row × firma) vazifalari — firma bo'yicha tartibda.
-  const tasks: { row: TalabnomaRow; firm: TalabnomaFirm | null }[] = [];
-  for (const code of codes) {
-    const rows = buildRowsForFirm(file, code, opts);
-    const firm = firmByCode.get(code) ?? null;
-    for (const row of rows) tasks.push({ row, firm });
-  }
-  const total = tasks.length;
+  // Firma bo'yicha guruhlar (bo'sh firmalar tashlanadi), firma nomi bo'yicha tartiblangan.
+  const groups = [...new Set(file.people.flatMap((p) => Object.keys(p.perFirm).map(canonCode)))]
+    .sort((a, b) => nameOf(a).localeCompare(nameOf(b)))
+    .map((code) => ({ code, firm: firmByCode.get(code) ?? null, rows: buildRowsForFirm(file, code, opts) }))
+    .filter((g) => g.rows.length);
+  const total = groups.reduce((s, g) => s + g.rows.length, 0);
   if (!total) return 0;
 
-  const merged = await PDFDocument.create();
+  const out = fs.createWriteStream(outPath);
+  const archive = archiver('zip', { store: true });
+  archive.pipe(out);
   const browser = await chromium.launch({ headless: true });
   let done = 0;
   try {
-    for (const { row, firm } of tasks) {
-      const pdf = await renderTalabnomaPdf(row, browser, firm, true); // hideStamp — bu qism uchun muhrsiz
-      const doc = await PDFDocument.load(pdf);
-      const pages = await merged.copyPages(doc, doc.getPageIndices());
-      for (const pg of pages) merged.addPage(pg);
-      done += 1;
-      if (onProgress && (done % 3 === 0 || done === total)) await onProgress(done, total);
+    for (const g of groups) {
+      const folder = safeName(nameOf(g.code)); // har firma — alohida papka
+      // O'sha firma reyestri papka ichida.
+      archive.append(await talabnomaExcelBuffer(g.rows), { name: `${folder}/_reyestr.xlsx` });
+      const used = new Map<string, number>();
+      for (const row of g.rows) {
+        const pdf = await renderTalabnomaPdf(row, browser, g.firm, true); // hideStamp — muhrsiz
+        let name = `${row.contract_id.replace(/\//g, '-')}_${safeName(row.receiver)}.pdf`;
+        const dup = used.get(name) ?? 0;
+        used.set(name, dup + 1);
+        if (dup > 0) name = name.replace(/\.pdf$/, ` (${dup}).pdf`);
+        archive.append(pdf, { name: `${folder}/${name}` });
+        if (out.writableNeedDrain) await new Promise<void>((r) => out.once('drain', () => r()));
+        done += 1;
+        if (onProgress && (done % 3 === 0 || done === total)) await onProgress(done, total);
+      }
     }
   } finally {
     await browser.close();
   }
-  const bytes = await merged.save();
-  await fs.promises.writeFile(outPath, bytes);
+  await archive.finalize();
+  await new Promise<void>((resolve, reject) => {
+    out.on('close', resolve);
+    out.on('error', reject);
+  });
   return total;
 }
 

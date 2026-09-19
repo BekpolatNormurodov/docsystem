@@ -369,13 +369,13 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
     } finally { setBusyFirm(null); }
   };
 
-  // «Barcha firmalar — bitta PDF»: hamma xat bitta PDF faylda (firmalar ichida). Fon jarayoni → Tarixdan.
-  const doGenerateAllPdf = async () => {
-    setNote(''); setBusyFirm('__ALLPDF__');
+  // «Barcha firmalar — ZIP»: har firma alohida papkada (alohida PDF xatlar). Fon jarayoni → Tarixdan.
+  const doGenerateAllZip = async () => {
+    setNote(''); setBusyFirm('__ALLZIP__');
     try {
-      const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/generate`, { all: true, format: 'pdf', ...eff(opts) });
+      const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/generate`, { all: true, format: 'zip', ...eff(opts) });
       if (!ok) { setNote(json.error || `${t('Xatolik')} (${status})`); return; }
-      setNote(t('Bitta PDF tayyorlanmoqda (firmalar ichida) — pastdagi «Amallar tarixi»dan yuklab olasiz.'));
+      setNote(t('ZIP tayyorlanmoqda (har firma alohida papka) — pastdagi «Amallar tarixi»dan yuklab olasiz.'));
       await onChanged();
     } finally { setBusyFirm(null); }
   };
@@ -452,8 +452,8 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
             <button className="btn-primary px-3 py-1.5 text-xs" disabled={busyFirm === '__ALL__'} onClick={doGenerateAll} title={t('Barcha firmalar bitta Excel faylda — Firma ustuni bilan')}>
               {busyFirm === '__ALL__' ? <Spinner size={14} /> : <Ico.sheet size={14} />} Excel
             </button>
-            <button className="btn-primary px-3 py-1.5 text-xs" disabled={busyFirm === '__ALLPDF__'} onClick={doGenerateAllPdf} title={t('Barcha firmalar bitta PDF faylda (firmalar ichida, muhrsiz)')}>
-              {busyFirm === '__ALLPDF__' ? <Spinner size={14} /> : <Ico.files size={14} />} PDF
+            <button className="btn-primary px-3 py-1.5 text-xs" disabled={busyFirm === '__ALLZIP__'} onClick={doGenerateAllZip} title={t('Barcha firmalar — ZIP: har firma alohida papka (alohida PDF xatlar, muhrsiz)')}>
+              {busyFirm === '__ALLZIP__' ? <Spinner size={14} /> : <Ico.files size={14} />} PDF (ZIP)
             </button>
           </div>
         </div>

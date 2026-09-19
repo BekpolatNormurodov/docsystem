@@ -14,6 +14,6 @@ export const reyestrXlsxPath = (batchId: number, runId: number) =>
   path.join(batchDir(batchId), `run-${runId}-reyestr.xlsx`);
 export const lettersZipPath = (batchId: number, runId: number) =>
   path.join(batchDir(batchId), `run-${runId}-letters.zip`);
-// «Barcha firmalar — bitta PDF»: hamma xat bitta PDF faylda (firmalar ichida guruhlangan).
-export const allLettersPdfPath = (batchId: number, runId: number) =>
-  path.join(batchDir(batchId), `run-${runId}-hammasi.pdf`);
+// «Barcha firmalar — ZIP»: hamma xat bitta .zip da, har firma o'z papkasida (alohida PDF).
+export const allLettersZipPath = (batchId: number, runId: number) =>
+  path.join(batchDir(batchId), `run-${runId}-firmalar.zip`);
