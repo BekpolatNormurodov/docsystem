@@ -26,7 +26,9 @@ import { performLabel } from './hippo/mail-status';
 // Sudga allaqachon chiqib bo'lgan / yopilgan bosqichlar — «yuborishga tayyor»
 // tanloviga kirmaydi (COURT_RETURNED esa qayta chiqishi kerak, shuning uchun bu
 // yerda EMAS).
-const SENT_STAGES = new Set<CaseStage>(['COURT_SUBMITTED', 'COURT_ACCEPTED', 'MIB_SUBMITTED', 'CLOSED']);
+// 2026-09-19: eksport qilindi (faqat qo'shimcha) — /sud «Qaytganlar» va «Sudga o'tkazish» tab'lari
+// «sudga ketgan» ta'rifini o'z nusxasini yozmasdan AYNAN shu to'plamdan olsin.
+export const SENT_STAGES = new Set<CaseStage>(['COURT_SUBMITTED', 'COURT_ACCEPTED', 'MIB_SUBMITTED', 'CLOSED']);
 
 export interface DocFlags {
   talabnoma: boolean;
@@ -1025,6 +1027,71 @@ export async function courtReturns(snapshotId?: number, firmId?: number): Promis
     daysLeft: r.dueAt ? ((v: number) => (v < 0 ? Math.floor(v) : Math.ceil(v)))((r.dueAt.getTime() - now) / day) : null,
     docCount: r._count.documents,
   }));
+}
+
+// ── Ish-darajali tayyorlik (id bo'yicha) — /sud «Qaytganlar» tab'i uchun ─────────
+// 2026-09-19: «Qaytganlar» ro'yxati butun firma portfelini emas, faqat sud qaytargan ishlarni
+// ko'rsatadi va har qatorda «nega hali Tayyor emas» degan savolga javob berishi kerak (5 gate +
+// ushlab turilgan + navbatda). Ilgari `held` faqat flagsFor ichida hisoblanardi va hech qayerga
+// chiqmasdi — to'liq hujjatli, lekin ushlab turilgan ish «Tayyor emas» bo'lib sababsiz turardi.
+// Bu yordamchi AYNI flagsFor'dan foydalanadi (mavjud xatti-harakatga tegmaydi), shuning uchun
+// tab va asosiy sahifa hech qachon zid bo'lmaydi.
+/** `missing` kalitlari: talabnoma | scan | oferta | receipt | delivery | boji.
+ *  `delivery` — check biriktirilgan, lekin firma yetkazilganlik isbotini talab qiladi va u yo'q. */
+export interface CaseReadiness {
+  ready: boolean;
+  sendable: boolean;
+  held: boolean;
+  queued: boolean;
+  submitted: boolean;
+  draftReady: boolean;
+  bojiPaid: boolean;
+  flags: { talabnoma: boolean; scan: boolean; oferta: boolean; receipt: boolean; boji: boolean };
+  missing: string[];
+}
+export async function readinessByCaseIds(firmId: number, caseIds: number[]): Promise<Map<number, CaseReadiness>> {
+  const out = new Map<number, CaseReadiness>();
+  const uniq = [...new Set(caseIds.filter((x) => Number.isInteger(x) && x > 0))];
+  if (!uniq.length) return out;
+  const firm = await prisma.firm.findUnique({ where: { id: firmId }, select: { id: true, code: true, stir: true } });
+  if (!firm) return out;
+  const cases = await prisma.arizaCase.findMany({
+    where: { id: { in: uniq }, firmId: firm.id },
+    select: { id: true, pinfl: true, stage: true, talabnomaAt: true, receiptNumber: true, invoiceNo: true, courtCaseId: true, meta: true, snapshotId: true },
+  });
+  if (!cases.length) return out;
+  const ids = cases.map((c) => c.id);
+  // Oferta to'plami snapshot bo'yicha (flagsFor chaqiruvchilari bilan bir xil manba). Odatda bitta
+  // snapshot — shuning uchun bitta so'rov.
+  const snaps = [...new Set(cases.map((c) => c.snapshotId ?? 0))];
+  const ofertaBySnap = new Map<number, Set<string>>();
+  await Promise.all(snaps.map(async (s) => { ofertaBySnap.set(s, await ofertaPinflSet(s || undefined, firm.code)); }));
+  const [signedIds, receiptIds, rawReceiptIds, paidReceipts, queuedIds, portalCases] = await Promise.all([
+    signedCaseIdSet(ids),
+    receiptCaseIdSet(ids),
+    // Yetkazilganlik talab qilinadigan firmada check BOR-u, isbot yo'q holatni «check yo'q»dan
+    // ajratish uchun xom to'plam (operator nimani tuzatishini aniq bilsin).
+    caseIdSetByKind(ids, 'TALABNOMA_RECEIPT'),
+    paidReceiptSet(cases.map((c) => c.receiptNumber ?? '').filter(Boolean) as string[]),
+    queuedCaseIdSet(ids),
+    portalCasePinfls(firm.id, firm.code, firm.stir),
+  ]);
+  for (const c of cases) {
+    const fl = flagsFor(c as CaseRow, signedIds, receiptIds, ofertaBySnap.get(c.snapshotId ?? 0) ?? new Set(), paidReceipts, queuedIds, portalCases);
+    const missing: string[] = [];
+    if (!fl.talabnoma) missing.push('talabnoma');
+    if (!fl.scan) missing.push('scan');
+    if (!fl.oferta) missing.push('oferta');
+    if (!fl.receipt) missing.push(rawReceiptIds.has(c.id) ? 'delivery' : 'receipt');
+    if (!fl.boji) missing.push('boji');
+    out.set(c.id, {
+      ready: fl.ready, sendable: fl.sendable, held: metaHas(c.meta, 'resendHold'), queued: fl.queued,
+      submitted: fl.submitted, draftReady: fl.draftReady, bojiPaid: fl.bojiPaid,
+      flags: { talabnoma: fl.talabnoma, scan: fl.scan, oferta: fl.oferta, receipt: fl.receipt, boji: fl.boji },
+      missing,
+    });
+  }
+  return out;
 }
 
 // Partiya hajmi alohida modulda (client ham ishlatadi — u yerda prisma bo'lmasligi kerak).

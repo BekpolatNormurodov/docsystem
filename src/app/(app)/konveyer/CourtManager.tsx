@@ -20,15 +20,13 @@ interface FirmDocsStatus { complete: boolean; missing: string[]; present: string
 interface FirmReadiness { firmId: number; firmName: string; total: number; ready: number; exported: number; submitted: number; submittedExternal: number; draftReady: number; queued: number; sendable: number; /** sendable ∩ boji to'langan — REAL yuborish faqat shularni oladi */ sendablePaid: number; missing: Missing; almost: Missing; docs: FirmDocsStatus }
 // Sud paketiga qo'shiladigan firma hujjatlari — 3 tasi ham kerak.
 const FIRM_DOCS_ALL = ['guvohnoma', 'ishonchnoma', 'shartnoma'];
-interface Overall { total: number; ready: number; exported: number; submitted: number; submittedExternal: number; draftReady: number; queued: number; sendable: number; missing: Missing; almost: Missing }
-interface StatusBucket { code: string; label: string; tone: string; count: number; source: string }
-interface StatusBoard { total: number; matched: number; buckets: StatusBucket[]; sources: Record<string, number> }
-interface ReturnCase {
-  caseId: number; clientName: string | null; pinfl: string | null; firmId: number; firmName: string;
-  stage: string; stageLabel: string; receiptNumber: string | null; talabnomaSent: boolean;
-  totalDebt: string; daysLeft: number | null; docCount: number;
-}
-interface Data { snapshotId?: number; readiness: { firms: FirmReadiness[]; overall: Overall }; statusBoard: StatusBoard; returns: ReturnCase[] }
+export interface CourtOverall { total: number; ready: number; exported: number; submitted: number; submittedExternal: number; draftReady: number; queued: number; sendable: number; missing: Missing; almost: Missing }
+type Overall = CourtOverall;
+// 2026-09-19 (/sud 3-tab): `statusBoard`/`returns` endi ishlatilmaydi — o'lik «stat»/«returns»
+// tablari olib tashlandi (qaytganlar — alohida «Qaytganlar» tabi). court-ready route ularni hali
+// qaytaradi, shuning uchun maydonlar ixtiyoriy (e'tiborsiz) qoldi.
+export interface CourtData { snapshotId?: number; readiness: { firms: FirmReadiness[]; overall: Overall }; statusBoard?: unknown; returns?: unknown }
+type Data = CourtData;
 
 type ReadyFilter = 'all' | 'sendable' | 'queued' | 'draftReady' | 'ready' | 'exported' | 'submitted' | 'notready';
 interface ClientRow {
@@ -73,20 +71,6 @@ async function getJson<T = any>(url: string, init?: RequestInit, t: (s: string) 
 }
 
 // Literal class strings only (Tailwind JIT can't see interpolated names).
-const TONE: Record<string, string> = {
-  slate: 'bg-slate-500/12 text-slate-600 dark:text-slate-300',
-  sky: 'bg-sky-500/12 text-sky-600 dark:text-sky-300',
-  blue: 'bg-blue-500/12 text-blue-600 dark:text-blue-300',
-  violet: 'bg-violet-500/12 text-violet-600 dark:text-violet-300',
-  amber: 'bg-amber-500/12 text-amber-600 dark:text-amber-300',
-  emerald: 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-300',
-  rose: 'bg-rose-500/12 text-rose-600 dark:text-rose-300',
-  teal: 'bg-teal-500/12 text-teal-600 dark:text-teal-300',
-};
-const BAR: Record<string, string> = {
-  slate: '#64748b', sky: '#0ea5e9', blue: '#3b82f6', violet: '#8b5cf6',
-  amber: '#f59e0b', emerald: '#10b981', rose: '#f43f5e', teal: '#14b8a6',
-};
 const VALUE_TONE: Record<string, string> = {
   slate: '', emerald: 'text-emerald-600 dark:text-emerald-400',
   sky: 'text-sky-600 dark:text-sky-400', amber: 'text-amber-600 dark:text-amber-400',
@@ -247,16 +231,16 @@ function ExportControl({ job, sendable, onStart, batchActive }: {
   const running = !!job && (job.status === 'PENDING' || job.status === 'RUNNING');
   const done = job?.status === 'DONE';
   // (progress foizi ExportControl da endi kerak emas — raqamlar qator ostidagi yagona chiziqda)
-  // Sudga yuborish (COURT_SUBMIT) job'i fayl YARATMAYDI — unga ZIP havolasi ko'rsatilsa 404
+  // Qoralama (COURT_SUBMIT, suitMode) job'i fayl YARATMAYDI — unga ZIP havolasi ko'rsatilsa 404
   // beradi. Uning o'rniga runner yozgan halol hisobot ko'rsatiladi
-  // («N ta yuborildi, M ta XATO, K ta navbatda qoldi»).
+  // («N ta qoralama tayyorlandi, M ta XATO, K ta navbatda qoldi»).
   const isSubmit = job?.type === 'COURT_SUBMIT';
   if (done && job && isSubmit) {
     const hadError = /XATO/i.test(job.message || '');
     return (
       <div className="flex flex-col items-end gap-1">
         <span className={`inline-flex min-h-9 max-w-full items-center text-balance rounded-lg border px-3 py-1.5 text-xs font-semibold leading-tight ${hadError ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'}`}>
-          {job.message || `${job.total} ${t('ta yuborildi')}`}
+          {job.message || `${job.total} ${t('ta qoralama tayyorlandi')}`}
         </span>
         {/* Bugunga sig'magani JIM YO'QOLMASIN: ilgari operator «91 so'radim, 12 ketdi»
             farqini ko'rmasdi — yozuv yashil «tayyor» bo'lib turardi. */}
@@ -312,16 +296,16 @@ function ExportControl({ job, sendable, onStart, batchActive }: {
         className={`${ROW_BTN} bg-brand-500 text-white shadow-sm hover:bg-brand-600 focus-visible:ring-brand-500/40 disabled:opacity-40`}
         title={
           busyServer
-            ? `${t('Bu firmaning partiyasi hozir')} ${serverRunning ? t('ketmoqda') : t('navbatda')} (#${batchActive!.jobId}). ${t("Yangi partiya YUBORISH NAVBATIGA qo'shiladi va o'sha tugashi bilan o'zi boshlanadi — kalit qayta so'ralmaydi.")}`
-            : sendable === 0 ? t('Sudga yuborishga tayyor mijoz yoʻq')
-              : `${Math.min(MAX_COURT_BATCH, sendable)} ${t("ta to'liq tayyor paketni sudga yuborish")}`
+            ? `${t('Bu firmaning partiyasi hozir')} ${serverRunning ? t('ketmoqda') : t('navbatda')} (#${batchActive!.jobId}). ${t("Yangi partiya NAVBATGA qo'shiladi va o'sha tugashi bilan o'zi boshlanadi — kalit qayta so'ralmaydi.")}`
+            : sendable === 0 ? t('Qoralamaga tayyor mijoz yoʻq')
+              : `${Math.min(MAX_COURT_BATCH, sendable)} ${t("ta tayyor ish uchun ADOLAT'da qoralama tayyorlash (sudga yuborilmaydi)")}`
         }
       >
         {running
-          ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> {t('Yuborilmoqda')}</>
+          ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> {t('Tayyorlanmoqda')}</>
           : busyServer
             ? <><IcoPlus /> {t('Navbatga qo‘shish')} {sendable > 0 ? `(${Math.min(MAX_COURT_BATCH, sendable)})` : ''}</>
-            : <><IcoBolt /> {t('Sudga yuborish')} {sendable > 0 ? `(${Math.min(MAX_COURT_BATCH, sendable)})` : ''}</>}
+            : <><IcoBolt /> {t('Qoralama tayyorlash')} {sendable > 0 ? `(${Math.min(MAX_COURT_BATCH, sendable)})` : ''}</>}
       </button>
       {/* Ketayotgan partiya haqidagi izoh ATAYIN yo'q.
           U shu yerda ham turardi, lekin ayni ma'lumot sahifaning yuqorisida — «Yuborish
@@ -509,8 +493,8 @@ const CLIENT_FILTERS: { key: ReadyFilter; label: string; icon: React.JSX.Element
   // operator 200 tani navbatga bergach, ular «Tayyor»dan chiqib SHU YERGA o'tadi. Ilgari
   // bunday holat umuman yo'q edi va 200 ta ish ikkala joyda ham sanalardi.
   { key: 'queued', label: 'Navbatda', icon: svg(<><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>), activeCls: 'bg-amber-500/15 text-amber-700 dark:text-amber-300', iconCls: 'text-amber-500' },
-  // «Qoralama tayyor» — ADOLAT'da to'liq tayyorlangan, yurist portalda o'zi yuboradi.
-  // ATAYIN «Tayyor»dan keyin va «Sudda»dan oldin: ish tayyor bo'ldi, ammo hali sudda emas.
+  // «Qoralama tayyor» — ADOLAT'da tayyorlangan (Murojaatlarim), sudga «Sudga o'tkazish» tabidan
+  // yuboriladi. ATAYIN «Tayyor»dan keyin va «Sudda»dan oldin: ish tayyor bo'ldi, ammo hali sudda emas.
   { key: 'draftReady', label: 'Qoralama tayyor', icon: svg(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="m9 15 2 2 4-4" /></>), activeCls: 'bg-teal-500/15 text-teal-700 dark:text-teal-300', iconCls: 'text-teal-500' },
   { key: 'submitted', label: 'Sudda', icon: svg(<><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4Z" /></>), activeCls: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-300', iconCls: 'text-indigo-500' },
   { key: 'all', label: 'Hammasi', icon: svg(<><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></>), activeCls: 'bg-slate-500/15 text-slate-700 dark:text-slate-300', iconCls: 'text-slate-500' },
@@ -548,7 +532,7 @@ function statusChip(r: ClientRow, t: (s: string) => string) {
   if ((r as { queued?: boolean }).queued) {
     return <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300" title={t('Partiyaga olingan — navbati kelishini kutmoqda')}>{t('Navbatda')}</span>;
   }
-  if ((r as { draftReady?: boolean }).draftReady) return <span className="rounded-md bg-teal-500/15 px-1.5 py-0.5 text-[10px] font-medium text-teal-700 dark:text-teal-300" title={t("ADOLAT'da to'liq qoralama tayyor — yurist portalda o'zi yuboradi")}>{t('Qoralama tayyor')}</span>;
+  if ((r as { draftReady?: boolean }).draftReady) return <span className="rounded-md bg-teal-500/15 px-1.5 py-0.5 text-[10px] font-medium text-teal-700 dark:text-teal-300" title={t("ADOLAT'da qoralama tayyor — sudga hali yuborilmagan («Sudga o‘tkazish» tabida yuboriladi)")}>{t('Qoralama tayyor')}</span>;
   if (r.sendable) return <span className="rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">{t('Tayyor')}</span>;
   return <span className="rounded-md bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium text-rose-600 dark:text-rose-300">{t('Tayyor emas')}</span>;
 }
@@ -891,7 +875,9 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
               : <div className="rounded-lg border border-line bg-surface px-3 py-6 text-center text-sm text-muted">{debouncedQ ? `«${debouncedQ}» ${t('topilmadi')}` : t('Bu filtrda mijoz yoʻq.')}</div>
           ) : (
             <>
-              {/* Yopishib turadigan YUQORI panel — belgilash + «Sudga yuborish» doim ko'rinadi (pastda qolmaydi). */}
+              {/* Yopishib turadigan YUQORI panel — belgilash + «Qoralama tayyorlash» doim ko'rinadi (pastda qolmaydi).
+                  2026-09-19: tugma «Sudga yuborish» deb yozilgan bo'lsa ham doim QORALAMA qilardi —
+                  endi nomi ham, rejimi ham bir xil (suitMode: «Murojaatlarim»da qoralama). */}
               {filter === 'sendable' && selectableIds.length > 0 && (
                 <div className="sticky top-0 z-20 mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-surface/95 px-2.5 py-1.5 shadow-sm backdrop-blur">
                   <label className="flex cursor-pointer items-center gap-2 text-xs font-medium" title={t('Barcha tayyorlarni belgilash')}>
@@ -912,10 +898,10 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
                           onClick={doExport}
                           disabled={running}
                           title={batchActive
-                            ? `${t('Bu firmaning partiyasi hozir')} ${batchActive.status === 'RUNNING' ? t('ketmoqda') : t('navbatda')} (#${batchActive.jobId}). ${t("Belgilangan ishlar yuborish navbatiga qo'shiladi va o'sha tugashi bilan boshlanadi.")}`
-                            : `${n(selected.size)} ${t('ta belgilangan ishni sudga yuborish')}`}
+                            ? `${t('Bu firmaning partiyasi hozir')} ${batchActive.status === 'RUNNING' ? t('ketmoqda') : t('navbatda')} (#${batchActive.jobId}). ${t('Tugashini kuting — keyin belgilanganlar uchun qoralama tayyorlanadi.')}`
+                            : `${n(selected.size)} ${t("ta belgilangan ish uchun ADOLAT'da qoralama tayyorlash (sudga yuborilmaydi)")}`}
                           className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-40">
-                          {batchActive ? <><IcoPlus /> {t('Navbatga qo‘shish')} ({n(selected.size)})</> : <><IcoBolt /> {t('Sudga yuborish')} ({n(selected.size)})</>}
+                          {batchActive ? <><IcoPlus /> {t('Navbatga qo‘shish')} ({n(selected.size)})</> : <><IcoBolt /> {t('Qoralama tayyorlash')} ({n(selected.size)})</>}
                         </button>
                       </>
                     )}
@@ -943,11 +929,14 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
 }
 
 // ── one firm row ─────────────────────────────────────────────────────────────
-// ── Umumiy pauza: BUTUN sudga yuborish jarayonini to'xtatib turadi ────────────────────────
+// ── Umumiy pauza: sudga REAL yuborishni to'xtatib turadi ────────────────────────────────────
 // «Bekor» dan farqi: u bitta partiyani tugatadi, bu esa barcha firmalarga taalluqli va
 // bazada saqlanadi — deploy/restart'dan keyin ham kuchda qoladi. Pauzada ishlar navbatda
 // (PENDING) qoladi va davom ettirilganda aynan shu joydan ketadi.
-function PauseSwitch() {
+// 2026-09-19: qoralama (Go / «Qoralama tayyorlash») bu pauzaga BO'YSUNMAYDI (faqat firma pauzasi) —
+// pauza endi faqat «Sudga o'tkazish» (3-tab) real yuborishi uchun. Yorliqlar shuni aytadi, aks holda
+// operator «pauza bosdim, Go nega ishlayapti?» deb o'ylardi. Sonlar esa navbatning HAMMA rejimi.
+function PauseSwitch({ active = true }: { active?: boolean }) {
   const t = useT();
   const [paused, setPaused] = useState<boolean | null>(null);
   const [counts, setCounts] = useState<Record<string, number> | null>(null);
@@ -965,9 +954,10 @@ function PauseSwitch() {
       .then((d) => { if (alive) { setPaused(d?.paused === true); setCounts(d?.counts ?? null); setRunning(d?.running === true); } })
       .catch(() => { if (alive) setPaused((p) => p ?? false); });
     void load();
-    const t = setInterval(load, 5000);
+    // Tab yashirin (boshqa sud tabi ochiq) yoki brauzer oynasi yashirin — so'ramaymiz.
+    const t = setInterval(() => { if (active && !document.hidden) void load(); }, 5000);
     return () => { alive = false; clearInterval(t); };
-  }, []);
+  }, [active]);
 
   const toggle = async () => {
     if (paused === null || busy) return;
@@ -1004,8 +994,9 @@ function PauseSwitch() {
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className={`text-[12px] font-semibold ${paused ? 'text-amber-700 dark:text-amber-300' : 'text-fg'}`}>
-            {paused ? t('Sudga yuborish to‘xtatilgan') : running ? t('Yuborilmoqda') : waiting > 0 ? t('Navbat kutmoqda') : t('Sudga yuborish faol')}
+            {paused ? t('Sudga real yuborish pauzada') : running ? t('Navbat ishlamoqda') : waiting > 0 ? t('Navbat kutmoqda') : t('Sudga real yuborish ochiq')}
           </span>
+          <span className="text-[11px] text-muted">{t('(faqat «Sudga o‘tkazish» uchun — qoralamaga ta’sir qilmaydi)')}</span>
           {/* Umumiy raqamlar — barcha firmalar bo'yicha, bir qarashda.
               `role="status"` + `aria-atomic` bitta MA'NOLI jumla bilan: har 5 soniyada
               yangilanadigan uchta alohida raqam ekran o'quvchida bir-biriga xalaqit berardi
@@ -1015,7 +1006,7 @@ function PauseSwitch() {
               className="flex flex-wrap items-center gap-1 text-[11px] tabular-nums"
               role="status"
               aria-atomic="true"
-              aria-label={`${t('Sudga yuborish')}: ${n(done)} ${t('ketdi')}, ${n(waiting)} ${t('navbatda')}, ${n(skipped)} ${t("boji to'lanmagan")}, ${n(failed)} ${t('yuborilmadi')}`}
+              aria-label={`${t('Navbat')}: ${n(done)} ${t('bajarildi')}, ${n(waiting)} ${t('navbatda')}, ${n(skipped)} ${t('o‘tkazildi')}, ${n(failed)} ${t('xato')}`}
             >
               {waiting > 0 && (
                 <span className="rounded bg-slate-500/12 px-1.5 py-0.5 font-medium text-slate-600 dark:text-slate-300" title={t('Navbatda va ishlanmoqda')}>
@@ -1023,18 +1014,18 @@ function PauseSwitch() {
                 </span>
               )}
               {done > 0 && (
-                <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-medium text-emerald-700 dark:text-emerald-300" title={t('ADOLAT qabul qilgan')}>
-                  {n(done)} {t('ketdi')}
+                <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-medium text-emerald-700 dark:text-emerald-300" title={t('Navbat orqali muvaffaqiyatli o‘tganlar (qoralama tayyorlangan yoki yuborilgan)')}>
+                  {n(done)} {t('bajarildi')}
                 </span>
               )}
               {skipped > 0 && (
-                <span className="rounded bg-amber-500/15 px-1.5 py-0.5 font-medium text-amber-700 dark:text-amber-300" title={t('Davlat boji to‘lanmagan — portalga umuman chiqarilmadi. Buxgalteriya to‘lovni o‘tkazgach ish o‘zi navbatga qaytadi.')}>
-                  {n(skipped)} {t('boji to‘lanmagan')}
+                <span className="rounded bg-amber-500/15 px-1.5 py-0.5 font-medium text-amber-700 dark:text-amber-300" title={t(SKIP_HINT)}>
+                  {n(skipped)} {t('o‘tkazildi')}
                 </span>
               )}
               {failed > 0 && (
                 <span className="rounded bg-rose-500/15 px-1.5 py-0.5 font-medium text-rose-700 dark:text-rose-300" title={t('Xato bergan — firma qatoridagi navbat panelidan sababini ko‘ring')}>
-                  {n(failed)} {t('yuborilmadi')}
+                  {n(failed)} {t('xato')}
                 </span>
               )}
             </span>
@@ -1045,7 +1036,7 @@ function PauseSwitch() {
       <button
         onClick={toggle}
         disabled={busy}
-        title={paused ? t('Jarayonni davom ettirish') : t('Butun jarayonni vaqtincha to‘xtatish')}
+        title={paused ? t('Sudga real yuborishni qayta ochish («Sudga o‘tkazish» tabi uchun)') : t('Sudga real yuborishni vaqtincha to‘xtatish (qoralama ishlayveradi)')}
         className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-semibold outline-none transition-colors focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50 ${
           paused
             ? 'border-emerald-500/45 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/[0.18] focus-visible:ring-emerald-500/30 dark:text-emerald-300'
@@ -1071,14 +1062,28 @@ function PauseSwitch() {
 type QueueRow = {
   caseId: number; clientName: string | null; pinfl: string | null; state: string;
   error: string | null; draftId: string | null; caseNumber: string | null; attempts: number; step?: string | null;
+  /** Rejim — route qaytarsa (ixtiyoriy). */ draftMode?: boolean; suitMode?: boolean;
 };
 const Q_STATE: Record<string, { label: string; tone: string }> = {
   PENDING: { label: 'Navbatda', tone: 'bg-slate-500/12 text-slate-600 dark:text-slate-300' },
   RUNNING: { label: 'Ketyapti…', tone: 'bg-sky-500/15 text-sky-700 dark:text-sky-300' },
-  DONE: { label: 'Yuborildi', tone: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' },
-  FAILED: { label: 'Yuborilmadi', tone: 'bg-rose-500/15 text-rose-700 dark:text-rose-300' },
+  DONE: { label: 'Bajarildi', tone: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' },
+  FAILED: { label: 'Xato', tone: 'bg-rose-500/15 text-rose-700 dark:text-rose-300' },
   SKIPPED: { label: 'Oʻtkazildi', tone: 'bg-amber-500/15 text-amber-700 dark:text-amber-300' },
 };
+// SKIPPED — faqat «boji to'lanmagan» EMAS (2026-09-19): tashqi da'vo (portalda allaqachon bor),
+// ushlab turilgan qaytgan ish, talabnoma yetkazilmagan yoki invoice raqami yo'q. Aniq sabab —
+// har qatorning lastError'ida (QueuePanel ro'yxati), yig'ma chiplarda umumiy izoh.
+const SKIP_HINT = 'Portalga chiqarilmadi: invoice raqami yo‘q, talabnoma yetkazilmagan, portalda allaqachon da’vo bor yoki qaytgan ish ushlab turilgan. Aniq sababi — navbat ro‘yxatida.';
+// DONE yorlig'i REJIMGA qarab: qoralama (draft/suit) — «Qoralama tayyor», real — «Yuborildi».
+// court-queue GET hozircha rejim maydonlarini qaytarmaydi (select'da yo'q) — bo'lmasa, sud ish
+// raqami bor qator real deb, qolgani neytral «Bajarildi» deb ko'rsatiladi (yolg'on «Yuborildi» emas).
+function qStateLabel(row: QueueRow): string {
+  if (row.state !== 'DONE') return (Q_STATE[row.state] ?? Q_STATE.PENDING).label;
+  if (row.suitMode || row.draftMode) return 'Qoralama tayyor';
+  if (row.suitMode === false && row.draftMode === false) return 'Yuborildi';
+  return row.caseNumber ? 'Yuborildi' : 'Bajarildi';
+}
 
 // `onChanged` — navbatga TEGILGANDA (bekor qilish) yuqoridagi raqamlarni ham qayta
 // o'qitadi: bekor qilish kunlik limitni bo'shatadi va ishlarni «Tayyor»ga qaytaradi,
@@ -1113,10 +1118,10 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
     const ok = await confirmQ({
       title: t('Navbat bekor qilinsinmi?'),
       description:
-        `${t('Navbatda turgan')} ${n(waitingNow)} ${t("ta ish ro'yxatdan chiqariladi va ularga hech narsa yuborilmaydi.")} ` +
-        `${t('Allaqachon yuborilgan')} ${n(doneNow)} ${t('ta ishga TEGILMAYDI — ular sudda qolaveradi.')} ` +
+        `${t('Navbatda turgan')} ${n(waitingNow)} ${t("ta ish ro'yxatdan chiqariladi — ular uchun qoralama tayyorlanmaydi.")} ` +
+        `${t('Allaqachon bajarilgan')} ${n(doneNow)} ${t('ta ishga TEGILMAYDI.')} ` +
         `${t("Ayni damda portalga ketayotgan bitta ish oxirigacha boradi (yarim yo'lda uzilsa ADOLAT'da yetim qoralama qoladi).")} ` +
-        `${t("Firma to'xtatilgan holatga o'tadi — keyin xohlasangiz «Sudga yuborish» bilan qaytadan navbat tuzasiz.")}`,
+        `${t("Firma to'xtatilgan holatga o'tadi (Go ham shu firmani chetlab o'tadi) — keyin «Davom ettirish» yoki «Qoralama tayyorlash» bilan qaytasiz.")}`,
       confirmLabel: t('Ha, bekor qilinsin'),
       danger: true,
     });
@@ -1138,7 +1143,8 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
     } finally { setCancelBusy(false); }
   };
 
-  // XATO BERGAN / SUD RAD ETGAN ISHLARNI QAYTA YUBORISH.
+  // XATO BERGAN ISHLARNI QAYTA URINISH (o'z rejimida — 2026-09-19 dan qoralama; real yuborish
+  // bu yerda yo'q, u faqat «Sudga o'tkazish» tabida).
   //
   // Avtomatika bunday ishni 3 urinishdan keyin tinch qo'yadi (sabab odatda doimiy).
   // Kamchilik tuzatilgach ularni qaytadan yo'lga solishning UI'da yo'li yo'q edi:
@@ -1149,13 +1155,13 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
   const retryFailed = async (failedNow: number) => {
     if (retryBusy) return;
     const ok = await confirmQ({
-      title: t('Xato berganlar qayta yuborilsinmi?'),
+      title: t('Xato berganlar qayta urinilsinmi?'),
       description:
-        `${n(failedNow)} ${t("ta ish qaytadan navbatga qo'yiladi va sudga yuboriladi.")} ` +
+        `${n(failedNow)} ${t("ta ish qaytadan navbatga qo'yiladi va ADOLAT'da qoralama qayta tayyorlanadi (sudga yuborilmaydi).")} ` +
         `${t("ADOLAT'da ishi bor (ya'ni da'vosi allaqachon qabul qilingan) ishlar bunga KIRMAYDI —")} ` +
         `${t("bir odamga ikkinchi da'vo ochilmaydi.")} ` +
-        `${t("Sabab tuzatilmagan bo'lsa, sud yana rad etishi mumkin.")}`,
-      confirmLabel: t('Ha, qayta yuborilsin'),
+        `${t("Sabab tuzatilmagan bo'lsa, yana xato berishi mumkin.")}`,
+      confirmLabel: t('Ha, qayta urinilsin'),
     });
     if (!ok) return;
     setRetryBusy(true);
@@ -1166,11 +1172,11 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
         body: JSON.stringify({ firmId, retryFailed: true }),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) { setErr(d?.error || t('Qayta yuborilmadi')); return; }
+      if (!r.ok) { setErr(d?.error || t('Qayta urinib bo‘lmadi')); return; }
       await load();
       onChanged?.();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t('Qayta yuborilmadi'));
+      setErr(e instanceof Error ? e.message : t('Qayta urinib bo‘lmadi'));
     } finally { setRetryBusy(false); }
   };
 
@@ -1215,8 +1221,8 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
   const counts = data?.counts;
   const failed = counts?.FAILED ?? 0;
   const done = counts?.DONE ?? 0;
-  // Boji to'lanmagan — portalga umuman chiqarilmagan. XATO EMAS: kod tuzatilmaydi,
-  // to'lov o'tkaziladi. Shuning uchun alohida rang va alohida sanoq.
+  // O'tkazilgan — portalga umuman chiqarilmagan (invoice raqami / yetkazilganlik / tashqi da'vo /
+  // ushlab turilgan). XATO EMAS: kod tuzatilmaydi. Shuning uchun alohida rang va alohida sanoq.
   const skipped = counts?.SKIPPED ?? 0;
   const waiting = (counts?.PENDING ?? 0) + (counts?.RUNNING ?? 0);
   if (err) {
@@ -1246,7 +1252,7 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
           onClick={() => setOpen((v) => !v)}
           className={`group flex min-w-0 items-center gap-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30 ${waiting > 0 ? 'flex-1' : 'ml-auto'}`}
           aria-expanded={open}
-          aria-label={`${t('Navbat tafsiloti')}: ${n(done)} ${t('ketdi')}, ${n(waiting)} ${t('navbatda')}, ${n(skipped)} ${t("boji to'lanmagan")}, ${n(failed)} ${t('yuborilmadi')}`}
+          aria-label={`${t('Navbat tafsiloti')}: ${n(done)} ${t('bajarildi')}, ${n(waiting)} ${t('navbatda')}, ${n(skipped)} ${t('o‘tkazildi')}, ${n(failed)} ${t('xato')}`}
         >
           {waiting > 0 && (
             <span className="flex h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-2" aria-hidden>
@@ -1259,22 +1265,22 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
             {done > 0 && (
               <span
                 className="font-semibold text-emerald-600 dark:text-emerald-400"
-                title={t("Shu NAVBAT orqali ketganlar. Yuqoridagi «Sudda» — firmaning sudga topshirilgan BARCHA ishlari (navbatdan oldin qo'lda yuborilganlar ham), shuning uchun u kattaroq bo'lishi mumkin.")}
-              >{n(done)} {t('ketdi')}</span>
+                title={t("Shu NAVBAT orqali muvaffaqiyatli o'tganlar (qoralama tayyorlangan yoki yuborilgan). Yuqoridagi «Qoralama tayyor» / «Sudda» — firmaning BARCHA ishlari, shuning uchun farq qilishi mumkin.")}
+              >{n(done)} {t('bajarildi')}</span>
             )}
             {waiting > 0 && <span className="text-muted">{n(waiting)} {t('navbatda')}</span>}
             {/* Taxminiy vaqt — har ish ~60s. Busiz ro'yxat «qotib qolgan»dek ko'rinadi. */}
             {live && waiting > 0 && (
-              <span className="text-muted" title={t('Har ish orasida sud sozlamasidagi interval (standart 60s)')}>
+              <span className="text-muted" title={t('Taxminiy: har ishga ~1 daqiqa')}>
                 ≈{waiting >= 60 ? `${Math.round(waiting / 60)} ${t('soat')}` : `${waiting} ${t('daq')}`}
               </span>
             )}
             {skipped > 0 && (
-              <span className="font-semibold text-amber-600 dark:text-amber-400" title={t('Davlat boji to‘lanmagan — portalga umuman chiqarilmadi. To‘langach o‘zi navbatga qaytadi.')}>
-                {n(skipped)} {t('boji to‘lanmagan')}
+              <span className="font-semibold text-amber-600 dark:text-amber-400" title={t(SKIP_HINT)}>
+                {n(skipped)} {t('o‘tkazildi')}
               </span>
             )}
-            {failed > 0 && <span className="font-semibold text-rose-600 dark:text-rose-400">{n(failed)} {t('yuborilmadi')}</span>}
+            {failed > 0 && <span className="font-semibold text-rose-600 dark:text-rose-400">{n(failed)} {t('xato')}</span>}
             <svg
               className={`h-3.5 w-3.5 text-muted transition-transform ${open ? 'rotate-180' : ''}`}
               viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden
@@ -1282,17 +1288,17 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
           </span>
         </button>
 
-        {/* «Qayta yuborish» — navbatda ish QOLMAGANDA ham kerak: rad etilgan ishlar
+        {/* «Qayta urinish» — navbatda ish QOLMAGANDA ham kerak: xato bergan ishlar
             aynan shunday holatda qoladi (hammasi FAILED, navbat bo'sh). Shuning uchun u
             pauza tugmasidan MUSTAQIL ko'rsatiladi. */}
         {failed > 0 && (
           <button
             onClick={() => { void retryFailed(failed); }}
             disabled={retryBusy}
-            title={t('Xato bergan / sud rad etgan ishlarni qaytadan navbatga qo‘yish')}
+            title={t('Xato bergan ishlarni qaytadan navbatga qo‘yish (qoralama — sudga yuborilmaydi)')}
             className="h-7 shrink-0 rounded-lg border border-brand-500/40 bg-brand-500/10 px-2.5 text-[11px] font-semibold text-brand-700 outline-none transition-colors hover:bg-brand-500/[0.18] focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50 dark:text-brand-300"
           >
-            {retryBusy ? '…' : `${t('Qayta yuborish')} (${n(failed)})`}
+            {retryBusy ? '…' : `${t('Qayta urinish')} (${n(failed)})`}
           </button>
         )}
 
@@ -1324,7 +1330,7 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
             <button
               onClick={() => { void cancelQueue(waiting, done); }}
               disabled={cancelBusy}
-              title={t('Navbatdagi qolgan ishlarni butunlay bekor qilish (yuborilganlarga tegmaydi)')}
+              title={t('Navbatdagi qolgan ishlarni butunlay bekor qilish (bajarilganlarga tegmaydi)')}
               className="h-7 shrink-0 rounded-lg border border-line px-2.5 text-[11px] font-semibold text-muted outline-none transition-colors hover:border-rose-500/45 hover:bg-rose-500/10 hover:text-rose-600 focus-visible:ring-2 focus-visible:ring-rose-500/30 disabled:opacity-50 dark:hover:text-rose-300"
             >
               {cancelBusy ? '…' : t('Bekor')}
@@ -1337,8 +1343,9 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
         <ul className="mt-2 max-h-72 space-y-1 overflow-y-auto pr-0.5">
           {data.rows.map((row, i) => {
             const st = Q_STATE[row.state] ?? Q_STATE.PENDING;
+            const stLabel = qStateLabel(row);
             const failedRow = row.state === 'FAILED';
-            // O'tkazib yuborilgan (boji to'lanmagan) ish ham SABABINI ko'rsatishi kerak —
+            // O'tkazib yuborilgan ish ham SABABINI ko'rsatishi kerak (chip title'ida ham, pastda ham) —
             // busiz operator «Oʻtkazildi» degan so'zdan nima qilishni bilmaydi.
             const skipRow = row.state === 'SKIPPED';
             return (
@@ -1353,7 +1360,7 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
                 <div className="flex items-center gap-2">
                   {/* Tartib raqami — 99 ta ish orasida qaysi biri qayerdaligini ko'rish uchun. */}
                   <span className="w-6 shrink-0 text-right tabular-nums text-muted">{i + 1}.</span>
-                  <span className={`shrink-0 rounded px-1.5 py-0.5 font-medium ${st.tone}`}>{t(st.label)}</span>
+                  <span className={`shrink-0 rounded px-1.5 py-0.5 font-medium ${st.tone}`} title={skipRow || failedRow ? (row.error ?? undefined) : undefined}>{t(stLabel)}</span>
                   <span className="min-w-0 truncate font-medium">{row.clientName || `#${row.caseId}`}</span>
                   {/* Ayni paytdagi bosqich — faqat ketayotgan ish uchun. Busiz «Ketyapti»
                       60 soniya qimirlamay turadi va qotib qolgandek ko'rinadi. */}
@@ -1402,20 +1409,18 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
   );
 }
 
-function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCancel, onChanged, drillOpen, onToggleDrill, idx, autoActive, onStopAuto, batchActive, showQueued }: {
+function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCancel, onChanged, drillOpen, onToggleDrill, idx, batchActive, showQueued }: {
   fr: FirmReadiness; snapshotId?: number; job?: JobState; zipJob?: JobState;
   batchActive?: { jobId: number; status: string; queuePos: number } | null;
   startExport: (firmId: number, extra: Record<string, unknown>) => void;
   onZip?: () => void;
   onZipCancel?: (jobId: number) => void;
   onChanged: () => void; drillOpen: boolean; onToggleDrill: () => void; idx: number;
-  autoActive?: boolean; onStopAuto?: () => void;
   /** Butun ro'yxatda navbatda ish bormi — «Navbatda» ustunini ko'rsatish/yashirish uchun. */
   showQueued?: boolean;
 }) {
   const t = useT();
   const pct = fr.total ? (fr.ready / fr.total) * 100 : 0;
-  const [includeExported, setIncludeExported] = useState(false); // «qaytadan» — allaqachon yuborilganlarni ham qo'shish
   const docsOk = fr.docs?.complete !== false; // firma hujjatlari (guvohnoma/ishonchnoma/shartnoma) to'liqmi
   const docsMissing = fr.docs?.missing ?? [];
   const docsTip = docsOk
@@ -1438,8 +1443,12 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
   }, [menuOpen]);
   // ZIP faol/tayyor bo'lsa qatorda ko'rinadi (progress/yuklab olish); aks holda «boshlash» menyuda.
   const zipShown = !!zipJob;
-  // Sudga yuborish/qoralama partiyasi FAOL bo'lsa — progressi qatorda; aks holda boshlash menyuда.
+  // Qoralama partiyasi FAOL bo'lsa — progressi qatorda; aks holda boshlash menyuда.
   const jobActive = !!job && (job.status === 'PENDING' || job.status === 'RUNNING');
+  // Tugagan/yiqilgan partiya NATIJASI ham qatorda qoladi (2026-09-19): ilgari ExportControl faqat
+  // faol paytda chizilardi va «N ta tayyorlandi / M ta XATO» hisobot hech qachon ko'rinmasdi.
+  // Route xatosi (409/400 — jobId 0, FAILED) ham shu yerda ko'rinadi.
+  const jobShown = !!job;
 
   return (
     <div className={`animate-fade-in rounded-xl border bg-surface transition-colors ${docsOk ? 'border-line hover:border-brand-500/40' : 'border-amber-500/40 bg-amber-500/[0.03]'}`} style={{ animationDelay: `${Math.min(idx, 8) * 40}ms` }}>
@@ -1534,32 +1543,22 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
         {/* O'NG USTUN — faqat ASOSIY amal + ⋮ menyu. Qolgan amallar (batafsil, hisobot, ZIP)
             menyu ichida — qator tozalanadi, sonlar ko'zга tawlanadi. */}
         <div className="flex shrink-0 items-center justify-end gap-2">
-          {autoActive ? (
-            <div className="inline-flex shrink-0 items-center gap-2">
-              <span className={`${ROW_BTN} border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300`}>
-                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" /> {t('Auto')}{job && (job.status === 'RUNNING' || job.status === 'PENDING') ? ` · ${t('ketyapti')}` : ''}
-              </span>
-              <button type="button" onClick={() => onStopAuto?.()} className={`${ROW_BTN} border border-rose-500/40 text-rose-600 hover:bg-rose-500/10 focus-visible:ring-rose-500/30 dark:text-rose-300`}>
-                {t('To‘xtatish')}
-              </button>
-            </div>
-          ) : (
-            <>
-              {/* Faqat FAOL partiya progressi qatorda ko'rinadi (Sudga yuborish / ZIP). Boshlash
-                  amallari ⋮ menyuда — qator toza turadi. */}
-              {docsOk && jobActive && <ExportControl job={job} sendable={fr.sendable} onStart={() => startExport(fr.firmId, {})} batchActive={batchActive} />}
-              {docsOk && zipShown && <ZipControl job={zipJob} sendable={fr.sendable} onStart={() => onZip?.()} onCancel={onZipCancel} />}
-              {!docsOk && (
-                <button type="button" disabled title={docsTip}
-                  className={`${ROW_BTN} border border-amber-500/40 bg-amber-500/10 text-amber-700 opacity-90 dark:text-amber-300`}>
-                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
-                  {t('Hujjat kerak')}
-                </button>
-              )}
-            </>
+          {/* Brauzerdagi «Auto» (partiyalarni ketma-ket davom ettirish) OLIB TASHLANDI (2026-09-19):
+              u server «Go — 24/7» ning takrori edi, sahifa yangilansa yo'qolardi va real yuborishga
+              ham o'tib ketishi mumkin edi. Endi uzluksiz qoralama — faqat Go. */}
+          {/* Qoralama partiyasi (faol yoki tugagan natijasi) va ZIP holati qatorda ko'rinadi.
+              Boshlash amallari ⋮ menyuда — qator toza turadi. */}
+          {docsOk && jobShown && <ExportControl job={job} sendable={fr.sendable} onStart={() => startExport(fr.firmId, {})} batchActive={batchActive} />}
+          {docsOk && zipShown && <ZipControl job={zipJob} sendable={fr.sendable} onStart={() => onZip?.()} onCancel={onZipCancel} />}
+          {!docsOk && (
+            <button type="button" disabled title={docsTip}
+              className={`${ROW_BTN} border border-amber-500/40 bg-amber-500/10 text-amber-700 opacity-90 dark:text-amber-300`}>
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+              {t('Hujjat kerak')}
+            </button>
           )}
 
-          {/* ⋮ MENYU — asosiy amal (Sudga yuborish/Qoralama) + batafsil / hisobot / ZIP */}
+          {/* ⋮ MENYU — asosiy amal (Qoralama tayyorlash) + batafsil / navbat / hisobot / ZIP */}
           <div ref={menuRef} className="relative shrink-0">
             <button type="button" onClick={() => setMenuOpen((v) => !v)} aria-expanded={menuOpen} aria-haspopup="menu" title={t('Amallar')}
               className={`inline-flex ${ROW_H} w-9 items-center justify-center rounded-lg border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-500/30 ${menuOpen || drillOpen ? 'border-brand-500/40 bg-surface-2 text-fg' : 'border-line text-muted hover:border-brand-500/40 hover:bg-surface-2 hover:text-fg'}`}>
@@ -1567,13 +1566,14 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
             </button>
             {menuOpen && (
               <div role="menu" className="absolute right-0 top-full z-30 mt-1.5 w-72 overflow-hidden rounded-xl border border-line bg-surface p-1.5 shadow-xl">
-                {/* ASOSIY: Sudga yuborish / Qoralama — DOIM ko'rinadi (yuborilayotganda «ketyapti N/M»). Ikonsiz. */}
-                {docsOk && !autoActive && (
+                {/* ASOSIY: Qoralama tayyorlash — DOIM ko'rinadi (tayyorlanayotganda «ketyapti N/M»). Ikonsiz.
+                    Real yuborish bu yerda YO'Q — faqat «Sudga o'tkazish» tabida (E-IMZO bilan). */}
+                {docsOk && (
                   <>
                     <button type="button" role="menuitem" onClick={() => { startExport(fr.firmId, {}); setMenuOpen(false); }}
                       className={`${MENU_ITEM} justify-between font-semibold text-emerald-700 dark:text-emerald-300`} disabled={fr.sendable <= 0 && !jobActive}
-                      title={fr.sendable > 0 ? t('Soni so‘raladi — navbatga qo‘shish yoki yuborish/qoralama') : jobActive ? t('Ayni damda yuborilmoqda') : t('Yuboriladigan tayyor ish yo‘q')}>
-                      <span>{t('Sudga yuborish / Qoralama')}{fr.sendable > 0 ? ` (${n(fr.sendable)})` : ''}</span>
+                      title={fr.sendable > 0 ? t('Soni so‘raladi — ADOLAT «Murojaatlarim»da qoralama (sudga yuborilmaydi)') : jobActive ? t('Ayni damda tayyorlanmoqda') : t('Qoralamaga tayyor ish yo‘q')}>
+                      <span>{t('Qoralama tayyorlash')}{fr.sendable > 0 ? ` (${n(fr.sendable)})` : ''}</span>
                       {jobActive && job && (
                         <span className="inline-flex shrink-0 items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:text-sky-300">
                           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-500" /> {t('ketyapti')} {n(job.progress ?? 0)}/{n(job.total ?? 0)}
@@ -1587,7 +1587,7 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
                   {t('Mijozlar (batafsil)')}
                 </button>
                 <button type="button" role="menuitem" onClick={() => { setQueueOpen(true); setMenuOpen(false); }} className={`${MENU_ITEM} justify-between`}>
-                  <span>{t('Yuborilayotganlar / navbat')}</span>
+                  <span>{t('Navbat holati')}</span>
                   {jobActive && <span className="inline-flex shrink-0 items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:text-sky-300"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-500" /> {t('ketyapti')}</span>}
                 </button>
                 <button type="button" role="menuitem" onClick={() => { setReportOpen(true); setMenuOpen(false); }} className={MENU_ITEM}>
@@ -1604,17 +1604,18 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
         </div>
       </div>
 
-      {/* YUBORILAYOTGANLAR / navbat holati — endi alohida MODALда (qator ostида emas).
+      {/* NAVBAT holati — alohida MODALда (qator ostида emas).
           Xato sabablari, progress, davom ettirish — hammasi shu modalда. */}
       {queueOpen && (
-        <Modal open onClose={() => setQueueOpen(false)} title={`${t('Yuborilayotganlar / navbat —')} ${fr.firmName}`} size="lg">
+        <Modal open onClose={() => setQueueOpen(false)} title={`${t('Navbat holati —')} ${fr.firmName}`} size="lg">
           <QueuePanel firmId={fr.firmId} live onChanged={onChanged} />
         </Modal>
       )}
       {/* MIJOZLAR (batafsil) — endi MODALда (qator ostида emas). */}
       {drillOpen && (
         <Modal open onClose={onToggleDrill} title={`${t('Mijozlar —')} ${fr.firmName}`} description={`${n(fr.total)} ${t('ta ish')} · ${n(fr.sendable)} ${t('tayyor')}`} size="xl">
-          <ClientDrilldown firmId={fr.firmId} snapshotId={snapshotId} job={job} startExport={(caseIds) => startExport(fr.firmId, { caseIds, draftMode: true })} onChanged={onChanged} batchActive={batchActive} />
+          {/* suitMode — Go bilan bir xil «Murojaatlarim» qoralamasi (ilgari draftMode: eski stop-A). */}
+          <ClientDrilldown firmId={fr.firmId} snapshotId={snapshotId} job={job} startExport={(caseIds) => startExport(fr.firmId, { caseIds, suitMode: true })} onChanged={onChanged} batchActive={batchActive} />
         </Modal>
       )}
 
@@ -1673,35 +1674,6 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
   );
 }
 
-function ReturnRow({ r, idx }: { r: ReturnCase; idx: number }) {
-  const t = useT();
-  const [open, setOpen] = useState(false);
-  const isCourt = r.stage === 'COURT_RETURNED';
-  return (
-    <div className="animate-fade-in rounded-xl border border-line bg-surface" style={{ animationDelay: `${Math.min(idx, 8) * 40}ms` }}>
-      <button onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-3 px-3 py-2.5 text-left outline-none transition-colors hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500/30">
-        <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${isCourt ? 'bg-rose-500/15 text-rose-600 dark:text-rose-300' : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'}`}>{isCourt ? t('Sud qaytardi') : t('Palatadan')}</span>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium">{r.clientName || '—'}</div>
-          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
-            <span className="tabular-nums">{r.pinfl}</span>
-            <span className="max-w-[10rem] truncate rounded bg-surface-2 px-1.5 py-0.5 font-medium" title={r.firmName}>{r.firmName}</span>
-            <span className="rounded bg-surface-2 px-1.5 py-0.5">{r.docCount} {t('hujjat')}</span>
-          </div>
-        </div>
-        <span className="shrink-0 text-sm font-semibold tabular-nums">{sum(r.totalDebt)}</span>
-        <svg className={`h-4 w-4 shrink-0 text-muted transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m9 6 6 6-6 6" /></svg>
-      </button>
-      {open && (
-        <div className="border-t border-line bg-surface-2/30 p-3">
-          <div className="mb-2 text-[11px] text-muted">{t("Qo'shimcha fayllarni to'ldiring (palata skan / firma hujjatlari), so'ng «Hammasini yarat» bilan qayta paket oling.")}</div>
-          <CaseDocs caseId={r.caseId} firmId={r.firmId} stage={r.stage} receiptNumber={r.receiptNumber} talabnomaSent={r.talabnomaSent} />
-        </div>
-      )}
-    </div>
-  );
-}
-
 function EmptyBlock({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="grid place-items-center rounded-lg border border-line bg-surface px-3 py-8">
@@ -1717,10 +1689,24 @@ function EmptyBlock({ title, hint }: { title: string; hint?: string }) {
 }
 
 // ── main ─────────────────────────────────────────────────────────────────────
-export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: { firms: { firmId: number; firmName: string; total: number; stir?: string | null }[]; selectedId?: number; initialData?: Data | null; tab?: 'send' | 'stat' | 'returns' }) {
+// «Qoralama (1 qadam)» tabi (/sud, 2026-09-19): FAQAT qoralama — Tayyor ishlar uchun ADOLAT
+// «Murojaatlarim»da suit (suitMode) tayyorlanadi, sudga YUBORILMAYDI. Real yuborish yo'li bu
+// komponentdan butunlay olib tashlandi (u «Sudga o'tkazish» tabida, saqlangan suit'ni E-IMZO bilan).
+//   • initialFirmId / onFirmChange — firma filtri URL (?firm=) bilan sinxron (SudTabs);
+//   • onData — har yuklangan court-ready javobi (SudTabs yuqoridagi 5 bosqich sonlari uchun).
+// `tab` — eski prop (faqat 'send'); o'lik «stat»/«returns» shoxlari olib tashlandi.
+export function CourtManager({ firms, selectedId, initialData, initialFirmId, onFirmChange, onData, active = true }: {
+  firms: { firmId: number; firmName: string; total: number; stir?: string | null }[]; selectedId?: number; initialData?: Data | null; tab?: 'send';
+  initialFirmId?: number | null; onFirmChange?: (firmId: number | null) => void; onData?: (d: CourtData) => void;
+  /** Shu tab ko'rinib turibdimi (SudTabs). Yashirin bo'lsa davriy so'rovlar to'xtaydi; job kuzatuvi davom etadi. */
+  active?: boolean;
+}) {
   const t = useT();
   const confirmQ = useConfirm(); // navbatni to'xtatish/tozalash — qaytarib bo'lmaydigan amallar
-  const [firmId, setFirmId] = useState<number | null>(null);
+  const [firmId, setFirmId] = useState<number | null>(initialFirmId ?? null);
+  // Firma URL'dan (SudTabs, ?firm=) o'zgarsa — shu tab ham o'sha firmaga o'tadi (boshqa tablar bilan
+  // bir xil firma; ilgari faqat boshlang'ich qiymat o'qilardi — 2026-09-19 kod ko'rigi).
+  useEffect(() => { setFirmId(initialFirmId ?? null); }, [initialFirmId]);
   const [data, setData] = useState<Data | null>(initialData ?? null);
   const [loading, setLoading] = useState(!initialData);
   const [refreshing, setRefreshing] = useState(false);
@@ -1739,15 +1725,19 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
       .catch(() => { /* tarmoq xatosi — keyingi tsiklda qayta o'qiladi */ });
   }, []);
   useEffect(() => {
+    if (!active) return;
     loadPending();
-    const t = setInterval(loadPending, 10_000);
+    const t = setInterval(() => { if (!document.hidden) loadPending(); }, 10_000);
     return () => clearInterval(t);
-  }, [loadPending]);
-  const [statSource, setStatSource] = useState<'CABINET' | 'HIPPO' | 'all'>('CABINET'); // Sud vs Talabnoma segment
+  }, [loadPending, active]);
   const reqRef = useRef(0);
   const loadedOnce = useRef(!!initialData);
   // The page server-renders the initial (firm=all) payload → skip the duplicate mount fetch.
   const skipMount = useRef(!!initialData);
+  // Yuqoridagi 5 bosqich (SudTabs) shu ma'lumotdan sanaladi — har yangilanishda xabar beramiz.
+  const onDataRef = useRef(onData);
+  useEffect(() => { onDataRef.current = onData; });
+  useEffect(() => { if (data) onDataRef.current?.(data); }, [data]);
 
   // lifted export-job state — survives firm-filter / tab switches (a running or finished
   // export is never silently lost when a firm row unmounts).
@@ -1800,10 +1790,10 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   const serverBatchRunning = pendingQ.some((q) => q.job && (q.job.status === 'RUNNING' || q.job.status === 'PENDING'));
   const numbersLive = anyJobRunning || serverBatchRunning;
   useEffect(() => {
-    if (!numbersLive) return;
-    const t = setInterval(() => { void loadRef.current(); }, 20_000);
+    if (!numbersLive || !active) return;
+    const t = setInterval(() => { if (!document.hidden) void loadRef.current(); }, 20_000);
     return () => clearInterval(t);
-  }, [numbersLive]);
+  }, [numbersLive, active]);
 
   // `endpoint` — odatda partiya tanlash (prepare-ready), lekin navbatni DAVOM ETTIRISHDA
   // boshqa yo'l ishlatiladi (court-queue/resume): u yangi tanlov qilmaydi, bazadagi PENDING
@@ -1947,57 +1937,37 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
 
   const snapshotId = data?.snapshotId ?? selectedId;
 
-  // ── AUTO rejim: bir marta imzolangach, keyingi PARTIYAlarni o'zi boshlaydi ─────────────────
-  // (partiya tugagach AUTO_MS kutib, firma hali tayyor bo'lsa keyingisini boshlaydi; tayyor tugasa yoki
-  //  «To'xtatish» bosilsa — to'xtaydi). Qayta E-IMZO so'ralmaydi — operator auto'ni yoqib tasdiqlagan.
-  // AUTO rejim: partiya tugagach keyingisi shuncha kutib boshlanadi. 30s edi — portal
-  // tezlik cheklovi uchun juda tez (bir partiya tugashi bilan darrov keyingisi urilardi).
-  const AUTO_MS = 60_000;
-  // draftMode ham SAQLANADI: ilgari faqat {firmId, limit} saqlanardi va «Qoralama + Auto»ning
-  // keyingi partiyalari draftMode'siz — REAL yuborish bo'lib ketardi (2026-09-19 kod ko'rigi).
-  const [auto, setAuto] = useState<{ firmId: number; firmName: string; limit: number; draftMode: boolean } | null>(null);
-  const autoRef = useRef<typeof auto>(null);
-  useEffect(() => { autoRef.current = auto; }, [auto]);
-  const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clearAuto = useCallback(() => { if (autoTimer.current) { clearTimeout(autoTimer.current); autoTimer.current = null; } setAuto(null); }, []);
-  useEffect(() => () => { if (autoTimer.current) clearTimeout(autoTimer.current); }, []);
+  // Brauzer «Auto» rejimi (AUTO_MS bilan keyingi partiya) 2026-09-19 da OLIB TASHLANDI: server
+  // «Go — 24/7» (DraftAutoPanel) aynan shu ishni qiladi, sahifa yopilsa ham, va real yuborishga
+  // o'tib ketish xavfi yo'q. Bu yerda endi faqat bitta partiya.
 
-  // The real job runner — only reached AFTER the firm's adolat E-IMZO key is signed (yoki auto davomida).
-  // Navbatni davom ettirish — kalit bilan tasdiqlanadi (yuborish bilan bir xil talab),
-  // so'ng bazadagi PENDING ishlardan yangi partiya boshlanadi.
+  // Navbatni davom ettirish — kalit bilan tasdiqlanadi (sessiyani yangilaydi), so'ng bazadagi
+  // PENDING ishlardan yangi partiya boshlanadi (o'z rejimida — resume route real'ni olmaydi).
   const runResume = (fid: number) =>
     startJob(`firm:${fid}`, { firmId: fid, limit: MAX_COURT_BATCH }, () => { void loadRef.current(); loadPending(); }, '/konveyer/court-queue/resume');
 
-  const runExport = (fid: number, extra: Record<string, unknown> = {}) =>
-    startJob(`firm:${fid}`, { firmId: fid, snapshotId, limit: MAX_COURT_BATCH, ...extra }, async () => {
-      const fresh = await loadRef.current();
-      // AUTO: shu firma auto'da bo'lsa — tayyor qolgan bo'lsa AUTO_MS dan keyin keyingisi.
-      const a = autoRef.current;
-      if (a && a.firmId === fid) {
-        const fr = fresh?.readiness.firms.find((f) => f.firmId === fid);
-        // Real yuborish faqat boji TO'LANGANLARNI oladi — «qoldi» ham shunga qarab (aks holda to'lanmaganlar
-        // bor ekan deb auto cheksiz urinardi). Qoralama uchun boji shart emas.
-        const left = (a.draftMode ? fr?.sendable : fr?.sendablePaid) ?? 0;
-        // courtIds ATAYIN uzatilmaydi: `left` firma bo'yicha, tanlangan sudlar tugagach davom etish tanlanmagan
-        // sud ishlarini navbatga «park» qilib yuborardi (prepare-ready deferredByFilter). Avvalgidek — hamma sud.
-        const cont = { limit: a.limit, ...(a.draftMode ? { draftMode: true } : {}) };
-        if (left > 0) { autoTimer.current = setTimeout(() => { if (autoRef.current?.firmId === fid) runExport(fid, cont); }, AUTO_MS); }
-        else setAuto(null); // tayyor tugadi — auto to'xtaydi
-      }
-    });
+  // QORALAMA partiyasi — HAR DOIM suitMode (Go bilan bir xil: save-suit → «Murojaatlarim», send
+  // YO'Q). `extra` dagi har qanday draftMode/auto e'tiborsiz: prepare-ready bayroqsiz so'rovni
+  // (real yuborish) endi 400 bilan rad etadi, draftMode (stop-A) esa 3-tabga o'tmaydi.
+  const runExport = (fid: number, extra: Record<string, unknown> = {}) => {
+    const { draftMode: _dm, auto: _au, ...rest } = extra as { draftMode?: unknown; auto?: unknown } & Record<string, unknown>;
+    void _dm; void _au;
+    return startJob(`firm:${fid}`, { firmId: fid, snapshotId, limit: MAX_COURT_BATCH, ...rest, suitMode: true }, () => { void loadRef.current(); });
+  };
   // ZIP — ALOHIDA job kaliti (`zip:<id>`). Sud partiyasi (`firm:<id>`) bilan bir kalitda edi:
   // ZIP bosilganda sud tugmasi «Yuborilmoqda»ga aylanib, navbat paneli jonlanib ketardi.
   // Endi ikkalasi bir vaqtda, bir-biriga xalaqit bermay ishlaydi.
   const runZip = (fid: number, limit: number) =>
     startJob(`zip:${fid}`, { firmId: fid, snapshotId, limit, exportOnly: true }, () => { void loadRef.current(); });
 
-  // «Sudga yuborish» → E-IMZO gate: aniq so'roq (summary) → firma kaliti → parol → yuboriladi.
+  // «Qoralama tayyorlash» → E-IMZO gate: aniq so'roq (summary) → firma kaliti → parol → tayyorlanadi.
+  // Kalit nega kerak: u firma ADOLAT sessiyasini yangilaydi (qoralama ham portalga chiqadi).
   // (Bekor qilish kalit talab qilmaydi — u ClientDrilldown ichida oddiy tasdiq modali bilan.)
   const [gate, setGate] = useState<{ firmId: number; firmName: string; stir: string | null; extra: Record<string, unknown>; summary: string } | null>(null);
-  // «Sudga yuborish» (firma darajasida) → avval SONI so'raladi (max MAX_COURT_BATCH), keyin E-IMZO gate.
+  // «Qoralama tayyorlash» (firma darajasida) → avval SONI so'raladi (max MAX_COURT_BATCH), keyin E-IMZO gate.
   // Drilldownда qo'lda tanlanган (caseIds) yoki soni allaqachon berilган bo'lsa — to'g'ridan gate.
-  // max — joriy rejim chegarasi: qoralama → maxAll (hamma tayyor), real → maxPaid (boji to'langan tayyorlar).
-  const [countAsk, setCountAsk] = useState<{ firmId: number; firmName: string; max: number; maxAll: number; maxPaid: number; queued: number; value: number; auto: boolean; draftMode: boolean } | null>(null);
+  // Real yuborish rejimi (draftMode belgisini olib tashlash → boji to'langanlar, maxPaid) YO'Q — 2026-09-19.
+  const [countAsk, setCountAsk] = useState<{ firmId: number; firmName: string; max: number; queued: number; value: number } | null>(null);
   // ZIP eksport modali — sudga YUBORMAYDI, faqat hujjatlarni bitta arxivga yig'adi.
   const [zipAsk, setZipAsk] = useState<{ firmId: number; firmName: string; max: number; value: number } | null>(null);
   const openGate = (fid: number, extra: Record<string, unknown> = {}) => {
@@ -2005,8 +1975,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     const ids = (extra as { caseIds?: unknown }).caseIds;
     const lim = (extra as { limit?: unknown }).limit;
     const cnt = Array.isArray(ids) ? ids.length : (typeof lim === 'number' ? lim : null);
-    const draft = (extra as { draftMode?: boolean }).draftMode === true;
-    const act = draft ? t("ADOLAT'da qoralama tayyorlaysiz (sudga YUBORILMAYDI — yurist portalda o'zi yuboradi)") : t('sudga yuborasiz');
+    const act = t("ADOLAT «Murojaatlarim»da qoralama tayyorlanadi — sudga YUBORILMAYDI (keyin «Sudga o‘tkazish» tabidan)");
     setGate({
       firmId: fid, firmName: f?.firmName ?? `${t('Firma')} ${fid}`, stir: f?.stir ?? null, extra,
       summary: cnt != null ? `${cnt} ${t('ta mijoz uchun')} ${act}. ${t('Firma kaliti bilan tasdiqlang.')}` : `${t('Tayyor mijozlar uchun (bir martada ≤')}${MAX_COURT_BATCH}) ${act}. ${t('Firma kaliti bilan tasdiqlang.')}`,
@@ -2017,14 +1986,13 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     // Qo'lda tanlanган yoki soni berilган → to'g'ridan gate. Aks holda — soni so'raymiz.
     if (Array.isArray(ids) || (extra as { limit?: unknown }).limit != null) { openGate(fid, extra); return; }
     const fr = data?.readiness.firms.find((f) => f.firmId === fid);
-    const maxAll = Math.min(MAX_COURT_BATCH, fr?.sendable ?? 0);
-    const maxPaid = Math.min(MAX_COURT_BATCH, fr?.sendablePaid ?? 0);
-    if (maxAll <= 0) return; // yuboriladigan yo'q
-    // Default — qoralama (boji shart emas) → hamma tayyor.
-    setCountAsk({ firmId: fid, firmName: fr?.firmName ?? `${t('Firma')} ${fid}`, max: maxAll, maxAll, maxPaid, queued: fr?.queued ?? 0, value: maxAll, auto: false, draftMode: true });
+    const max = Math.min(MAX_COURT_BATCH, fr?.sendable ?? 0);
+    if (max <= 0) return; // tayyorlanadigan yo'q
+    // Qoralama uchun boji TO'LOVI shart emas (faqat invoice raqami) → hamma tayyor.
+    setCountAsk({ firmId: fid, firmName: fr?.firmName ?? `${t('Firma')} ${fid}`, max, queued: fr?.queued ?? 0, value: max });
   };
 
-  // ── «Sudga yuborish» modalidagi SUD taqsimoti (ko'rsatkich) ──────────────────
+  // ── «Qoralama tayyorlash» modalidagi SUD taqsimoti (ko'rsatkich) ──────────────
   const [courtBreak, setCourtBreak] = useState<{ firmId: number; courts: { courtId: number | null; shortName: string; count: number; enabled?: boolean; note?: string | null }[]; total: number } | null>(null);
   // Operator tanlagan sudlar. null = hammasi (eski xatti-harakat, hech narsa cheklanmaydi).
   const [pickedCourts, setPickedCourts] = useState<number[] | null>(null);
@@ -2033,13 +2001,12 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     let alive = true;
     const qs = new URLSearchParams({ firmId: String(countAsk.firmId) });
     if (snapshotId) qs.set('s', String(snapshotId));
-    if (!countAsk.draftMode) qs.set('paid', '1'); // real yuborish — faqat boji to'langanlar taqsimoti
     fetch(`/konveyer/court-ready/courts?${qs.toString()}`, { cache: 'no-store' })
       .then((r) => r.json())
       .then((d) => { if (alive && d && Array.isArray(d.courts)) setCourtBreak({ firmId: countAsk.firmId, courts: d.courts, total: d.total ?? 0 }); })
       .catch(() => {});
     return () => { alive = false; };
-  }, [countAsk?.firmId, countAsk?.draftMode, snapshotId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [countAsk?.firmId, snapshotId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Yuborish NAVBATI — skayner kabi 2-3 partiya ketma-ket ────────────────────
   // Har item: firma + soni. Joriy (birinchi tugamagan) item bo'yicha holat-mashina:
@@ -2047,7 +2014,8 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   // job DONE/FAILED bo'lgach keyingisiga o'tadi (FAILED'da ham to'xtab qolmaydi).
   // `error` — NEGA yiqilgani. Ilgari chipda faqat qizil «xato» so'zi turardi va operator
   // sababni topolmasdi (eng ko'p uchraydigani: «bu firmada partiya allaqachon ketmoqda»).
-  type QItem = { id: string; firmId: number; firmName: string; stir: string | null; count: number; courtIds?: number[]; draftMode?: boolean; status: 'wait' | 'signing' | 'sending' | 'done' | 'error'; error?: string };
+  // Har navbat yozuvi — QORALAMA partiyasi (suitMode); real yuborish navbatga tushmaydi (2026-09-19).
+  type QItem = { id: string; firmId: number; firmName: string; stir: string | null; count: number; courtIds?: number[]; status: 'wait' | 'signing' | 'sending' | 'done' | 'error'; error?: string };
   const [queue, setQueue] = useState<QItem[]>([]);
   const [queueActive, setQueueActive] = useState(false);
   const signedFirms = useRef<Set<number>>(new Set());
@@ -2060,8 +2028,8 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
   // ko'rib, keyin «Boshlash» bosishi kerak edi. Endi qo'shish = «shu ishlarni yubor»:
   // navbat bo'sh bo'lsa darhol boshlanadi, band bo'lsa o'z navbatini kutadi. To'xtatish
   // uchun navbat panelida «To'xtatish» bor.
-  const addToQueue = (fid: number, fname: string, stir: string | null, count: number, courtIds?: number[], draftMode?: boolean) => {
-    setQueue((q) => [...q, { id: `q${++qidRef.current}`, firmId: fid, firmName: fname, stir, count, courtIds, draftMode, status: 'wait' as const }]);
+  const addToQueue = (fid: number, fname: string, stir: string | null, count: number, courtIds?: number[]) => {
+    setQueue((q) => [...q, { id: `q${++qidRef.current}`, firmId: fid, firmName: fname, stir, count, courtIds, status: 'wait' as const }]);
     setQueueActive(true);
   };
 
@@ -2101,7 +2069,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
     if (activeBatchByFirm.has(cur.firmId)) return;
     if (signedFirms.current.has(cur.firmId)) {
       setQueue((q) => q.map((x) => (x.id === cur.id ? { ...x, status: 'sending' } : x)));
-      startJob(`queue:${cur.id}`, { firmId: cur.firmId, snapshotId, limit: cur.count, ...(cur.courtIds?.length ? { courtIds: cur.courtIds } : {}), ...(cur.draftMode ? { draftMode: true } : {}) }, () => {});
+      startJob(`queue:${cur.id}`, { firmId: cur.firmId, snapshotId, limit: cur.count, ...(cur.courtIds?.length ? { courtIds: cur.courtIds } : {}), suitMode: true }, () => {});
     } else {
       setQueue((q) => q.map((x) => (x.id === cur.id ? { ...x, status: 'signing' } : x)));
       setQueueGate({ itemId: cur.id, firmId: cur.firmId, firmName: cur.firmName, stir: cur.stir, count: cur.count });
@@ -2110,8 +2078,6 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
 
   const firmOpts = [{ value: 'all', label: t('Hamma firma') }, ...firms.map((f) => ({ value: String(f.firmId), label: f.firmName, hint: n(f.total) }))];
   const ov = data?.readiness.overall;
-  const board = data?.statusBoard;
-  const returns = data?.returns ?? [];
   const overallPct = ov && ov.total ? (ov.ready / ov.total) * 100 : 0;
 
   return (
@@ -2131,7 +2097,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
               className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-line px-3 text-xs font-semibold text-fg outline-none transition-colors hover:border-brand-500/40 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-brand-500/30"
             >
               <svg className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M8 3v18M3 8h5M3 13h5M3 18h5" /></svg>
-              Excel
+              {t('Excel')}
               <svg className={`h-3.5 w-3.5 text-muted transition-transform ${xlsOpen ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
             </button>
             {xlsOpen && (
@@ -2163,7 +2129,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
               <IcoRefresh spin={refreshing} />
             </button>
           </Tip>
-          <Dropdown value={firmId ? String(firmId) : 'all'} options={firmOpts} onChange={(v) => { setFirmId(v === 'all' ? null : Number(v)); setOpenFirm(null); }} className="w-full sm:w-auto sm:min-w-[200px]" />
+          <Dropdown value={firmId ? String(firmId) : 'all'} options={firmOpts} onChange={(v) => { const next = v === 'all' ? null : Number(v); setFirmId(next); setOpenFirm(null); onFirmChange?.(next); }} className="w-full sm:w-auto sm:min-w-[200px]" />
         </div>
       </div>
 
@@ -2183,7 +2149,8 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
             </div>
           )}
 
-          {tab === 'send' ? (
+          {/* O'lik «stat»/«returns» shoxlari olib tashlandi (2026-09-19) — sahifa doim 'send' berardi. */}
+          {(
             <div key="send" className="animate-fade-in space-y-3">
               <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-stretch">
                 <div className="flex items-center gap-3 rounded-xl border border-line bg-surface p-3">
@@ -2199,8 +2166,8 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                     <div className="text-sm font-semibold" title={t('5 shart bajarilgan: talabnoma + imzolangan skan + oferta + check + boji raqami. Sudga ketganlar ham shu songa kiradi.')}>
                       {n(ov!.ready)} / {n(ov!.total)} {t('mijoz')}
                     </div>
-                    <div className="mt-0.5 text-[11px] text-muted" title={t('Hujjati to‘liq va sudga hali yuborilmaganlar — «Tayyor» kartasidagi son bilan bir xil.')}>
-                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">{n(ov!.sendable)}</span> {t('tasi yuborishga tayyor')}
+                    <div className="mt-0.5 text-[11px] text-muted" title={t('Hujjati to‘liq, hali qoralama qilinmagan — «Tayyor» kartasidagi son bilan bir xil.')}>
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">{n(ov!.sendable)}</span> {t('tasi qoralamaga tayyor')}
                     </div>
                   </div>
                 </div>
@@ -2209,12 +2176,12 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                     yonida katta bo'sh joy qolardi. */}
                 <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
                   <Stat label={t('Jami')} value={ov!.total} icon={statIcon('all')} hint={t("Tanlangan firma/snapshot bo'yicha")} />
-                  <Stat label={t('Tayyor')} value={ov!.sendable} tone="emerald" icon={statIcon('sendable')} hint={t("Talabnoma + skan + oferta + check + boji (invoice raqami) bor, hali yuborilmagan — shu tab'dan yuboriladi")} />
+                  <Stat label={t('Tayyor')} value={ov!.sendable} tone="emerald" icon={statIcon('sendable')} hint={t("Talabnoma + skan + oferta + check + boji (invoice raqami) bor, hali qoralama qilinmagan — shu tabdan qoralama tayyorlanadi")} />
                   {/* Nol bo'lsa karta umuman chiqmaydi — bo'sh «Navbatda 0» faqat joy egallaydi. */}
                   {ov!.queued > 0 && (
-                    <Stat label={t('Navbatda')} value={ov!.queued} tone="amber" icon={statIcon('queued')} hint={t("Partiyaga olingan, sudga hali yetib bormagan — «Tayyor» sanog'idan chiqarilgan")} />
+                    <Stat label={t('Navbatda')} value={ov!.queued} tone="amber" icon={statIcon('queued')} hint={t("Partiyaga olingan, qoralamasi hali tayyor emas — «Tayyor» sanog'idan chiqarilgan")} />
                   )}
-                  <Stat label={t('Qoralama tayyor')} value={ov!.draftReady} tone="teal" icon={statIcon('draftReady')} hint={t("ADOLAT'da hamma maydon to'ldirilib, hujjatlar biriktirilib TO'LIQ tayyorlangan qoralama — yurist portalda ochib o'zi yuboradi. Sudga hali yuborilmagan.")} />
+                  <Stat label={t('Qoralama tayyor')} value={ov!.draftReady} tone="teal" icon={statIcon('draftReady')} hint={t("ADOLAT'da hamma maydon to'ldirilib, hujjatlar biriktirilib tayyorlangan qoralama. Sudga hali yuborilmagan — «Sudga o‘tkazish» tabidan E-IMZO bilan yuboriladi.")} />
                   {/* «Sudda» — ATAYIN `submitted`, `exported` EMAS. Ilgari bu karta ZIP
                       olingan ishlarni ham qo'shib «Yuborilgan 131» deb ko'rsatardi, holbuki
                       ularning ko'pi sudga ketmagan edi (2026-09-07: BRIGHT'da 100 tasi ZIP). */}
@@ -2229,13 +2196,13 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
               {(ov!.almost.scan + ov!.almost.oferta + ov!.almost.talabnoma + ov!.almost.receipt + ov!.almost.boji) > 0 && (
                 <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] px-3 py-2.5">
                   <AlmostLine almost={ov!.almost} />
-                  <div className="mt-1 text-[11px] text-muted">{t("Bittagina hujjat yetmaydi — o'shani to'ldirsangiz darhol sudga chiqadi. Sud uchun 5 ta shart (hammasi majburiy): talabnoma + imzolangan skan + oferta + check (UZPOST kvitansiya) + boji (invoice raqami). Invoice PDF sudga ketmaydi, lekin raqami ariza ichida ketadi. Odatda «faqat skan» yoki «faqat check» eng katta guruh.")}</div>
+                  <div className="mt-1 text-[11px] text-muted">{t("Bittagina hujjat yetmaydi — o'shani to'ldirsangiz darhol «Tayyor»ga o'tadi va qoralama qilinadi. Sud uchun 5 ta shart (hammasi majburiy): talabnoma + imzolangan skan + oferta + check (UZPOST kvitansiya) + boji (invoice raqami). Invoice PDF sudga ketmaydi, lekin raqami ariza ichida ketadi. Odatda «faqat skan» yoki «faqat check» eng katta guruh.")}</div>
                 </div>
               )}
               {queue.length > 0 && (
                 <div className="rounded-xl border border-brand-500/30 bg-brand-500/[0.05] p-3">
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="text-xs font-semibold">{t('Yuborish navbati —')} {n(queue.filter((x) => x.status !== 'done' && x.status !== 'error').length)} {t('qoldi')}</span>
+                    <span className="text-xs font-semibold">{t('Qoralama navbati —')} {n(queue.filter((x) => x.status !== 'done' && x.status !== 'error').length)} {t('qoldi')}</span>
                     <div className="flex items-center gap-1.5">
                       {!queueActive ? (
                         <button type="button" onClick={() => setQueueActive(true)} disabled={!queue.some((x) => x.status === 'wait')}
@@ -2281,7 +2248,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                       const heldBy = it.status === 'wait' ? activeBatchByFirm.get(it.firmId) : undefined;
                       const badge = it.status === 'done' ? ['bg-emerald-500/15 text-emerald-700 dark:text-emerald-300', 'tayyor']
                         : it.status === 'error' ? ['bg-rose-500/15 text-rose-600 dark:text-rose-300', 'xato']
-                        : it.status === 'sending' ? ['bg-brand-500/15 text-brand-700 dark:text-brand-300', 'yuborilyapti']
+                        : it.status === 'sending' ? ['bg-brand-500/15 text-brand-700 dark:text-brand-300', 'tayyorlanyapti']
                         : it.status === 'signing' ? ['bg-amber-500/15 text-amber-700 dark:text-amber-300', 'imzo']
                         : heldBy ? ['bg-sky-500/12 text-sky-700 dark:text-sky-300', 'kutmoqda']
                         : ['bg-surface-2 text-muted', 'navbatda'];
@@ -2313,12 +2280,13 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                       );
                     })}
                   </div>
-                  <p className="mt-2 text-[11px] text-muted">{t('Ketma-ket yuboriladi. Har firma uchun kalit bir marta so‘raladi. Xato bo‘lsa keyingisiga o‘tadi.')}</p>
+                  <p className="mt-2 text-[11px] text-muted">{t('Ketma-ket tayyorlanadi (sudga yuborilmaydi). Har firma uchun kalit bir marta so‘raladi. Xato bo‘lsa keyingisiga o‘tadi.')}</p>
                 </div>
               )}
               {/* 24/7 avtomat qoralama — boshqaruv + monitoring (firma/sud kesimida). */}
-              <DraftAutoPanel />
-              <PauseSwitch />
+              <DraftAutoPanel visible={active} />
+              {/* Umumiy pauza — endi faqat REAL yuborish (3-tab) uchun; qoralamaga ta'sir qilmaydi. */}
+              <PauseSwitch active={active} />
               {/* NAVBATDA QOLGANLAR — bazadan tiklangan.
                   Sahifa yangilansa ham ko'rinadi: manba React state emas, CourtQueueItem.
                   Operator «Davom ettirish» bilan aynan qolgan ishlardan davom etadi —
@@ -2328,7 +2296,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                   <div className="mb-2 flex items-center gap-2">
                     <svg className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
                     <span className="text-[12px] font-semibold text-amber-700 dark:text-amber-300">{t('Tugallanmagan ishlar')}</span>
-                    <span className="text-[11px] text-muted">{t('Navbatda qolgan, xato bergan yoki boji to‘lanmagan — o‘sha joydan davom etadi')}</span>
+                    <span className="text-[11px] text-muted">{t('Navbatda qolgan, xato bergan yoki o‘tkazilgan — o‘sha joydan davom etadi')}</span>
                   </div>
                   <div className="space-y-1.5">
                     {pendingQ.map((q) => {
@@ -2341,8 +2309,8 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                             navbat sanog'i («5 ketdi · 195 navbatda») — ikkalasi bir ekranda
                             bir-birini yolg'onga chiqarardi. Endi bitta haqiqat. */}
                         {q.done > 0 && (
-                          <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-emerald-700 dark:text-emerald-300" title={t('ADOLAT qabul qilgan')}>
-                            {n(q.done)} {t('ketdi')}
+                          <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-emerald-700 dark:text-emerald-300" title={t('Navbat orqali muvaffaqiyatli o‘tganlar (qoralama tayyorlangan yoki yuborilgan)')}>
+                            {n(q.done)} {t('bajarildi')}
                           </span>
                         )}
                         {waiting > 0 && (
@@ -2350,16 +2318,16 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                             {n(waiting)} {t('navbatda')}
                           </span>
                         )}
-                        {/* Boji to'lanmagan — XATO EMAS, lekin operator ARALASHUVI kerak:
-                            buxgalteriya to'lovni o'tkazgach ish o'zi navbatga qaytadi. */}
+                        {/* O'tkazilgan — XATO EMAS, lekin operator ARALASHUVI kerak (sabab — navbat
+                            ro'yxatida: invoice raqami, yetkazilganlik, portalda bor, ushlab turilgan). */}
                         {q.skipped > 0 && (
-                          <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-amber-700 dark:text-amber-300" title={t('Davlat boji to‘lanmagan — portalga umuman chiqarilmadi. To‘langach o‘zi navbatga qaytadi.')}>
-                            {n(q.skipped)} {t('boji to‘lanmagan')}
+                          <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-amber-700 dark:text-amber-300" title={t(SKIP_HINT)}>
+                            {n(q.skipped)} {t('o‘tkazildi')}
                           </span>
                         )}
                         {q.failed > 0 && (
                           <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-rose-700 dark:text-rose-300" title={t('Xato bergan — firma qatoridagi navbat panelidan sababini ko‘ring')}>
-                            {n(q.failed)} {t('yuborilmadi')}
+                            {n(q.failed)} {t('xato')}
                           </span>
                         )}
                         {q.job?.status === 'RUNNING' ? (
@@ -2376,7 +2344,7 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                         ) : waiting > 0 ? (
                           <button
                             type="button"
-                            onClick={() => setGate({ firmId: q.firmId, firmName: q.firmName, stir: q.stir, extra: { resume: true }, summary: `${q.firmName} — ${t('navbatda qolgan')} ${n(q.pending)} ${t('ta ishni davom ettirish')}` })}
+                            onClick={() => setGate({ firmId: q.firmId, firmName: q.firmName, stir: q.stir, extra: { resume: true }, summary: `${q.firmName} — ${t('navbatda qolgan')} ${n(q.pending)} ${t('ta ishni davom ettirish (o‘z rejimida: qoralama sudga yuborilmaydi)')}` })}
                             className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-brand-500 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-brand-600"
                           >
                             <IcoBolt /> {t('Davom ettirish')}
@@ -2419,89 +2387,9 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                       onChanged={load}
                       drillOpen={openFirm === fr.firmId}
                       onToggleDrill={() => setOpenFirm((o) => (o === fr.firmId ? null : fr.firmId))}
-                      autoActive={auto?.firmId === fr.firmId}
-                      onStopAuto={clearAuto}
                     />
                   ))}
               </div>
-            </div>
-          ) : tab === 'stat' ? (
-            <div key="stat" className="animate-fade-in space-y-3">
-              {board!.total === 0 ? (
-                <EmptyBlock title={t('Status olinmagan')} hint={t("«Ulanishlar» orqali firma kalitini ulab sud (adolat) va talabnoma (pochta) holatlarini yangilang — qanoatlantirilgan, qaytarilgan, rad, yetkazildi… hammasi shu yerda ko'rinadi.")} />
-              ) : (() => {
-                const cab = board!.sources.CABINET ?? 0;
-                const hip = board!.sources.HIPPO ?? 0;
-                const segs: { key: 'CABINET' | 'HIPPO' | 'all'; label: string; count: number }[] = [
-                  { key: 'CABINET', label: t('Sud (adolat)'), count: cab },
-                  { key: 'HIPPO', label: t('Talabnoma'), count: hip },
-                  { key: 'all', label: t('Hammasi'), count: board!.total },
-                ];
-                // If the default (Sud) has nothing but Talabnoma does, show Talabnoma instead.
-                const eff: 'CABINET' | 'HIPPO' | 'all' = statSource === 'CABINET' && cab === 0 && hip > 0 ? 'HIPPO' : statSource;
-                const shown = eff === 'all' ? board!.buckets : board!.buckets.filter((b) => b.source === eff);
-                const shownTotal = shown.reduce((s, b) => s + b.count, 0) || 1;
-                return (
-                  <>
-                    {/* Sud / Talabnoma / Hammasi — court outcomes are NOT drowned by 3600+ delivery rows */}
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="inline-flex rounded-xl border border-line bg-surface-2/50 p-0.5">
-                        {segs.map((s) => (
-                          <button
-                            key={s.key}
-                            onClick={() => setStatSource(s.key)}
-                            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${eff === s.key ? 'bg-surface text-fg shadow-sm' : 'text-muted hover:text-fg'}`}
-                          >
-                            {s.label}
-                            <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${eff === s.key ? 'bg-brand-500/15 text-brand-600 dark:text-brand-400' : 'bg-surface-2 text-muted'}`}>{n(s.count)}</span>{/* s.label allaqachon t() bilan */}
-                          </button>
-                        ))}
-                      </div>
-                      <span className="text-[11px] text-muted">{t('Mijozga bogʻlangan:')} <b className="font-semibold text-fg tabular-nums">{n(board!.matched)}</b></span>
-                    </div>
-
-                    {shown.length === 0 ? (
-                      <EmptyBlock title={t('Bu boʻlimda status yoʻq')} hint={eff === 'CABINET' ? t('Sud (adolat) holatlari hali yangilanmagan.') : t('Talabnoma yetkazish holatlari yoʻq.')} />
-                    ) : (
-                      <>
-                        {/* legend (touch-friendly — the bar's title= tooltips are dead on touch) */}
-                        <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-[11px] text-muted">
-                          {shown.map((b) => (
-                            <span key={`${b.source}:${b.code}`} className="inline-flex items-center gap-1">
-                              <span className="h-2 w-2 rounded-full" style={{ background: BAR[b.tone] ?? BAR.slate }} />
-                              {b.label} <b className="font-semibold text-fg tabular-nums">{n(b.count)}</b>
-                            </span>
-                          ))}
-                        </div>
-                        <div className="flex h-3 overflow-hidden rounded-full">
-                          {shown.map((b) => <span key={`${b.source}:${b.code}`} title={`${b.label}: ${n(b.count)}`} style={{ width: `${(b.count / shownTotal) * 100}%`, background: BAR[b.tone] || BAR.slate }} />)}
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                          {shown.map((b) => (
-                            <div key={`${b.source}:${b.code}`} className={`rounded-xl border border-line p-3 ${TONE[b.tone] || TONE.slate}`}>
-                              <div className="text-2xl font-bold tabular-nums">{n(b.count)}</div>
-                              <div className="mt-0.5 truncate text-[12px] font-medium" title={b.label}>{b.label}</div>
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </>
-                );
-              })()}
-            </div>
-          ) : (
-            <div key="returns" className="animate-fade-in space-y-2">
-              {returns.length === 0
-                ? <EmptyBlock title={t('Qaytgan ish yoʻq')} hint={t("Sud yoki palata qaytarganda shu yerda ko'rinadi — to'ldirib qayta yuborasiz.")} />
-                : (
-                  <>
-                    <div className="rounded-lg border border-line bg-surface-2/30 px-3 py-2 text-[11px] leading-relaxed text-muted">
-                      {t('Sud yoki palata qaytargan ishlar. Har birini ochib, yetishmagan')} <b className="font-medium text-fg">{t("fayllarni to'ldiring")}</b>, {t("so'ng qayta paket oling va qayta yuboring.")}
-                    </div>
-                    {returns.map((r, i) => <ReturnRow key={r.caseId} r={r} idx={i} />)}
-                  </>
-                )}
             </div>
           )}
         </div>
@@ -2599,10 +2487,10 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
       )}
 
       {countAsk && (() => { const askBusy = activeBatchByFirm.get(countAsk.firmId) ?? null; return (
-        <Modal open onClose={() => { setCountAsk(null); setPickedCourts(null); }} title={`${countAsk.draftMode ? t('Qoralama tayyorlash') : t('Sudga yuborish')} — ${countAsk.firmName}`}
+        <Modal open onClose={() => { setCountAsk(null); setPickedCourts(null); }} title={`${t('Qoralama tayyorlash')} — ${countAsk.firmName}`}
           // «max» — NAVBATDAGILARSIZ tayyorlar soni. Navbatda turganini ham aytamiz, aks holda
           // operator «291 tayyor edi, nega 91 ta?» deb o'ylaydi (2026-09-07).
-          description={`${n(countAsk.max)} ${t('ta tayyor')}${countAsk.queued ? ` (${t('yana')} ${n(countAsk.queued)} ${t('tasi navbatda — ular qayta yuborilmaydi')})` : ''}. ${t("Bir martada eng ko'pi")} ${MAX_COURT_BATCH} ${t('ta.')}`}
+          description={`${n(countAsk.max)} ${t('ta tayyor')}${countAsk.queued ? ` (${t('yana')} ${n(countAsk.queued)} ${t('tasi navbatda — ular qayta olinmaydi')})` : ''}. ${t("Bir martada eng ko'pi")} ${MAX_COURT_BATCH} ${t('ta.')}`}
           footer={<>
             <button className="btn-ghost" type="button" onClick={() => setCountAsk(null)}>{t('Bekor')}</button>
             {/* Firmada partiya ketayotgan bo'lsa TO'G'RIDAN yuborish mumkin emas (server 409
@@ -2613,15 +2501,15 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
               disabled={countAsk.max < 1 || !countAsk.value || countAsk.value < 1 || (pickedCourts !== null && pickedCourts.length === 0)}
               title={askBusy
                 ? `#${askBusy.jobId} ${t("tugashi bilan bu partiya o'zi boshlanadi — kalit qayta so'ralmaydi")}`
-                : t("Navbatga qo'shish — bir nechta partiyani ketma-ket yuborish (skayner kabi)")}
-              onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const f = firms.find((x) => x.firmId === countAsk.firmId); addToQueue(countAsk.firmId, countAsk.firmName, f?.stir ?? null, v, pickedCourts ?? undefined, countAsk.draftMode); setCountAsk(null); setPickedCourts(null); }}>
+                : t("Navbatga qo'shish — bir nechta firma partiyasini ketma-ket tayyorlash (skayner kabi)")}
+              onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const f = firms.find((x) => x.firmId === countAsk.firmId); addToQueue(countAsk.firmId, countAsk.firmName, f?.stir ?? null, v, pickedCourts ?? undefined); setCountAsk(null); setPickedCourts(null); }}>
               + {t('Navbatga')}{askBusy ? ` (${Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0))})` : ''}
             </button>
             {!askBusy && (
               <button className="btn-primary" type="button"
                 disabled={countAsk.max < 1 || !countAsk.value || countAsk.value < 1 || (pickedCourts !== null && pickedCourts.length === 0)}
-                onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const fid = countAsk.firmId; const au = countAsk.auto; const cs = pickedCourts; const dm = countAsk.draftMode; setCountAsk(null); setPickedCourts(null); openGate(fid, { limit: v, auto: au, ...(cs && cs.length ? { courtIds: cs } : {}), ...(dm ? { draftMode: true } : {}) }); }}>
-                {countAsk.draftMode ? t('Qoralama tayyorlash') : countAsk.auto ? t('Auto boshlash') : t('Yuborish')} ({Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0))})
+                onClick={() => { const v = Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0)); const fid = countAsk.firmId; const cs = pickedCourts; setCountAsk(null); setPickedCourts(null); openGate(fid, { limit: v, ...(cs && cs.length ? { courtIds: cs } : {}), suitMode: true }); }}>
+                {t('Qoralama tayyorlash')} ({Math.max(1, Math.min(countAsk.max, Math.floor(countAsk.value) || 0))})
               </button>
             )}
           </>}
@@ -2643,38 +2531,20 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
                   className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${countAsk.value === countAsk.max ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line text-muted hover:border-brand-500/40'}`}>{t('Hammasi')} ({countAsk.max})</button>
               )}
             </div>
-            {/* QORALAMA REJIMI — DEFAULT YOQILGAN. Yoqilsa: ADOLAT'da to'liq to'ldirilgan
-                qoralama tayyorlanadi (hamma maydon + hujjatlar), lekin SUDGA YUBORILMAYDI —
-                yurist portalda ochib, ko'zdan kechirib O'ZI yuboradi. Bu eng xavfsiz: yakuniy
-                yuborishni portalning o'zi qiladi, va 24/7 tayyorlash mumkin (sud kvotasi band
-                bo'lmaydi). O'chirilsa — tizim o'zi sudga yuboradi (CABINET_ALLOW_SEND_TO_COURT). */}
-            <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-emerald-500/40 bg-emerald-500/[0.05] p-2.5">
-              <input type="checkbox" checked={countAsk.draftMode} onChange={(e) => setCountAsk((c) => {
-                if (!c) return c;
-                // Real yuborish faqat boji to'langanlarni oladi — chegara ham shunga almashadi.
-                const max = e.target.checked ? c.maxAll : c.maxPaid;
-                return { ...c, draftMode: e.target.checked, max, value: Math.min(Math.max(1, c.value), Math.max(1, max)) };
-              })} className="mt-0.5 h-4 w-4 accent-emerald-600" />
-              <span className="min-w-0">
-                <span className="block text-[12px] font-medium">{t('Qoralama tayyorlash — yurist portalda o‘zi yuboradi')} <span className="text-emerald-600 dark:text-emerald-400">{t('(tavsiya)')}</span></span>
-                <span className="block text-[11px] text-muted">
-                  {t("ADOLAT'da hamma maydon to‘ldirilib, hujjatlar biriktirilib to‘liq tayyor qoralama qoladi. Sudga YUBORILMAYDI — yurist ertalab portalda ochib, ko‘rib, o‘zi bosib yuboradi. 24/7 ishlaydi, sud kunlik limitini band qilmaydi va ketayotgan boshqa jarayonlarga tegmaydi.")}
-                </span>
+            {/* 2026-09-19: «Qoralama» belgisi va «Auto» belgisi OLIB TASHLANDI. Ilgari bitta checkbox
+                qoralamani QAYTARIB BO'LMAYDIGAN real yuborishga aylantirardi (boji to'langanlar,
+                send-to-court) — endi bu modal FAQAT qoralama qiladi; real yuborish — «Sudga o'tkazish»
+                tabida, saqlangan suit'ni E-IMZO bilan. Uzluksiz tayyorlash — yuqoridagi «Go — 24/7». */}
+            <div className="rounded-lg border border-teal-500/40 bg-teal-500/[0.05] p-2.5 text-[11px] leading-snug">
+              <span className="block text-[12px] font-medium text-teal-700 dark:text-teal-300">{t('ADOLAT «Murojaatlarim»da qoralama tayyorlanadi — sudga YUBORILMAYDI')}</span>
+              <span className="mt-0.5 block text-muted">
+                {t('Har ish uchun ADOLAT’da da’vo to‘liq to‘ldirilib, hujjatlar biriktirilib saqlanadi. Sudga yuborish keyin «Sudga o‘tkazish» tabidan, firma kaliti (E-IMZO) bilan. Sud kunlik limitini band qilmaydi. Uzluksiz tayyorlash uchun — yuqoridagi «Go — 24/7».')}
               </span>
-            </label>
-            <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-line p-2.5">
-              <input type="checkbox" checked={countAsk.auto} onChange={(e) => setCountAsk((c) => c && ({ ...c, auto: e.target.checked }))} className="mt-0.5 h-4 w-4 accent-brand-500" />
-              <span className="min-w-0">
-                <span className="block text-[12px] font-medium">{t('Auto — partiyalarni ketma-ket davom ettirish')}</span>
-                <span className="block text-[11px] text-muted">
-                  {t('Bir martada eng ko‘pi 100 ta yuboriladi. Auto yoqilsa, partiya tugagach keyingisi o‘zi boshlanadi va kalit qayta so‘ralmaydi — tayyorlar tugaguncha (yoki «To‘xtatish»gacha). Ishlar orasidagi kutish esa doim bor: u sud sozlamasidan olinadi (standart 60s).')}
-                </span>
-              </span>
-            </label>
+            </div>
             {courtBreak && courtBreak.firmId === countAsk.firmId && courtBreak.courts.length > 0 && (
               <div className="rounded-lg border border-line p-2.5">
                 <div className="mb-1.5 flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-semibold text-muted">{t('Qaysi sudga yuborilsin? (tayyor')} {n(courtBreak.total)} {t('ta)')}</span>
+                  <span className="text-[11px] font-semibold text-muted">{t('Qaysi sud ishlari tayyorlansin? (tayyor')} {n(courtBreak.total)} {t('ta)')}</span>
                   {pickedCourts !== null && (
                     <button onClick={() => setPickedCourts(null)} className="text-[11px] font-medium text-brand-600 underline-offset-2 hover:underline dark:text-brand-400">{t('hammasi')}</button>
                   )}
@@ -2746,13 +2616,14 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
           firm={{ firmId: gate.firmId, firmName: gate.firmName, stir: gate.stir }}
           provider="CABINET"
           endpoint="/konveyer/court-sign"
-          title={t('Sudga yuborish — kalit bilan tasdiqlash')}
-          confirmLabel={t('Imzolab yuborish')}
+          // Qoralama uchun ham kalit so'raladi — u firma ADOLAT sessiyasini yangilaydi. Sarlavha va
+          // tugma endi «yuborish» demaydi (ilgari qoralamada ham «Imzolab yuborish» turardi).
+          title={(gate.extra as { resume?: boolean }).resume ? t('Navbatni davom ettirish — kalit bilan tasdiqlash') : t('Qoralama tayyorlash — kalit bilan tasdiqlash')}
+          confirmLabel={(gate.extra as { resume?: boolean }).resume ? t('Imzolab davom etish') : t('Imzolab tayyorlash')}
           summary={gate.summary}
           onSuccess={() => {
-            const ex = gate.extra as { auto?: boolean; limit?: number; resume?: boolean };
+            const ex = gate.extra as { resume?: boolean };
             if (ex.resume) { runResume(gate.firmId); setGate(null); return; }
-            if (ex.auto) setAuto({ firmId: gate.firmId, firmName: gate.firmName, limit: typeof ex.limit === 'number' ? ex.limit : 100, draftMode: (gate.extra as { draftMode?: boolean }).draftMode === true });
             runExport(gate.firmId, gate.extra);
             setGate(null);
           }}
@@ -2766,9 +2637,9 @@ export function CourtManager({ firms, selectedId, initialData, tab = 'send' }: {
           firm={{ firmId: queueGate.firmId, firmName: queueGate.firmName, stir: queueGate.stir }}
           provider="CABINET"
           endpoint="/konveyer/court-sign"
-          title={t('Navbat — kalit bilan tasdiqlash')}
+          title={t('Qoralama navbati — kalit bilan tasdiqlash')}
           confirmLabel={t('Imzolab davom etish')}
-          summary={`${queueGate.firmName}: ${queueGate.count} ${t('ta sudga yuboriladi. Firma kaliti bilan tasdiqlang (bu firma uchun bir marta).')}`}
+          summary={`${queueGate.firmName}: ${queueGate.count} ${t('ta ish uchun ADOLAT’da qoralama tayyorlanadi — sudga YUBORILMAYDI. Firma kaliti bilan tasdiqlang (bu firma uchun bir marta).')}`}
           onSuccess={() => { const g = queueGate; signedFirms.current.add(g.firmId); setQueue((q) => q.map((x) => (x.id === g.itemId ? { ...x, status: 'wait' } : x))); setQueueGate(null); }}
         />
       )}

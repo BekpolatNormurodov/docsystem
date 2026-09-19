@@ -2,38 +2,72 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useT } from '@/lib/i18n/client';
 
-// 24/7 AVTOMAT QORALAMA — boshqaruv + monitoring (sud bo'limi, admin).
+// 24/7 AVTOMAT QORALAMA («Go») — boshqaruv + monitoring (sud bo'limi, «Qoralama (1 qadam)» tabi).
 //
-// «Go» yoqilsa worker to'xtovsiz tayyor ishlarga qoralama tayyorlaydi (firma-ketma-firma,
-// sud sozlamasidagi interval bilan, 24/7). Panel: yoqilgan-o'chirilgani, hozir qaysi firma
-// ketmoqda, va firma/sud kesimida nechta qoralama tayyor / sudda / navbatda.
+// «Go» yoqilsa worker to'xtovsiz tayyor ishlar uchun ADOLAT «Murojaatlarim»da qoralama (suitMode:
+// save-suit, send-to-court YO'Q) tayyorlaydi — firma-ketma-firma, 24/7. Panel: yoqilgan-o'chirilgani,
+// hozir QAYSI partiya ketmoqda (qoralama / 3-tab yuborishi / eski real), har firmaning OXIRGI
+// qoralama partiyasi natijasi (xato bo'lsa sababi bilan) va portal bloki (backoff) — 2026-09-19:
+// ilgari Go xatolari, to'xtab qolgan firma va portal kutishi hech qayerda ko'rinmasdi.
 
 const n = (x: number) => x.toLocaleString('ru-RU');
+const hhmm = (iso: string) => new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 
+type JobKind = 'draft' | 'suit' | 'real' | 'send';
+interface LastBatch { jobId: number; kind: JobKind; status: string; message: string | null; total: number; progress: number; finishedAt: string }
 interface Tally { total: number; draftReady: number; submitted: number; queued: number }
-interface FirmRow extends Tally { firmId: number; firmName: string; sendable: number; active: boolean; paused: boolean }
+interface FirmRow extends Tally { firmId: number; firmName: string; sendable: number; active: boolean; paused: boolean; lastBatch?: LastBatch | null }
 interface CourtRow extends Tally { courtId: number; courtName: string; sendable: number }
 interface Status {
   on: boolean;
-  active: { jobId: number; status: string; progress: number; total: number; firmName: string | null; draftMode: boolean; message: string | null } | null;
+  active: { jobId: number; status: string; progress: number; total: number; firmName: string | null; kind?: JobKind | null; draftMode: boolean; message: string | null } | null;
   firms: FirmRow[];
   courts: CourtRow[];
+  backoff?: { nextAttemptAt: string | null };
 }
 
-function Bar({ ready, queued, submitted, total }: { ready: number; queued: number; submitted: number; total: number }) {
-  const rp = total ? Math.round((ready / total) * 100) : 0;
-  const sp = total ? Math.round((submitted / total) * 100) : 0;
-  const qp = total ? Math.round((queued / total) * 100) : 0;
+// Partiya turi yorlig'i — literal sinflar (Tailwind JIT interpolatsiyani ko'rmaydi).
+const KIND_META: Record<JobKind, { label: string; hint: string; cls: string }> = {
+  suit: { label: 'Qoralama', hint: 'ADOLAT «Murojaatlarim»da qoralama tayyorlanmoqda — sudga yuborilmaydi', cls: 'bg-teal-500/15 text-teal-700 dark:text-teal-300' },
+  draft: { label: 'Qoralama (eski usul)', hint: '«Qoralamalar» wizard qoralamasi (save-suit’siz) — sudga yuborilmaydi', cls: 'bg-teal-500/15 text-teal-700 dark:text-teal-300' },
+  send: { label: 'Sudga o‘tkazish', hint: '«Sudga o‘tkazish» tabidan E-IMZO bilan real yuborish ketmoqda — Go u tugagach davom etadi', cls: 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300' },
+  real: { label: 'Real yuborish (eski)', hint: 'Eski real yuborish partiyasi — Go u tugagach davom etadi', cls: 'bg-rose-500/15 text-rose-700 dark:text-rose-300' },
+};
+
+// Oxirgi partiya holati: FAILED — hech biri chiqmadi (ko'pincha sessiya/claimant — fatal);
+// DONE + «XATO» — qisman; DONE — hammasi joyida. CANCELED — operator to'xtatgan.
+function batchTone(b: LastBatch): 'ok' | 'partial' | 'failed' | 'canceled' {
+  if (b.status === 'FAILED') return 'failed';
+  if (b.status === 'CANCELED') return 'canceled';
+  return /XATO/i.test(b.message ?? '') ? 'partial' : 'ok';
+}
+const BATCH_CLS: Record<ReturnType<typeof batchTone>, string> = {
+  ok: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+  partial: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+  failed: 'bg-rose-500/15 text-rose-700 dark:text-rose-300',
+  canceled: 'bg-slate-500/12 text-slate-600 dark:text-slate-300',
+};
+const BATCH_LABEL: Record<ReturnType<typeof batchTone>, string> = {
+  ok: 'oxirgi partiya: tayyor',
+  partial: 'oxirgi partiya: qisman xato',
+  failed: 'oxirgi partiya: xato',
+  canceled: 'oxirgi partiya: to‘xtatilgan',
+};
+
+function Bar({ sendable, ready, queued, submitted, total }: { sendable: number; ready: number; queued: number; submitted: number; total: number }) {
+  const pct = (x: number) => (total ? Math.round((x / total) * 100) : 0);
+  // Legend 4 rangni ko'rsatardi, chiziq esa 3 tasini chizardi («tayyor» yo'q edi) — endi mos.
   return (
     <span className="flex h-1.5 min-w-[60px] flex-1 overflow-hidden rounded-full bg-surface-2" aria-hidden>
-      <span className="h-full bg-indigo-500" style={{ width: `${sp}%` }} />
-      <span className="h-full bg-teal-500" style={{ width: `${rp}%` }} />
-      <span className="h-full bg-amber-500" style={{ width: `${qp}%` }} />
+      <span className="h-full bg-indigo-500" style={{ width: `${pct(submitted)}%` }} />
+      <span className="h-full bg-teal-500" style={{ width: `${pct(ready)}%` }} />
+      <span className="h-full bg-amber-500" style={{ width: `${pct(queued)}%` }} />
+      <span className="h-full bg-emerald-500" style={{ width: `${pct(sendable)}%` }} />
     </span>
   );
 }
 
-export default function DraftAutoPanel() {
+export default function DraftAutoPanel({ visible = true }: { visible?: boolean }) {
   const t = useT();
   const [data, setData] = useState<Status | null>(null);
   const [busy, setBusy] = useState(false);
@@ -52,10 +86,13 @@ export default function DraftAutoPanel() {
   }, []);
 
   useEffect(() => {
+    if (!visible) return; // sud tabi yashirin — umuman so'ramaymiz (ochilganda darhol yuklanadi)
     void load();
-    const t = setInterval(load, 12000);
-    return () => clearInterval(t);
-  }, [load]);
+    // Yashirin oynada (boshqa brauzer tabi) so'ramaymiz — GET butun courtReadiness'ni hisoblaydi
+    // (og'ir), 12 soniyada bir har ochiq oynadan kelardi.
+    const id = setInterval(() => { if (typeof document === 'undefined' || !document.hidden) void load(); }, 12000);
+    return () => clearInterval(id);
+  }, [load, visible]);
 
   const toggle = async () => {
     if (!data || busy) return;
@@ -88,13 +125,18 @@ export default function DraftAutoPanel() {
   if (!data && !err) return null;
   const on = data?.on === true;
   const active = data?.active ?? null;
+  // Eski javob (kind'siz) — draftMode'dan taxmin qilamiz.
+  const activeKind: JobKind | null = active ? (active.kind ?? (active.draftMode ? 'suit' : 'real')) : null;
   const totalDraftReady = (data?.firms ?? []).reduce((s, f) => s + f.draftReady, 0);
   // «Tayyor» = hujjati to'liq, hali qoralama/yuborilmagan — «Go»da AYNAN shular qoralama qilinadi.
   const totalSendable = (data?.firms ?? []).reduce((s, f) => s + (f.sendable ?? 0), 0);
-  // «Navbatda» = allaqachon partiyaga olingan, ayni damда real ishga aylantirilyapti. Buni
+  // «Navbatda» = allaqachon partiyaga olingan, ayni damda qoralamaga aylantirilyapti. Buni
   // yuqorida ko'rsatmasak, «Go» hammasini navbatga tortib olganda firma «Tayyor 0» ko'rinib,
   // uchayotgan ishlar g'oyib bo'lganday chalkashtirardi (pastdagi kartada 199, yuqorida 0).
   const totalQueued = (data?.firms ?? []).reduce((s, f) => s + (f.queued ?? 0), 0);
+  // Oxirgi qoralama partiyasi yiqilgan firmalar — sarlavhada alohida (Monitoring yopiq bo'lsa ham).
+  const failedFirms = (data?.firms ?? []).filter((f) => f.lastBatch && batchTone(f.lastBatch) === 'failed');
+  const nextAttemptAt = data?.backoff?.nextAttemptAt ?? null;
 
   return (
     <div className={`rounded-xl border transition-colors ${on ? 'border-teal-500/45 bg-teal-500/[0.05]' : 'border-line bg-surface'}`}>
@@ -114,7 +156,7 @@ export default function DraftAutoPanel() {
               </span>
             )}
             {totalQueued > 0 && (
-              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-amber-700 dark:text-amber-300" title={t('Navbatga olingan — ayni damда real ishga aylantirilyapti')}>
+              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-amber-700 dark:text-amber-300" title={t('Navbatga olingan — ayni damda qoralama tayyorlanmoqda')}>
                 {n(totalQueued)} {t('navbatda')}
               </span>
             )}
@@ -123,12 +165,13 @@ export default function DraftAutoPanel() {
                 {n(totalDraftReady)} {t('qoralama tayyor')}
               </span>
             )}
-            {active && (
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-sky-500/15 px-2 py-0.5 text-[11px] font-semibold text-sky-700 ring-1 ring-sky-500/30 dark:text-sky-300" title={t('Ayni damда ishlanayotgan firma')}>
+            {active && activeKind && (
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-sky-500/15 px-2 py-0.5 text-[11px] font-semibold text-sky-700 ring-1 ring-sky-500/30 dark:text-sky-300" title={active.message ?? t('Ayni damda ishlanayotgan firma')}>
                 <span className="relative flex h-2 w-2" aria-hidden>
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-500/70" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-sky-500" />
                 </span>
+                <span className={`rounded px-1 py-px text-[10px] font-semibold ${KIND_META[activeKind].cls}`} title={t(KIND_META[activeKind].hint)}>{t(KIND_META[activeKind].label)}</span>
                 {active.firmName} — {n(active.progress)}/{n(active.total)}
                 {active.total > 0 && (
                   <span className="ml-0.5 h-1 w-10 overflow-hidden rounded-full bg-sky-500/25" aria-hidden>
@@ -137,11 +180,29 @@ export default function DraftAutoPanel() {
                 )}
               </span>
             )}
+            {failedFirms.length > 0 && (
+              <button type="button" onClick={() => setOpen(true)}
+                className="rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] font-medium text-rose-700 outline-none hover:bg-rose-500/25 focus-visible:ring-2 focus-visible:ring-rose-500/30 dark:text-rose-300"
+                title={failedFirms.map((f) => `${f.firmName}: ${f.lastBatch?.message ?? ''}`).join('\n')}>
+                {n(failedFirms.length)} {t('firmada oxirgi partiya xato')}
+              </button>
+            )}
           </div>
+          {/* Nega hozir hech narsa ketmayapti — aniq sabab (operator «qotib qoldi» deb o'ylamasin). */}
+          {active && (activeKind === 'send' || activeKind === 'real') && on && (
+            <p className="mt-1 text-[11px] leading-snug text-indigo-700 dark:text-indigo-300">{t('Hozir sudga yuborish partiyasi ketmoqda — bir vaqtda bitta partiya ishlaydi, Go u tugagach o‘zi davom etadi.')}</p>
+          )}
+          {nextAttemptAt && (
+            <p className="mt-1 text-[11px] leading-snug text-amber-700 dark:text-amber-300" role="status">
+              {t('Portal vaqtincha bloklagan (ketma-ket xatolar) — navbatni avtomat davom ettirish')} {hhmm(nextAttemptAt)} {t('dan keyin qayta uriniladi.')}
+            </p>
+          )}
+          {err && <p className="mt-1 text-[11px] text-rose-500" role="alert">{t('Holat yangilanmadi:')} {err}</p>}
         </div>
         <button
           onClick={toggle}
           disabled={busy || !data}
+          title={on ? t('Yangi qoralama partiyalari boshlanmaydi (ketayotgani tugaydi)') : t('Tayyor ishlar uchun ADOLAT «Murojaatlarim»da qoralama tayyorlash — 24/7, sudga yuborilmaydi')}
           className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-3.5 py-1.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 disabled:opacity-50 ${
             on
               ? 'border-rose-500/45 text-rose-600 hover:bg-rose-500/10 focus-visible:ring-rose-500/30 dark:text-rose-300'
@@ -171,36 +232,54 @@ export default function DraftAutoPanel() {
               </span>
             </div>
             <ul className="space-y-1">
-              {data.firms.map((f) => (
-                <li key={f.firmId} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11px] ${f.paused ? 'bg-rose-500/[0.06] opacity-70' : f.active ? 'bg-sky-500/10 ring-1 ring-inset ring-sky-500/35' : 'bg-surface-2'}`}>
-                  <button
-                    onClick={() => toggleFirm(f.firmId, f.paused)}
-                    disabled={firmBusy === f.firmId}
-                    title={f.paused ? t('Bu firmani davom ettirish') : t('Bu firmani to‘xtatish (boshqalari ketaveradi)')}
-                    className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded outline-none transition-colors focus-visible:ring-2 disabled:opacity-40 ${f.paused ? 'text-rose-600 hover:bg-rose-500/15 focus-visible:ring-rose-500/30 dark:text-rose-300' : 'text-muted hover:bg-surface hover:text-fg focus-visible:ring-teal-500/30'}`}
-                  >
-                    {f.paused
-                      ? <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M8 5v14l11-7z" /></svg>
-                      : <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>}
-                  </button>
-                  <span className={`min-w-0 flex-1 truncate font-medium ${f.paused ? 'text-muted' : f.active ? 'text-sky-700 dark:text-sky-300' : ''}`} title={f.firmName}>{f.firmName}</span>
-                  {f.active && !f.paused && (
-                    <span className="inline-flex shrink-0 items-center gap-1 rounded bg-sky-500/15 px-1 py-0.5 text-[9px] font-semibold text-sky-700 dark:text-sky-300" title={t('Ayni damда ishlanyapti')}>
-                      <span className="relative flex h-1.5 w-1.5" aria-hidden>
-                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-500/70" />
-                        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-sky-500" />
-                      </span>
-                      {active ? `${n(active.progress)}/${n(active.total)}` : t('ketyapti')}
-                    </span>
-                  )}
-                  {f.paused && <span className="shrink-0 rounded bg-rose-500/15 px-1 py-0.5 text-[9px] font-medium text-rose-700 dark:text-rose-300">{t('pauza')}</span>}
-                  <Bar ready={f.draftReady} queued={f.queued} submitted={f.submitted} total={f.total} />
-                  <span className="w-8 shrink-0 text-right tabular-nums text-emerald-600 dark:text-emerald-400" title={t('Tayyor — hali navbatga olinmagan')}>{n(f.sendable)}</span>
-                  <span className="w-8 shrink-0 text-right tabular-nums text-amber-600 dark:text-amber-400" title={t('Navbatda — real ishga aylantirilyapti')}>{n(f.queued)}</span>
-                  <span className="w-8 shrink-0 text-right tabular-nums text-teal-600 dark:text-teal-400" title={t('Qoralama tayyor')}>{n(f.draftReady)}</span>
-                  <span className="w-8 shrink-0 text-right tabular-nums text-indigo-600 dark:text-indigo-400" title={t('Sudda')}>{n(f.submitted)}</span>
-                </li>
-              ))}
+              {data.firms.map((f) => {
+                const lb = f.lastBatch ?? null;
+                const tone = lb ? batchTone(lb) : null;
+                return (
+                  <li key={f.firmId} className={`rounded-lg px-2 py-1.5 text-[11px] ${f.paused ? 'bg-rose-500/[0.06] opacity-70' : f.active ? 'bg-sky-500/10 ring-1 ring-inset ring-sky-500/35' : 'bg-surface-2'}`}>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => toggleFirm(f.firmId, f.paused)}
+                        disabled={firmBusy === f.firmId}
+                        title={f.paused ? t('Bu firmani davom ettirish') : t('Bu firmani to‘xtatish (boshqalari ketaveradi)')}
+                        aria-label={f.paused ? t('Bu firmani davom ettirish') : t('Bu firmani to‘xtatish (boshqalari ketaveradi)')}
+                        className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded outline-none transition-colors focus-visible:ring-2 disabled:opacity-40 ${f.paused ? 'text-rose-600 hover:bg-rose-500/15 focus-visible:ring-rose-500/30 dark:text-rose-300' : 'text-muted hover:bg-surface hover:text-fg focus-visible:ring-teal-500/30'}`}
+                      >
+                        {f.paused
+                          ? <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M8 5v14l11-7z" /></svg>
+                          : <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>}
+                      </button>
+                      <span className={`min-w-0 flex-1 truncate font-medium ${f.paused ? 'text-muted' : f.active ? 'text-sky-700 dark:text-sky-300' : ''}`} title={f.firmName}>{f.firmName}</span>
+                      {f.active && !f.paused && (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded bg-sky-500/15 px-1 py-0.5 text-[9px] font-semibold text-sky-700 dark:text-sky-300" title={t('Ayni damda ishlanyapti')}>
+                          <span className="relative flex h-1.5 w-1.5" aria-hidden>
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-500/70" />
+                            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-sky-500" />
+                          </span>
+                          {active ? `${n(active.progress)}/${n(active.total)}` : t('ketyapti')}
+                        </span>
+                      )}
+                      {f.paused && <span className="shrink-0 rounded bg-rose-500/15 px-1 py-0.5 text-[9px] font-medium text-rose-700 dark:text-rose-300">{t('pauza')}</span>}
+                      <Bar sendable={f.sendable} ready={f.draftReady} queued={f.queued} submitted={f.submitted} total={f.total} />
+                      <span className="w-8 shrink-0 text-right tabular-nums text-emerald-600 dark:text-emerald-400" title={t('Tayyor — hali navbatga olinmagan')}>{n(f.sendable)}</span>
+                      <span className="w-8 shrink-0 text-right tabular-nums text-amber-600 dark:text-amber-400" title={t('Navbatda — qoralama tayyorlanmoqda')}>{n(f.queued)}</span>
+                      <span className="w-8 shrink-0 text-right tabular-nums text-teal-600 dark:text-teal-400" title={t('Qoralama tayyor')}>{n(f.draftReady)}</span>
+                      <span className="w-8 shrink-0 text-right tabular-nums text-indigo-600 dark:text-indigo-400" title={t('Sudda')}>{n(f.submitted)}</span>
+                    </div>
+                    {/* OXIRGI qoralama partiyasi natijasi — Go xatosi (sessiya tugagan, claimant yo'q,
+                        firma hujjati...) shu yerda so'zma-so'z ko'rinadi. */}
+                    {lb && tone && (
+                      <div className="mt-1 flex min-w-0 items-center gap-1.5 pl-7 text-[10px]">
+                        <span className={`shrink-0 rounded px-1 py-px font-semibold ${BATCH_CLS[tone]}`}>{t(BATCH_LABEL[tone])}</span>
+                        <span className="shrink-0 tabular-nums text-muted">#{lb.jobId} · {hhmm(lb.finishedAt)}</span>
+                        {lb.message && (
+                          <span className={`min-w-0 truncate ${tone === 'failed' ? 'text-rose-600 dark:text-rose-300' : 'text-muted'}`} title={lb.message}>{lb.message}</span>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </div>
           {/* SUD kesimida */}
@@ -219,9 +298,9 @@ export default function DraftAutoPanel() {
               {data.courts.map((c) => (
                 <li key={c.courtId} className="flex items-center gap-2 rounded-lg bg-surface-2 px-2 py-1.5 text-[11px]">
                   <span className="min-w-0 flex-1 truncate font-medium" title={c.courtName}>{c.courtName}</span>
-                  <Bar ready={c.draftReady} queued={c.queued} submitted={c.submitted} total={c.total} />
+                  <Bar sendable={c.sendable} ready={c.draftReady} queued={c.queued} submitted={c.submitted} total={c.total} />
                   <span className="w-8 shrink-0 text-right tabular-nums text-emerald-600 dark:text-emerald-400" title={t('Tayyor — hali navbatga olinmagan')}>{n(c.sendable)}</span>
-                  <span className="w-8 shrink-0 text-right tabular-nums text-amber-600 dark:text-amber-400" title={t('Navbatda — real ishga aylantirilyapti')}>{n(c.queued)}</span>
+                  <span className="w-8 shrink-0 text-right tabular-nums text-amber-600 dark:text-amber-400" title={t('Navbatda — qoralama tayyorlanmoqda')}>{n(c.queued)}</span>
                   <span className="w-8 shrink-0 text-right tabular-nums text-teal-600 dark:text-teal-400" title={t('Qoralama tayyor')}>{n(c.draftReady)}</span>
                   <span className="w-8 shrink-0 text-right tabular-nums text-indigo-600 dark:text-indigo-400" title={t('Sudda')}>{n(c.submitted)}</span>
                 </li>

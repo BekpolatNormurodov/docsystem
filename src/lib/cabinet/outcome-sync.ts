@@ -136,6 +136,12 @@ export async function syncCourtOutcomes(firmId: number): Promise<OutcomeSyncResu
       // (sendable = ready && !exported && ...).
       delete meta.exportedAt;
       delete meta.cabinetSubmittedAt;
+      // Qoralama belgilari ham tozalanadi (resetDeclinedForResend bilan bir xil): «Sudga o'tkazish»
+      // (2026-09-19) yuborgan ishda suitReadyAt qoladi — u turganda court-ready ishni «Qoralama tayyor»
+      // deb sanaydi va rad etilgan ish hech qachon qayta qoralamaga chiqmasdi. Eski suit id'si
+      // declinedCaseId'da saqlanadi.
+      delete meta.suitReadyAt;
+      delete meta.draftReadyAt;
       meta.declinedAt = new Date().toISOString();
       meta.declinedCaseId = c.courtCaseId;
       await prisma.arizaCase.update({

@@ -7,6 +7,7 @@ import { runPacketJob, runOfertaJob, runOfertaJobByLoans, runTalabnomaJob, type 
 import { runTalabnomaFormJob } from './talabnoma-form/job';
 import { runMibReportJob } from './mib/run';
 import { runCourtSubmitJob } from './court-submit-job';
+import { runSendSuitsJob } from './court-send-suits';
 import type { CaseStage } from '@prisma/client';
 
 const intArr = (v: unknown): number[] => (Array.isArray(v) ? v.map(Number).filter((x) => Number.isInteger(x) && x > 0) : []);
@@ -17,6 +18,27 @@ export async function runJobById(jobId: number): Promise<void> {
   const p = (job.params ?? {}) as Record<string, unknown>;
 
   if (job.type === 'COURT_SUBMIT') {
+    // «SUDGA O'TKAZISH» (2026-09-19): saqlangan suit'ni send-to-court — ALOHIDA dvigatel. Bu shox
+    // ENG BIRINCHI turadi: sendSuits partiyasi hech qachon runCourtSubmitJob'ga tushmasligi SHART
+    // (u qoralama + save-suit qiladi — ya'ni o'sha odamga IKKINCHI suit ochilardi).
+    if (p.sendSuits === true) {
+      await runSendSuitsJob(jobId, {
+        firmId: Number(p.firmId),
+        caseIds: intArr(p.caseIds),
+        userId: p.userId != null && Number.isInteger(Number(p.userId)) ? Number(p.userId) : null,
+      });
+      return;
+    }
+    // ESKI REAL YO'L YOPIQ (2026-09-19): rejimsiz (suit/draft/dryRun emas) COURT_SUBMIT — yangi save-suit
+    // + send-to-court. Sudga faqat «Sudga o'tkazish» (sendSuits, E-IMZO + jonli tekshiruv) orqali yuboriladi.
+    // Job qayerdan kelmasin (eski skript, qolib ketgan PENDING job) — BAJARILMAYDI, sababi yoziladi.
+    if (p.suitMode !== true && p.draftMode !== true && p.dryRun !== true) {
+      await prisma.job.update({
+        where: { id: jobId },
+        data: { status: 'FAILED', message: "Real yuborish bu yo'l bilan o'chirilgan — sudga faqat «Sudga o'tkazish» tabidan (E-IMZO bilan) yuboriladi." },
+      });
+      return;
+    }
     const opts = {
       firmId: Number(p.firmId),
       snapshotId: p.snapshotId != null ? Number(p.snapshotId) : undefined,

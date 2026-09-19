@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { Ico, NAV_ICONS } from './icons';
 import { ThemeToggle } from './ThemeToggle';
 import { Logo } from './Logo';
@@ -142,6 +142,21 @@ export function AppShell({
   // Exact match OR a nested sub-route (href + '/…'). NOT a bare prefix — otherwise the «/mib» step
   // lights up on «/mib-hisoboti» (and «/talabnoma» on «/talabnoma-shakllantirish»), which are separate.
   const isActive = (href: string) => (href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(href + '/'));
+  // Sub-item href'i QUERY bilan bo'lishi mumkin (2026-09-19: «Qaytganlar» = /sud?tab=qaytgan — /sud
+  // ichidagi tab). Faol = path teng VA href'dagi har query juftligi joriy URL'da bor. Query'siz
+  // qo'shni (/sud «Sudga yuborish») esa, shu path'dagi query'li qo'shnisi mos kelsa, faol EMAS —
+  // ikkalasi birga yonmasin. Query'siz href'lar uchun xatti-harakat avvalgidek (pathname === href).
+  const searchParams = useSearchParams();
+  const subMatches = (href: string) => {
+    const [path, query] = href.split('?');
+    if (pathname !== path) return false;
+    if (!query) return true;
+    let ok = true;
+    new URLSearchParams(query).forEach((v, k) => { if (searchParams?.get(k) !== v) ok = false; });
+    return ok;
+  };
+  const isSubActive = (href: string, siblings: { href: string }[]) =>
+    subMatches(href) && (href.includes('?') || !siblings.some((s) => s.href !== href && s.href.includes('?') && subMatches(s.href)));
   const current = nav.find((n) => isActive(n.href));
 
   const topItems = nav.filter((i) => !i.bottom);
@@ -247,7 +262,7 @@ export function AppShell({
                   <span aria-hidden className="absolute left-[26px] top-0 bottom-3 w-px bg-line" />
                   <div className="space-y-0.5 pl-[38px]">
                     {item.children.map((c) => {
-                      const subActive = pathname === c.href;
+                      const subActive = isSubActive(c.href, item.children ?? []);
                       // Ruxsat yo'q — bosib bo'lmaydigan X qatori (foydalanuvchi so'rovi).
                       if (c.locked) {
                         return (
@@ -289,7 +304,7 @@ export function AppShell({
                 {rail && (
                   <div className="hidden lg:flex lg:flex-col lg:items-center lg:gap-1.5 lg:pb-1.5">
                     {item.children.map((c) => {
-                      const subActive = pathname === c.href;
+                      const subActive = isSubActive(c.href, item.children ?? []);
                       return (
                         <Link
                           key={c.href}

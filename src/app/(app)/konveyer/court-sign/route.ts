@@ -18,8 +18,26 @@ const digits = (s?: string | null) => (s ?? '').replace(/\D+/g, '');
 // key and enters its password (native E-IMZO dialog). A successful sign both proves
 // the firm's key is present AND refreshes the stored adolat session. Only after this
 // does CourtManager start the packet export. Guarded by the 'sud' step (admins pass).
+//
+// 2026-09-19 — SERVER TOMONDAGI ATTESTATSIYA. Ilgari imzo faqat brauzerda «darvoza» edi: job
+// yaratuvchi route'lar imzo bo'lgan-bo'lmaganini bilmasdi (sessiya yangilangan vaqt ham ishonchli
+// emas — lastUsedAt/updatedAt har foydalanishda o'zgaradi). Endi muvaffaqiyatli imzodan keyin
+// Setting `court_send_attest:<firmId>` = {userId, at, verified} yoziladi va «Sudga o'tkazish»
+// (/konveyer/sud-send POST) faqat SHU foydalanuvchining ≤10 daqiqalik, tasdiqlangan yozuvi bilan
+// real yuborish partiyasini yaratadi.
+async function writeSendAttestation(firmId: number, userId: number, verified: boolean): Promise<void> {
+  const key = `court_send_attest:${firmId}`;
+  const value = JSON.stringify({ userId, at: new Date().toISOString(), verified });
+  try {
+    await prisma.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
+  } catch (e) {
+    // Yozilmasa imzo javobi buzilmaydi — faqat «Sudga o'tkazish» tasdiq yo'q deb rad etadi (fail-closed).
+    console.error(`court-sign firm ${firmId}: attestatsiya yozilmadi —`, e instanceof Error ? e.message : e);
+  }
+}
+
 export async function POST(req: NextRequest) {
-  await requireStep('sud:send');
+  const user = await requireStep('sud:send');
   const t = getT();
   const body = await req.json().catch(() => ({}));
   const firmId = Number(body?.firmId);
@@ -48,6 +66,7 @@ export async function POST(req: NextRequest) {
     try {
       const s = await authenticateCabinet(undefined, account, { challengeId: String(body?.challengeId || ''), pkcs7, cert });
       const verified = s.verified === true;
+      await writeSendAttestation(firmId, user.id, verified);
       await audit(AuditAction.CONNECT, { target: `firm:${firmId}`, detail: { provider: 'CABINET', account, purpose: 'court-sign', mode: 'client', verified } });
       return NextResponse.json({ ok: true, provider: 'CABINET', account, verified, keyCn: s.key.info.cn, org: s.key.info.org });
     } catch (e) {
@@ -73,8 +92,12 @@ export async function POST(req: NextRequest) {
 
   try {
     const s = await authenticateCabinet(selector, account);
-    await audit(AuditAction.CONNECT, { target: `firm:${firmId}`, detail: { provider: 'CABINET', account, purpose: 'court-sign' } });
-    return NextResponse.json({ ok: true, provider: 'CABINET', account, keyCn: s.key.info.cn, org: s.key.info.org });
+    // SERVER rejimida kalitni SERVERNING o'zi (CAPIWS) o'qiydi va imzolaydi — sertifikat mijoz
+    // tomonidan da'vo qilinmaydi. Tasdiq = imzolagan kalit STIRi firma STIRiga teng (server o'qigan).
+    const verified = digits(s.key?.info?.tin) === account;
+    await writeSendAttestation(firmId, user.id, verified);
+    await audit(AuditAction.CONNECT, { target: `firm:${firmId}`, detail: { provider: 'CABINET', account, purpose: 'court-sign', verified } });
+    return NextResponse.json({ ok: true, provider: 'CABINET', account, verified, keyCn: s.key.info.cn, org: s.key.info.org });
   } catch (e) {
     const msg = e instanceof Error ? e.message : t('E-IMZO imzo qoʻyilmadi');
     console.error(`court-sign firm ${firmId} failed:`, msg);

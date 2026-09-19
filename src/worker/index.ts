@@ -11,6 +11,7 @@ import { ingestCabinetStatuses } from '../lib/cabinet/status-ingest';
 import { SessionExpiredError } from '../lib/session-store';
 import { autoResumeTick } from '../lib/court-auto-resume';
 import { draftAutoTick } from '../lib/court-draft-auto';
+import { recoverInterruptedSendJob, sweepOrphanSending, isSendInFlight, requestSendShutdown } from '../lib/court-send-suits';
 import { syncCourtOutcomes, resetDeclinedForResend } from '../lib/cabinet/outcome-sync';
 import { getStoredHippoSession } from '../lib/hippo/session';
 import { ingestHippoStatuses } from '../lib/hippo/status-ingest';
@@ -221,13 +222,18 @@ async function resetInterruptedCourtJobs(): Promise<void> {
   // Shuning uchun har startda solishtiramiz: navbatda TUGAMAGAN (PENDING/FAILED) va bosqichi
   // sudda BO'LMAGAN ishlarning courtSentAt'i tozalanadi. Haqiqatan yuborilganlar (DONE yoki
   // stage=COURT_SUBMITTED) tegilmaydi — ular limitni haqli ravishda band qiladi.
-  const stale = await prisma.courtQueueItem.findMany({
+  //
+  // 2026-09-19: «Sudga o'tkazish» (sendSuits) ishlari bu yerda TEGILMAYDI, agar ular SENDING/CHECK
+  // bo'lsa — PUT portalga ketgan-ketmagani noma'lum, ya'ni ish sudda bo'lishi mumkin va uning limiti
+  // haqli band. Ularning navbat yozuvi (suit-tayyorlashdan qolgan) FAILED bo'lishi mumkin, shuning
+  // uchun faqat navbat holatiga qarab bo'shatish ularni noto'g'ri ozod qilardi.
+  const stale = (await prisma.courtQueueItem.findMany({
     where: {
       state: { in: ['PENDING', 'FAILED'] },
       case: { courtSentAt: { not: null }, stage: { not: 'COURT_SUBMITTED' } },
     },
-    select: { caseId: true },
-  });
+    select: { caseId: true, case: { select: { meta: true } } },
+  })).filter((x) => !isSendInFlight(x.case?.meta));
   if (stale.length) {
     await prisma.arizaCase.updateMany({ where: { id: { in: stale.map((x) => x.caseId) } }, data: { courtSentAt: null } });
     console.log(`[worker] ${stale.length} ta yuborilmagan ishning kunlik limiti bo'shatildi`);
@@ -274,7 +280,31 @@ async function resetInterruptedCourtJobs(): Promise<void> {
     console.log(`[worker] ${zombie.count} ta osilib qolgan «ketyapti» yozuvi navbatga qaytarildi`);
   }
 
-  const jobs = await prisma.job.findMany({ where: { status: 'RUNNING', type: 'COURT_SUBMIT' }, select: { id: true, progress: true, total: true } });
+  const allJobs = await prisma.job.findMany({ where: { status: 'RUNNING', type: 'COURT_SUBMIT' }, select: { id: true, progress: true, total: true, params: true } });
+
+  // «SUDGA O'TKAZISH» partiyalari (params.sendSuits) — O'Z tiklash yo'li (2026-09-19). Ular
+  // CourtQueueItem ishlatmaydi (holat ArizaCase.meta.courtSend'da), avto-davom ettirilmaydi (inson
+  // tasdig'i o'sha partiya uchun edi), SENDING'dagi ish CHECK bo'ladi (PUT natijasi noma'lum —
+  // limit saqlanadi), yuborilganlarga (courtCaseId) tegilmaydi. Pastdagi umumiy xabar «qaytadan
+  // bosing, takrorlanmaydi» ular uchun noto'g'ri bo'lardi.
+  const isSend = (j: { params: unknown }) => (j.params as { sendSuits?: boolean } | null)?.sendSuits === true;
+  for (const j of allJobs.filter(isSend)) {
+    try {
+      const r = await recoverInterruptedSendJob(j.id);
+      console.warn(`[worker] uzilgan sudga-o'tkazish partiyasi #${j.id}: ${r.check} ta ish «tekshirish kerak», ${r.released} ta limit bo'shatildi`);
+    } catch (e) {
+      console.error(`[worker] sudga-o'tkazish partiyasi #${j.id} tiklash xatosi`, e);
+    }
+  }
+  // Job'i yopilgan, lekin SENDING'da qolib ketgan ishlar (yakuniy yozuv yiqilgan) → CHECK.
+  try {
+    const n = await sweepOrphanSending();
+    if (n) console.warn(`[worker] ${n} ta «yuborilmoqda»da qolgan ish «tekshirish kerak» qilindi`);
+  } catch (e) {
+    console.error('[worker] SENDING sweep xatosi', e);
+  }
+
+  const jobs = allJobs.filter((j) => !isSend(j));
   if (jobs.length === 0) return;
   for (const j of jobs) {
     await prisma.job.update({
@@ -404,6 +434,8 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
     if (stopping) return;
     console.log(`[worker] ${sig} — finishing current job then exiting`);
     stopping = true;
+    // Sudga o'tkazish partiyasi keyingi PUT'dan OLDIN to'xtasin (ish o'rtasida o'ldirilib CHECK qolmasin).
+    requestSendShutdown();
   });
 }
 

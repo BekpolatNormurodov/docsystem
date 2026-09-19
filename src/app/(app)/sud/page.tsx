@@ -1,38 +1,50 @@
-import { requireAccess } from '@/lib/auth';
-import { getT } from '@/lib/i18n/server';
-import { ExcelButton } from '@/ui';
+import { redirect } from 'next/navigation';
+import { requireUser } from '@/lib/auth';
+import { canAccess, landingHref } from '@/lib/access';
 import { loadStageData } from '../konveyer/stage-data';
-import { CourtManager } from '../konveyer/CourtManager';
-import { courtReadiness, courtStatusBoard, courtReturns } from '@/lib/court-ready';
+import { SudTabs, type SudTabKey } from '../konveyer/SudTabs';
+import { courtReadiness } from '@/lib/court-ready';
 
 export const dynamic = 'force-dynamic';
 
-export default async function SudPage({ searchParams }: { searchParams: { s?: string } }) {
-  const t = getT();
-  await requireAccess('sud:send');
+// /sud — 3 tab: Qaytganlar · Qoralama (1 qadam) · Sudga o'tkazish (2026-09-19). Deep link:
+// /sud?tab=qaytgan|qoralama|sud&firm=<id>&s=<snapshot>.
+//
+// RUXSAT — tab bo'yicha: sud:send (2- va 3-tab) va sud:returns (1-tab, eski /sud/qaytganlar).
+// `requireAccess('sud:send')` ATAYIN ishlatilmaydi: faqat «Qaytganlar» berilgan yurist uchun
+// landingHref = /sud/qaytganlar → bu yerga redirect → sud:send yo'q → yana landingHref …
+// cheksiz redirect bo'lardi. Shuning uchun redirect'siz tekshiruv (canAccess): ikkalasi ham yo'q
+// bo'lsa — landing'ga; bittasi bo'lsa sahifa ochiladi, ruxsatsiz tab «ruxsat yo'q» deydi.
+export default async function SudPage({ searchParams }: { searchParams: { s?: string; tab?: string; firm?: string } }) {
+  const user = await requireUser();
+  const canSend = canAccess(user, 'sud:send');
+  const canReturns = canAccess(user, 'sud:returns');
+  if (!canSend && !canReturns) redirect(landingHref(user) ?? '/login');
+
   const d = await loadStageData('COURT', searchParams.s);
 
-  // Server-render the initial (firm=all) court-ready payload so CourtManager paints with
-  // real numbers immediately and skips its on-mount fetch (one fewer round-trip, no spinner).
-  const [readiness, statusBoard, returns] = await Promise.all([
-    courtReadiness(d.selectedId),
-    courtStatusBoard(d.selectedId),
-    courtReturns(d.selectedId),
-  ]);
-  const initialData = { snapshotId: d.selectedId, readiness, statusBoard, returns };
+  const raw = searchParams.tab;
+  const initialTab: SudTabKey = raw === 'qaytgan' || raw === 'qoralama' || raw === 'sud' ? raw : canSend ? 'qoralama' : 'qaytgan';
+  const firmNum = Number(searchParams.firm);
+  const initialFirmId = Number.isInteger(firmNum) && d.firms.some((f) => f.firmId === firmNum) ? firmNum : null;
+
+  // 2-tab uchun court-ready'ni server-render qilamiz (CourtManager mount-fetch'siz, darhol sonlar
+  // bilan chiziladi; tepadagi 5 bosqich ham shundan). Firma ?firm= bo'lsa — o'sha firma bo'yicha,
+  // CourtManager'ning boshlang'ich filtri bilan mos. Avvalgi courtStatusBoard/courtReturns
+  // so'rovlari olib tashlandi — ular /sud'da hech qachon ko'rsatilmasdi (o'lik «stat»/«returns»).
+  const initialData = canSend
+    ? { snapshotId: d.selectedId, readiness: await courtReadiness(d.selectedId, initialFirmId ?? undefined) }
+    : null;
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold tracking-tight">{t('Sud (adolat)')}</h1>
-        {/* Sud roʻyxati (excluded=1) boʻyicha portfel-analitik forma (форма_суд) — tanlangan snapshot + til. */}
-        <ExcelButton href="/sud/forma" label="Sud formasi (Excel)" />
-      </div>
-
-      {/* Firma boʻyicha tayyorlik (xulosa) + har firma «Batafsil» → mijozlar drilldown + status board.
-          Avvalgi 2-mijozlar-roʻyxati (StageView) olib tashlandi — CourtManager firma-statistikasi va
-          drilldown yagona manba (takror emas). */}
-      <CourtManager firms={d.firms} selectedId={d.selectedId} initialData={initialData} tab="send" />
-    </div>
+    <SudTabs
+      firms={d.firms}
+      selectedId={d.selectedId}
+      initialData={initialData}
+      initialTab={initialTab}
+      initialFirmId={initialFirmId}
+      canSend={canSend}
+      canReturns={canReturns}
+    />
   );
 }

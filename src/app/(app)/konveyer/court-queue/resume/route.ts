@@ -3,7 +3,7 @@ import { requireStep } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { enqueueJob } from '@/lib/job-dispatch';
 import { FIRM_REQUIRED_DOCS, FIRM_DOC_LABEL } from '@/lib/court-ready';
-import { isQueuePaused } from '@/lib/cabinet/pacer';
+import { isFirmPaused } from '@/lib/cabinet/pacer';
 import { MAX_COURT_BATCH } from '@/lib/court-batch';
 import { getT } from '@/lib/i18n/server';
 
@@ -23,6 +23,16 @@ export const runtime = 'nodejs';
 // bo'lib turibdi (worker uzilgani, pauza yoki sahifa yangilangani sababli). Bunda YANGI
 // tanlov qilinmaydi — aynan o'sha qolgan ishlar davom ettiriladi, tartibi buzilmaydi va
 // hech narsa takrorlanmaydi.
+//
+// 2026-09-19: REAL REJIM BU YERDAN OLIB TASHLANDI. Real yuborish endi FAQAT «Sudga o'tkazish»
+// (/sud 3-tab, /konveyer/sud-send) orqali — saqlangan suit'ni E-IMZO tasdig'i bilan send-to-court.
+// Eski real navbat ishi (suitMode=false, draftMode=false) bu route orqali davom ettirilsa,
+// runCourtSubmitJob uni TO'LIQ real yo'ldan (yangi qoralama + save-suit + send-to-court) o'tkazardi:
+// prod'da CABINET_ALLOW_SEND_TO_COURT=1, ya'ni umumiy pauza ochilishi bilan (3-tab uchun ochiladi)
+// bu navbat ham uyg'onib ketardi. Endi faqat qoralama/suit (sudga hech narsa yubormaydigan) ishlar
+// davom ettiriladi; faqat real ishlar qolgan bo'lsa — 400 va operatorga yo'l ko'rsatiladi.
+const NO_SEND_ITEM = { OR: [{ suitMode: true }, { draftMode: true }] };
+
 export async function POST(req: NextRequest) {
   await requireStep('sud:send');
   const t = getT();
@@ -32,9 +42,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: t('firmId kerak') }, { status: 400 });
   }
 
-  if (await isQueuePaused()) {
+  // PAUZA: bu route endi faqat qoralama/suit partiya yaratadi — ular sudga yubormaydi, shuning uchun
+  // UMUMIY «Sudga yuborish» pauzasi (real yuborish kaliti) ularni to'smaydi (draftAutoTick va
+  // avto-davom bilan bir xil semantika). FIRMA pauzasi esa har doim hurmat qilinadi: aks holda job
+  // yaratilib, dvigatel ichida darrov «pauza» deb 0 ta ish bilan tugardi.
+  if (await isFirmPaused(firmId)) {
     return NextResponse.json(
-      { error: t('Sudga yuborish jarayoni pauzada. Avval «Davom ettirish» tugmasi bilan yoqing.') },
+      { error: t('Bu firma pauzada. Avval firma pauzasini oching.') },
       { status: 409 },
     );
   }
@@ -82,15 +96,24 @@ export async function POST(req: NextRequest) {
   // Bunday ishni qayta yuborish AYNI ODAMGA IKKINCHI da'vo ochadi. Sud rad etgan ishlarda
   // `courtCaseId` outcome-sync tomonidan tozalanadi (id `meta.declinedCaseId` da qoladi),
   // shuning uchun ular bu filtrdan bemalol o'tadi.
+  const baseWhere = retryFailed
+    ? { firmId, state: 'FAILED' as const, case: { courtCaseId: null } }
+    : { firmId, state: 'PENDING' as const };
   const items = await prisma.courtQueueItem.findMany({
-    where: retryFailed
-      ? { firmId, state: 'FAILED', case: { courtCaseId: null } }
-      : { firmId, state: 'PENDING' },
+    // FAQAT qoralama/suit ishlari (yuqoridagi izoh) — real rejimdagilar tanlanmaydi.
+    where: { ...baseWhere, ...NO_SEND_ITEM },
     select: { caseId: true, draftMode: true, suitMode: true },
     orderBy: { id: 'asc' },
     take: limit,
   });
   if (!items.length) {
+    const realLeft = await prisma.courtQueueItem.count({ where: { ...baseWhere, suitMode: false, draftMode: false } });
+    if (realLeft > 0) {
+      return NextResponse.json(
+        { error: `${t('Real (sudga) yuborish endi faqat «Sudga o‘tkazish» bo‘limida — navbatdagi real ishlar avtomat davom ettirilmaydi.')} (${realLeft})` },
+        { status: 400 },
+      );
+    }
     return NextResponse.json(
       { error: retryFailed ? t('Qayta yuboriladigan (xato bergan) ish yo‘q') : t('Bu firmada navbatda qolgan ish yo‘q') },
       { status: 400 },
@@ -98,12 +121,18 @@ export async function POST(req: NextRequest) {
   }
 
   const caseIds = items.map((i) => i.caseId);
-  // REJIMNI SAQLAYMIZ (real / qoralama / suit). ⛔ XAVFSIZ TOMON: bitta ish ham SEND-TO-COURT
-  // qilMAYDIGAN (suit yoki qoralama) bo'lsa — BUTUN partiya shunday, real sudga TOPSHIRILMAYDI
-  // (env=1). Faqat hammasi real bo'lsagina real. Suit ustun (aralash suit+qoralama → suit).
+  // REJIMNI SAQLAYMIZ (qoralama / suit). Suit ustun (aralash suit+qoralama → suit). Tanlov
+  // yuqorida faqat send-to-court qilMAYDIGAN ishlarga cheklangan — noSend har doim true bo'lishi
+  // kerak; baribir ikkinchi qatlam sifatida tekshiriladi (real partiya bu yerdan HECH QACHON chiqmasin).
   const suitMode = items.some((i) => i.suitMode === true);
   const draftMode = !suitMode && items.some((i) => i.draftMode === true);
   const noSend = suitMode || draftMode;
+  if (!noSend) {
+    return NextResponse.json(
+      { error: t('Real (sudga) yuborish endi faqat «Sudga o‘tkazish» bo‘limida — navbatdagi real ishlar avtomat davom ettirilmaydi.') },
+      { status: 400 },
+    );
+  }
   if (retryFailed) {
     // Urinishlar sanog'i NOLLANADI: bu operatorning ATAYIN qarori (kamchilik tuzatildi),
     // shuning uchun avtomatikaning «3 urinishdan keyin tinch qo'y» qoidasi qaytadan

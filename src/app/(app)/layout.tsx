@@ -4,7 +4,7 @@ import { prisma } from '@/lib/db';
 import { konveyerSnapshots, konveyerStageBadges } from '@/lib/konveyer';
 import { AppShell, ConfirmProvider, HeaderRefreshBadge } from '@/ui';
 import type { NavItem } from '@/ui/AppShell';
-import { STEP_META, allowedSteps, allowedModules, MODULE_META, canAccess, SUBITEM_KEYS, SUBITEM_META, roleLabel } from '@/lib/access';
+import { STEP_META, allowedSteps, allowedModules, MODULE_META, canAccess, SUBITEM_KEYS, SUBITEM_META, roleLabel, type SubItemKey } from '@/lib/access';
 import { buxgalteriyaCounts } from '@/lib/buxgalteriya';
 import { SnapshotPicker } from './konveyer/SnapshotPicker';
 import { LanguageSwitcher } from './LanguageSwitcher';
@@ -23,7 +23,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   // The pipeline steps this user may open, as stepper items (DRY with access.ts).
   // Sidebar sub-items nested under a step (route-based, NOT in-page tabs).
-  const SUB_ITEMS: Record<string, { href: string; label: string }[]> = {
+  // `key` — ruxsat kaliti href'dan topilmasa (query'li href) aniq beriladi.
+  const SUB_ITEMS: Record<string, { href: string; label: string; key?: SubItemKey }[]> = {
     '/ariza': [
       { href: '/ariza', label: 'Arizani tayyorlash' },
       { href: '/ariza/skaner', label: 'Arizalarni skanerlash' },
@@ -32,7 +33,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       { href: '/sud/invoice', label: 'Invoice yaratish' },
       { href: '/sud/oferta', label: 'Oferta tayyorlash' },
       { href: '/sud', label: 'Sudga yuborish' },
-      { href: '/sud/qaytganlar', label: 'Qaytganlar' },
+      // 2026-09-19: «Qaytganlar» — /sud ichidagi 1-tab (alohida sahifa emas). Ruxsat kaliti o'sha
+      // (sud:returns) — href query'li bo'lgani uchun SUBITEM_META.href bo'yicha topilmaydi, aniq beramiz.
+      { href: '/sud?tab=qaytgan', label: 'Qaytganlar', key: 'sud:returns' },
     ],
   };
   // Sub-item href → ruxsat kaliti (masalan /sud/invoice → 'sud:invoice'); qulflashni shu bilan hisoblaymiz.
@@ -46,8 +49,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     // Sub-item'lar: ruxsat bo'lmasa `locked` (sidebar'da X, bosib bo'lmaydi).
     children: (() => {
       const base = SUB_ITEMS[STEP_META[k].href]?.map((c) => {
-        const sk = subKeyByHref.get(c.href);
-        return { ...c, locked: sk ? !canAccess(user, sk) : false };
+        const sk = c.key ?? subKeyByHref.get(c.href);
+        return { href: c.href, label: c.label, locked: sk ? !canAccess(user, sk) : false };
       }) ?? [];
       // Sud ostiga «Buxgalteriya-invoice» — «Invoice yaratish» yonidan (undan keyin). Faqat ruxsatlilar.
       if (k === 'sud' && hasBux) {

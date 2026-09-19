@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
     take: 300,
     select: {
       caseId: true, state: true, lastError: true, draftId: true, caseNumber: true, step: true,
-      attempts: true, startedAt: true, finishedAt: true,
+      attempts: true, startedAt: true, finishedAt: true, draftMode: true, suitMode: true,
       case: { select: { clientName: true, pinfl: true } },
     },
   });
@@ -62,6 +62,9 @@ export async function GET(req: NextRequest) {
       caseNumber: it.caseNumber,
       attempts: it.attempts,
       finishedAt: it.finishedAt,
+      // Rejim — UI qoralama qatorini «Qoralama tayyor» deb, real yuborilganni «Yuborildi» deb ko'rsatadi.
+      draftMode: it.draftMode,
+      suitMode: it.suitMode,
     }))
     .sort((a, b) => (rank[a.state] ?? 9) - (rank[b.state] ?? 9));
 

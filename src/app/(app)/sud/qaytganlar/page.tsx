@@ -1,22 +1,14 @@
-import { requireAccess } from '@/lib/auth';
-import { getT } from '@/lib/i18n/server';
-import { loadStageData } from '../../konveyer/stage-data';
-import { CabinetReturns } from '../../konveyer/CabinetReturns';
+import { redirect } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
 
-// Sud → «Qaytganlar» — cabinet.sud.uz OUTCOME = RETURNED/REFUSED/UNCONSIDERED (the real court
-// returns). Yagona ixcham ro'yxat: rangli natija filtrlari + qidiruv + har ishni ochib «asosiy
-// sabab» va tavsiya. Qayta topshirish cabinet.sud.uz da bajariladi. (Avvalgi ikkinchi, stage-asosli
-// CourtManager «returns» bloki olib tashlandi — takror emas, yagona manba.)
-export default async function SudQaytganlarPage({ searchParams }: { searchParams: { s?: string } }) {
-  const t = getT();
-  await requireAccess('sud:returns');
-  const d = await loadStageData('COURT', searchParams.s);
-  return (
-    <div className="space-y-5">
-      <h1 className="text-2xl font-bold tracking-tight">{t('Sud — qaytganlar')}</h1>
-      <CabinetReturns snapshotId={d.selectedId} />
-    </div>
-  );
+// Sud → «Qaytganlar» endi /sud ichidagi 1-TAB (2026-09-19, 3 tabli /sud). Eski havolalar,
+// xatcho'plar va landingHref (faqat sud:returns berilgan yurist) shu yerga keladi — ularni
+// o'sha tabga yo'naltiramiz, ?s (snapshot) va ?firm saqlanadi. Ruxsat /sud sahifasida tab
+// bo'yicha tekshiriladi (sud:returns).
+export default function SudQaytganlarPage({ searchParams }: { searchParams: { s?: string; firm?: string } }) {
+  const qs = new URLSearchParams({ tab: 'qaytgan' });
+  if (searchParams.s) qs.set('s', searchParams.s);
+  if (searchParams.firm) qs.set('firm', searchParams.firm);
+  redirect(`/sud?${qs.toString()}`);
 }

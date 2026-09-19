@@ -16,6 +16,7 @@ import { audit, AuditAction } from './audit';
 import { resolveClaimantId } from './cabinet/claimant';
 import { releaseCourtSend } from './court-routing';
 import { paidReceiptSet, unpaidQueueReason, deliveryRequiredFirmIds, hasDeliveryProof, undeliveredQueueReason } from './court-ready';
+import { isSendInFlight } from './court-send-suits';
 import { noteQueueBlocked, resetQueueBackoff } from './court-auto-resume';
 import { resolveCabinetCourtGuid, regionForCourt } from '../../cabinet-api-skeleton/constants';
 import type { SourceCaseData } from '../../cabinet-api-skeleton/builder';
@@ -478,6 +479,13 @@ function sortCourtFiles(files: CaseFileToUpload[]): CaseFileToUpload[] {
     .map((x) => x.f);
 }
 
+/** Ishning JORIY meta'si (bazadan qayta o'qiladi); o'qib bo'lmasa — partiya boshidagi nusxa. */
+async function freshMeta(caseId: number, fallback: unknown): Promise<Record<string, unknown>> {
+  const row = await prisma.arizaCase.findUnique({ where: { id: caseId }, select: { meta: true } }).catch(() => null);
+  const m = row ? row.meta : fallback;
+  return m && typeof m === 'object' && !Array.isArray(m) ? { ...(m as Record<string, unknown>) } : {};
+}
+
 /**
  * 100 talab ishlarni ketma-ketlikda cabinet.sud.uz ga kiritish fon xizmati
  */
@@ -489,6 +497,15 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
   // Suit-mode va draft-mode BIR VAQTDA bo'lmaydi. Suit-mode ustun: save-suit qilinadi
   // (draft-only'да save-suit yo'q), lekin send-to-court dvigatelда majburiy to'xtaydi.
   const isDraftMode = opts.draftMode === true && !isSuitMode;
+  // FAQAT MATN (2026-09-19, /sud 3-tab): suit/draft rejimi sudga HECH NARSA yubormaydi, lekin
+  // job xabari va audit «N ta yuborildi» / «boji to'lanmagan» derdi — operator Go qoralamasini
+  // real yuborish deb o'qirdi. Mantiq o'zgarmaydi, faqat so'zlar rejimga qarab tanlanadi.
+  // SKIPPED no-send rejimda boji emas (boji faqat real uchun): tashqi da'vo, invoice raqami yo'q
+  // yoki yetkazilganlik yo'q — shuning uchun umumiy «o'tkazildi».
+  const noSendMode = isSuitMode || isDraftMode;
+  const okWord = isSuitMode ? "qoralama tayyorlandi (Murojaatlarim)" : isDraftMode ? 'qoralama tayyorlandi' : 'yuborildi';
+  const skipWord = noSendMode ? "o'tkazildi" : "boji to'lanmagan";
+  const batchWord = isSuitMode ? 'Qoralama (Murojaatlarim) tayyorlash' : isDraftMode ? 'Qoralama tayyorlash' : 'Sudga topshirish';
 
   try {
     const firm = await prisma.firm.findUnique({
@@ -540,7 +557,10 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
     // band qilingan va hali yuborilmagan — «osilib qolgan» ta'rifiga to'g'ri keladi, lekin
     // ularni bo'shatish sudning kunlik limitini SOXTA bo'shatadi: partiya davom etaveradi
     // va limitdan ortiq ariza ketishi mumkin (2026-09-07 auditi).
-    const released = await prisma.arizaCase.updateMany({
+    // «Sudga o'tkazish» (sendSuits) ishlari SENDING/CHECK holatida TEGILMAYDI: ularning PUT'i sudga
+    // yetib borgan bo'lishi mumkin, kvota ataylab band qoldirilgan (court-send-suits settleUnsent;
+    // worker restart sweep ham shunday — isSendInFlight). Bo'shatilsa keyingi yuborish limitdan oshardi.
+    const staleHolders = await prisma.arizaCase.findMany({
       where: {
         firmId: firm.id,
         id: { notIn: opts.caseIds },
@@ -548,8 +568,12 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
         courtCaseId: null,
         stage: { notIn: ['COURT_SUBMITTED', 'COURT_ACCEPTED', 'MIB_SUBMITTED', 'CLOSED'] },
       },
-      data: { courtSentAt: null },
+      select: { id: true, meta: true },
     });
+    const releaseIds = staleHolders.filter((c) => !isSendInFlight(c.meta)).map((c) => c.id);
+    const released = releaseIds.length
+      ? await prisma.arizaCase.updateMany({ where: { id: { in: releaseIds }, courtCaseId: null }, data: { courtSentAt: null } })
+      : { count: 0 };
     if (released.count) {
       console.log(`[Job ${jobId}] ${released.count} ta osilib qolgan kunlik limit joyi bo'shatildi.`);
     }
@@ -780,7 +804,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
     // qotib turardi, holbuki yuboriladigan ish 115 ta edi.
     await prisma.job.update({ where: { id: jobId }, data: { total: targetCases.length } }).catch(() => {});
 
-    console.log(`[Job ${jobId}] Sudga topshirish boshlandi: ${targetCases.length} ta ish (${firm.shortName})`);
+    console.log(`[Job ${jobId}] ${batchWord} boshlandi: ${targetCases.length} ta ish (${firm.shortName})`);
     console.log(`[Job ${jobId}] Tezlik: har so'rov orasida ${REQUEST_GAP_MS / 1000}s, ishlar orasida sud sozlamasi bo'yicha (default ${CASE_GAP_MS / 1000}s)`);
 
     let okCount = 0;
@@ -835,11 +859,11 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
         // worker'ning «tirikman» belgisi ham (orphan sweep updatedAt'ga qaraydi).
         void prisma.job.update({
           where: { id: jobId },
-          data: { message: `${okCount} ta yuborildi, ${failCount} ta xato — keyingisi ${sec}s dan keyin` },
+          data: { message: `${okCount} ta ${okWord}, ${failCount} ta xato — keyingisi ${sec}s dan keyin` },
         }).catch(() => { /* progress yozuvi muhim emas, ish to'xtamasin */ });
       });
 
-      console.log(`[Job ${jobId}] ${caseIndexStr} Case #${ac.id} (${ac.clientName}) yuborilmoqda...`);
+      console.log(`[Job ${jobId}] ${caseIndexStr} Case #${ac.id} (${ac.clientName}) ${noSendMode ? 'qoralama tayyorlanmoqda' : 'yuborilmoqda'}...`);
       await prisma.courtQueueItem.update({
         where: { caseId: ac.id },
         data: { state: 'RUNNING', startedAt: new Date(), attempts: { increment: 1 } },
@@ -975,8 +999,11 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
               // qoralama tayyor). Aks holda u qayta tayyorlangandan keyin ham «Qayta yuborish»
               // bo'lib ko'rinardi. INVOICE_CREATED — birinchi marta tayyorlangan ishlar bilan bir xil.
               ...(ac.stage === 'COURT_RETURNED' ? { stage: 'INVOICE_CREATED' as const, stageEnteredAt: new Date() } : {}),
+              // YANGI o'qilgan meta ustiga (partiya boshidagi `ac.meta` emas): partiya ~1 soat davom etadi,
+              // shu orada hippo sikli (talabnomaDelivered) yoki boshqa yozuvlar meta'ga tushgan bo'lishi
+              // mumkin — eski nusxa ularni jimgina o'chirardi (2026-09-19 kod ko'rigi).
               meta: {
-                ...((ac.meta as any) || {}),
+                ...(await freshMeta(ac.id, ac.meta)),
                 suitReadyAt: new Date().toISOString(),
                 cabinetDraftId: result.draftId,
                 cabinetCaseId: result.caseId,
@@ -992,7 +1019,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
             where: { id: ac.id },
             data: {
               meta: {
-                ...((ac.meta as any) || {}),
+                ...(await freshMeta(ac.id, ac.meta)),
                 draftReadyAt: new Date().toISOString(),
                 cabinetDraftId: result.draftId,
               },
@@ -1039,7 +1066,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
             actor: QUEUE_ACTOR,
             target: `case:${ac.id}`,
             detail: {
-              natija: isDraftMode ? 'qoralama tayyor' : isDryRun ? 'DRY-RUN' : 'yuborildi', firma: firm.shortName, mijoz: ac.clientName,
+              natija: isSuitMode ? 'qoralama tayyor (Murojaatlarim)' : isDraftMode ? 'qoralama tayyor' : isDryRun ? 'DRY-RUN' : 'yuborildi', firma: firm.shortName, mijoz: ac.clientName,
               pinfl: ac.pinfl, sud: ac.court?.shortName ?? null, summa: String(ac.totalDebt),
               ishRaqami: result.caseNumber ?? null, draftId: result.draftId ?? null, jobId,
             },
@@ -1194,7 +1221,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
         where: { id: jobId },
         data: {
           progress: idx + 1,
-          message: `${okCount} ta yuborildi, ${failCount} ta xato${skipCount ? `, ${skipCount} ta boji to'lanmagan` : ''}`,
+          message: `${okCount} ta ${okWord}, ${failCount} ta xato${skipCount ? `, ${skipCount} ta ${skipWord}` : ''}`,
         },
       });
     }
@@ -1260,11 +1287,11 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
     // HALOL YAKUN: avval xato bo'lsa ham "Barcha ishlar muvaffaqiyatli topshirildi" deb
     // yozilardi — operator 100 ta ish ketdi deb o'ylab, aslida hech biri ketmagan bo'lishi
     // mumkin edi. Endi holat aniq raqamlar bilan ko'rinadi.
-    const parts = [`${okCount} ta ${isDraftMode ? 'qoralama tayyorlandi' : 'yuborildi'}`];
+    const parts = [`${okCount} ta ${okWord}`];
     if (failCount > 0) parts.push(`${failCount} ta XATO`);
     // Boji to'lanmaganlar ALOHIDA ko'rsatiladi: bu xato emas va operator qiladigan ish
     // ham boshqa — kodni tuzatish emas, to'lovni o'tkazish.
-    if (skipCount > 0) parts.push(`${skipCount} ta boji to'lanmagan (o'tkazildi)`);
+    if (skipCount > 0) parts.push(noSendMode ? `${skipCount} ta o'tkazildi (sababi navbat panelida)` : `${skipCount} ta boji to'lanmagan (o'tkazildi)`);
     if (doneIds.size > 0) parts.push(`${doneIds.size} ta avval yuborilgan (o'tkazildi)`);
     if (leftover > 0) parts.push(`${leftover} ta navbatda qoldi`);
     if (stopReason) parts.push(`— ${stopReason}`);
@@ -1284,7 +1311,7 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
       actor: QUEUE_ACTOR,
       target: `firm:${firm.id}`,
       detail: {
-        natija: 'partiya yakunlandi', firma: firm.shortName, jobId,
+        natija: noSendMode ? 'qoralama partiyasi yakunlandi' : 'partiya yakunlandi', rejim: isSuitMode ? 'suit' : isDraftMode ? 'draft' : 'real', firma: firm.shortName, jobId,
         yuborildi: okCount, xato: failCount, bojiTolanmagan: skipCount, avvalYuborilgan: doneIds.size,
         navbatdaQoldi: leftover, toxtashSababi: stopReason, dryRun: isDryRun,
       },

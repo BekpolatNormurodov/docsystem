@@ -37,7 +37,8 @@ async function main() {
 
   // Navbatda tugamagan ishlar (eng eskisidan) — DONE bo'lganlar olinmaydi.
   const pending = await prisma.courtQueueItem.findMany({
-    where: { firmId, state: { in: ['PENDING', 'FAILED'] } },
+    // Faqat QORALAMA (suit/draft) ishlar — real yuborish endi faqat «Sudga o'tkazish» tabidan (2026-09-19).
+    where: { firmId, state: { in: ['PENDING', 'FAILED'] }, OR: [{ suitMode: true }, { draftMode: true }] },
     orderBy: { id: 'asc' },
     take: limit,
     select: { caseId: true, state: true },
@@ -52,7 +53,8 @@ async function main() {
   console.log(`${firm.shortName}: navbatda ${pending.length} ta ish topildi (${pending.filter((p) => p.state === 'FAILED').length} tasi avval xato bergan).`);
 
   // Sud kunlik limiti — saytdagi bilan bir xil qoida. Sig'magani bugun yuborilmaydi.
-  const alloc = await allocateFirmCases(firmId, caseIds);
+  // Qoralama sud kvotasini band qilmaydi (ignoreQuota), send-to-court YO'Q — suitMode.
+  const alloc = await allocateFirmCases(firmId, caseIds, new Date(), undefined, true);
   let sendIds = caseIds;
   if (alloc) {
     sendIds = alloc.assignments.map((a) => a.caseId);
@@ -62,7 +64,7 @@ async function main() {
       process.exit(1);
     }
     if (alloc.deferred.length) console.log(`  ${alloc.deferred.length} tasi kunlik limitdan oshdi — keyingi kunga qoldi.`);
-    await consumeCourtSend(alloc.assignments);
+    await consumeCourtSend(alloc.assignments, new Date(), false);
   }
 
   const job = await prisma.job.create({
@@ -70,7 +72,7 @@ async function main() {
       type: 'COURT_SUBMIT',
       status: 'PENDING',
       total: sendIds.length,
-      params: { firmId, caseIds: sendIds, ready: true, markExported: true },
+      params: { firmId, caseIds: sendIds, ready: true, markExported: false, suitMode: true },
     },
   });
   enqueueJob(job.id);

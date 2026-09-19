@@ -6,7 +6,7 @@ import { enqueueJob } from '@/lib/job-dispatch';
 import { selectReadyCaseIds, validateSelectedCaseIds, FIRM_REQUIRED_DOCS, FIRM_DOC_LABEL, MAX_COURT_BATCH } from '@/lib/court-ready';
 import { MAX_ZIP_BATCH } from '@/lib/court-batch';
 import { allocateFirmCases, consumeCourtSend, firmCourtBudgets } from '@/lib/court-routing';
-import { isQueuePaused } from '@/lib/cabinet/pacer';
+import { isFirmPaused } from '@/lib/cabinet/pacer';
 import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
@@ -16,10 +16,11 @@ const num = (v: unknown): number | undefined => {
   return v != null && v !== '' && Number.isInteger(n) && n > 0 ? n : undefined;
 };
 
-// POST { firmId, snapshotId?, limit?, includeExported?, talabnomaPdf? } —
-// «Sudga chiqarish»: build the FULL ready packet (talabnoma+ariza+skan-slot+oferta
-// +boji, NO grafik) for up to `limit` (max MAX_COURT_BATCH) fully-ready, not-yet-exported cases
-// of ONE firm, into one ZIP, and stamp them exported. Returns { jobId, total }.
+// POST { firmId, snapshotId?, limit?, caseIds?, courtIds?, exportOnly? | draftMode? | suitMode? } —
+// exportOnly: to'liq paket ZIP (PACKET, portalga tegmaydi); suitMode: ADOLAT «Murojaatlarim»da
+// qoralama (COURT_SUBMIT, save-suit, send-to-court YO'Q); draftMode: eski stop-A qoralama.
+// Bayroqsiz (REAL yuborish) — 2026-09-19 dan 400: real faqat «Sudga o'tkazish» tabidan.
+// Returns { jobId, type, total, skipped, deferred }.
 export async function POST(req: NextRequest) {
   // Match the read routes + the /sud page guard — the side-effectful export must
   // not be reachable by a user who has no 'sud' step grant.
@@ -29,6 +30,28 @@ export async function POST(req: NextRequest) {
 
   const firmId = num(body?.firmId);
   if (!firmId) return NextResponse.json({ error: t('firmId kerak (har firma alohida chiqariladi)') }, { status: 400 });
+
+  // ── REJIM (2026-09-19, /sud 3-tab) ─────────────────────────────────────────────────────────
+  // Bu route endi FAQAT sudga hech narsa yubormaydigan rejimlarni ochadi:
+  //   • exportOnly — ZIP (PACKET), portalga tegmaydi;
+  //   • draftMode  — stop-A: «Qoralamalar» wizard'i (save-suit'siz, eski usul);
+  //   • suitMode   — stop-B: save-suit → ADOLAT «Murojaatlarim»da CREATED ish (Go bilan bir xil).
+  // REAL yuborish (hech bir bayroqsiz) — ESKI bir martalik yo'l: yangi save-suit + send-to-court.
+  // Prod'da CABINET_ALLOW_SEND_TO_COURT=1, ya'ni uni to'xtatib turgan yagona narsa umumiy pauza
+  // edi — «Sudga o'tkazish» (3-tab) uchun pauza ochilganda bu yo'l ham uyg'onib ketardi. Shuning
+  // uchun real yuborish endi FAQAT 3-tabdan (saqlangan suit'ni E-IMZO bilan) — bu yerda 400.
+  const isExportOnly = body?.exportOnly === true;
+  const isDraftMode = body?.draftMode === true;
+  const isSuitMode = body?.suitMode === true;
+  if (isSuitMode && (isDraftMode || isExportOnly)) {
+    return NextResponse.json({ error: t('suitMode draftMode/exportOnly bilan birga ishlamaydi — bittasini tanlang.') }, { status: 400 });
+  }
+  if (!isExportOnly && !isDraftMode && !isSuitMode) {
+    return NextResponse.json({ error: t('Sudga real yuborish endi faqat «Sudga o‘tkazish» tabidan (E-IMZO bilan)') }, { status: 400 });
+  }
+  // Qoralama (draft) va suit — ikkovi ham sudga YUBORMAYDI: kvota band qilinmaydi, umumiy pauza
+  // to'smaydi (faqat firma pauzasi), deferred navbatga «park» qilinmaydi.
+  const isNoSend = isDraftMode || isSuitMode;
 
   // Firma hujjatlari (guvohnoma/ishonchnoma/shartnoma) TO'LIQ bo'lmasa — sudga yubormaymiz
   // (paket chala ketmasin). UI ham bloklaydi; bu — chetlab o'tishga qarshi server himoyasi.
@@ -41,16 +64,9 @@ export async function POST(req: NextRequest) {
   const rawSnap = num(body?.snapshotId);
   const snapshotId = rawSnap && snaps.some((s) => s.id === rawSnap) ? rawSnap : snaps[0]?.id;
   // ZIP eksporti sudga hech narsa yubormaydi: sud kunlik limitini band qilmaydi va
-  // «allaqachon chiqarilgan» filtri faqat SHU oqimga tegishli. Shuning uchun bayroq
-  // case tanlashdan ham, allokatsiyadan ham, CHEGARADAN ham OLDIN aniqlanadi.
-  const isExportOnly = body?.exportOnly === true;
-  // QORALAMA rejimi: ADOLAT'da to'liq qoralama tayyorlanadi (save-suit'siz), yurist
-  // portalda O'ZI yuboradi. Sud kvotasi/oynasi tekshirilmaydi (24/7), chunki qoralama
-  // sudga hech narsa yubormaydi. isExportOnly (ZIP) bilan bir xil «ignoreQuota» yo'lidan.
-  const isDraftMode = body?.draftMode === true;
-  // REAL yuborish (send-to-court) — faqat shunda to'lanmagan bojli ish tanlanmaydi. Qoralama va
-  // ZIP'da boji to'siq emas: invoice yuborishda (portalning oxirgi qadamida) qo'shiladi.
-  const isRealSend = !isExportOnly && !isDraftMode;
+  // «allaqachon chiqarilgan» filtri faqat SHU oqimga tegishli (bayroqlar yuqorida aniqlangan).
+  // Boji TO'LOVI hech bir rejimda talab qilinmaydi: u faqat real yuborish uchun edi, real esa
+  // endi 3-tabda (sud-send) o'z tekshiruvi bilan.
   // ZIP uchun chegara ancha katta: partiya hajmi portalni himoya qilish uchun, ZIP esa
   // portalga tegmaydi. 767 ta tayyorni 200 tadan 4 marta olish ma'nosiz edi.
   const cap = isExportOnly ? MAX_ZIP_BATCH : MAX_COURT_BATCH;
@@ -69,22 +85,9 @@ export async function POST(req: NextRequest) {
   const caseIds = uniqIds?.length
     // `forExport` — faqat ZIP oqimi allaqachon chiqarilganini o'tkazib yuboradi. Sudga
     // yuborishda ZIP olingani to'siq emas (u sudga hech narsa yubormagan).
-    ? await validateSelectedCaseIds({ snapshotId, firmId, caseIds: uniqIds, includeExported, forExport: isExportOnly, requireBoji: isRealSend })
-    : await selectReadyCaseIds({ snapshotId, firmId, limit, includeExported, forExport: isExportOnly, requireBoji: isRealSend });
+    ? await validateSelectedCaseIds({ snapshotId, firmId, caseIds: uniqIds, includeExported, forExport: isExportOnly, requireBoji: false })
+    : await selectReadyCaseIds({ snapshotId, firmId, limit, includeExported, forExport: isExportOnly, requireBoji: false });
   if (caseIds.length === 0) {
-    // Real yuborishda bo'sh chiqqan sabab boji bo'lsa — aniq aytamiz (karta «Tayyor N» ko'rsatib
-    // turgan paytda «tayyor yo'q» degan xato operatorni chalg'itardi).
-    if (isRealSend) {
-      const anyReady = uniqIds?.length
-        ? await validateSelectedCaseIds({ snapshotId, firmId, caseIds: uniqIds, includeExported, limit: 1 })
-        : await selectReadyCaseIds({ snapshotId, firmId, limit: 1, includeExported });
-      if (anyReady.length) {
-        return NextResponse.json(
-          { error: t("Tayyor ishlar bor, lekin davlat boji to'lanmagan — sudga real yuborish uchun boji to'langan bo'lishi kerak. Qoralama uchun boji shart emas («Qoralama tayyorlash» belgisini yoqing).") },
-          { status: 400 },
-        );
-      }
-    }
     return NextResponse.json(
       { error: includeExported ? t('Chiqarish uchun tayyor mijoz yoʻq') : t('Yuborishga tayyor (chiqarilmagan) mijoz yoʻq') },
       { status: 400 },
@@ -107,7 +110,7 @@ export async function POST(req: NextRequest) {
   let deferred = 0;
   // ZIP (isExportOnly) — sud biriktiriladi, lekin kunlik limit tanlovni KESMAYDI: fayl
   // tayyorlashning sud kunlik quvvatiga ham, ish kuniga ham aloqasi yo'q.
-  const alloc = await allocateFirmCases(firmId, caseIds, new Date(), courtIds, isExportOnly || isDraftMode);
+  const alloc = await allocateFirmCases(firmId, caseIds, new Date(), courtIds, isExportOnly || isNoSend);
 
   /**
    * BUGUN SIG'MAGAN ISHLAR YO'QOLMASIN — navbatga yozamiz.
@@ -136,7 +139,7 @@ export async function POST(req: NextRequest) {
       // Allaqachon navbatda yoki yuborilgan ishga TEGMAYMIZ (update: {}) — faqat yangi yozuv.
       const r = await prisma.courtQueueItem.upsert({
         where: { caseId },
-        create: { caseId, firmId, account, state: 'PENDING', draftMode: isDraftMode, lastError: why },
+        create: { caseId, firmId, account, state: 'PENDING', draftMode: isDraftMode, suitMode: isSuitMode, lastError: why },
         update: {},
       });
       if (r.state === 'PENDING') parked++;
@@ -162,6 +165,20 @@ export async function POST(req: NextRequest) {
             error: courtIds?.length
               ? `${t('ZIP tayyorlanmadi: tanlangan sud(lar) bo‘yicha mos mijoz yo‘q')} — ${alloc.deferred.length} ${t('ta ish boshqa sudga biriktirilgan yoki bu sud firmaga ruxsat etilmagan. Sud tanlovini o‘zgartiring.')}`
               : t('ZIP tayyorlanmadi: tanlangan mijozlar topilmadi (ro‘yxat eskirgan bo‘lishi mumkin). Sahifani yangilab qayta urinib ko‘ring.'),
+          },
+          { status: 400 },
+        );
+      }
+      // QORALAMA/SUIT ham ignoreQuota bilan — bu yerga faqat sud MOSLIGI sabab tushadi. «Bugun
+      // sudga yuborib bo'lmaydi / keyingi ish kuni» matni ham, navbatga «park» ham noto'g'ri edi
+      // (qoralama kvotaga bog'liq emas, park qilingan yozuv esa «limit tugagan» deb yolg'on
+      // gapirardi). ZIP bilan bir xil aniq sabab qaytaramiz (2026-09-19).
+      if (isNoSend) {
+        return NextResponse.json(
+          {
+            error: courtIds?.length
+              ? `${t('Qoralama tayyorlanmadi: tanlangan sud(lar) bo‘yicha mos mijoz yo‘q')} — ${alloc.deferred.length} ${t('ta ish boshqa sudga biriktirilgan yoki bu sud firmaga ruxsat etilmagan. Sud tanlovini o‘zgartiring.')}`
+              : t('Qoralama tayyorlanmadi: mijozlar firmaning sudlariga mos kelmadi (ro‘yxat eskirgan bo‘lishi mumkin). Sahifani yangilab qayta urinib ko‘ring.'),
           },
           { status: 400 },
         );
@@ -194,10 +211,10 @@ export async function POST(req: NextRequest) {
     // markSent — kunlik limit sanog'ini band qiladimi. ZIP (isExportOnly) va QORALAMA
     // (isDraftMode) sudga hech narsa yubormaydi, shuning uchun ikkalasida ham band
     // qilinmaydi: sud biriktiriladi (ariza/qoralama matni uchun), limit esa erkin qoladi.
-    await consumeCourtSend(alloc.assignments, new Date(), !isExportOnly && !isDraftMode);
+    await consumeCourtSend(alloc.assignments, new Date(), !isExportOnly && !isNoSend);
     // Bugunga sig'magani (limit/oyna) ham yo'qolmasin — navbatda qoladi.
-    // Qoralama 24/7: ignoreQuota bilan deferred faqat sud-mosligi bo'yicha bo'ladi (kam).
-    if (alloc.deferred.length && !isDraftMode) await parkDeferred(alloc.deferred);
+    // Qoralama/suit 24/7: ignoreQuota bilan deferred faqat sud-mosligi bo'yicha bo'ladi (kam).
+    if (alloc.deferred.length && !isNoSend) await parkDeferred(alloc.deferred);
   }
 
   // Saytdan sudga yuborishda real topshirish dvigateli (COURT_SUBMIT) ishlaydi.
@@ -241,9 +258,15 @@ export async function POST(req: NextRequest) {
       // MUTUAL EXCLUSION — real yuborish va qoralama tayyorlash bir firmada BIR VAQTDA
       // ishlamaydi. Xabar aynan qaysi rejim ketayotganini aytadi: operator «real ketyapti,
       // qoralama kuting» yoki aksincha ekanini darrov tushunsin (2026-09-08 operator qarori).
-      const activeDraft = (active.params as { draftMode?: boolean } | null)?.draftMode === true;
-      const activeWord = activeDraft ? t('qoralama tayyorlanmoqda') : t('sudga yuborilmoqda');
-      const wantWord = isDraftMode ? t('qoralama tayyorlash') : t('sudga yuborish');
+      // 2026-09-19: rejim params'dan ANIQ o'qiladi — ilgari faqat draftMode qaralardi va Go
+      // (suitMode) partiyasi ham «sudga yuborilmoqda» deb ko'rinardi. sendSuits — 3-tab
+      // («Sudga o'tkazish», E-IMZO bilan real yuborish).
+      const ap = (active.params ?? {}) as { draftMode?: boolean; suitMode?: boolean; sendSuits?: boolean };
+      const activeWord = ap.sendSuits === true ? t('sudga o‘tkazilmoqda (E-IMZO bilan real yuborish)')
+        : ap.suitMode === true ? t('qoralama (Murojaatlarim) tayyorlanmoqda')
+        : ap.draftMode === true ? t('qoralama tayyorlanmoqda')
+        : t('sudga real yuborilmoqda (eski partiya)');
+      const wantWord = t('qoralama tayyorlash');
       return NextResponse.json(
         { error: `${t('Bu firmada hozir')} ${activeWord} (#${active.id}, ${active.status === 'RUNNING' ? t('ketyapti') : t('navbatda')}). ${t('Tugashini kuting')} — «${wantWord}» ${t('birga ishlamaydi (ikkalasi bir vaqtda portalga chiqmasligi kerak).')}` },
         { status: 409 },
@@ -251,9 +274,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  if (!isExportOnly && (await isQueuePaused(firmId))) {
+  // PAUZA: qoralama/suit sudga yubormaydi — umumiy «Sudga yuborish» pauzasi ularni TO'SMAYDI
+  // (dvigatel va draftAutoTick bilan bir xil semantika), faqat SHU FIRMA pauzasi. Ilgari umumiy
+  // pauza qo'lda qoralamani ham 409 bilan to'sardi, Go esa o'sha paytda ishlayverardi.
+  if (!isExportOnly && isNoSend && (await isFirmPaused(firmId))) {
     return NextResponse.json(
-      { error: t('Sudga yuborish jarayoni pauzada. Davom ettirish uchun «Davom ettirish» tugmasini bosing.') },
+      { error: t('Bu firma pauzada (qoralama ham to‘xtatilgan). Monitoringdan firmani davom ettiring.') },
       { status: 409 },
     );
   }
@@ -264,7 +290,8 @@ export async function POST(req: NextRequest) {
       status: 'PENDING',
       snapshotId: snapshotId ?? null,
       total: sendIds.length,
-      params: { firmId, snapshotId, caseIds: sendIds, ready: true, talabnomaPdf, includeGrafik: false, markExported: !isDraftMode, draftMode: isDraftMode },
+      // markExported — faqat ZIP (exportOnly) uchun; qoralama/suit «chiqarilgan» deb belgilanmaydi.
+      params: { firmId, snapshotId, caseIds: sendIds, ready: true, talabnomaPdf, includeGrafik: false, markExported: isExportOnly, draftMode: isDraftMode, suitMode: isSuitMode },
     },
   });
 

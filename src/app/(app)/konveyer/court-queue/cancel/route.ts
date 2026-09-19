@@ -59,6 +59,11 @@ export async function POST(req: NextRequest) {
         data: { status: 'CANCELED', message: t('Operator navbatni bekor qildi') },
       });
       stoppedJobs += r.count;
+      // Boshlanmagan «Sudga o'tkazish» partiyasi — band qilingan sud limiti qaytadi (sendSuits bo'lmasa no-op).
+      if (r.count) {
+        try { const { releaseCanceledSendJob } = await import('@/lib/court-send-suits'); await releaseCanceledSendJob(j.id); }
+        catch (e) { console.error('[court-queue/cancel] send limitini qaytarib bo‘lmadi', e instanceof Error ? e.message : e); }
+      }
     } else {
       const r = await prisma.job.updateMany({
         where: { id: j.id, status: 'RUNNING' },

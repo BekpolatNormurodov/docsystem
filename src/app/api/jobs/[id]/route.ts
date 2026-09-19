@@ -38,7 +38,12 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: t('topilmadi') }, { status: 404 });
 
   const pending = await prisma.job.updateMany({ where: { id, status: 'PENDING' }, data: { status: 'CANCELED', message: t('Bekor qilindi') } });
-  if (pending.count > 0) return NextResponse.json({ status: 'CANCELED' });
+  if (pending.count > 0) {
+    // «Sudga o'tkazish» partiyasi boshlanmasdan bekor bo'lsa — band qilingan sud kunlik limiti qaytadi.
+    try { const { releaseCanceledSendJob } = await import('@/lib/court-send-suits'); await releaseCanceledSendJob(id); }
+    catch (e) { console.error('[jobs/cancel] send limitini qaytarib bo‘lmadi', e instanceof Error ? e.message : e); }
+    return NextResponse.json({ status: 'CANCELED' });
+  }
 
   const running = await prisma.job.updateMany({ where: { id, status: 'RUNNING' }, data: { cancelRequested: true } });
   if (running.count > 0) return NextResponse.json({ status: 'CANCELING' });

@@ -64,8 +64,20 @@ async function backoffElapsed(): Promise<boolean> {
 }
 
 /**
+ * REAL rejimdagi navbat ishlari AVTOMAT davom ettirilMAYDI (2026-09-19 foydalanuvchi qarori).
+ *
+ * Real yuborish endi faqat «Sudga o'tkazish» (/sud 3-tab) orqali: saqlangan suit + E-IMZO tasdig'i.
+ * Eski real navbat ishi (suitMode=false, draftMode=false) avto-davomda runCourtSubmitJob'ning TO'LIQ
+ * real yo'lidan (yangi qoralama + save-suit + send-to-court) o'tardi. Prod'da
+ * CABINET_ALLOW_SEND_TO_COURT=1 — bugun ularni faqat umumiy pauza ushlab turibdi, 3-tab uchun pauza
+ * ochilishi bilan esa ular o'z-o'zidan sudga ketib qolardi. Shuning uchun HAMMA tanlovlar faqat
+ * send-to-court qilMAYDIGAN (qoralama/suit) ishlarni oladi; qoralama/suit xatti-harakati o'zgarmagan.
+ */
+const NO_SEND_ITEM = { OR: [{ suitMode: true }, { draftMode: true }] };
+
+/**
  * Navbatda tugamagan ishlar uchun yangi COURT_SUBMIT job yaratadi (saytdagi tugma bilan bir xil).
- * Qaytaradi: yaratilgan job id yoki null (yaratilmagan sabab bilan).
+ * Qaytaradi: yaratilgan job id yoki null (yaratilmagan sabab bilan). FAQAT qoralama/suit partiyasi.
  */
 export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH, opts?: { requireNoSend?: boolean }): Promise<{ jobId: number; count: number } | null> {
   // ADOLAT'da ishi BOR (courtCaseId yozilgan) case QAYTA YUBORILMAYDI.
@@ -120,7 +132,7 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH, o
   // to'lanmagan #3505 va #3536 har safar partiyaning boshiga chiqib, har biri qoralama
   // yaratib yiqilardi (5-urinish), qolgan 190 ta ish esa qimirlamasdi.
   const fresh = await prisma.courtQueueItem.findMany({
-    where: { firmId, state: 'PENDING', case: { courtCaseId: null } },
+    where: { firmId, state: 'PENDING', case: { courtCaseId: null }, ...NO_SEND_ITEM },
     orderBy: { id: 'asc' },
     take: cap,
     select: { caseId: true },
@@ -145,7 +157,7 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH, o
     // yana SKIPPED qilardi: cheksiz sikl (2026-09-18: COMMUNITY 162 ta, job #1776…#1904+), har
     // aylanishda portalga behuda so'rov — IP limitini yeb, egress bloklariga hissa qo'shardi.
     const skipped = await prisma.courtQueueItem.findMany({
-      where: { firmId, state: 'SKIPPED', case: { courtCaseId: null }, NOT: [{ lastError: { contains: 'ALLAQACHON' } }, { lastError: { contains: 'ushlab turilibdi' } }] },
+      where: { firmId, state: 'SKIPPED', case: { courtCaseId: null }, ...NO_SEND_ITEM, NOT: [{ lastError: { contains: 'ALLAQACHON' } }, { lastError: { contains: 'ushlab turilibdi' } }] },
       orderBy: { id: 'asc' },
       select: { caseId: true, lastError: true, case: { select: { receiptNumber: true, meta: true } } },
     });
@@ -206,8 +218,10 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH, o
   }
 
   const room = cap - fresh.length - revived.length;
+  // FAQAT qoralama/suit ishlari qayta urinadi (2026-09-19). Real ishlar yuqorida faqat NOMLANADI
+  // (boji to'lanmagan → SKIPPED) — avtomat qayta yuborilmaydi; real yuborish «Sudga o'tkazish»da.
   const retry = room <= 0 ? [] : failed
-    .filter((x) => x.attempts < MAX_AUTO_ATTEMPTS && (noSendItem(x) || (x.case?.receiptNumber && failedPaid.has(x.case.receiptNumber))))
+    .filter((x) => x.attempts < MAX_AUTO_ATTEMPTS && noSendItem(x))
     .slice(0, room)
     .map((x) => ({ caseId: x.caseId }));
 
@@ -228,10 +242,10 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH, o
   const draftMode = !suitMode && modeRows.some((r) => r.draftMode === true);
   const noSend = suitMode || draftMode; // ikkovi ham send-to-court qilmaydi (kvota band emas)
 
-  // UMUMIY "sudga yuborish to'xtatildi" pauzasi FAQAT real yuborishga taalluqli. suit/qoralama
-  // partiya sudga hech narsa yubormaydi — 24/7 qoralama kabi umumiy pauzada ham davom etadi.
-  // Faqat HAMMASI REAL bo'lgan partiya umumiy pauzada bloklanadi (aks holda pauza teshiladi).
-  if (opts?.requireNoSend && !noSend) return null;
+  // IKKINCHI QATLAM: tanlov yuqorida faqat qoralama/suit ishlariga cheklangan, ya'ni noSend har doim
+  // true. Baribir — real partiya avto-davomdan HECH QACHON yaratilmasin (umumiy pauzadan qat'i nazar).
+  // (`opts.requireNoSend` endi ortiqcha — noSend baribir majburiy; chaqiruvchilar uchun imzo saqlandi.)
+  if (!noSend) return null;
 
   const alloc = await allocateFirmCases(firmId, caseIds, new Date(), undefined, noSend);
   let sendIds = caseIds;
@@ -275,9 +289,11 @@ export async function autoResumeTick(): Promise<string | null> {
   // Qaysi firmalarda tugamagan ish bor — eng ko'pidan boshlaymiz.
   // SKIPPED ham hisobga olinadi: firmada faqat boji to'langan SKIPPED ish qolgan bo'lsa ham
   // partiya boshlanishi kerak (createResumeJob o'zi tanlaydi, tanlanmasa null qaytaradi).
+  // Faqat qoralama/suit ishlari bor firmalar — faqat real qoldiqlari bor firma har daqiqada behuda
+  // tekshirilmasin (createResumeJob ularni baribir olmaydi).
   const groups = await prisma.courtQueueItem.groupBy({
     by: ['firmId'],
-    where: { state: { in: ['PENDING', 'FAILED', 'SKIPPED'] } },
+    where: { state: { in: ['PENDING', 'FAILED', 'SKIPPED'] }, ...NO_SEND_ITEM },
     _count: { _all: true },
     orderBy: { _count: { firmId: 'desc' } },
   });
