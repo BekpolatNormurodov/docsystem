@@ -293,8 +293,10 @@ export async function listSendableSuits(opts: { firmId?: number; snapshotId?: nu
   const cases = (await prisma.arizaCase.findMany({
     where: {
       ...(snapshotId ? { snapshotId } : {}),
-      ...(opts.firmId ? { firmId: opts.firmId } : {}),
-      ...fa.caseWhere,
+      // Firma berilgan bo'lsa — FAQAT o'sha firma (yuqorida faolligi tekshirilgan). Ilgari `...fa.caseWhere`
+      // keyin yoyilardi va nofaol firma bor paytda uning `firmId: {notIn}` bo'lagi tanlangan firmId'ni
+      // bosib ketardi — hamma firmalar ro'yxati chiqardi (2026-09-19 prod smoke test).
+      ...(opts.firmId ? { firmId: opts.firmId } : fa.caseWhere),
       courtCaseId: null,
       stage: { notIn: SENT_STAGE_LIST },
     },
