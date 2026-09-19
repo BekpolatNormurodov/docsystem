@@ -85,7 +85,7 @@ export const sudSend: Record<string, string> = {
   "ADOLAT ID yo‘q": "Нет ID ADOLAT",
   "Ishda ADOLAT ish raqami saqlanmagan — qaysi da‘voni yuborish noma‘lum. Qoralamani qaytadan tayyorlang.": "В деле не сохранён номер дела ADOLAT — неизвестно, какой иск отправлять. Подготовьте черновик заново.",
   "Sudga yuborilgan": "Отправлено в суд",
-  "Bu ish allaqachon sudga topshirilgan (tizim yoki yurist) — qayta yuborilmaydi.": "Это дело уже подано в суд (системой или юристом) — повторно не отправляется.",
+  "Bu odamga shu firma nomidan da‘vo allaqachon berilgan (tizim yoki yurist; ko‘rilayotgan yoki hal bo‘lgan) — ikkinchi da‘vo yuborilmaydi.": "Этому человеку от имени фирмы иск уже подан (системой или юристом; рассматривается или решён) — второй иск не отправляется.",
   "Sud qaytargan va paket tuzatilguncha ushlab turilgan — «Qaytganlar» tabida boshqariladi.": "Возвращено судом и удерживается до исправления пакета — управляется на вкладке «Возвращённые».",
   "Boji to‘lanmagan": "Пошлина не оплачена",
   "Davlat boji invoysi hali to‘lanmagan. Buxgalteriya to‘lagach ish o‘zi yuborishga tayyor bo‘ladi.": "Инвойс госпошлины ещё не оплачен. После оплаты бухгалтерией дело само станет готовым к отправке.",

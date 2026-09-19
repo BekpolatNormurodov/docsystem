@@ -101,7 +101,7 @@ async function getJson<T = unknown>(url: string, init: RequestInit | undefined, 
 const BLOCKER_ORDER: SendBlocker[] = ['SUBMITTED', 'CHECK', 'SENDING', 'QUEUED', 'PORTAL_NOT_CREATED', 'OLD_PACKAGE', 'BOJI_UNPAID', 'NO_DELIVERY', 'HELD', 'NO_CASE_ID'];
 const BLOCKER_INFO: Record<SendBlocker, { label: string; hint: string; tone: Tone }> = {
   NO_CASE_ID: { label: 'ADOLAT ID yo‘q', hint: 'Ishda ADOLAT ish raqami saqlanmagan — qaysi da‘voni yuborish noma‘lum. Qoralamani qaytadan tayyorlang.', tone: 'rose' },
-  SUBMITTED: { label: 'Sudga yuborilgan', hint: 'Bu ish allaqachon sudga topshirilgan (tizim yoki yurist) — qayta yuborilmaydi.', tone: 'indigo' },
+  SUBMITTED: { label: 'Sudga yuborilgan', hint: 'Bu odamga shu firma nomidan da‘vo allaqachon berilgan (tizim yoki yurist; ko‘rilayotgan yoki hal bo‘lgan) — ikkinchi da‘vo yuborilmaydi.', tone: 'indigo' },
   HELD: { label: 'Ushlab turilgan', hint: 'Sud qaytargan va paket tuzatilguncha ushlab turilgan — «Qaytganlar» tabida boshqariladi.', tone: 'slate' },
   BOJI_UNPAID: { label: 'Boji to‘lanmagan', hint: 'Davlat boji invoysi hali to‘lanmagan. Buxgalteriya to‘lagach ish o‘zi yuborishga tayyor bo‘ladi.', tone: 'amber' },
   NO_DELIVERY: { label: 'Talabnoma yetkazilmagan', hint: 'Talabnoma qarzdorga yetkazilgani isbotlanmagan (pochta dalili yo‘q) — sudya aynan shu sababdan qaytaradi.', tone: 'amber' },

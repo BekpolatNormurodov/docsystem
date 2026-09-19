@@ -376,8 +376,11 @@ export class CabinetSubmitEngine {
       // 2026-09-07 holati: har sinov yangi nuqson ochdi (summa formati → bo'sh summa →
       // sud sozlamasi → kvitansiya 500 → boshqa firmaning ishonchnomasi), ya'ni birorta
       // ish hali toza o'tmagan.
-      const allowSend = options.confirmedLiveVerified === true
-        || process.env.CABINET_ALLOW_SEND_TO_COURT === '1';
+      // 2026-09-19: env (CABINET_ALLOW_SEND_TO_COURT) bu yerni ENDI OCHMAYDI. Prod'da env=1 turadi — u
+      // «Sudga o'tkazish» (court-send-suits.ts, saqlangan suit'ni PUT) uchun kerak. Bu dvigatel esa YANGI
+      // qoralama + save-suit + send qiladi: env orqali ochiq qolsa, eski skriptlar (send-batch, send-one-live)
+      // pauza/E-IMZO/jonli tekshiruvsiz ikkinchi da'vo berishi mumkin edi. Faqat aniq confirmedLiveVerified.
+      const allowSend = options.confirmedLiveVerified === true;
       if (!allowSend) {
         return {
           ok: false,

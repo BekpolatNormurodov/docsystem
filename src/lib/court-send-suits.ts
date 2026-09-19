@@ -107,8 +107,11 @@ const SENT_STAGE_LIST: CaseStage[] = ['COURT_SUBMITTED', 'COURT_ACCEPTED', 'MIB_
 const SENT_STAGES = new Set<CaseStage>(SENT_STAGE_LIST);
 // Portalda sudga topshirilgan (CREATED'dan o'tgan) holatlar — court-ready COURT_ACTIVE_STATUSES bilan bir xil.
 const COURT_ACTIVE_STATUSES = ['ALLOCATE', 'REGISTER', 'PENDING', 'IN_PROCESS'];
-// Shu javobgarga «ikkinchi da'vo» bo'ladigan holatlar: yuborilgan (faol) YOKI yana bitta CREATED suit.
-const SIBLING_BLOCK_STATUSES = new Set(['CREATED', ...COURT_ACTIVE_STATUSES]);
+// Shu javobgarga «ikkinchi da'vo» bo'ladigan holatlar: yuborilgan (faol), yana bitta CREATED suit, yoki
+// HAL BO'LGAN (DECIDED/FINISHED) — sud qaytarmagan bo'lsa (2026-09-19 kod ko'rigi: hal bo'lgan qarzga
+// ikkinchi da'vo ham xato). Qaytarilgan natijalar (RETURN_RESULTS) to'siq emas.
+const SIBLING_BLOCK_STATUSES = new Set(['CREATED', ...COURT_ACTIVE_STATUSES, 'DECIDED', 'FINISHED']);
+const RETURN_RESULTS = new Set(['RETURNED', 'REFUSED', 'UNCONSIDERED', 'WITHDRAWN']);
 const MAX_CONSECUTIVE_BLOCKED = 3;
 
 // Worker'da so'rov konteksti yo'q (currentUser() yiqiladi) — aktyor aniq beriladi.
@@ -189,7 +192,14 @@ async function loadEligCtx(cases: CaseRow[]): Promise<EligCtx> {
       : empty([] as { caseNumber: string | null; claimId: string | null; status: string; updatedAt: Date }[]),
     pinfls.length && codes.length
       ? prisma.clientCaseStatus.findMany({
-          where: { source: 'CABINET', matchedBy: 'PINFL', branchCode: { in: codes }, pinfl: { in: pinfls }, status: { in: COURT_ACTIVE_STATUSES } },
+          // Sudda ko'rilayotgan YOKI hal bo'lgan (DECIDED/FINISHED) — sud QAYTARMAGAN — da'vo ham to'siq
+          // (2026-09-19 kod ko'rigi): hal bo'lgan da'vodan keyin yangi snapshot'dagi o'sha qarzga ikkinchi
+          // da'vo berilmasin. Qaytarilgan (RETURNED/REFUSED/UNCONSIDERED/WITHDRAWN) — to'siq emas.
+          where: {
+            source: 'CABINET', matchedBy: 'PINFL', branchCode: { in: codes }, pinfl: { in: pinfls },
+            status: { in: [...COURT_ACTIVE_STATUSES, 'DECIDED', 'FINISHED'] },
+            OR: [{ caseResult: null }, { caseResult: { notIn: ['RETURNED', 'REFUSED', 'UNCONSIDERED', 'WITHDRAWN'] } }],
+          },
           select: { branchCode: true, pinfl: true },
         })
       : empty([] as { branchCode: string; pinfl: string | null }[]),
@@ -197,13 +207,14 @@ async function loadEligCtx(cases: CaseRow[]): Promise<EligCtx> {
       ? prisma.arizaCase.findMany({
           where: {
             firmId: { in: firmIds }, pinfl: { in: pinfls },
-            // Sudda turgan (COURT_SUBMITTED), portalda izi bor yoki sud QABUL QILGAN (COURT_ACCEPTED) ish.
-            // COURT_ACCEPTED ham to'siq (2026-09-19 kod ko'rigi): outcome-sync REGISTER/PENDING/IN_PROCESS
-            // (ochiq, ko'rilayotgan) ishni ham COURT_ACCEPTED qiladi — faqat portalStatus hal bo'lgan
-            // (DECIDED/FINISHED) bo'lsa pastda chiqarib tashlanadi. MIB/CLOSED — yakunlangan, to'siq emas.
+            // BIZ shu odamga (shu firma nomidan) ILGARI da'vo berganmiz — qaysi bosqichda bo'lmasin: sudda,
+            // qabul qilingan, hal bo'lgan, MIB, yopilgan, yoki «Sudga o'tkazish» SENT. Yangi snapshot o'sha
+            // qarz uchun yangi ArizaCase yaratadi — busiz hal bo'lgan qarzga IKKINCHI da'vo ketardi
+            // (2026-09-19 kod ko'rigi). Sud qaytargani (COURT_RETURNED, courtCaseId tozalangan) to'siq emas.
             OR: [
-              { stage: { in: ['COURT_SUBMITTED', 'COURT_ACCEPTED'] } },
-              { courtCaseId: { not: null }, stage: { notIn: ['COURT_ACCEPTED', 'MIB_SUBMITTED', 'CLOSED'] } },
+              { stage: { in: ['COURT_SUBMITTED', 'COURT_ACCEPTED', 'MIB_SUBMITTED', 'CLOSED'] } },
+              { courtCaseId: { not: null } },
+              { meta: { path: '$.courtSend.state', equals: 'SENT' } },
             ],
           },
           select: { id: true, firmId: true, pinfl: true, stage: true, meta: true },
@@ -229,8 +240,6 @@ async function loadEligCtx(cases: CaseRow[]): Promise<EligCtx> {
   const sentSiblings = new Map<string, number[]>();
   for (const r of siblingRows) {
     if (!r.pinfl) continue;
-    // Sud qabul qilgan-u, portalda HAL BO'LGAN ish — yangi qarz bo'yicha da'voga to'siq emas.
-    if (r.stage === 'COURT_ACCEPTED' && ['DECIDED', 'FINISHED'].includes(String(metaObj(r.meta).portalStatus ?? '').toUpperCase())) continue;
     const k = `${r.firmId}|${r.pinfl}`;
     if (!sentSiblings.has(k)) sentSiblings.set(k, []);
     sentSiblings.get(k)!.push(r.id);
@@ -566,7 +575,7 @@ export async function createSendSuitsJob(
 const asArray = (j: any): any[] => (Array.isArray(j) ? j : j?.content ?? j?.data ?? []);
 const normOrg = (s: unknown) => String(s ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
 
-interface LiveRow { caseId: string; status: string; courtId: string | null; defName: string; claimants: string[] }
+interface LiveRow { caseId: string; status: string; result: string | null; courtId: string | null; defName: string; claimants: string[] }
 
 function parseListRow(c: any): LiveRow | null {
   const id = c?.case_id;
@@ -575,6 +584,7 @@ function parseListRow(c: any): LiveRow | null {
   return {
     caseId: String(id),
     status: String(c.current_status ?? c.status ?? '').toUpperCase(),
+    result: c.case_result ? String(c.case_result).toUpperCase() : null,
     courtId: c.court_id ? String(c.court_id) : null,
     defName: String(parts.find((p) => p?.type === 'DEFENDANT')?.name ?? ''),
     claimants: parts.filter((p) => p?.type === 'CLAIMANT').map((p) => String(p?.name ?? '')),
@@ -789,6 +799,7 @@ export async function runSendSuitsJob(jobId: number, params: SendSuitsJobParams)
         || claimantMatches(r.claimants, nameKeys);
       const sibling = live.find((r) => r.caseId !== cabId
         && SIBLING_BLOCK_STATUSES.has(r.status)
+        && !(r.result && RETURN_RESULTS.has(r.result))
         && defKeys.has(normName(r.defName))
         && sameClaimant(r));
       if (sibling) {

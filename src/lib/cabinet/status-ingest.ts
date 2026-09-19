@@ -93,6 +93,7 @@ export async function ingestCabinetStatuses(
   const byStatus: Record<string, number> = {};
   let matched = 0;
   let foreign = 0; // shu sessiya ko'rgan, lekin da'vogari boshqa firma bo'lgan ishlar
+  const aliases: { from: string; status: string; statusLabel: string | null; caseResult: string | null; registryDt: Date | null; hearingDate: Date | null }[] = [];
 
   for (const cat of CATS) for (const list of LISTS) {
     const r = await cabinetFetch(session, `/api/cabinet/case/${cat}/${list}`);
@@ -108,6 +109,12 @@ export async function ingestCabinetStatuses(
       if (pinfl) matched++;
       const status = c.current_status ?? c.status ?? 'UNKNOWN';
       byStatus[status] = (byStatus[status] ?? 0) + 1;
+      // Ish raqami berilgach (case_number) yangi qator ochiladi, CREATED paytidagi case_id qatori esa
+      // qotib qolardi — «Sudga o'tkazish» uni «hali CREATED» deb o'qirdi (2026-09-19 kod ko'rigi). Eski
+      // qator ham shu holatga ergashsin.
+      if (c.case_number && c.case_id && String(c.case_number) !== String(c.case_id)) {
+        aliases.push({ from: String(c.case_id), status, statusLabel: STATUS_UZ[status] ?? null, caseResult: c.case_result ?? null, registryDt: toDate(c.registry_dt), hearingDate: toDate(c.hearing_date) });
+      }
       rows.push({
         branchCode, pinfl, clientName, source: 'CABINET', category: cat,
         caseNumber: String(caseNumber), claimId: c.claim_id ?? c.case_id ?? null,
@@ -117,6 +124,11 @@ export async function ingestCabinetStatuses(
         matchedBy: pinfl ? 'NAME' : 'UNMATCHED', snapshotId: snap!.id,
       });
     }
+  }
+
+  for (const a of aliases) {
+    const { from, ...fields } = a;
+    await prisma.clientCaseStatus.updateMany({ where: { source: 'CABINET', caseNumber: from }, data: fields });
   }
 
   // Upsert all rows. On an EXISTING row keep the status fields fresh, but do NOT
