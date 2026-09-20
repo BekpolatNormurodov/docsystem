@@ -929,132 +929,10 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
 }
 
 // ── one firm row ─────────────────────────────────────────────────────────────
-// ── Umumiy pauza: sudga REAL yuborishni to'xtatib turadi ────────────────────────────────────
-// «Bekor» dan farqi: u bitta partiyani tugatadi, bu esa barcha firmalarga taalluqli va
-// bazada saqlanadi — deploy/restart'dan keyin ham kuchda qoladi. Pauzada ishlar navbatda
-// (PENDING) qoladi va davom ettirilganda aynan shu joydan ketadi.
-// 2026-09-19: qoralama (Go / «Qoralama tayyorlash») bu pauzaga BO'YSUNMAYDI (faqat firma pauzasi) —
-// pauza endi faqat «Sudga o'tkazish» (3-tab) real yuborishi uchun. Yorliqlar shuni aytadi, aks holda
-// operator «pauza bosdim, Go nega ishlayapti?» deb o'ylardi. Sonlar esa navbatning HAMMA rejimi.
-function PauseSwitch({ active = true }: { active?: boolean }) {
-  const t = useT();
-  const [paused, setPaused] = useState<boolean | null>(null);
-  const [counts, setCounts] = useState<Record<string, number> | null>(null);
-  // Haqiqatan partiya ketyaptimi — JOB holatidan (navbat yozuvidan emas: uzilgan
-  // worker RUNNING yozuvni qoldirib ketadi va sarlavha yolg'on gapiradi).
-  const [running, setRunning] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  // Holat + BARCHA firmalar bo'yicha umumiy raqamlar. Ish ketayotgan bo'lsa tez-tez
-  // yangilanadi (operator jarayonni real vaqtda kuzatadi), tinch paytda sekinroq.
-  useEffect(() => {
-    let alive = true;
-    const load = () => fetch('/konveyer/court-queue/pause')
-      .then((r) => r.json())
-      .then((d) => { if (alive) { setPaused(d?.paused === true); setCounts(d?.counts ?? null); setRunning(d?.running === true); } })
-      .catch(() => { if (alive) setPaused((p) => p ?? false); });
-    void load();
-    // Tab yashirin (boshqa sud tabi ochiq) yoki brauzer oynasi yashirin — so'ramaymiz.
-    const t = setInterval(() => { if (active && !document.hidden) void load(); }, 5000);
-    return () => { alive = false; clearInterval(t); };
-  }, [active]);
-
-  const toggle = async () => {
-    if (paused === null || busy) return;
-    setBusy(true);
-    try {
-      const r = await fetch('/konveyer/court-queue/pause', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paused: !paused }),
-      });
-      if (r.ok) setPaused((await r.json())?.paused === true);
-    } catch { /* tarmoq xatosi — holat o'zgarmaydi */ } finally { setBusy(false); }
-  };
-
-  const waiting = (counts?.PENDING ?? 0) + (counts?.RUNNING ?? 0);
-  const done = counts?.DONE ?? 0;
-  const failed = counts?.FAILED ?? 0;
-  const skipped = counts?.SKIPPED ?? 0;
-
-  if (paused === null) return null;
-  return (
-    <div
-      className={`flex items-center gap-3 rounded-xl border px-3.5 py-2.5 transition-colors ${
-        paused
-          ? 'border-amber-500/45 bg-amber-500/[0.07]'
-          : 'border-line bg-surface'
-      }`}
-    >
-      {/* Holat nuqtasi — faol bo'lsa sekin puls, pauzada tinch. */}
-      <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden>
-        {!paused && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500/70" />}
-        <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${paused ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-      </span>
-
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span className={`text-[12px] font-semibold ${paused ? 'text-amber-700 dark:text-amber-300' : 'text-fg'}`}>
-            {paused ? t('Sudga real yuborish pauzada') : running ? t('Navbat ishlamoqda') : waiting > 0 ? t('Navbat kutmoqda') : t('Sudga real yuborish ochiq')}
-          </span>
-          <span className="text-[11px] text-muted">{t('(faqat «Sudga o‘tkazish» uchun — qoralamaga ta’sir qilmaydi)')}</span>
-          {/* Umumiy raqamlar — barcha firmalar bo'yicha, bir qarashda.
-              `role="status"` + `aria-atomic` bitta MA'NOLI jumla bilan: har 5 soniyada
-              yangilanadigan uchta alohida raqam ekran o'quvchida bir-biriga xalaqit berardi
-              (yoki umuman e'lon qilinmasdi). Bitta atomik xabar — bitta tushunarli holat. */}
-          {counts && (waiting + done + failed + skipped) > 0 && (
-            <span
-              className="flex flex-wrap items-center gap-1 text-[11px] tabular-nums"
-              role="status"
-              aria-atomic="true"
-              aria-label={`${t('Navbat')}: ${n(done)} ${t('bajarildi')}, ${n(waiting)} ${t('navbatda')}, ${n(skipped)} ${t('o‘tkazildi')}, ${n(failed)} ${t('xato')}`}
-            >
-              {waiting > 0 && (
-                <span className="rounded bg-slate-500/12 px-1.5 py-0.5 font-medium text-slate-600 dark:text-slate-300" title={t('Navbatda va ishlanmoqda')}>
-                  {n(waiting)} {t('navbatda')}
-                </span>
-              )}
-              {done > 0 && (
-                <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-medium text-emerald-700 dark:text-emerald-300" title={t('Navbat orqali muvaffaqiyatli o‘tganlar (qoralama tayyorlangan yoki yuborilgan)')}>
-                  {n(done)} {t('bajarildi')}
-                </span>
-              )}
-              {skipped > 0 && (
-                <span className="rounded bg-amber-500/15 px-1.5 py-0.5 font-medium text-amber-700 dark:text-amber-300" title={t(SKIP_HINT)}>
-                  {n(skipped)} {t('o‘tkazildi')}
-                </span>
-              )}
-              {failed > 0 && (
-                <span className="rounded bg-rose-500/15 px-1.5 py-0.5 font-medium text-rose-700 dark:text-rose-300" title={t('Xato bergan — firma qatoridagi navbat panelidan sababini ko‘ring')}>
-                  {n(failed)} {t('xato')}
-                </span>
-              )}
-            </span>
-          )}
-        </div>
-      </div>
-
-      <button
-        onClick={toggle}
-        disabled={busy}
-        title={paused ? t('Sudga real yuborishni qayta ochish («Sudga o‘tkazish» tabi uchun)') : t('Sudga real yuborishni vaqtincha to‘xtatish (qoralama ishlayveradi)')}
-        className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-semibold outline-none transition-colors focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50 ${
-          paused
-            ? 'border-emerald-500/45 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/[0.18] focus-visible:ring-emerald-500/30 dark:text-emerald-300'
-            : 'border-line text-muted hover:border-amber-500/45 hover:bg-amber-500/10 hover:text-amber-700 focus-visible:ring-amber-500/30 dark:hover:text-amber-300'
-        }`}
-      >
-        {busy ? (
-          <span className="h-3 w-3 animate-spin rounded-full border-2 border-current/30 border-t-current" />
-        ) : paused ? (
-          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M8 5v14l11-7z" /></svg>
-        ) : (
-          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M7 4h3.5v16H7zM13.5 4H17v16h-3.5z" /></svg>
-        )}
-        {busy ? t('Kutilmoqda') : paused ? t('Davom ettirish') : t('Pauza')}
-      </button>
-    </div>
-  );
-}
+// ── Umumiy «sudga real yuborish» pauzasi — bu tab'dan OLIB TASHLANDI (2026-09-20).
+// U faqat REAL yuborishga (send-to-court) ta'sir qiladi, qoralamaga emas — shuning uchun
+// boshqaruvi «Sudga o'tkazish» (3-tab) gate panelida turadi. Bu yerda turgani operatorni
+// chalg'itardi: «pauza bosdim, Go nega ishlayapti?».
 
 // ── Sudga yuborish navbati: HAR BIR ISH bo'yicha holat ────────────────────────────────────
 // Job progress'i «3/100» deydi, lekin qaysi ish yiqilgani va NEGA — ko'rinmaydi. Operator
@@ -1322,7 +1200,7 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
                   : 'border-line text-muted hover:border-amber-500/45 hover:bg-amber-500/10 hover:text-amber-700 focus-visible:ring-amber-500/30 dark:hover:text-amber-300'
               }`}
             >
-              {pauseBusy ? '…' : firmPaused ? t('Davom ettirish') : t('To‘xtatish')}
+              {pauseBusy ? '…' : firmPaused ? t('Firmani davom ettirish') : t('Firmani to‘xtatish')}
             </button>
             {/* BEKOR — «To'xtatish»dan boshqa amal, shuning uchun alohida tugma.
                 To'xtatish = vaqtincha (ishlar navbatda qoladi); Bekor = navbat chopiladi.
@@ -2202,7 +2080,7 @@ export function CourtManager({ firms, selectedId, initialData, initialFirmId, on
               {queue.length > 0 && (
                 <div className="rounded-xl border border-brand-500/30 bg-brand-500/[0.05] p-3">
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="text-xs font-semibold">{t('Qoralama navbati —')} {n(queue.filter((x) => x.status !== 'done' && x.status !== 'error').length)} {t('qoldi')}</span>
+                    <span className="text-xs font-semibold">{t('Shu oynadagi navbat —')} {n(queue.filter((x) => x.status !== 'done' && x.status !== 'error').length)} {t('qoldi')}</span>
                     <div className="flex items-center gap-1.5">
                       {!queueActive ? (
                         <button type="button" onClick={() => setQueueActive(true)} disabled={!queue.some((x) => x.status === 'wait')}
@@ -2221,7 +2099,7 @@ export function CourtManager({ firms, selectedId, initialData, initialFirmId, on
                             });
                             if (ok) setQueueActive(false);
                           }}
-                          className="inline-flex items-center gap-1 rounded-lg border border-rose-500/40 px-2.5 py-1 text-[11px] font-medium text-rose-600 transition-colors hover:bg-rose-500/10 dark:text-rose-300">{t('To‘xtatish')}</button>
+                          className="inline-flex items-center gap-1 rounded-lg border border-rose-500/40 px-2.5 py-1 text-[11px] font-medium text-rose-600 transition-colors hover:bg-rose-500/10 dark:text-rose-300">{t('Oynadagi navbatni to‘xtatish')}</button>
                       )}
                       <button
                         type="button"
@@ -2283,45 +2161,49 @@ export function CourtManager({ firms, selectedId, initialData, initialFirmId, on
                   <p className="mt-2 text-[11px] text-muted">{t('Ketma-ket tayyorlanadi (sudga yuborilmaydi). Har firma uchun kalit bir marta so‘raladi. Xato bo‘lsa keyingisiga o‘tadi.')}</p>
                 </div>
               )}
-              {/* 24/7 avtomat qoralama — boshqaruv + monitoring (firma/sud kesimida). */}
-              <DraftAutoPanel visible={active} />
-              {/* Umumiy pauza — endi faqat REAL yuborish (3-tab) uchun; qoralamaga ta'sir qilmaydi. */}
-              <PauseSwitch active={active} />
+              {/* QORALAMA BOSHQARUVI — BITTA karta: avtomat holati + tugallanmagan navbat.
+                  2026-09-20: ilgari bu yerda uchta alohida panel turardi (avtomat, umumiy pauza,
+                  «Tugallanmagan ishlar») va uchalasi bir xil raqamlarni takrorlardi — operator
+                  qaysi tugma qaysi ro'yxatga tegishli ekanini ajrata olmasdi. Umumiy pauza esa
+                  faqat REAL yuborishga tegishli: u «Sudga o'tkazish» tabiga ko'chirildi. */}
+              <section className="mb-2 overflow-hidden rounded-xl border border-line bg-surface">
+              <DraftAutoPanel visible={active} embedded />
               {/* NAVBATDA QOLGANLAR — bazadan tiklangan.
                   Sahifa yangilansa ham ko'rinadi: manba React state emas, CourtQueueItem.
                   Operator «Davom ettirish» bilan aynan qolgan ishlardan davom etadi —
                   yangi tanlov qilinmaydi, tartib buzilmaydi, hech narsa takrorlanmaydi. */}
               {pendingQ.length > 0 && (
-                <div className="mb-2 rounded-xl border border-amber-500/40 bg-amber-500/[0.06] p-3">
+                <div className="border-t border-line bg-amber-500/[0.04] p-3">
                   <div className="mb-2 flex items-center gap-2">
                     <svg className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
-                    <span className="text-[12px] font-semibold text-amber-700 dark:text-amber-300">{t('Tugallanmagan ishlar')}</span>
-                    <span className="text-[11px] text-muted">{t('Navbatda qolgan, xato bergan yoki o‘tkazilgan — o‘sha joydan davom etadi')}</span>
+                    <span className="text-[12px] font-semibold text-amber-700 dark:text-amber-300">{t('Tugallanmagan qoralama navbati')}</span>
+                    <span className="text-[11px] text-muted">{t('Avtomat yetib bormagan yoki to‘xtab qolgan ishlar — firma bo‘yicha o‘sha joydan qo‘lda davom ettiring')}</span>
                   </div>
                   <div className="space-y-1.5">
                     {pendingQ.map((q) => {
                       const waiting = q.pending + q.running;
                       return (
-                      <div key={q.firmId} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-surface px-2.5 py-1.5 text-xs">
-                        <span className="min-w-0 flex-1 truncate font-medium">{q.firmName}</span>
+                      <div key={q.firmId} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-surface-2 px-2.5 py-1.5 text-xs">
+                        {/* Tor ekranda firma nomi birinchi bo'lib qisqarardi — endi o'z qatorini oladi. */}
+                        <span className="w-full basis-full truncate font-medium sm:w-auto sm:basis-auto sm:flex-1">{q.firmName}</span>
                         {/* RAQAMLAR — firma qatoridagi bilan AYNI manbadan (CourtQueueItem).
                             Ilgari bu yerda job progressi («ketmoqda 0/195») turardi, pastda esa
                             navbat sanog'i («5 ketdi · 195 navbatda») — ikkalasi bir ekranda
                             bir-birini yolg'onga chiqarardi. Endi bitta haqiqat. */}
                         {q.done > 0 && (
-                          <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-emerald-700 dark:text-emerald-300" title={t('Navbat orqali muvaffaqiyatli o‘tganlar (qoralama tayyorlangan yoki yuborilgan)')}>
-                            {n(q.done)} {t('bajarildi')}
+                          <span className="shrink-0 rounded bg-teal-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-teal-700 dark:text-teal-300" title={t('Navbatdan muvaffaqiyatli o‘tganlar — BUTUN TARIX bo‘yicha (qayta tayyorlanganlar ham)')}>
+                            {n(q.done)} {t('navbatdan o‘tgan')}
                           </span>
                         )}
                         {waiting > 0 && (
-                          <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted">
+                          <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-amber-700 dark:text-amber-300" title={t('Shu firmada navbatda va ishlanmoqda')}>
                             {n(waiting)} {t('navbatda')}
                           </span>
                         )}
                         {/* O'tkazilgan — XATO EMAS, lekin operator ARALASHUVI kerak (sabab — navbat
                             ro'yxatida: invoice raqami, yetkazilganlik, portalda bor, ushlab turilgan). */}
                         {q.skipped > 0 && (
-                          <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-amber-700 dark:text-amber-300" title={t(SKIP_HINT)}>
+                          <span className="shrink-0 rounded bg-slate-500/12 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-slate-600 dark:text-slate-300" title={t(SKIP_HINT)}>
                             {n(q.skipped)} {t('o‘tkazildi')}
                           </span>
                         )}
@@ -2347,12 +2229,12 @@ export function CourtManager({ firms, selectedId, initialData, initialFirmId, on
                             onClick={() => setGate({ firmId: q.firmId, firmName: q.firmName, stir: q.stir, extra: { resume: true }, summary: `${q.firmName} — ${t('navbatda qolgan')} ${n(q.pending)} ${t('ta ishni davom ettirish (o‘z rejimida: qoralama sudga yuborilmaydi)')}` })}
                             className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-brand-500 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-brand-600"
                           >
-                            <IcoBolt /> {t('Davom ettirish')}
+                            <IcoBolt /> {t('Navbatni davom ettirish')}
                           </button>
                         ) : (
                           /* Navbatda ish yo'q — faqat xato/o'tkazilganlar qolgan. «Davom
                              ettirish» bu yerda YOLG'ON tugma bo'lardi: bosilsa 400 qaytarardi. */
-                          <span className="shrink-0 text-[11px] text-muted">{t('Navbat tugagan — quyidagi firma qatoridan sababini ko‘ring')}</span>
+                          <span className="shrink-0 text-[11px] text-muted">{t('Navbat tugagan — pastdagi firma qatorlaridan sababini ko‘ring')}</span>
                         )}
                         {/* DVIGATEL NIMA QILAYOTGANI — so'zma-so'z.
                             Portal sovutish davrida («keyingisi 802s dan keyin») ekran 15
@@ -2367,6 +2249,7 @@ export function CourtManager({ firms, selectedId, initialData, initialFirmId, on
                   </div>
                 </div>
               )}
+              </section>
 
               <div className="space-y-2">
                 {data.readiness.firms.length === 0
