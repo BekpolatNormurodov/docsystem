@@ -76,9 +76,9 @@ const EmptyIcon = () => <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="n
 
 // Per-card state → the leading tile icon and the status chip share one palette.
 const STATE_UI: Record<string, { tile: string; chip: string; label: string; Icon: () => React.JSX.Element }> = {
-  have:    { tile: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400', chip: 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300', label: 'bor',    Icon: CheckIcon },
-  auto:    { tile: 'bg-sky-500/15 text-sky-600 dark:text-sky-400',             chip: 'bg-sky-500/12 text-sky-700 dark:text-sky-300',             label: 'avto',   Icon: SparkIcon },
-  pending: { tile: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',       chip: 'bg-amber-500/12 text-amber-700 dark:text-amber-300',       label: 'kutilmoqda', Icon: ClockIcon },
+  have:    { tile: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400', chip: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300', label: 'bor',    Icon: CheckIcon },
+  auto:    { tile: 'bg-sky-500/15 text-sky-600 dark:text-sky-400',             chip: 'bg-sky-500/10 text-sky-700 dark:text-sky-300',             label: 'avto',   Icon: SparkIcon },
+  pending: { tile: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',       chip: 'bg-amber-500/10 text-amber-700 dark:text-amber-300',       label: 'kutilmoqda', Icon: ClockIcon },
   missing: { tile: 'bg-surface-2 text-muted/60',                               chip: 'bg-surface-2 text-muted',                                  label: "yo'q",   Icon: EmptyIcon },
 };
 
@@ -87,15 +87,15 @@ const fmtSize = (b: number) => (b >= 1_048_576 ? `${(b / 1_048_576).toFixed(1)} 
 // Section header identity per group (icon + accent tile).
 const GROUP_META: Record<string, { label: string; accent: string; icon: React.JSX.Element }> = {
   mijoz: {
-    label: 'Mijoz hujjatlari', accent: 'bg-brand-500/12 text-brand-600 dark:text-brand-400',
+    label: 'Mijoz hujjatlari', accent: 'bg-brand-500/10 text-brand-600 dark:text-brand-400',
     icon: <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>,
   },
   palata: {
-    label: 'Palatadan', accent: 'bg-amber-500/12 text-amber-600 dark:text-amber-400',
+    label: 'Palatadan', accent: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
     icon: <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18" /><path d="M5 21V7l7-4 7 4v14" /><path d="M9 21v-6h6v6" /></svg>,
   },
   firma: {
-    label: 'Firma kutubxonasi', accent: 'bg-violet-500/12 text-violet-600 dark:text-violet-400',
+    label: 'Firma kutubxonasi', accent: 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
     icon: <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>,
   },
 };
@@ -134,7 +134,7 @@ function CourtReadyBar({ flags }: { flags: CourtFlags }) {
         {COURT_DOCS.map((d) => {
           const ok = flags[d.key];
           return (
-            <span key={d.key} className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium ${ok ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300' : 'bg-rose-500/12 text-rose-600 dark:text-rose-300'}`} title={ok ? `${t(d.label)}: ${t('bor')}` : `${t(d.label)}: ${t("yo'q")}`}>
+            <span key={d.key} className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium ${ok ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-rose-500/10 text-rose-600 dark:text-rose-300'}`} title={ok ? `${t(d.label)}: ${t('bor')}` : `${t(d.label)}: ${t("yo'q")}`}>
               <span className="grid h-3.5 w-3.5 place-items-center">{ok ? <MiniCheck /> : <MiniDash />}</span>
               {t(d.label)}
             </span>

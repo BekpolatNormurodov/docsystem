@@ -237,7 +237,7 @@ function CourtPicker({ onPick }: { onPick: (v: { billingCourtId: string; courtTy
   return (
     <div className="relative">
       <button type="button" onClick={() => { setOpen((v) => !v); load(); }}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-brand-500/30 bg-brand-500/[0.06] px-2.5 py-1.5 text-xs font-medium text-brand-700 transition-colors hover:bg-brand-500/12 dark:text-brand-300">
+        className="inline-flex items-center gap-1.5 rounded-lg border border-brand-500/30 bg-brand-500/[0.06] px-2.5 py-1.5 text-xs font-medium text-brand-700 transition-colors hover:bg-brand-500/10 dark:text-brand-300">
         <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
         {t("billing.sud.uz'dan tanlash")}
       </button>

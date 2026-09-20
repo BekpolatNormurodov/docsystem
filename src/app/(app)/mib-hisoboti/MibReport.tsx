@@ -149,7 +149,7 @@ function TekshirishCard({ onUploaded }: { onUploaded: (id: number) => void }) {
   return (
     <div className="card p-4">
       <div className="mb-3 flex flex-wrap items-center gap-3">
-        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-500/12 text-brand-600 dark:text-brand-300"><Ico.flash size={20} /></span>
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-500/10 text-brand-600 dark:text-brand-300"><Ico.flash size={20} /></span>
         <div className="min-w-0">
           <div className="text-sm font-semibold">{t('Tekshirish')}</div>
           <div className="text-xs text-muted">{t('mib.uz dan ijro ishlari — bitta PINFL yoki Excel roʻyxat bilan')}</div>

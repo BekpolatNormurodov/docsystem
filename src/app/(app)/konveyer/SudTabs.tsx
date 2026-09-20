@@ -304,7 +304,7 @@ export function SudTabs({ firms, selectedId, initialData, initialTab, initialFir
                 on ? 'bg-surface text-fg shadow-sm ring-1 ring-line' : 'text-muted hover:bg-surface/60 hover:text-fg'
               }`}
             >
-              <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${on ? 'bg-brand-500/12 text-brand-600 dark:text-brand-400' : 'bg-surface text-muted'}`}>{m.icon}</span>
+              <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${on ? 'bg-brand-500/10 text-brand-600 dark:text-brand-400' : 'bg-surface text-muted'}`}>{m.icon}</span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
                   <span className="text-[10px] font-semibold tabular-nums text-muted">{idx + 1}</span>

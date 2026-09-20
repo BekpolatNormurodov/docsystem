@@ -29,13 +29,13 @@ const rel = (d: Date, t: (s: string) => string) => {
 
 // Category → the tint used for the action's icon badge (bg wash + icon color).
 const CAT: Record<ActionCat, string> = {
-  auth: 'bg-slate-500/12 text-slate-600 dark:text-slate-300',
-  pipeline: 'bg-brand-500/12 text-brand-700 dark:text-brand-300',
-  docs: 'bg-indigo-500/12 text-indigo-600 dark:text-indigo-300',
-  data: 'bg-cyan-500/12 text-cyan-700 dark:text-cyan-300',
+  auth: 'bg-slate-500/10 text-slate-600 dark:text-slate-300',
+  pipeline: 'bg-brand-500/10 text-brand-700 dark:text-brand-300',
+  docs: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-300',
+  data: 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300',
   people: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
-  connect: 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300',
-  danger: 'bg-rose-500/12 text-rose-600 dark:text-rose-300',
+  connect: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+  danger: 'bg-rose-500/10 text-rose-600 dark:text-rose-300',
 };
 
 const AV = ['bg-rose-500', 'bg-amber-500', 'bg-emerald-500', 'bg-cyan-500', 'bg-brand-500', 'bg-indigo-500', 'bg-fuchsia-500'];

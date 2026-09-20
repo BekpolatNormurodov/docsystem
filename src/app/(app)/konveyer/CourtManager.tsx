@@ -186,11 +186,11 @@ const initials = (name: string | null) => (name || '—').trim().split(/\s+/).sl
 // oferta/check/boji), qaysi biri yetmasligiga qarab ajratilgan. Operatorga kim bitta hujjatdan
 // sudga chiqishini ko'rsatadi. Beshovi ham majburiy gate — hammasi bu yerda paydo bo'lishi mumkin.
 const ALMOST_DOCS: { key: keyof Missing; label: string; tone: string }[] = [
-  { key: 'scan', label: 'skan', tone: 'bg-sky-500/12 text-sky-700 dark:text-sky-300' },
-  { key: 'receipt', label: 'check', tone: 'bg-teal-500/12 text-teal-700 dark:text-teal-300' },
-  { key: 'boji', label: 'invoice raqami', tone: 'bg-amber-500/12 text-amber-700 dark:text-amber-300' },
-  { key: 'oferta', label: 'oferta', tone: 'bg-violet-500/12 text-violet-700 dark:text-violet-300' },
-  { key: 'talabnoma', label: 'talabnoma', tone: 'bg-rose-500/12 text-rose-700 dark:text-rose-300' },
+  { key: 'scan', label: 'skan', tone: 'bg-sky-500/10 text-sky-700 dark:text-sky-300' },
+  { key: 'receipt', label: 'check', tone: 'bg-teal-500/10 text-teal-700 dark:text-teal-300' },
+  { key: 'boji', label: 'invoice raqami', tone: 'bg-amber-500/10 text-amber-700 dark:text-amber-300' },
+  { key: 'oferta', label: 'oferta', tone: 'bg-violet-500/10 text-violet-700 dark:text-violet-300' },
+  { key: 'talabnoma', label: 'talabnoma', tone: 'bg-rose-500/10 text-rose-700 dark:text-rose-300' },
 ];
 function AlmostLine({ almost, compact }: { almost: Missing; compact?: boolean }) {
   const t = useT();
@@ -943,7 +943,7 @@ type QueueRow = {
   /** Rejim — route qaytarsa (ixtiyoriy). */ draftMode?: boolean; suitMode?: boolean;
 };
 const Q_STATE: Record<string, { label: string; tone: string }> = {
-  PENDING: { label: 'Navbatda', tone: 'bg-slate-500/12 text-slate-600 dark:text-slate-300' },
+  PENDING: { label: 'Navbatda', tone: 'bg-slate-500/10 text-slate-600 dark:text-slate-300' },
   RUNNING: { label: 'Ketyapti…', tone: 'bg-sky-500/15 text-sky-700 dark:text-sky-300' },
   DONE: { label: 'Bajarildi', tone: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' },
   FAILED: { label: 'Xato', tone: 'bg-rose-500/15 text-rose-700 dark:text-rose-300' },
@@ -1243,7 +1243,7 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
                   {/* Ayni paytdagi bosqich — faqat ketayotgan ish uchun. Busiz «Ketyapti»
                       60 soniya qimirlamay turadi va qotib qolgandek ko'rinadi. */}
                   {row.state === 'RUNNING' && row.step && (
-                    <span className="shrink-0 rounded bg-sky-500/12 px-1.5 py-0.5 text-[10px] text-sky-700 dark:text-sky-300">{row.step}</span>
+                    <span className="shrink-0 rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-700 dark:text-sky-300">{row.step}</span>
                   )}
                   {/* Urinishlar soni FAQAT muammoli qatorlarda ko'rsatiladi. Muvaffaqiyatli
                       ishda «necha urinishda ketdi» ahamiyatsiz, lekin «Yuborildi» yonida
@@ -1358,7 +1358,7 @@ function FirmSendRow({ fr, snapshotId, job, zipJob, startExport, onZip, onZipCan
               {FIRM_DOCS_ALL.map((k) => {
                 const miss = docsMissing.includes(k);
                 return (
-                  <span key={k} className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium ${miss ? 'bg-rose-500/15 text-rose-600 dark:text-rose-300' : 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'}`} title={miss ? `${t(k)} ${t('yetishmaydi')}` : `${t(k)} ${t('bor')}`}>
+                  <span key={k} className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium ${miss ? 'bg-rose-500/15 text-rose-600 dark:text-rose-300' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'}`} title={miss ? `${t(k)} ${t('yetishmaydi')}` : `${t(k)} ${t('bor')}`}>
                     {miss ? '✕' : '✓'} {t(k)}
                   </span>
                 );
@@ -2128,7 +2128,7 @@ export function CourtManager({ firms, selectedId, initialData, initialFirmId, on
                         : it.status === 'error' ? ['bg-rose-500/15 text-rose-600 dark:text-rose-300', 'xato']
                         : it.status === 'sending' ? ['bg-brand-500/15 text-brand-700 dark:text-brand-300', 'tayyorlanyapti']
                         : it.status === 'signing' ? ['bg-amber-500/15 text-amber-700 dark:text-amber-300', 'imzo']
-                        : heldBy ? ['bg-sky-500/12 text-sky-700 dark:text-sky-300', 'kutmoqda']
+                        : heldBy ? ['bg-sky-500/10 text-sky-700 dark:text-sky-300', 'kutmoqda']
                         : ['bg-surface-2 text-muted', 'navbatda'];
                       // Xato sababi — chipning O'ZIDA. Ilgari faqat qizil «xato» so'zi turardi
                       // va operator sahifada sababni topa olmasdi.
@@ -2173,11 +2173,11 @@ export function CourtManager({ firms, selectedId, initialData, initialFirmId, on
                   Operator «Davom ettirish» bilan aynan qolgan ishlardan davom etadi —
                   yangi tanlov qilinmaydi, tartib buzilmaydi, hech narsa takrorlanmaydi. */}
               {pendingQ.length > 0 && (
-                <div className="border-t border-line bg-amber-500/[0.04] p-3">
-                  <div className="mb-2 flex items-center gap-2">
+                <div className="border-t border-line p-3">
+                  <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-0.5">
                     <svg className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
                     <span className="text-[12px] font-semibold text-amber-700 dark:text-amber-300">{t('Tugallanmagan qoralama navbati')}</span>
-                    <span className="text-[11px] text-muted">{t('Avtomat yetib bormagan yoki to‘xtab qolgan ishlar — firma bo‘yicha o‘sha joydan qo‘lda davom ettiring')}</span>
+                    <span className="basis-full text-[11px] text-muted sm:basis-auto">{t('Avtomat yetib bormagan yoki to‘xtab qolgan ishlar — firma bo‘yicha o‘sha joydan qo‘lda davom ettiring')}</span>
                   </div>
                   <div className="space-y-1.5">
                     {pendingQ.map((q) => {
@@ -2203,7 +2203,7 @@ export function CourtManager({ firms, selectedId, initialData, initialFirmId, on
                         {/* O'tkazilgan — XATO EMAS, lekin operator ARALASHUVI kerak (sabab — navbat
                             ro'yxatida: invoice raqami, yetkazilganlik, portalda bor, ushlab turilgan). */}
                         {q.skipped > 0 && (
-                          <span className="shrink-0 rounded bg-slate-500/12 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-slate-600 dark:text-slate-300" title={t(SKIP_HINT)}>
+                          <span className="shrink-0 rounded bg-slate-500/10 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-slate-600 dark:text-slate-300" title={t(SKIP_HINT)}>
                             {n(q.skipped)} {t('o‘tkazildi')}
                           </span>
                         )}

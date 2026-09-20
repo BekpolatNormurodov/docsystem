@@ -58,7 +58,7 @@ const INFO: Record<DocInfoKind, { title: string; intro: string; rows: [string, s
 export function ReqChip({ required }: { required: boolean }) {
   const t = useT();
   return required ? (
-    <span className="rounded-full bg-emerald-500/12 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">{t('majburiy')}</span>
+    <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">{t('majburiy')}</span>
   ) : (
     <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">{t('ixtiyoriy')}</span>
   );

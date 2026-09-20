@@ -45,7 +45,7 @@ const BATCH_CLS: Record<ReturnType<typeof batchTone>, string> = {
   ok: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
   partial: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
   failed: 'bg-rose-500/15 text-rose-700 dark:text-rose-300',
-  canceled: 'bg-slate-500/12 text-slate-600 dark:text-slate-300',
+  canceled: 'bg-slate-500/10 text-slate-600 dark:text-slate-300',
 };
 const BATCH_LABEL: Record<ReturnType<typeof batchTone>, string> = {
   ok: 'oxirgi partiya: tayyor',
@@ -59,7 +59,7 @@ function Bar({ sendable, ready, queued, submitted, total }: { sendable: number; 
   // Legend 4 rangni ko'rsatardi, chiziq esa 3 tasini chizardi («tayyor» yo'q edi) — endi mos.
   // TARTIB legend bilan bir xil: tayyor → navbatda → qoralama → sudda (2026-09-20: teskari edi).
   return (
-    <span className="flex h-1.5 min-w-[60px] flex-1 overflow-hidden rounded-full bg-surface-2" aria-hidden>
+    <span className="flex h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-surface-2" aria-hidden>
       <span className="h-full bg-emerald-500" style={{ width: `${pct(sendable)}%` }} />
       <span className="h-full bg-amber-500" style={{ width: `${pct(queued)}%` }} />
       <span className="h-full bg-teal-500" style={{ width: `${pct(ready)}%` }} />
@@ -207,7 +207,7 @@ export default function DraftAutoPanel({ visible = true, embedded = false }: { v
         <Metric label="Qoralama tayyor" value={totalDraftReady} tone="teal" hint="ADOLAT «Murojaatlarim»da tayyor turibdi — «Sudga o‘tkazish» tabida yuboriladi" />
         {/* HOZIR nima ishlanmoqda — u ham nomi bilan (qolgan ustunlar kabi), progress chizig'i ko'rinadigan. */}
         {active && activeKind && (
-          <div className="w-full min-w-0 sm:ml-auto sm:w-auto">
+          <div className="w-full min-w-0 self-start sm:ml-auto sm:w-auto">
             <div className="text-[10px] uppercase tracking-wide text-muted">{t('Hozir ketmoqda')}</div>
             <div className="flex items-center gap-2 text-[11px]">
               <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${KIND_META[activeKind].cls}`} title={t(KIND_META[activeKind].hint)}>{t(KIND_META[activeKind].label)}</span>
@@ -216,7 +216,7 @@ export default function DraftAutoPanel({ visible = true, embedded = false }: { v
               {active.total > 0 && (
                 <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-sky-500/20" aria-hidden>
                   {/* 2/228 = 1% → 0.6px, ya'ni ko'rinmasdi: eng kami 2%. */}
-                  <span className="block h-full rounded-full bg-sky-500" style={{ width: `${Math.max(2, Math.min(100, Math.round((active.progress / active.total) * 100)))}%` }} />
+                  <span className="block h-full min-w-[3px] rounded-full bg-sky-500" style={{ width: `${Math.max(2, Math.min(100, Math.round((active.progress / active.total) * 100)))}%` }} />
                 </span>
               )}
             </div>
@@ -247,7 +247,7 @@ export default function DraftAutoPanel({ visible = true, embedded = false }: { v
       ) : null}
 
       {open && data && (
-        <div className="grid gap-3 border-t border-line p-3 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 border-t border-line p-3 md:grid-cols-2">
           {/* FIRMA kesimida */}
           <div>
             <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-muted">

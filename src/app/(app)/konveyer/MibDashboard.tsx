@@ -297,7 +297,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
              kartada turadi, shuning uchun bu yerda takror ko'rsatmaymiz) ────────────────── */}
       {variant === 'konveyer' && (
         <form onSubmit={addPinfl} className="card flex flex-wrap items-center gap-2 p-3">
-          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-500/12 text-brand-600 dark:text-brand-300"><Ico.qr size={16} /></span>
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-500/10 text-brand-600 dark:text-brand-300"><Ico.qr size={16} /></span>
           <span className="text-sm font-medium">{t('Bitta PINFL tekshirish:')}</span>
           <input className="field-input w-[190px] tabular-nums tracking-[0.1em]" inputMode="numeric" maxLength={14} placeholder={t('14 raqamli PINFL')}
             value={pinfl} onChange={(e) => { setPinfl(e.target.value.replace(/\D/g, '').slice(0, 14)); setAddMsg(null); }} />
@@ -358,7 +358,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
             {TABS.map((tb) => (
               <button key={tb.key} onClick={() => setTab(tb.key)}
                 className={cx('rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
-                  tab === tb.key ? 'bg-brand-500/12 text-brand-700 dark:text-brand-300' : 'text-muted hover:bg-surface-2 hover:text-fg')}>
+                  tab === tb.key ? 'bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'text-muted hover:bg-surface-2 hover:text-fg')}>
                 {t(tb.label)}
               </button>
             ))}
@@ -526,7 +526,7 @@ const STATUS_LABEL: Record<string, string> = { PENDING: 'Navbatda', RUNNING: 'Te
 function Kpi({ label, value, hint, icon, accent, big, wide }: { label: string; value: string; hint?: string; icon?: React.ReactNode; accent?: boolean; big?: boolean; wide?: boolean }) {
   return (
     <div className={cx('card flex items-center gap-3 p-3', wide && 'lg:col-span-2')}>
-      {icon && <span className={cx('grid h-9 w-9 shrink-0 place-items-center rounded-xl', accent ? 'bg-brand-500/12 text-brand-600 dark:text-brand-300' : 'bg-surface-2 text-muted')}>{icon}</span>}
+      {icon && <span className={cx('grid h-9 w-9 shrink-0 place-items-center rounded-xl', accent ? 'bg-brand-500/10 text-brand-600 dark:text-brand-300' : 'bg-surface-2 text-muted')}>{icon}</span>}
       <div className="min-w-0">
         <div className={cx('font-semibold tabular-nums', big ? 'text-2xl' : 'text-lg', accent && 'text-brand-600 dark:text-brand-400')}>{value}</div>
         <div className="truncate text-xs text-muted">{label}</div>

@@ -120,7 +120,7 @@ function CaseBlock({ c }: { c: PersonCase }) {
           </span>
         )}
         {c.courtCaseId && (
-          <span className="rounded-md bg-sky-500/12 px-1.5 py-0.5 font-mono text-[11px] font-medium text-sky-700 tabular-nums dark:text-sky-300" title={t('Sud ish raqami')}>{c.courtCaseId}</span>
+          <span className="rounded-md bg-sky-500/10 px-1.5 py-0.5 font-mono text-[11px] font-medium text-sky-700 tabular-nums dark:text-sky-300" title={t('Sud ish raqami')}>{c.courtCaseId}</span>
         )}
         {c.receiptNumber
           ? <span className="rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-300">№{c.receiptNumber}</span>

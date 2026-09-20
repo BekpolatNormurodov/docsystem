@@ -61,19 +61,19 @@ const postJson = <T,>(url: string, body: unknown, t: (s: string) => string) =>
 
 // Literal class strings (Tailwind JIT interpolatsiyani ko'rmaydi).
 const SUB_META: Record<ReturnSub, { label: string; chip: string; active: string; dot: string; hint: string }> = {
-  waiting: { label: 'Kutmoqda', chip: 'bg-amber-500/12 text-amber-700 dark:text-amber-300', active: 'bg-amber-500 text-white shadow-sm', dot: 'bg-amber-500', hint: 'Hali qayta tayyorlanmagan — sababini ko‘rib, hujjatni tuzating.' },
-  failed: { label: 'Xato', chip: 'bg-rose-500/12 text-rose-600 dark:text-rose-300', active: 'bg-rose-500 text-white shadow-sm', dot: 'bg-rose-500', hint: 'Qayta qoralama urinishi o‘tmadi — xato matnini o‘qing.' },
-  held: { label: 'Ushlab turilgan', chip: 'bg-violet-500/12 text-violet-600 dark:text-violet-300', active: 'bg-violet-500 text-white shadow-sm', dot: 'bg-violet-500', hint: 'Paket tuzatilguncha qayta qoralamaga olinmaydi (Go ham olmaydi).' },
-  queued: { label: 'Navbatda', chip: 'bg-sky-500/12 text-sky-600 dark:text-sky-300', active: 'bg-sky-500 text-white shadow-sm', dot: 'bg-sky-500', hint: 'Qayta qoralama partiyasida — ADOLAT’da tayyorlanmoqda.' },
-  redrafted: { label: 'Qayta tayyorlandi', chip: 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300', active: 'bg-emerald-500 text-white shadow-sm', dot: 'bg-emerald-500', hint: 'Yangi qoralama tayyor — «Sudga o‘tkazish» bo‘limida yuboriladi.' },
+  waiting: { label: 'Kutmoqda', chip: 'bg-amber-500/10 text-amber-700 dark:text-amber-300', active: 'bg-amber-500 text-white shadow-sm', dot: 'bg-amber-500', hint: 'Hali qayta tayyorlanmagan — sababini ko‘rib, hujjatni tuzating.' },
+  failed: { label: 'Xato', chip: 'bg-rose-500/10 text-rose-600 dark:text-rose-300', active: 'bg-rose-500 text-white shadow-sm', dot: 'bg-rose-500', hint: 'Qayta qoralama urinishi o‘tmadi — xato matnini o‘qing.' },
+  held: { label: 'Ushlab turilgan', chip: 'bg-violet-500/10 text-violet-600 dark:text-violet-300', active: 'bg-violet-500 text-white shadow-sm', dot: 'bg-violet-500', hint: 'Paket tuzatilguncha qayta qoralamaga olinmaydi (Go ham olmaydi).' },
+  queued: { label: 'Navbatda', chip: 'bg-sky-500/10 text-sky-600 dark:text-sky-300', active: 'bg-sky-500 text-white shadow-sm', dot: 'bg-sky-500', hint: 'Qayta qoralama partiyasida — ADOLAT’da tayyorlanmoqda.' },
+  redrafted: { label: 'Qayta tayyorlandi', chip: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300', active: 'bg-emerald-500 text-white shadow-sm', dot: 'bg-emerald-500', hint: 'Yangi qoralama tayyor — «Sudga o‘tkazish» bo‘limida yuboriladi.' },
 };
 const SUB_ORDER: ReturnSub[] = ['waiting', 'failed', 'held', 'queued', 'redrafted'];
 const REASON_META: Record<ReasonCode | 'none', { label: string; chip: string; active: string; hint: string }> = {
-  tartibsiz: { label: 'Tartibsiz / teskari', chip: 'bg-rose-500/12 text-rose-600 dark:text-rose-300', active: 'bg-rose-500 text-white shadow-sm', hint: 'Hujjatlar tartibsiz yoki teskari — paket tartibi 2026-09-18 da tuzatilgan; qayta qoralama yangi paket bilan ketadi.' },
-  varaq: { label: 'Varaqlar to‘liq emas', chip: 'bg-amber-500/12 text-amber-700 dark:text-amber-300', active: 'bg-amber-500 text-white shadow-sm', hint: 'Hujjat varaqlari to‘liq emas — skan va ofertalarni tekshiring.' },
-  yetkazilmagan: { label: 'Yetkazilganlik isboti yo‘q', chip: 'bg-violet-500/12 text-violet-600 dark:text-violet-300', active: 'bg-violet-500 text-white shadow-sm', hint: 'Qarzdor talabnomani olgani isbotlanmagan — yetkazilgan (to‘ldirilgan) check kerak.' },
-  jshshir: { label: 'JShShIR ma’lumoti', chip: 'bg-sky-500/12 text-sky-600 dark:text-sky-300', active: 'bg-sky-500 text-white shadow-sm', hint: 'Javobgar JShShIR (PINFL) ma’lumotlari to‘liq emas.' },
-  boshqa: { label: 'Boshqa sabab', chip: 'bg-slate-500/12 text-slate-600 dark:text-slate-300', active: 'bg-slate-500 text-white shadow-sm', hint: 'Sabab matnini o‘qing.' },
+  tartibsiz: { label: 'Tartibsiz / teskari', chip: 'bg-rose-500/10 text-rose-600 dark:text-rose-300', active: 'bg-rose-500 text-white shadow-sm', hint: 'Hujjatlar tartibsiz yoki teskari — paket tartibi 2026-09-18 da tuzatilgan; qayta qoralama yangi paket bilan ketadi.' },
+  varaq: { label: 'Varaqlar to‘liq emas', chip: 'bg-amber-500/10 text-amber-700 dark:text-amber-300', active: 'bg-amber-500 text-white shadow-sm', hint: 'Hujjat varaqlari to‘liq emas — skan va ofertalarni tekshiring.' },
+  yetkazilmagan: { label: 'Yetkazilganlik isboti yo‘q', chip: 'bg-violet-500/10 text-violet-600 dark:text-violet-300', active: 'bg-violet-500 text-white shadow-sm', hint: 'Qarzdor talabnomani olgani isbotlanmagan — yetkazilgan (to‘ldirilgan) check kerak.' },
+  jshshir: { label: 'JShShIR ma’lumoti', chip: 'bg-sky-500/10 text-sky-600 dark:text-sky-300', active: 'bg-sky-500 text-white shadow-sm', hint: 'Javobgar JShShIR (PINFL) ma’lumotlari to‘liq emas.' },
+  boshqa: { label: 'Boshqa sabab', chip: 'bg-slate-500/10 text-slate-600 dark:text-slate-300', active: 'bg-slate-500 text-white shadow-sm', hint: 'Sabab matnini o‘qing.' },
   none: { label: 'Sabab olinmagan', chip: 'border border-dashed border-line text-muted', active: 'bg-slate-600 text-white shadow-sm', hint: '«Sabablarni yangilash» tugmasi ADOLAT’dan sababni olib keladi.' },
 };
 const REASON_ORDER: (ReasonCode | 'none')[] = ['tartibsiz', 'varaq', 'yetkazilmagan', 'jshshir', 'boshqa', 'none'];
@@ -212,7 +212,7 @@ const ReturnLine = React.memo(function ReturnLine({ r, canEdit, checked, onCheck
             <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${sm.chip}`} title={t(sm.hint)}>{t(sm.label)}</span>
             <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${rm.chip}`} title={t(rm.hint)}>{t(rm.label)}</span>
             {r.dupOpen && (
-              <span className="shrink-0 rounded-md bg-rose-500/12 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-300" title={t('Portalda shu odamga shu firma nomidan boshqa ochiq ish bor (ko‘pincha eski CREATED qoralama). Qayta qoralama ikkinchi da’vo ochadi — avval portaldagi ortiqchasini o‘chiring.')}>
+              <span className="shrink-0 rounded-md bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-300" title={t('Portalda shu odamga shu firma nomidan boshqa ochiq ish bor (ko‘pincha eski CREATED qoralama). Qayta qoralama ikkinchi da’vo ochadi — avval portaldagi ortiqchasini o‘chiring.')}>
                 {t('Portalda ochiq ish bor')}
               </span>
             )}
@@ -471,7 +471,7 @@ export function ReturnsTab({ snapshotId, firmId, canEdit, active = true }: { sna
           </div>
           {data && (
             <span
-              className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-medium ${data.autoReset ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300' : 'bg-amber-500/12 text-amber-700 dark:text-amber-300'}`}
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-medium ${data.autoReset ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-amber-500/10 text-amber-700 dark:text-amber-300'}`}
               title={data.autoReset
                 ? t('Yurist portaldan yuborgan va sud qaytargan qoralamalar har 20 daqiqada avtomatik shu ro‘yxatga o‘tkaziladi.')
                 : t('Avto-aniqlash sinov rejimida: portal qaytargan qoralamalar faqat hisoblanadi, ro‘yxatga avtomatik o‘tkazilmaydi (Setting court_declined_reset).')}

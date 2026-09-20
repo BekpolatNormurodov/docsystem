@@ -141,7 +141,7 @@ export function PalataPanel() {
             {files.map((f) => (
               <li key={f.name} className="rounded-lg border border-line bg-surface">
                 <div className="flex items-center gap-2 px-2.5 py-1.5 text-xs">
-                  <span className="rounded bg-violet-500/12 px-1.5 py-0.5 text-[10px] font-medium text-violet-600 dark:text-violet-300">{t('skan')}</span>
+                  <span className="rounded bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-medium text-violet-600 dark:text-violet-300">{t('skan')}</span>
                   <span className="min-w-0 flex-1 truncate">{f.name.replace(/^\d+-\d+-/, '')}</span>
                   <span className="shrink-0 text-[10px] tabular-nums text-muted">{dt(f.at)}</span>
                   <span className="shrink-0 tabular-nums text-muted">{kb(f.size)}</span>

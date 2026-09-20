@@ -183,7 +183,7 @@ export function OfertaBulk({ firms, snapshotId }: { firms: Firm[]; snapshotId?: 
             </div>
             <div className="mt-2.5 flex justify-end">
               <button onClick={cancel} disabled={canceling} aria-busy={canceling}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/[0.06] px-2.5 py-1 text-xs font-medium text-rose-600 outline-none transition-colors hover:bg-rose-500/12 focus-visible:ring-2 focus-visible:ring-rose-500/30 disabled:opacity-60 dark:text-rose-400"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/[0.06] px-2.5 py-1 text-xs font-medium text-rose-600 outline-none transition-colors hover:bg-rose-500/10 focus-visible:ring-2 focus-visible:ring-rose-500/30 disabled:opacity-60 dark:text-rose-400"
                 title={t('Yaratishni to‘xtatib, yarim tayyor faylni o‘chirish')}>
                 {canceling
                   ? <><span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> {t('Bekor qilinmoqda…')}</>

@@ -264,7 +264,7 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
             <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
               <span className="rounded-lg bg-surface-2 px-2 py-1 font-medium tabular-nums">{n(data.totals!.firmCount)} {t('firma ulangan')}</span>
               <span className="rounded-lg bg-surface-2 px-2 py-1 font-medium tabular-nums">{t('Jami balans:')} {n(data.totals!.balance)} {t('so‘m')}</span>
-              <span className="rounded-lg bg-emerald-500/12 px-2 py-1 font-medium text-emerald-700 tabular-nums dark:text-emerald-300">{t('Jami yuborilgan:')} {n(data.totals!.sent)}</span>
+              <span className="rounded-lg bg-emerald-500/10 px-2 py-1 font-medium text-emerald-700 tabular-nums dark:text-emerald-300">{t('Jami yuborilgan:')} {n(data.totals!.sent)}</span>
               <span className="rounded-lg bg-surface-2 px-2 py-1 font-medium tabular-nums text-muted">{n(data.totals!.registries)} {t('reyestr')}</span>
             </div>
             <ul className="space-y-1.5">
@@ -292,9 +292,9 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
         <>
           <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
             <span className="rounded-lg bg-surface-2 px-2 py-1 font-medium tabular-nums">{t('Balans:')} {n(data.balance ?? 0)} {t('so‘m')}{data.free ? t(' · bepul tarif') : ''}</span>
-            <span className="rounded-lg bg-emerald-500/12 px-2 py-1 font-medium text-emerald-700 tabular-nums dark:text-emerald-300">{t('Yetkazilgan')} {n(totals.d)}</span>
-            <span className="rounded-lg bg-amber-500/12 px-2 py-1 font-medium text-amber-700 tabular-nums dark:text-amber-300">{t('Kutilmoqda')} {n(totals.p)}</span>
-            <span className="rounded-lg bg-rose-500/12 px-2 py-1 font-medium text-rose-600 tabular-nums dark:text-rose-300">{t('Muvaffaqiyatsiz')} {n(totals.f)}</span>
+            <span className="rounded-lg bg-emerald-500/10 px-2 py-1 font-medium text-emerald-700 tabular-nums dark:text-emerald-300">{t('Yetkazilgan')} {n(totals.d)}</span>
+            <span className="rounded-lg bg-amber-500/10 px-2 py-1 font-medium text-amber-700 tabular-nums dark:text-amber-300">{t('Kutilmoqda')} {n(totals.p)}</span>
+            <span className="rounded-lg bg-rose-500/10 px-2 py-1 font-medium text-rose-600 tabular-nums dark:text-rose-300">{t('Muvaffaqiyatsiz')} {n(totals.f)}</span>
           </div>
           {(data.registries ?? []).length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-line bg-surface-2/30 px-4 py-8 text-center">

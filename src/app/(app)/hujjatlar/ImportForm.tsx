@@ -130,7 +130,7 @@ function Step({ n, done, last, children }: { n: number; done?: boolean; last?: b
   return (
     <div className="flex gap-3">
       <div className="flex flex-col items-center pt-1">
-        <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] font-bold transition-colors ${done ? 'bg-emerald-500 text-white' : 'bg-brand-500/12 text-brand-600 dark:text-brand-400'}`}>
+        <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] font-bold transition-colors ${done ? 'bg-emerald-500 text-white' : 'bg-brand-500/10 text-brand-600 dark:text-brand-400'}`}>
           {done ? '✓' : n}
         </span>
         {!last && <span className="mt-1.5 w-px flex-1 bg-line" />}

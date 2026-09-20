@@ -46,7 +46,7 @@ function Provider({ label, p, extra, onConnect, busy }: { label: string; p: Prov
         disabled={busy}
         aria-label={p.state === 'NONE' ? t('Ula') : t('Qayta ula')}
         title={p.state === 'NONE' ? t('Kalitni ula (E-IMZO)') : p.state === 'EXPIRED' ? t('Qayta ula — token eskirgan (E-IMZO)') : t('Qayta ula — boshqa kalit/akkaunt bilan (E-IMZO)')}
-        className={`ml-auto grid h-6 w-6 shrink-0 place-items-center rounded-md outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50 ${p.state === 'NONE' ? 'text-brand-600 hover:bg-brand-500/12 dark:text-brand-400' : p.state === 'EXPIRED' ? 'text-amber-600 hover:bg-amber-500/15 dark:text-amber-400' : 'text-muted hover:bg-surface-2 hover:text-brand-600 dark:hover:text-brand-400'}`}
+        className={`ml-auto grid h-6 w-6 shrink-0 place-items-center rounded-md outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50 ${p.state === 'NONE' ? 'text-brand-600 hover:bg-brand-500/10 dark:text-brand-400' : p.state === 'EXPIRED' ? 'text-amber-600 hover:bg-amber-500/15 dark:text-amber-400' : 'text-muted hover:bg-surface-2 hover:text-brand-600 dark:hover:text-brand-400'}`}
       >
         {busy
           ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />

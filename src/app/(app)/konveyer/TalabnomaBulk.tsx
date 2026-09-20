@@ -248,7 +248,7 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
                 ? <span className="inline-flex items-center gap-1.5 text-muted"><span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> {t('Hisoblanmoqda…')}</span>
                 : sum ? (<>
                     <span className="rounded-lg bg-surface-2 px-2 py-1 font-semibold tabular-nums">{n(total)} {t('ta talabnoma')}</span>
-                    {sent > 0 && <span className="rounded-lg bg-emerald-500/12 px-2 py-1 font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">✓ {n(sent)} {t('joʻnatilgan')}</span>}
+                    {sent > 0 && <span className="rounded-lg bg-emerald-500/10 px-2 py-1 font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">✓ {n(sent)} {t('joʻnatilgan')}</span>}
                     <span className="rounded-lg bg-surface-2 px-2 py-1 font-medium tabular-nums">{n(remaining)} {t('qoldi')}</span>
                     <span className="rounded-lg bg-surface-2 px-2 py-1 font-medium tabular-nums text-muted">{n(sum.totalDebt)} {t('soʻm qarzdorlik')}</span>
                   </>) : null}

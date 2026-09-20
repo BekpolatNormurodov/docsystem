@@ -37,7 +37,7 @@ function Field({ label, value, mono, pending }: { label: string; value?: string 
       <span className="text-[10px] font-medium uppercase tracking-wide text-muted">{label}</span>
       {value
         ? <span className={`text-[13px] font-medium text-fg ${mono ? 'font-mono tabular-nums' : ''}`}>{value}</span>
-        : <span className="inline-flex w-fit items-center gap-1 rounded-md bg-amber-500/12 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+        : <span className="inline-flex w-fit items-center gap-1 rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
             <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden />{pending}
           </span>}
     </div>
@@ -49,11 +49,11 @@ function DocRow({ d, url, judge }: { d: CourtDoc; url: string; judge?: boolean }
   const t = useT();
   return (
     <a href={url} target="_blank" rel="noreferrer" className="group flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[12px] transition-colors hover:border-sky-500/40 hover:bg-surface-2">
-      <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-md ${judge ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-sky-500/12 text-sky-600 dark:text-sky-400'}`}>
+      <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-md ${judge ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-sky-500/10 text-sky-600 dark:text-sky-400'}`}>
         <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
       </span>
       <span className="min-w-0 flex-1 truncate font-medium" title={d.label}>{d.label}</span>
-      {judge && <span className="shrink-0 rounded bg-emerald-500/12 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">{t('ajrim/qaror')}</span>}
+      {judge && <span className="shrink-0 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">{t('ajrim/qaror')}</span>}
       {d.signed && <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">{t('imzolangan')}</span>}
       <svg className="h-3.5 w-3.5 shrink-0 text-muted transition-colors group-hover:text-sky-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M7 17 17 7M7 7h10v10" /></svg>
     </a>

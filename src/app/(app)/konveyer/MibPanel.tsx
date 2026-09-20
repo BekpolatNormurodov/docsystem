@@ -269,7 +269,7 @@ export function MibPanel({ snapshotId, firmId }: { snapshotId?: number; firmId?:
     <div className="card overflow-hidden">
       <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center justify-between gap-2 px-5 py-4 text-left">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-teal-500/12 text-teal-600 dark:text-teal-300" aria-hidden>
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-teal-500/10 text-teal-600 dark:text-teal-300" aria-hidden>
             <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18" /><path d="M6 21V10l6-4 6 4v11" /><path d="M10 21v-5h4v5" /></svg>
           </span>
           <div className="min-w-0">
