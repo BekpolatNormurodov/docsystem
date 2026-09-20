@@ -4,7 +4,11 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, useConfirm } from '@/ui';
 import { useT } from '@/lib/i18n/client';
 import { Dropdown } from './Dropdown';
-import DraftAutoPanel from './DraftAutoPanel';
+// 2026-09-20: DraftAutoPanel olib tashlandi. Uning ma'lumot manbasi (GET /konveyer/court-draft-auto)
+// endi shu fayl ichida `useDraftAuto` yordami bilan o'qiladi va HeaderShell.running / notice
+// hamda FirmQueue rows uchun manba bo'ladi. Yagona joyda «Ketmoqda» strip.
+import { HeaderShell, type Tone } from './_shared/HeaderShell';
+import { FirmQueue, type FirmRow as FirmQueueRow } from './_shared/FirmQueue';
 import { CaseDocs } from './CaseDocs';
 import { KeyPicker } from './KeyPicker';
 // Partiya hajmi — yagona manba (server ham shu qiymat bilan cheklaydi).
@@ -70,17 +74,6 @@ async function getJson<T = any>(url: string, init?: RequestInit, t: (s: string) 
   return data as T;
 }
 
-// Literal class strings only (Tailwind JIT can't see interpolated names).
-const VALUE_TONE: Record<string, string> = {
-  slate: '', emerald: 'text-emerald-600 dark:text-emerald-400',
-  sky: 'text-sky-600 dark:text-sky-400', amber: 'text-amber-600 dark:text-amber-400',
-  violet: 'text-violet-600 dark:text-violet-400',
-  teal: 'text-teal-600 dark:text-teal-400',
-  // «Sudda» — sudga rasman topshirilgan da'volar. Tailwind JIT interpolatsiya qilingan
-  // sinf nomlarini ko'rmaydi, shuning uchun bu yerda to'liq yozilishi shart.
-  indigo: 'text-indigo-600 dark:text-indigo-400',
-};
-
 // ── shared little bits ───────────────────────────────────────────────────────
 const RING_STROKE: Record<'high' | 'mid' | 'low', string> = { high: '#10b981', mid: '#f59e0b', low: '#f43f5e' };
 const ringTone = (pct: number) => (pct >= 80 ? 'high' : pct >= 40 ? 'mid' : 'low');
@@ -106,28 +99,6 @@ function ReadinessRing({ pct, size = 48, sw = 5 }: { pct: number; size?: number;
     </span>
   );
 }
-
-// `extra` — asosiy sondan ALOHIDA manbadan kelgan qism («Sudda» uchun: yurist portalda
-// qo'lda kiritgan da'volar). Kichikroq va boshqa rangda, `50+120` ko'rinishida: ikkalasi
-// ham sudda, lekin qaysi biri qayerdan kelgani ko'rinib tursin.
-function Stat({ label, value, tone = 'slate', hint, icon, extra, extraHint }: {
-  label: string; value: number; tone?: string; hint?: string; icon?: React.JSX.Element;
-  extra?: number; extraHint?: string;
-}) {
-  return (
-    <div className="flex min-h-[104px] flex-col items-center justify-center gap-1.5 rounded-xl border border-line bg-surface p-3 text-center" title={hint}>
-      {icon}
-      <div className={`flex items-baseline justify-center gap-0.5 text-3xl font-bold leading-none tabular-nums ${VALUE_TONE[tone] ?? ''}`}>
-        {n(extra ? value - extra : value)}
-        {!!extra && (
-          <span className="text-lg font-semibold text-amber-600 dark:text-amber-400" title={extraHint}>+{n(extra)}</span>
-        )}
-      </div>
-      <div className="text-[11px] font-medium text-muted">{label}</div>
-    </div>
-  );
-}
-
 
 // Chiroyli hover tooltip (native `title` o'rniga) — element ustiga borilganda tepadan (yoki pastdan)
 // yumshoq chiqadi. CSS-only (group-hover), qo'shimcha JS yo'q. `shrink-0` flex qatorda joyni saqlaydi.
@@ -182,37 +153,6 @@ const AVATAR = [
 const avatarColor = (seed: string) => AVATAR[[...(seed || '0')].reduce((a, ch) => a + ch.charCodeAt(0), 0) % AVATAR.length];
 const initials = (name: string | null) => (name || '—').trim().split(/\s+/).slice(0, 2).map((w) => w[0] || '').join('').toUpperCase() || '—';
 
-// «1 qadam qolgan» — gate'ning 5 shartidan AYNAN bittasi yetishmagan case'lar (talabnoma/skan/
-// oferta/check/boji), qaysi biri yetmasligiga qarab ajratilgan. Operatorga kim bitta hujjatdan
-// sudga chiqishini ko'rsatadi. Beshovi ham majburiy gate — hammasi bu yerda paydo bo'lishi mumkin.
-const ALMOST_DOCS: { key: keyof Missing; label: string; tone: string }[] = [
-  { key: 'scan', label: 'skan', tone: 'bg-sky-500/10 text-sky-700 dark:text-sky-300' },
-  { key: 'receipt', label: 'check', tone: 'bg-teal-500/10 text-teal-700 dark:text-teal-300' },
-  { key: 'boji', label: 'invoice raqami', tone: 'bg-amber-500/10 text-amber-700 dark:text-amber-300' },
-  { key: 'oferta', label: 'oferta', tone: 'bg-violet-500/10 text-violet-700 dark:text-violet-300' },
-  { key: 'talabnoma', label: 'talabnoma', tone: 'bg-rose-500/10 text-rose-700 dark:text-rose-300' },
-];
-function AlmostLine({ almost, compact }: { almost: Missing; compact?: boolean }) {
-  const t = useT();
-  const items = ALMOST_DOCS.filter((a) => almost[a.key] > 0);
-  const total = items.reduce((s, a) => s + almost[a.key], 0);
-  if (total === 0) return null;
-  return (
-    <div className={`flex flex-wrap items-center gap-1.5 ${compact ? 'text-[11px]' : 'text-xs'}`}>
-      <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-300">
-        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="9" /><path d="m9 12 2 2 4-4" /></svg>
-        {n(total)} {t('ta — 1 qadam qoldi:')}
-      </span>
-      {items.map((a) => (
-        <span key={a.key} className={`rounded px-1.5 py-0.5 font-medium tabular-nums ${a.tone}`}>{t('faqat')} {t(a.label)} {n(almost[a.key])}</span>
-      ))}
-    </div>
-  );
-}
-
-const IcoRefresh = ({ spin }: { spin?: boolean }) => (
-  <svg className={`h-4 w-4 ${spin ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 3v6h-6" /></svg>
-);
 const IcoBolt = () => <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" /></svg>;
 const IcoPlus = () => <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>;
 const IcoDown = () => <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 3v12" /><path d="m8 11 4 4 4-4" /></svg>;
@@ -510,10 +450,6 @@ const FIRM_STAT_CHIPS = CLIENT_FILTERS.filter((f) => f.key !== 'all');
 const firmStatValue = (fr: FirmReadiness, key: ReadyFilter): number =>
   key === 'notready' ? fr.total - fr.ready : key === 'sendable' ? fr.sendable : key === 'queued' ? fr.queued : key === 'draftReady' ? fr.draftReady
     : key === 'submitted' ? fr.submitted : fr.total;
-const filterMeta = (key: ReadyFilter) => CLIENT_FILTERS.find((f) => f.key === key)!;
-// Rangli ikon (summary kartalari uchun) — tab'lar bilan bir xil.
-const statIcon = (key: ReadyFilter) => { const m = filterMeta(key); return <span className={m.iconCls}>{m.icon}</span>; };
-
 function statusChip(r: ClientRow, t: (s: string) => string) {
   // «Sudda» va «Chiqarilgan» — ATAYIN ikki xil holat.
   // 2026-09-07: BRIGHT qatorida «Yuborilgan 100» ko'rinardi, lekin ularning bittasi ham
@@ -1566,6 +1502,75 @@ function EmptyBlock({ title, hint }: { title: string; hint?: string }) {
   );
 }
 
+// ── draft-auto (24/7 «Go») holati — HeaderShell.running / notice va FirmQueue rows uchun ──
+// 2026-09-20: ilgari mustaqil DraftAutoPanel edi. Endi shu fayl ichida, chunki uning
+// ma'lumoti (aktiv partiya + har firma paused/lastBatch/sendable) toolbar va firm-queue
+// bilan bitta ekran ustida ishlaydi — ikkita komponent bir manbani takrorlab kelardi.
+type DraftJobKind = 'draft' | 'suit' | 'real' | 'send';
+interface DraftLastBatch { jobId: number; kind: DraftJobKind; status: string; message: string | null; total: number; progress: number; finishedAt: string }
+interface DraftFirmRow { firmId: number; firmName: string; total: number; draftReady: number; submitted: number; queued: number; sendable: number; active: boolean; paused: boolean; lastBatch?: DraftLastBatch | null }
+interface DraftAutoStatus {
+  on: boolean;
+  active: { jobId: number; status: string; progress: number; total: number; firmId: number | null; firmName: string | null; kind?: DraftJobKind | null; draftMode: boolean; message: string | null } | null;
+  firms: DraftFirmRow[];
+  backoff?: { nextAttemptAt: string | null };
+}
+// Oxirgi partiya XATO deb hisoblanishi (Go monitoringi bilan bir xil): FAILED = fatal;
+// DONE + xabarda «XATO» — qisman.
+function isBatchFailed(b: DraftLastBatch): boolean {
+  if (b.status === 'FAILED') return true;
+  return b.status !== 'CANCELED' && /XATO/i.test(b.message ?? '');
+}
+function useDraftAuto(active: boolean) {
+  const [data, setData] = useState<DraftAutoStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch('/konveyer/court-draft-auto', { cache: 'no-store' });
+      if (!r.ok) return;
+      setData(await r.json());
+    } catch { /* tarmoq — keyingi pollда qayta o'qiladi */ }
+  }, []);
+  useEffect(() => {
+    if (!active) return;
+    void load();
+    // 12s — asosiy court-ready (20s) bilan taqqoslanadi. Yashirin oynada so'ramaymiz.
+    const id = setInterval(() => { if (typeof document === 'undefined' || !document.hidden) void load(); }, 12_000);
+    return () => clearInterval(id);
+  }, [load, active]);
+  const toggle = useCallback(async () => {
+    if (!data || busy) return;
+    setBusy(true);
+    try {
+      const r = await fetch('/konveyer/court-draft-auto', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ on: !data.on }),
+      });
+      if (r.ok) { const d = await r.json(); setData((p) => (p ? { ...p, on: d.on === true } : p)); }
+    } catch { /* tarmoq — holat o'zgarmaydi */ } finally { setBusy(false); void load(); }
+  }, [data, busy, load]);
+  // Bitta firmani to'xtatish/davom ettirish (umumiy Go bilan mustaqil). Pauzaga qo'yilgan
+  // firma avto-qoralamada chetlab o'tiladi — boshqa firmalar ketaveradi.
+  const setFirmPaused = useCallback(async (firmId: number, paused: boolean) => {
+    // Optimistik ko'rsatamiz — server javobini kutmasdan.
+    setData((p) => (p ? { ...p, firms: p.firms.map((f) => (f.firmId === firmId ? { ...f, paused } : f)) } : p));
+    try {
+      await fetch('/konveyer/court-queue/pause', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paused, firmId }),
+      });
+    } catch { /* tarmoq — keyingi pollда to'g'rilanadi */ } finally { void load(); }
+  }, [load]);
+  return { data, busy, load, toggle, setFirmPaused };
+}
+
+// Partiya turi yorlig'i — HeaderShell.running.kindLabel va FirmQueue.running.kindLabel uchun.
+// «qoralama tayyorlash» — Go yoki qo'lda suit; «Sudga o'tkazish» — send; boshqasi — real.
+const KIND_LABEL: Record<DraftJobKind, string> = {
+  suit: 'qoralama tayyorlash', draft: 'qoralama tayyorlash', send: 'Sudga o‘tkazish', real: 'sudga real yuborish',
+};
+const hhmm = (iso: string) => new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+
 // ── main ─────────────────────────────────────────────────────────────────────
 // «Qoralama (1 qadam)» tabi (/sud, 2026-09-19): FAQAT qoralama — Tayyor ishlar uchun ADOLAT
 // «Murojaatlarim»da suit (suitMode) tayyorlanadi, sudga YUBORILMAYDI. Real yuborish yo'li bu
@@ -1956,61 +1961,64 @@ export function CourtManager({ firms, selectedId, initialData, initialFirmId, on
 
   const firmOpts = [{ value: 'all', label: t('Hamma firma') }, ...firms.map((f) => ({ value: String(f.firmId), label: f.firmName, hint: n(f.total) }))];
   const ov = data?.readiness.overall;
-  const overallPct = ov && ov.total ? (ov.ready / ov.total) * 100 : 0;
+
+  // 24/7 avto-qoralama holati (Go) — HeaderShell primary/running/notice va FirmQueue rows uchun.
+  const draftAuto = useDraftAuto(active);
+  const draftAutoData = draftAuto.data;
+  // Firma → paused/lastBatch tez qidirish uchun.
+  const draftAutoByFirm = React.useMemo(() => {
+    const m = new Map<number, DraftFirmRow>();
+    for (const f of draftAutoData?.firms ?? []) m.set(f.firmId, f);
+    return m;
+  }, [draftAutoData]);
+  // Ayni damdagi partiya (worker bir vaqtda BITTA COURT_SUBMIT ishlaydi — yagona haqiqat manbasi).
+  const activeBatch = draftAutoData?.active ?? null;
+  const activeKind: DraftJobKind = activeBatch ? (activeBatch.kind ?? (activeBatch.draftMode ? 'suit' : 'real')) : 'suit';
+  const activeKindLabel = KIND_LABEL[activeKind];
+  // Oxirgi qoralama partiyasi yiqilgan firmalar — HeaderShell.notice va drilldown uchun.
+  const failedFirms = (draftAutoData?.firms ?? []).filter((f) => f.lastBatch && isBatchFailed(f.lastBatch));
+  const portalBackoffAt = draftAutoData?.backoff?.nextAttemptAt ?? null;
+  // Tugallanmagan navbat aggregati — pendingQ dan (chip emas, notice matnida faqat sanaladi).
+  const pendingFirmsCount = pendingQ.filter((q) => (q.pending + q.running) > 0 && !q.job).length;
+
+  // «Ketmoqda» strip firma nomi: activeBatch.firmName bo'lmasa, jadvaldan topamiz.
+  const activeFirmName = activeBatch?.firmName
+    ?? (activeBatch?.firmId != null ? draftAutoByFirm.get(activeBatch.firmId)?.firmName : null)
+    ?? (activeBatch?.firmId != null ? firms.find((f) => f.firmId === activeBatch.firmId)?.firmName : null)
+    ?? '—';
+
+  // Drilldown modal (Go xatosi/holati tafsiloti) — HeaderShell notice action → 'draftAuto'.
+  const [drill, setDrill] = useState<null | 'draftAuto'>(null);
+
+  // HeaderShell notice: ustunlik tartibi — portal bloki > firmada xato > tugallanmagan navbat.
+  // Bitta strip, bitta matn: ilgari uchta panel bir xil sonlarni takrorlab kelardi (2026-09-20).
+  const notice: null | { tone: 'warn'; text: string; action?: { label: string; onClick: () => void } } = (() => {
+    if (portalBackoffAt) return {
+      tone: 'warn' as const,
+      text: `${t('Portal vaqtincha bloklagan (ketma-ket xatolar) — navbatni avtomat davom ettirish')} ${hhmm(portalBackoffAt)} ${t('dan keyin qayta uriniladi.')}`,
+      ...(failedFirms.length > 0 ? { action: { label: t('Batafsil'), onClick: () => setDrill('draftAuto') } } : {}),
+    };
+    if (failedFirms.length > 0) return {
+      tone: 'warn' as const,
+      text: `${t('Oxirgi qoralama partiyasi')} ${n(failedFirms.length)} ${t('ta firmada xato bergan')}`,
+      action: { label: t('Batafsil'), onClick: () => setDrill('draftAuto') },
+    };
+    if (pendingFirmsCount > 0) return {
+      tone: 'warn' as const,
+      text: `${n(pendingFirmsCount)} ${t('firmada tugallanmagan navbat — pastdagi firma qatoridan davom ettiring')}`,
+    };
+    return null;
+  })();
+
+  // Firma dropdown — HeaderShell.firmSlot ichida. Ilgari toolbar'da alohida turardi.
+  const firmDropdown = (
+    <Dropdown value={firmId ? String(firmId) : 'all'} options={firmOpts}
+      onChange={(v) => { const next = v === 'all' ? null : Number(v); setFirmId(next); setOpenFirm(null); onFirmChange?.(next); }}
+      className="w-full sm:w-auto sm:min-w-[200px]" />
+  );
 
   return (
     <div className="card p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-end gap-3">
-        <div className="flex items-center gap-2">
-          {lastLoaded && <span className="hidden text-[11px] text-muted sm:inline">{t('Yangilangan:')} <span className="tabular-nums">{lastLoaded.toLocaleTimeString('ru-RU')}</span></span>}
-          {/* EXCEL EKSPORTLARI.
-              Ilgari bu yerda yolg'iz «Statistika» havolasi turardi va boshqa ikkita eksport
-              (sudga qaytganlar, mijozlar ro'yxati) UI'dan umuman ko'rinmasdi — operator ular
-              borligini bilmasdi. Endi uchalasi bitta menyuda, har biri nima berishi yozilgan. */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setXlsOpen((v) => !v)}
-              aria-expanded={xlsOpen}
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-line px-3 text-xs font-semibold text-fg outline-none transition-colors hover:border-brand-500/40 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-brand-500/30"
-            >
-              <svg className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M8 3v18M3 8h5M3 13h5M3 18h5" /></svg>
-              {t('Excel')}
-              <svg className={`h-3.5 w-3.5 text-muted transition-transform ${xlsOpen ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
-            </button>
-            {xlsOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setXlsOpen(false)} aria-hidden />
-                <div className="absolute right-0 z-20 mt-1 w-72 overflow-hidden rounded-xl border border-line bg-surface shadow-lg">
-                  {[
-                    { href: `/konveyer/court-stats-excel${selectedId ? `?s=${selectedId}` : ''}`, title: t('Firma statistikasi'), hint: t('Har firma: jami · tayyor · sudda · yetishmayotgan hujjatlar') },
-                    { href: `/konveyer/cases-excel${selectedId ? `?s=${selectedId}` : ''}${firmId ? `${selectedId ? '&' : '?'}firmId=${firmId}` : ''}`, title: t('Mijozlar ro‘yxati'), hint: t('F.I.O · PINFL · firma · qarzdorlik · boji · muddat') },
-                    { href: `/konveyer/court-returns-excel${selectedId ? `?s=${selectedId}` : ''}${firmId ? `${selectedId ? '&' : '?'}firmId=${firmId}` : ''}`, title: t('Suddan qaytganlar'), hint: t('Qayta yuborish uchun ishlash ro‘yxati') },
-                    { href: `/konveyer/unpaid-receipts-excel${firmId ? `?firmId=${firmId}` : ''}`, title: t('To‘lanmagan kvitansiyalar'), hint: t('Buxgalteriya uchun: to‘lov kutayotgan ishlar · raqam · summa') },
-                  ].map((x) => (
-                    <a
-                      key={x.href}
-                      href={x.href}
-                      onClick={() => setXlsOpen(false)}
-                      className="block border-b border-line px-3 py-2 text-left outline-none transition-colors last:border-b-0 hover:bg-surface-2 focus-visible:bg-surface-2"
-                    >
-                      <span className="block text-[12px] font-medium">{x.title}</span>
-                      <span className="block text-[11px] leading-snug text-muted">{x.hint}</span>
-                    </a>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-          <Tip label={t('Yangilash')} side="bottom">
-            <button onClick={() => load()} disabled={refreshing} aria-label={t('Yangilash')} className="grid h-9 w-9 place-items-center rounded-xl border border-line text-muted outline-none transition-colors hover:border-brand-500/40 hover:text-fg focus-visible:ring-2 focus-visible:ring-brand-500/30 disabled:opacity-50">
-              <IcoRefresh spin={refreshing} />
-            </button>
-          </Tip>
-          <Dropdown value={firmId ? String(firmId) : 'all'} options={firmOpts} onChange={(v) => { const next = v === 'all' ? null : Number(v); setFirmId(next); setOpenFirm(null); onFirmChange?.(next); }} className="w-full sm:w-auto sm:min-w-[200px]" />
-        </div>
-      </div>
-
       {loading ? (
         <div className="grid gap-2 sm:grid-cols-4">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-20 animate-pulse rounded-xl bg-surface-2" />)}</div>
       ) : !data ? (
@@ -2027,255 +2035,166 @@ export function CourtManager({ firms, selectedId, initialData, initialFirmId, on
             </div>
           )}
 
-          {/* O'lik «stat»/«returns» shoxlari olib tashlandi (2026-09-19) — sahifa doim 'send' berardi. */}
-          {(
-            <div key="send" className="animate-fade-in space-y-3">
-              <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-stretch">
-                <div className="flex items-center gap-3 rounded-xl border border-line bg-surface p-3">
-                  <ReadinessRing pct={overallPct} size={88} sw={8} />
-                  <div>
-                    {/* IKKI RAQAM — IKKI XIL MA'NO, va endi ikkalasining nomi ham boshqa.
-                        Ilgari bu yerda «1 491 / 6 489 mijoz» va ostida «1 271 ta tayyor»
-                        turardi: ikkalasi ham «tayyor» deb o'qilardi, raqami esa boshqa edi
-                        va operator qaysi biri rost ekanini bilmasdi (2026-09-07).
-                        Farq — sudga ALLAQACHON ketganlar: hujjati to'liq (ready) ichida
-                        ular ham bor, «yuborishga tayyor» (sendable) ichida esa yo'q. */}
-                    <div className="text-[11px] font-medium text-muted">{t('Hujjati to‘liq')}</div>
-                    <div className="text-sm font-semibold" title={t('5 shart bajarilgan: talabnoma + imzolangan skan + oferta + check + boji raqami. Sudga ketganlar ham shu songa kiradi.')}>
-                      {n(ov!.ready)} / {n(ov!.total)} {t('mijoz')}
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-muted" title={t('Hujjati to‘liq, hali qoralama qilinmagan — «Tayyor» kartasidagi son bilan bir xil.')}>
-                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">{n(ov!.sendable)}</span> {t('tasi qoralamaga tayyor')}
-                    </div>
-                  </div>
-                </div>
-                {/* BESHTA karta — ustun soni ham beshta. Ilgari `sm:grid-cols-4` edi va
-                    «Navbatda» qo'shilgach oxirgi karta yolg'iz ikkinchi qatorga tushib,
-                    yonida katta bo'sh joy qolardi. */}
-                <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
-                  <Stat label={t('Jami')} value={ov!.total} icon={statIcon('all')} hint={t("Tanlangan firma/snapshot bo'yicha")} />
-                  <Stat label={t('Tayyor')} value={ov!.sendable} tone="emerald" icon={statIcon('sendable')} hint={t("Talabnoma + skan + oferta + check + boji (invoice raqami) bor, hali qoralama qilinmagan — shu tabdan qoralama tayyorlanadi")} />
-                  {/* Nol bo'lsa karta umuman chiqmaydi — bo'sh «Navbatda 0» faqat joy egallaydi. */}
-                  {ov!.queued > 0 && (
-                    <Stat label={t('Navbatda')} value={ov!.queued} tone="amber" icon={statIcon('queued')} hint={t("Partiyaga olingan, qoralamasi hali tayyor emas — «Tayyor» sanog'idan chiqarilgan")} />
-                  )}
-                  <Stat label={t('Qoralama tayyor')} value={ov!.draftReady} tone="teal" icon={statIcon('draftReady')} hint={t("ADOLAT'da hamma maydon to'ldirilib, hujjatlar biriktirilib tayyorlangan qoralama. Sudga hali yuborilmagan — «Sudga o‘tkazish» tabidan E-IMZO bilan yuboriladi.")} />
-                  {/* «Sudda» — ATAYIN `submitted`, `exported` EMAS. Ilgari bu karta ZIP
-                      olingan ishlarni ham qo'shib «Yuborilgan 131» deb ko'rsatardi, holbuki
-                      ularning ko'pi sudga ketmagan edi (2026-09-07: BRIGHT'da 100 tasi ZIP). */}
-                  <Stat
-                    label={t('Sudda')} value={ov!.submitted} tone="indigo" icon={statIcon('submitted')}
-                    hint={t("ADOLAT'da rasman ochilgan da'volar — tizim yuborganlari va yurist qo'lda kiritganlari")}
-                    extra={ov!.submittedExternal}
-                    extraHint={`${n(ov!.submittedExternal)} ${t("tasini yurist ADOLAT'da QO'LDA kiritgan (tizim yubormagan). Ular qayta yuborilmaydi.")}`}
-                  />
-                </div>
-              </div>
-              {(ov!.almost.scan + ov!.almost.oferta + ov!.almost.talabnoma + ov!.almost.receipt + ov!.almost.boji) > 0 && (
-                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] px-3 py-2.5">
-                  <AlmostLine almost={ov!.almost} />
-                  <div className="mt-1 text-[11px] text-muted">{t("Bittagina hujjat yetmaydi — o'shani to'ldirsangiz darhol «Tayyor»ga o'tadi va qoralama qilinadi. Sud uchun 5 ta shart (hammasi majburiy): talabnoma + imzolangan skan + oferta + check (UZPOST kvitansiya) + boji (invoice raqami). Invoice PDF sudga ketmaydi, lekin raqami ariza ichida ketadi. Odatda «faqat skan» yoki «faqat check» eng katta guruh.")}</div>
-                </div>
-              )}
-              {queue.length > 0 && (
-                <div className="rounded-xl border border-brand-500/30 bg-brand-500/[0.05] p-3">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="text-xs font-semibold">{t('Shu oynadagi navbat —')} {n(queue.filter((x) => x.status !== 'done' && x.status !== 'error').length)} {t('qoldi')}</span>
-                    <div className="flex items-center gap-1.5">
-                      {!queueActive ? (
-                        <button type="button" onClick={() => setQueueActive(true)} disabled={!queue.some((x) => x.status === 'wait')}
-                          className="inline-flex items-center gap-1 rounded-lg bg-brand-500 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-brand-600 disabled:opacity-50"><IcoBolt /> {t('Boshlash')}</button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            const left = queue.filter((x) => x.status === 'wait').length;
-                            const ok = await confirmQ({
-                              title: t('Navbatni to‘xtatishmi?'),
-                              description: left > 0
-                                ? `${t('Ketayotgan partiya oxirigacha boradi, keyin to‘xtaydi. Navbatda')} ${n(left)} ${t('ta partiya qoladi — keyin «Boshlash» bilan davom ettirishingiz mumkin.')}`
-                                : t('Ketayotgan partiya oxirigacha boradi, keyin yangi partiya boshlanmaydi.'),
-                              confirmLabel: t('Ha, to‘xtatilsin'), danger: true,
-                            });
-                            if (ok) setQueueActive(false);
-                          }}
-                          className="inline-flex items-center gap-1 rounded-lg border border-rose-500/40 px-2.5 py-1 text-[11px] font-medium text-rose-600 transition-colors hover:bg-rose-500/10 dark:text-rose-300">{t('Oynadagi navbatni to‘xtatish')}</button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const drop = queue.filter((x) => x.status !== 'sending' && x.status !== 'signing').length;
-                          if (drop === 0) return;
-                          const ok = await confirmQ({
-                            title: t('Navbat tozalansinmi?'),
-                            description: `${n(drop)} ${t('ta yozuv ro‘yxatdan o‘chiriladi (ketayotgani qoladi). Yuborilgan ishlarga ta’sir qilmaydi — faqat navbat ro‘yxati tozalanadi.')}`,
-                            confirmLabel: t('Ha, tozalansin'), danger: true,
-                          });
-                          if (ok) setQueue((q) => q.filter((x) => x.status === 'sending' || x.status === 'signing'));
-                        }}
-                        className="rounded-lg border border-line px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:border-brand-500/40 hover:text-fg">{t('Tozalash')}</button>
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    {queue.map((it) => {
-                      const job = jobs[`queue:${it.id}`];
-                      const pct = job && job.total ? Math.min(100, Math.round((job.progress / job.total) * 100)) : 0;
-                      // Firmada serverda partiya ketayotgan bo'lsa yozuv KUTADI — buni aytib
-                      // qo'yish shart, aks holda «navbatda» deb turgan yozuv qotib qolgandek
-                      // ko'rinadi va operator uni o'chirib qaytadan qo'shadi.
-                      const heldBy = it.status === 'wait' ? activeBatchByFirm.get(it.firmId) : undefined;
-                      const badge = it.status === 'done' ? ['bg-emerald-500/15 text-emerald-700 dark:text-emerald-300', 'tayyor']
-                        : it.status === 'error' ? ['bg-rose-500/15 text-rose-600 dark:text-rose-300', 'xato']
-                        : it.status === 'sending' ? ['bg-brand-500/15 text-brand-700 dark:text-brand-300', 'tayyorlanyapti']
-                        : it.status === 'signing' ? ['bg-amber-500/15 text-amber-700 dark:text-amber-300', 'imzo']
-                        : heldBy ? ['bg-sky-500/10 text-sky-700 dark:text-sky-300', 'kutmoqda']
-                        : ['bg-surface-2 text-muted', 'navbatda'];
-                      // Xato sababi — chipning O'ZIDA. Ilgari faqat qizil «xato» so'zi turardi
-                      // va operator sahifada sababni topa olmasdi.
-                      const why = it.status === 'error' ? (it.error || job?.message || job?.error) : null;
-                      return (
-                        <div key={it.id} className={`flex flex-wrap items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs ${it.status === 'error' ? 'border-rose-500/35 bg-rose-500/[0.05]' : 'border-line bg-surface'}`}>
-                          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${badge[0]}`}>{t(badge[1])}</span>
-                          <span className="min-w-0 flex-1 truncate font-medium">{it.firmName} · {n(it.count)} {t('ta')}</span>
-                          {it.status === 'sending' && <span className="shrink-0 tabular-nums text-muted">{n(job?.progress ?? 0)}/{n(job?.total || it.count)} ({pct}%)</span>}
-                          {heldBy && (
-                            <span className="shrink-0 text-[11px] text-muted" title={`${t('Shu firmada partiya')} #${heldBy.jobId} ${t("ketmoqda — u tugashi bilan bu o'zi boshlanadi")}`}>
-                              #{heldBy.jobId} {t('tugashini kutmoqda')}
-                            </span>
-                          )}
-                          {it.status === 'error' && (
-                            <button type="button" onClick={() => setQueue((q) => q.filter((x) => x.id !== it.id))} title={t('Ro‘yxatdan olib tashlash')}
-                              className="shrink-0 rounded px-1 text-muted transition-colors hover:text-rose-500">✕</button>
-                          )}
-                          {it.status === 'wait' && (
-                            <button type="button" onClick={() => setQueue((q) => q.filter((x) => x.id !== it.id))} title={t('Navbatdan o‘chirish')}
-                              className="shrink-0 rounded px-1 text-muted transition-colors hover:text-rose-500">✕</button>
-                          )}
-                          {why && (
-                            <p className="w-full break-words text-[11px] leading-snug text-rose-600 dark:text-rose-300" role="alert">{why}</p>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <p className="mt-2 text-[11px] text-muted">{t('Ketma-ket tayyorlanadi (sudga yuborilmaydi). Har firma uchun kalit bir marta so‘raladi. Xato bo‘lsa keyingisiga o‘tadi.')}</p>
-                </div>
-              )}
-              {/* QORALAMA BOSHQARUVI — BITTA karta: avtomat holati + tugallanmagan navbat.
-                  2026-09-20: ilgari bu yerda uchta alohida panel turardi (avtomat, umumiy pauza,
-                  «Tugallanmagan ishlar») va uchalasi bir xil raqamlarni takrorlardi — operator
-                  qaysi tugma qaysi ro'yxatga tegishli ekanini ajrata olmasdi. Umumiy pauza esa
-                  faqat REAL yuborishga tegishli: u «Sudga o'tkazish» tabiga ko'chirildi. */}
-              <section className="mb-2 overflow-hidden rounded-xl border border-line bg-surface">
-              <DraftAutoPanel visible={active} embedded />
-              {/* NAVBATDA QOLGANLAR — bazadan tiklangan.
-                  Sahifa yangilansa ham ko'rinadi: manba React state emas, CourtQueueItem.
-                  Operator «Davom ettirish» bilan aynan qolgan ishlardan davom etadi —
-                  yangi tanlov qilinmaydi, tartib buzilmaydi, hech narsa takrorlanmaydi. */}
-              {pendingQ.length > 0 && (
-                <div className="border-t border-line p-3">
-                  <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <svg className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
-                    <span className="text-[12px] font-semibold text-amber-700 dark:text-amber-300">{t('Tugallanmagan qoralama navbati')}</span>
-                    <span className="basis-full text-[11px] text-muted sm:basis-auto">{t('Avtomat yetib bormagan yoki to‘xtab qolgan ishlar — firma bo‘yicha o‘sha joydan qo‘lda davom ettiring')}</span>
-                  </div>
-                  <div className="space-y-1.5">
-                    {pendingQ.map((q) => {
-                      const waiting = q.pending + q.running;
-                      return (
-                      <div key={q.firmId} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-surface-2 px-2.5 py-1.5 text-xs">
-                        {/* Tor ekranda firma nomi birinchi bo'lib qisqarardi — endi o'z qatorini oladi. */}
-                        <span className="w-full basis-full truncate font-medium sm:w-auto sm:basis-auto sm:flex-1">{q.firmName}</span>
-                        {/* RAQAMLAR — firma qatoridagi bilan AYNI manbadan (CourtQueueItem).
-                            Ilgari bu yerda job progressi («ketmoqda 0/195») turardi, pastda esa
-                            navbat sanog'i («5 ketdi · 195 navbatda») — ikkalasi bir ekranda
-                            bir-birini yolg'onga chiqarardi. Endi bitta haqiqat. */}
-                        {q.done > 0 && (
-                          <span className="shrink-0 rounded bg-teal-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-teal-700 dark:text-teal-300" title={t('Navbatdan muvaffaqiyatli o‘tganlar — BUTUN TARIX bo‘yicha (qayta tayyorlanganlar ham)')}>
-                            {n(q.done)} {t('navbatdan o‘tgan')}
-                          </span>
-                        )}
-                        {waiting > 0 && (
-                          <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-amber-700 dark:text-amber-300" title={t('Shu firmada navbatda va ishlanmoqda')}>
-                            {n(waiting)} {t('navbatda')}
-                          </span>
-                        )}
-                        {/* O'tkazilgan — XATO EMAS, lekin operator ARALASHUVI kerak (sabab — navbat
-                            ro'yxatida: invoice raqami, yetkazilganlik, portalda bor, ushlab turilgan). */}
-                        {q.skipped > 0 && (
-                          <span className="shrink-0 rounded bg-slate-500/10 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-slate-600 dark:text-slate-300" title={t(SKIP_HINT)}>
-                            {n(q.skipped)} {t('o‘tkazildi')}
-                          </span>
-                        )}
-                        {q.failed > 0 && (
-                          <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-rose-700 dark:text-rose-300" title={t('Xato bergan — firma qatoridagi navbat panelidan sababini ko‘ring')}>
-                            {n(q.failed)} {t('xato')}
-                          </span>
-                        )}
-                        {q.job?.status === 'RUNNING' ? (
-                          <span className="inline-flex shrink-0 items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300" title={`${t('Partiya')} #${q.job.jobId} ${t('ketmoqda')}`}>
-                            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-500" aria-hidden />
-                            {t('ketmoqda')}
-                          </span>
-                        ) : q.job?.status === 'PENDING' ? (
-                          /* Worker bir vaqtda bitta partiya bajaradi — bu firma o'z navbatini
-                             kutyapti. O'rnini ko'rsatamiz, aks holda «nega boshlanmayapti?». */
-                          <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300" title={`${t('Partiya')} #${q.job.jobId} ${t("navbatda — oldingisi tugagach o'zi boshlanadi")}`}>
-                            {t('navbatda')} · {q.job.queuePos}-{t('o‘rin')}
-                          </span>
-                        ) : waiting > 0 ? (
-                          <button
-                            type="button"
-                            onClick={() => setGate({ firmId: q.firmId, firmName: q.firmName, stir: q.stir, extra: { resume: true }, summary: `${q.firmName} — ${t('navbatda qolgan')} ${n(q.pending)} ${t('ta ishni davom ettirish (o‘z rejimida: qoralama sudga yuborilmaydi)')}` })}
-                            className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-brand-500 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-brand-600"
-                          >
-                            <IcoBolt /> {t('Navbatni davom ettirish')}
-                          </button>
-                        ) : (
-                          /* Navbatda ish yo'q — faqat xato/o'tkazilganlar qolgan. «Davom
-                             ettirish» bu yerda YOLG'ON tugma bo'lardi: bosilsa 400 qaytarardi. */
-                          <span className="shrink-0 text-[11px] text-muted">{t('Navbat tugagan — pastdagi firma qatorlaridan sababini ko‘ring')}</span>
-                        )}
-                        {/* DVIGATEL NIMA QILAYOTGANI — so'zma-so'z.
-                            Portal sovutish davrida («keyingisi 802s dan keyin») ekran 15
-                            daqiqa qimirlamaydi. Bu matnsiz operator ish osilib qolgan deb
-                            o'ylaydi va ketayotgan partiyani bekor qiladi. */}
-                        {q.job?.status === 'RUNNING' && q.job.message && (
-                          <p className="w-full text-[11px] leading-snug text-muted" role="status">{q.job.message}</p>
-                        )}
-                      </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              </section>
+          <div key="send" className="animate-fade-in space-y-3">
+            {/* HEADER — bitta karta: sarlavha, firma, «Excel ▾», Go tugmasi, 5 stat, YAGONA
+                «Ketmoqda» strip, notice. 2026-09-20: ilgari alohida toolbar + ring karta +
+                5 Stat karta + AlmostLine + brauzer navbat + DraftAutoPanel + pendingQ — hammasi
+                bir ekranda bir xil sonlarni takrorlab kelardi. */}
+            <HeaderShell
+              title="Qoralama"
+              subtitle="Hujjati to‘liq mijozlardan ADOLAT «Murojaatlarim»da qoralama tayyorlanadi"
+              firmSlot={firmDropdown}
+              updatedAt={lastLoaded ? lastLoaded.toLocaleTimeString('ru-RU') : null}
+              primary={draftAutoData
+                ? (draftAutoData.on
+                    ? { label: 'Avtomatni to‘xtatish', tone: 'rose', onClick: () => { void draftAuto.toggle(); }, disabled: draftAuto.busy, title: t('Yangi qoralama partiyalari boshlanmaydi (ketayotgani tugaydi)') }
+                    : { label: 'Avtomatni yoqish (24/7)', tone: 'brand', onClick: () => { void draftAuto.toggle(); }, disabled: draftAuto.busy, title: t('Tayyor ishlar uchun ADOLAT «Murojaatlarim»da qoralama tayyorlash — 24/7, sudga yuborilmaydi') })
+                : null}
+              secondary={[{ label: 'Excel ▾', onClick: () => setXlsOpen((v) => !v) }]}
+              stats={[
+                { key: 'total', label: 'Jami', value: ov!.total, tone: 'slate' },
+                { key: 'ready', label: 'Tayyor', value: ov!.sendable, tone: 'emerald', hint: 'Hujjati to‘liq, hali navbatga olinmagan' },
+                { key: 'queued', label: 'Navbatda', value: ov!.queued, tone: 'amber', hint: 'Partiyaga olingan — qoralama tayyorlanmoqda' },
+                { key: 'draft', label: 'Qoralama', value: ov!.draftReady, tone: 'teal', hint: 'ADOLAT «Murojaatlarim»da tayyor — «Sudga o‘tkazish» tabida yuboriladi' },
+                { key: 'sent', label: 'Sudda', value: ov!.submitted + ov!.submittedExternal, tone: 'indigo', hint: 'ADOLAT’da ochilgan da’volar (tizim + yurist qo‘lda)' },
+              ]}
+              running={activeBatch
+                ? { firmName: activeFirmName, kindLabel: activeKindLabel, progress: activeBatch.progress, total: activeBatch.total }
+                : null}
+              notice={notice}
+            />
 
-              <div className="space-y-2">
-                {data.readiness.firms.length === 0
-                  ? <EmptyBlock title={t('Bu snapshotda mijoz yoʻq')} hint={t('Sidebar sanasini tekshiring yoki Hisobotda konveyerni yangilang.')} />
-                  : data.readiness.firms.map((fr, i) => (
-                    <FirmSendRow
-                      key={fr.firmId}
-                      fr={fr}
-                      idx={i}
-                      snapshotId={snapshotId}
-                      job={jobs[`firm:${fr.firmId}`]}
-                      batchActive={activeBatchByFirm.get(fr.firmId) ?? null}
-                      showQueued={(ov?.queued ?? 0) > 0}
-                      zipJob={jobs[`zip:${fr.firmId}`]}
-                      startExport={startExport}
-                      onZip={() => setZipAsk({ firmId: fr.firmId, firmName: fr.firmName, max: fr.sendable, value: Math.min(MAX_ZIP_BATCH, fr.sendable) })}
-                      onZipCancel={(jobId) => { void cancelJob(`zip:${fr.firmId}`, jobId); }}
-                      onChanged={load}
-                      drillOpen={openFirm === fr.firmId}
-                      onToggleDrill={() => setOpenFirm((o) => (o === fr.firmId ? null : fr.firmId))}
-                    />
-                  ))}
-              </div>
+            {/* FIRMA NAVBATI — har qatorда bir chip (navbatda/tayyor), ixtiyoriy «ketmoqda»
+                (aynan shu firma ishlayotgan bo'lsa) va bitta amal tugmasi. Boshqa hech
+                narsa: done/skipped/failed son'lari drilldown modalida (Batafsil). */}
+            {data.readiness.firms.length > 0 && (
+              <FirmQueue
+                title="Firmalar navbati"
+                subtitle="Har firma — bir chip navbat holati, bir tugma amal"
+                rows={data.readiness.firms.map<FirmQueueRow>((f) => {
+                  const dfa = draftAutoByFirm.get(f.firmId);
+                  const paused = dfa?.paused === true;
+                  const isRunning = activeBatch?.firmId === f.firmId;
+                  const chips: FirmQueueRow['chips'] = f.queued > 0
+                    ? [{ label: `${n(f.queued)} navbatda`, tone: 'amber' as Tone, hint: 'Partiyaga olingan — qoralama tayyorlanmoqda' }]
+                    : f.sendable > 0
+                      ? [{ label: `${n(f.sendable)} tayyor`, tone: 'emerald' as Tone, hint: 'Hujjati to‘liq, hali navbatga olinmagan' }]
+                      : [];
+                  const action: FirmQueueRow['action'] = f.sendable > 0 && !paused
+                    ? { label: `Qoralama tayyorlash (${n(f.sendable)})`, tone: 'brand' as Tone, onClick: () => startExport(f.firmId, {}), title: t("Soni so‘raladi — ADOLAT «Murojaatlarim»da qoralama (sudga yuborilmaydi)") }
+                    : paused
+                      ? { label: 'Davom ettirish', tone: 'emerald' as Tone, onClick: () => { void draftAuto.setFirmPaused(f.firmId, false); }, title: t('Bu firmani davom ettirish (qoralama va «Sudga o‘tkazish»)') }
+                      : null;
+                  return {
+                    firmId: f.firmId,
+                    firmName: f.firmName,
+                    chips,
+                    running: isRunning && activeBatch
+                      ? { progress: activeBatch.progress, total: activeBatch.total, kindLabel: activeKindLabel }
+                      : null,
+                    action,
+                    emptyText: f.sendable === 0 && !paused ? 'Tayyor mijoz yo‘q' : undefined,
+                    paused,
+                  };
+                })}
+              />
+            )}
+
+            {/* FirmSendRow ro'yxati — kengaytirilgan drilldown (ring, docs, ⋮ menyu, batafsil).
+                2026-09-20 dan boshlab BOSH UI EMAS: asosiy oqim FirmQueue orqali, bu qatorlar
+                esa batafsil ishlash uchun (ba'zi operatorlar ular orqali ishlaydi). */}
+            <div className="space-y-2">
+              {data.readiness.firms.length === 0
+                ? <EmptyBlock title={t('Bu snapshotda mijoz yoʻq')} hint={t('Sidebar sanasini tekshiring yoki Hisobotda konveyerni yangilang.')} />
+                : data.readiness.firms.map((fr, i) => (
+                  <FirmSendRow
+                    key={fr.firmId}
+                    fr={fr}
+                    idx={i}
+                    snapshotId={snapshotId}
+                    job={jobs[`firm:${fr.firmId}`]}
+                    batchActive={activeBatchByFirm.get(fr.firmId) ?? null}
+                    showQueued={(ov?.queued ?? 0) > 0}
+                    zipJob={jobs[`zip:${fr.firmId}`]}
+                    startExport={startExport}
+                    onZip={() => setZipAsk({ firmId: fr.firmId, firmName: fr.firmName, max: fr.sendable, value: Math.min(MAX_ZIP_BATCH, fr.sendable) })}
+                    onZipCancel={(jobId) => { void cancelJob(`zip:${fr.firmId}`, jobId); }}
+                    onChanged={load}
+                    drillOpen={openFirm === fr.firmId}
+                    onToggleDrill={() => setOpenFirm((o) => (o === fr.firmId ? null : fr.firmId))}
+                  />
+                ))}
             </div>
-          )}
+          </div>
         </div>
+      )}
+
+      {/* Excel eksportlari — Modal (avval sarlavhaga yopishgan popup edi; HeaderShell secondary
+          tugmasi bir joyда, modal esa har qanday viewport'da to'g'ri turadi). */}
+      {xlsOpen && (
+        <Modal open onClose={() => setXlsOpen(false)} title={t('Excel eksportlari')} size="md">
+          <div className="divide-y divide-line rounded-lg border border-line overflow-hidden">
+            {[
+              { href: `/konveyer/court-stats-excel${selectedId ? `?s=${selectedId}` : ''}`, title: t('Firma statistikasi'), hint: t('Har firma: jami · tayyor · sudda · yetishmayotgan hujjatlar') },
+              { href: `/konveyer/cases-excel${selectedId ? `?s=${selectedId}` : ''}${firmId ? `${selectedId ? '&' : '?'}firmId=${firmId}` : ''}`, title: t('Mijozlar ro‘yxati'), hint: t('F.I.O · PINFL · firma · qarzdorlik · boji · muddat') },
+              { href: `/konveyer/court-returns-excel${selectedId ? `?s=${selectedId}` : ''}${firmId ? `${selectedId ? '&' : '?'}firmId=${firmId}` : ''}`, title: t('Suddan qaytganlar'), hint: t('Qayta yuborish uchun ishlash ro‘yxati') },
+              { href: `/konveyer/unpaid-receipts-excel${firmId ? `?firmId=${firmId}` : ''}`, title: t('To‘lanmagan kvitansiyalar'), hint: t('Buxgalteriya uchun: to‘lov kutayotgan ishlar · raqam · summa') },
+            ].map((x) => (
+              <a key={x.href} href={x.href} onClick={() => setXlsOpen(false)}
+                className="block px-3 py-2 text-left outline-none transition-colors hover:bg-surface-2 focus-visible:bg-surface-2">
+                <span className="block text-[12px] font-medium">{x.title}</span>
+                <span className="block text-[11px] leading-snug text-muted">{x.hint}</span>
+              </a>
+            ))}
+          </div>
+        </Modal>
+      )}
+
+      {/* MONITORING (batafsil) — HeaderShell.notice «Batafsil» tugmasidan. Firmalar bo'yicha
+          oxirgi partiya natijasi, pauza, tugallanmagan navbat — hammasi shu modalда. */}
+      {drill === 'draftAuto' && draftAutoData && (
+        <Modal open onClose={() => setDrill(null)} title={t('Avtomat monitoring — firmalar kesimi')} size="lg">
+          <div className="space-y-1.5 text-[12px]">
+            {draftAutoData.firms.map((f) => {
+              const lb = f.lastBatch;
+              const failed = lb && isBatchFailed(lb);
+              const isRun = activeBatch?.firmId === f.firmId;
+              const pq = pendingQ.find((p) => p.firmId === f.firmId);
+              const waiting = pq ? pq.pending + pq.running : 0;
+              return (
+                <div key={f.firmId} className={`rounded-lg border p-2 ${failed ? 'border-rose-500/40 bg-rose-500/[0.04]' : f.paused ? 'border-rose-500/30 bg-rose-500/[0.03] opacity-80' : isRun ? 'border-sky-500/40 bg-sky-500/[0.05]' : 'border-line'}`}>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="min-w-0 flex-1 truncate font-medium">{f.firmName}</span>
+                    <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-emerald-700 dark:text-emerald-300" title={t('Tayyor')}>{n(f.sendable)} {t('tayyor')}</span>
+                    <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-amber-700 dark:text-amber-300" title={t('Navbatda')}>{n(f.queued)} {t('navbatda')}</span>
+                    <span className="shrink-0 rounded bg-teal-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-teal-700 dark:text-teal-300" title={t('Qoralama tayyor')}>{n(f.draftReady)} {t('qoralama')}</span>
+                    {pq && pq.failed > 0 && (
+                      <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-rose-700 dark:text-rose-300">{n(pq.failed)} {t('xato')}</span>
+                    )}
+                    {pq && pq.skipped > 0 && (
+                      <span className="shrink-0 rounded bg-slate-500/10 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-slate-600 dark:text-slate-300" title={t(SKIP_HINT)}>{n(pq.skipped)} {t('o‘tkazildi')}</span>
+                    )}
+                    {f.paused
+                      ? <button type="button" onClick={() => { void draftAuto.setFirmPaused(f.firmId, false); }} className="shrink-0 rounded border border-emerald-500/40 px-2 py-0.5 text-[11px] font-medium text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300">{t('Davom ettirish')}</button>
+                      : <button type="button" onClick={() => { void draftAuto.setFirmPaused(f.firmId, true); }} className="shrink-0 rounded border border-line px-2 py-0.5 text-[11px] font-medium text-muted hover:border-rose-500/40 hover:text-rose-600 dark:hover:text-rose-300" title={t('Bu firmani to‘xtatish — qoralama HAM, «Sudga o‘tkazish» HAM to‘xtaydi (boshqa firmalar ketaveradi)')}>{t('Firmani to‘xtatish')}</button>}
+                    {pq && waiting > 0 && !pq.job && (
+                      <button type="button"
+                        onClick={() => { setDrill(null); setGate({ firmId: f.firmId, firmName: f.firmName, stir: pq.stir, extra: { resume: true }, summary: `${f.firmName} — ${t('navbatda qolgan')} ${n(pq.pending)} ${t('ta ishni davom ettirish (o‘z rejimida: qoralama sudga yuborilmaydi)')}` }); }}
+                        className="shrink-0 rounded bg-brand-500 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-brand-600">{t('Navbatni davom ettirish')}</button>
+                    )}
+                  </div>
+                  {lb && (
+                    <div className={`mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] ${failed ? 'text-rose-700 dark:text-rose-300' : 'text-muted'}`}>
+                      <span className="tabular-nums">#{lb.jobId} · {hhmm(lb.finishedAt)}</span>
+                      <span>· {failed ? t('oxirgi partiya: xato') : lb.status === 'CANCELED' ? t('oxirgi partiya: to‘xtatilgan') : t('oxirgi partiya: tayyor')}</span>
+                      {lb.message && <span className="min-w-0 flex-1 truncate" title={lb.message}>· {lb.message}</span>}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Modal>
       )}
 
       {/* ZIP eksport — hujjatlarni bitta arxivga yig'ib yuklab olish.

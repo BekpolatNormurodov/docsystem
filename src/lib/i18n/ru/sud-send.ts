@@ -158,4 +158,31 @@ export const sudSend: Record<string, string> = {
   "Partiya xato bilan tugadi": "Партия завершилась с ошибкой",
   "Sinov yuborildi. Portalda holati «Roʻyxatga olingan»ga o‘tganini va sud qaytarmaganini tekshiring — keyin qolganlarini yuboring.": "Тест отправлен. Проверьте на портале, что статус сменился на «Зарегистрировано» и суд не вернул иск, — затем отправляйте остальные.",
   "Go (avto-qoralama) yoqiq bo‘lsa, partiyalar ketma-ket boshlanadi. Yuborish uchun «Qoralama» tabida Go’ni vaqtincha o‘chiring — joriy partiya tugagach navbat bo‘shaydi.": "Если Go (автo-черновики) включён, партии запускаются одна за другой. Чтобы отправить, временно выключите Go во вкладке «Черновик» — после текущей партии очередь освободится.",
+
+  // ── 2026-09-20: yangi qobiq (HeaderShell + FirmQueue + Batafsil) ──
+  // Sarlavha, subtitle, statlar (bir tushuncha — bir so'z: Qoralama / Tayyor / To'siq / Sudda).
+  // Eslatma: «Sudga o‘tkazish», «Qoralama», «Tayyor», «Sudda» sud-shell.ts da bor
+  // (SECTIONS tartibi: sudShell → sudSend, kalitlar shu yerda takrorlanmaydi).
+  "Tayyor qoralamalarni E-IMZO bilan sudga topshirish — qaytarib bo‘lmaydi": "Передача готовых черновиков в суд с E-IMZO — необратимо",
+  "Hozir yuborishga mumkin": "Можно отправить прямо сейчас",
+  "To‘siq": "Препятствие",
+  "Boji to‘lanmagan / yetkazilmagan / eski paket / portalda CREATED emas": "Не оплачена пошлина / не доставлено / старый пакет / на портале не CREATED",
+  // HeaderShell.running.kindLabel — kichik harf (bosh so'z «Ketmoqda:» oldida keladi).
+  "sudga yuborish": "передача в суд",
+  "qoralama (1 qadam)": "черновик (1 шаг)",
+  "eski real yuborish": "старая реальная отправка",
+  // Header notice + primary tugmasi tooltiplari.
+  "Server ruxsati o‘chiq — texnik operatorga aytish kerak": "Разрешение сервера отключено — сообщите техническому оператору",
+  "Yuborish pauzada — ochish uchun tugmani bosing": "Отправка на паузе — нажмите кнопку, чтобы снять",
+  "Pauzani ochish": "Снять паузу",
+  "E-IMZO tasdig‘i eskirgan — yuborishdan oldin qayta imzolang": "Подтверждение E-IMZO устарело — подпишите заново перед отправкой",
+  "Ro‘yxatdan tanlang": "Отметьте в списке",
+  // Batafsil ochilib chiqadigan blok.
+  "Batafsil — jarayon va huquqiy xavf": "Подробнее — процесс и юридический риск",
+  "Qoralama tayyor": "Черновик готов",
+  // FirmQueue qatorlari.
+  "Firmalar bo‘yicha tayyor": "Готово по фирмам",
+  "Firma yo‘q": "Фирм нет",
+  "Tayyor ish yo‘q": "Готовых дел нет",
+  "ni tanlash": "— отметить",
 };

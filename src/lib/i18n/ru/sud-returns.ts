@@ -1,7 +1,38 @@
 // /sud «Qaytganlar» tab'i (ReturnsTab + /konveyer/sud-returns/* route'lari) RU tarjimalari — 2026-09-19.
 // Faqat YANGI kalitlar: boshqa bo'limlarda allaqachon bor kalitlar (Yangilash, Hujjatlar, Ajrim, …)
 // bu yerda takrorlanmaydi (takrorlansa SECTIONS tartibi bo'yicha biri ikkinchisini bosib ketadi).
+// 2026-09-20: HeaderShell/FirmQueue uchun umumiy vokabulyar (Ketmoqda/Navbatda/Sudda/To'siq) —
+// stat sondagi va sub filter chip'idagi so'z bir xil bo'lishi shart (operator shikoyati).
 export const sudReturns: Record<string, string> = {
+  // ── 2026-09-20 yangi qobiq (HeaderShell + FirmQueue) ──
+  'Qaytganlar': 'Возвраты',
+  'Sud qaytargan ishlarni sababiga qarab tuzatib, qayta qoralamaga o‘tkazing': 'Возвращённые судом дела — исправьте по причине и передайте в повторный черновик',
+  'Firmalar bo‘yicha qaytganlar': 'Возвраты по фирмам',
+  // 'Jami' → common.ts da bor («Итого»), takrorlamaymiz (common ustun keladi).
+  'Ushlangan': 'Придержаны',
+  'Navbatda': 'В очереди',
+  'Tayyorlangan': 'Подготовлены',
+  'Portaldagi ro‘yxat': 'Список на портале',
+  'Portaldagi qaytganlar': 'Возвраты на портале',
+  'Sabablar olinmoqda…': 'Получение причин…',
+  'Tayyor qaytgan ish yo‘q': 'Нет готовых возвращённых дел',
+  'Bir vaqtda bitta partiya — ketayotgani tugagach boshlanadi.': 'Одновременно одна партия — начнётся после завершения текущей.',
+  'qayta qoralama': 'повторный черновик',
+  'qaytganlardan qoralama': 'черновик из возвратов',
+  'qoralama': 'черновик',
+  'sudga o‘tkazish': 'передача в суд',
+  'qaytgan': 'возвращ.',
+  'tayyor': 'готово',
+  'Sabab kutilmoqda': 'Ожидание причины',
+  'Sababi hali olinmagan — «Sabablarni yangilash»ni bosing': 'Причина ещё не получена — нажмите «Обновить причины»',
+  'ta xato — pastdagi ro‘yxatdan sababini ko‘ring': 'с ошибкой — причину смотрите в списке ниже',
+  'Qaysi firma uchun qayta qoralama?': 'Для какой фирмы повторный черновик?',
+  'Bir vaqtda bitta firma — bittasini tanlang.': 'Одновременно только одна фирма — выберите одну.',
+  'Firma': 'Фирма',
+  'Bekor': 'Отмена',
+  'Yopish': 'Закрыть',
+
+
   // ── tab sarlavhasi, izoh, qadamlar ──
   'Qaytganlar — sud qaytargan ishlarni qayta tayyorlash': 'Возвраты — повторная подготовка дел, возвращённых судом',
   'Sud qaytargan (rad etgan yoki ko‘rmasdan qaytargan) arizalar shu yerda. Har bir ishning sababini ko‘ring, hujjatini tuzating yoki paket tuzatilguncha ushlab turing, so‘ng qayta qoralama tayyorlang. Bu bo‘limdan sudga hech narsa yuborilmaydi — tayyorlangan ish «Sudga o‘tkazish» bo‘limiga o‘tadi.':
