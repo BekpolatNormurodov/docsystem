@@ -60,13 +60,9 @@ async function processFirm(firm: { branchCode: string; stir: string; name: strin
   // 2) bizdagi holatlarni chaqiramiz — qaysilariga nima kerakligini aniqlash uchun
   const stored = await prisma.clientCaseStatus.findMany({
     where: { source: 'CABINET', branchCode: firm.branchCode, caseNumber: { in: cases.map((c) => c.caseNumber) } },
-    select: { caseNumber: true, matchedBy: true, judge: true, detail: true, status: true },
+    select: { caseNumber: true, matchedBy: true, judge: true, detail: true, status: true, defAddress: true },
   });
   const byNum = new Map(stored.map((r) => [r.caseNumber, r]));
-
-  // Sudya so'rovi FAQAT sudya tayinlangan bosqichlarda ma'noli — CREATED/REGISTER ishlari uchun
-  // history bo'sh (sudya hali biriktirilmagan). Buni portalga tegmasdan skip qilamiz.
-  const JUDGE_STATUSES = new Set(['ALLOCATE', 'PENDING', 'IN_PROCESS', 'DECIDED', 'FINISHED', 'DECLINED', 'RETURNED']);
 
   const tasks: Task[] = [];
   for (const c of cases) {
@@ -75,8 +71,12 @@ async function processFirm(firm: { branchCode: string; stir: string; name: strin
     // yozmaydi va so'rov behuda ketadi (masalan portalda 5880, DB'da 700 — 5180 ta bekor).
     if (!s) continue;
     const detail: any = s.detail;
-    const needsDetail = s.matchedBy !== 'PINFL' || !detail;
-    const needsJudge = !s.judge && !!s.status && JUDGE_STATUSES.has(s.status);
+    // TO'LIQ ANIQ REJIM (user: "to'liq oli vaqt ketsa ham"):
+    //   detail  → matchedBy PINFL emas, yoki detail yo'q, yoki manzil yo'q
+    //   sudya   → sudya yo'q (status filtr yo'q — CREATED bo'lsa ham urinamiz;
+    //             histories bo'sh qaytsa hech nima yo'qotmaymiz)
+    const needsDetail = s.matchedBy !== 'PINFL' || !detail || !(s as any).defAddress;
+    const needsJudge = !s.judge;
     if (needsDetail || needsJudge) tasks.push({ caseNumber: c.caseNumber, caseId: c.caseId, needsDetail, needsJudge });
   }
   if (limit && tasks.length > limit) tasks.length = limit;
@@ -90,6 +90,11 @@ async function processFirm(firm: { branchCode: string; stir: string; name: strin
   for (const t of tasks) {
     try {
       let realCaseId = t.caseId;
+      // Bir case ichida DETAIL + SUDYA endpointlarini KETMA-KET (uxlashsiz) so'raymiz —
+      // portal ular orasida 500ms sof network kutadi (undan tashqari heck yo'q). Firmalar
+      // orasida GAP_MS shu case tugagach uxlab qo'yiladi (oxirida). Bu ~2x tezlashtiradi
+      // (16s → 8-9s per case both-endpoints holatlarda), portal rate limit'ini o'zgartirmaydi
+      // (per-IP avg. bir xil, faqat ikki-request tor pikga siljidi).
       // ---- DETAIL ----
       if (t.needsDetail) {
         const r = await cabinetFetch(session, `/api/cabinet/case/get-one-case-by-id/${t.caseId}`);
@@ -119,7 +124,6 @@ async function processFirm(firm: { branchCode: string; stir: string; name: strin
           });
           realCaseId = realCaseIdFromDetail(d) ?? realCaseId;
         }
-        await sleep(GAP_MS);
       }
       // ---- SUDYA + SUD ----
       if (t.needsJudge) {
