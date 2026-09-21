@@ -24,7 +24,8 @@ interface Row {
   pinfl: string; pinflSource: string; clientName: string;
   caseNumber: string; category: string; claimKind: string;
   courtName: string; judge: string;
-  statusLabel: string; caseResult: string;
+  statusLabel: string; statusCode: string; caseResult: string;
+  defAddress: string; defPassport: string;
   registryDt: string; hearingDate: string;
   ijroNumber: string; executor: string; executorDept: string;
   invoiceNo: string; receiptNumber: string;
@@ -116,7 +117,10 @@ async function collect(firmCode: string, firmName: string): Promise<Row[]> {
       courtName: cName,
       judge: s.judge ?? '',
       statusLabel: cls.label,
+      statusCode: cls.code,
       caseResult: s.caseResult ?? '',
+      defAddress: s.defAddress ?? '',
+      defPassport: s.defPassport ?? '',
       registryDt: toISO(s.registryDt),
       hearingDate: toISO(s.hearingDate),
       ijroNumber: mib?.ijro ?? '',
@@ -147,11 +151,13 @@ function buildWorkbook(firmName: string, rows: Row[]): ExcelJS.Workbook {
     { header: 'Tur', key: 'claimKind', width: 12 },
     { header: 'Kategoriya', key: 'category', width: 12 },
     { header: 'Sud', key: 'courtName', width: 26 },
-    { header: 'Sudya', key: 'judge', width: 24 },
+    { header: 'Sudya', key: 'judge', width: 26 },
     { header: 'Holat', key: 'statusLabel', width: 20 },
-    { header: 'Natija (raw)', key: 'caseResult', width: 20 },
+    { header: 'Natija (raw)', key: 'caseResult', width: 16 },
     { header: 'Ro‘yxatga olingan', key: 'registryDt', width: 14 },
     { header: 'Sud yig‘ilishi', key: 'hearingDate', width: 14 },
+    { header: 'Manzil', key: 'defAddress', width: 34 },
+    { header: 'Pasport', key: 'defPassport', width: 14 },
     { header: 'Ijro raqami', key: 'ijroNumber', width: 22 },
     { header: 'Ijrochi', key: 'executor', width: 22 },
     { header: 'Ijro organi', key: 'executorDept', width: 28 },
@@ -165,7 +171,26 @@ function buildWorkbook(firmName: string, rows: Row[]): ExcelJS.Workbook {
   ws1.getRow(1).alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
   ws1.getRow(1).height = 28;
   ws1.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE7EEF7' } };
-  rows.forEach((r, i) => ws1.addRow({ no: i + 1, ...r }));
+
+  // PINFL/raqamli ustunlar TEXT (Excel «katta raqam»ni ilmiy formatga aylantirmasin)
+  const textCols = ['pinfl', 'caseNumber', 'ijroNumber', 'receiptNumber', 'invoiceNo', 'defPassport'];
+  for (const key of textCols) { const c = ws1.getColumn(key); c.numFmt = '@'; }
+
+  // Holat bo'yicha ranglash
+  const TONE: Record<string, string> = {
+    SATISFIED: 'FFDFF7E4', FINISHED: 'FFDFF7E4', PARTIAL: 'FFFFF3CD',
+    DECLINED: 'FFFCE1E1', RETURNED: 'FFFCE1E1', UNCONSIDERED: 'FFEEEEEE',
+    WITHDRAWN: 'FFEEEEEE', DECIDED: 'FFEEE4FA',
+    IN_PROCESS: 'FFE1F0FF', PENDING: 'FFFFF3CD', CREATED: 'FFEAF6FE',
+  };
+  rows.forEach((r, i) => {
+    const rr = ws1.addRow({ no: i + 1, ...r });
+    const bg = TONE[r.statusCode];
+    if (bg) rr.eachCell({ includeEmpty: true }, (cell) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } } as any;
+    });
+    rr.alignment = { vertical: 'middle', wrapText: false };
+  });
   ws1.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: cols.length } };
 
   // Tab 2: PINFL ro'yxati (unikal)
@@ -179,6 +204,7 @@ function buildWorkbook(firmName: string, rows: Row[]): ExcelJS.Workbook {
   ws2.getRow(1).font = { bold: true };
   ws2.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
   ws2.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE7EEF7' } };
+  ws2.getColumn('pinfl').numFmt = '@';
   const byPinfl = new Map<string, { name: string; count: number }>();
   for (const r of rows) {
     const key = r.pinfl || `_no_pinfl:${r.clientName}`;
