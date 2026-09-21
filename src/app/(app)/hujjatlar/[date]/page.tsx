@@ -4,11 +4,13 @@ import Link from 'next/link';
 import { Prisma } from '@prisma/client';
 import { notFound } from 'next/navigation';
 import { requireUser } from '@/lib/auth';
+import { canManageDocs } from '@/lib/access';
 import { prisma } from '@/lib/db';
 import { PageHeader, EmptyState, Pagination } from '@/ui';
 import { formatSumDecimal } from '@/core/document';
 import { buildLoanWhere } from '@/core/loan-filters';
 import { firmActivity } from '@/lib/active-firms';
+import { getAppDoc } from '@/lib/app-docs';
 import { getT } from '@/lib/i18n/server';
 import { FilterExportBar } from './FilterExportBar';
 import { ExportsList, type ReadyExport } from './ExportsList';
@@ -38,7 +40,8 @@ export default async function HujjatlarDatePage({
   params: { date: string };
   searchParams: Record<string, string | string[] | undefined>;
 }) {
-  await requireUser();
+  const user = await requireUser();
+  const canManage = canManageDocs(user);
   const t = getT();
   const date = params.date;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) notFound();
@@ -146,6 +149,24 @@ export default async function HujjatlarDatePage({
     where: { type: 'EXPORT', status: 'DONE', snapshotId: snapshot.id },
     orderBy: { createdAt: 'desc' },
   });
+  // 3 ta manba .xlsx — «Portfel», «Sud roʻyxati», «Talabnoma roʻyxati». Har biri diskda bo'lsa
+  // kartachada yuklab olish tugmasi ko'rinadi. Faqat admin/docs-manage ko'radi.
+  const sourceFiles = canManage
+    ? await (async () => {
+        const portfelAbs = path.join(process.cwd(), 'uploads', `${snapshot.id}.xlsx`);
+        const sudAbs = path.join(process.cwd(), 'uploads', `${snapshot.id}-exclude.xlsx`);
+        const tal = await getAppDoc('talabnoma');
+        const safeStat = (p: string) => { try { return fs.statSync(p).size; } catch { return 0; } };
+        return {
+          portfel: { present: safeStat(portfelAbs) > 0, size: safeStat(portfelAbs) },
+          sud: { present: safeStat(sudAbs) > 0, size: safeStat(sudAbs) },
+          talabnoma: tal?.filePath
+            ? { present: safeStat(tal.filePath) > 0, size: safeStat(tal.filePath), label: tal.label }
+            : { present: false, size: 0, label: null },
+        };
+      })()
+    : null;
+
   const readyExports: ReadyExport[] = exportJobs
     .map((j): ReadyExport | null => {
       // Drop rows whose ZIP was removed from disk so the list never offers a dead download.
@@ -187,6 +208,52 @@ export default async function HujjatlarDatePage({
             : `${clientCount.toLocaleString('ru-RU')} ${t('mijoz')} · ${matchLoans.toLocaleString('ru-RU')} ${t('shartnoma')} — ${t('firmalarni tanlang yoki filtrlab ZIP oling')}`
         }
       />
+
+      {sourceFiles && (
+        <div className="card mb-4 p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <div className="text-sm font-semibold">{t('Manba fayllar (3 ta .xlsx)')}</div>
+              <div className="text-[11px] text-muted">{t('Import qilingan asl fayllar — kerak boʻlsa yuklab oling')}</div>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {([
+              { k: 'portfel', n: 1, label: t('Portfel'), meta: sourceFiles.portfel, tone: 'brand' },
+              { k: 'sud', n: 2, label: t('Sud roʻyxati'), meta: sourceFiles.sud, tone: 'amber' },
+              { k: 'talabnoma', n: 3, label: t('Talabnoma roʻyxati'), meta: sourceFiles.talabnoma, tone: 'emerald' },
+            ] as const).map(({ k, n, label, meta, tone }) => {
+              const kb = meta.size > 0 ? meta.size >= 1024 * 1024 ? `${(meta.size / 1024 / 1024).toFixed(1)} MB` : `${Math.round(meta.size / 1024)} KB` : '';
+              const toneCls = tone === 'brand' ? 'text-brand-600' : tone === 'amber' ? 'text-amber-600' : 'text-emerald-600';
+              return meta.present ? (
+                <a
+                  key={k}
+                  href={`/api/snapshots/${snapshot.id}/xlsx/${k}`}
+                  download
+                  className="flex items-center justify-between gap-3 rounded-lg border border-line bg-surface-2 px-3 py-2.5 transition hover:border-brand-500/50 hover:bg-surface-3"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className={`flex h-7 w-7 flex-none items-center justify-center rounded-md bg-surface-1 text-xs font-bold ${toneCls}`}>{n}</span>
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">{label}</div>
+                      <div className="text-[10px] text-muted">{kb} · .xlsx</div>
+                    </div>
+                  </div>
+                  <span className="text-brand-600">↓</span>
+                </a>
+              ) : (
+                <div key={k} className="flex items-center gap-2 rounded-lg border border-dashed border-line bg-surface-1 px-3 py-2.5 opacity-60">
+                  <span className="flex h-7 w-7 flex-none items-center justify-center rounded-md bg-surface-2 text-xs font-bold text-muted">{n}</span>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm">{label}</div>
+                    <div className="text-[10px] text-muted">{t('yuklanmagan')}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <FilterExportBar
         date={date}
