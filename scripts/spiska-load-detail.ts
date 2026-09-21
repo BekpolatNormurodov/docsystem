@@ -71,9 +71,12 @@ async function processFirm(firm: { branchCode: string; stir: string; name: strin
   const tasks: Task[] = [];
   for (const c of cases) {
     const s = byNum.get(c.caseNumber);
-    const detail: any = s?.detail;
-    const needsDetail = !s || s.matchedBy !== 'PINFL' || !detail;
-    const needsJudge = !s?.judge && !!s?.status && JUDGE_STATUSES.has(s.status);
+    // Faqat bizning DB'da mavjud yozuvlar ustida ishlaymiz — aks holda updateMany hech narsani
+    // yozmaydi va so'rov behuda ketadi (masalan portalda 5880, DB'da 700 — 5180 ta bekor).
+    if (!s) continue;
+    const detail: any = s.detail;
+    const needsDetail = s.matchedBy !== 'PINFL' || !detail;
+    const needsJudge = !s.judge && !!s.status && JUDGE_STATUSES.has(s.status);
     if (needsDetail || needsJudge) tasks.push({ caseNumber: c.caseNumber, caseId: c.caseId, needsDetail, needsJudge });
   }
   if (limit && tasks.length > limit) tasks.length = limit;
