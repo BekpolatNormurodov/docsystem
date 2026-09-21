@@ -894,9 +894,9 @@ const CABINET_RESULT: Record<string, Cls> = {
 // CABINET process status (English) — when no decisive result yet.
 const CABINET_STATUS: Record<string, Cls> = {
   DRAFT: { code: 'DRAFT', label: 'Qoralama', tone: 'slate' },
-  CREATED: { code: 'CREATED', label: 'Kelgan (ro‘yxatda)', tone: 'sky' },
-  REGISTER: { code: 'REGISTER', label: 'Ro‘yxatga olingan', tone: 'sky' },
-  ALLOCATE: { code: 'ALLOCATE', label: 'Sudyaga taqsimlangan', tone: 'sky' },
+  CREATED: { code: 'CREATED', label: 'Kelgan', tone: 'sky' },
+  REGISTER: { code: 'REGISTER', label: 'Ro‘yxatga olindi', tone: 'sky' },
+  ALLOCATE: { code: 'ALLOCATE', label: 'Sudyaga taqsimlandi', tone: 'sky' },
   PENDING: { code: 'PENDING', label: 'Kutilmoqda', tone: 'amber' },
   IN_PROCESS: { code: 'IN_PROCESS', label: 'Ko‘rilmoqda', tone: 'blue' },
   DECIDED: { code: 'DECIDED', label: 'Qaror chiqdi', tone: 'violet' },
