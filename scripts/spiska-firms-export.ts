@@ -137,7 +137,29 @@ async function collect(firmCode: string, firmName: string): Promise<Row[]> {
   return rows;
 }
 
-function buildWorkbook(firmName: string, rows: Row[]): ExcelJS.Workbook {
+// Bir PINFL boshqa firmalarda ham sudda bor bo'lishi mumkin. Tab 2'da har PINFL yonida
+// qaysi firmalarda + nechta ish borligini vergul bilan ko'rsatamiz.
+async function buildCrossFirmMap(pinfls: string[], excludeCode: string): Promise<Map<string, string>> {
+  if (!pinfls.length) return new Map();
+  const rows = await prisma.clientCaseStatus.groupBy({
+    by: ['pinfl', 'branchCode'],
+    where: { source: 'CABINET', matchedBy: 'PINFL', pinfl: { in: pinfls }, branchCode: { not: excludeCode } },
+    _count: { _all: true },
+  });
+  const shortByCode = new Map(FIRMS.map((f) => [f.branchCode, f.name.split(/\s+/)[0]]));
+  const byPinfl = new Map<string, Array<[string, number]>>();
+  for (const r of rows) {
+    if (!r.pinfl) continue;
+    const list = byPinfl.get(r.pinfl) ?? [];
+    list.push([shortByCode.get(r.branchCode) ?? r.branchCode, r._count._all]);
+    byPinfl.set(r.pinfl, list);
+  }
+  const out = new Map<string, string>();
+  for (const [p, list] of byPinfl) out.set(p, list.map(([n, c]) => `${n} (${c})`).join(', '));
+  return out;
+}
+
+function buildWorkbook(firmName: string, firmCode: string, rows: Row[], crossFirm: Map<string, string>): ExcelJS.Workbook {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'docsystem';
   wb.created = new Date(0); // deterministik
@@ -202,6 +224,7 @@ function buildWorkbook(firmName: string, rows: Row[]): ExcelJS.Workbook {
     { header: 'PINFL', key: 'pinfl', width: 18 },
     { header: 'F.I.O', key: 'clientName', width: 40 },
     { header: 'Kirgan ishlar soni', key: 'count', width: 20 },
+    { header: 'Boshqa firmalarda', key: 'otherFirms', width: 36 },
   ];
   ws2.getRow(1).font = { bold: true };
   ws2.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
@@ -215,10 +238,20 @@ function buildWorkbook(firmName: string, rows: Row[]): ExcelJS.Workbook {
     else byPinfl.set(key, { name: r.clientName, count: 1 });
   }
   const uniq = [...byPinfl.entries()]
-    .map(([p, v]) => ({ pinfl: p.startsWith('_no_pinfl:') ? '' : p, clientName: v.name, count: v.count }))
+    .map(([p, v]) => ({
+      pinfl: p.startsWith('_no_pinfl:') ? '' : p,
+      clientName: v.name,
+      count: v.count,
+      otherFirms: p.startsWith('_no_pinfl:') ? '' : (crossFirm.get(p) ?? ''),
+    }))
     .sort((a, b) => a.clientName.localeCompare(b.clientName));
-  uniq.forEach((r, i) => ws2.addRow({ no: i + 1, ...r }));
-  ws2.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 4 } };
+  uniq.forEach((r, i) => {
+    const rr = ws2.addRow({ no: i + 1, ...r });
+    if (r.otherFirms) rr.eachCell({ includeEmpty: true }, (cell) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3CD' } } as any; // sariq — bir necha firmada
+    });
+  });
+  ws2.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 5 } };
 
   return wb;
 }
@@ -236,13 +269,14 @@ async function main() {
   for (const f of firms) {
     console.log(`\n== ${f.name} (${f.branchCode}) ==`);
     const rows = await collect(f.branchCode, f.name);
-    const uniq = new Set(rows.map((r) => r.pinfl).filter(Boolean));
-    console.log(`  kirgan ishlar: ${rows.length} · unikal PINFL: ${uniq.size}`);
-    const wb = buildWorkbook(f.name, rows);
+    const uniqPinfls = [...new Set(rows.map((r) => r.pinfl).filter(Boolean))] as string[];
+    console.log(`  kirgan ishlar: ${rows.length} · unikal PINFL: ${uniqPinfls.length}`);
+    const crossFirm = await buildCrossFirmMap(uniqPinfls, f.branchCode);
+    const wb = buildWorkbook(f.name, f.branchCode, rows, crossFirm);
     const short = f.name.split(/\s+/)[0]; // BRIGHT/URBAN/COMMUNITY/FUNDFLOW
     const file = path.join(OUT, `${short}_spiska_${today}.xlsx`);
     await wb.xlsx.writeFile(file);
-    summary.push({ firm: f.name, code: f.branchCode, cases: rows.length, pinfls: uniq.size, file });
+    summary.push({ firm: f.name, code: f.branchCode, cases: rows.length, pinfls: uniqPinfls.length, file });
     console.log(`  ✓ ${file}`);
   }
 
