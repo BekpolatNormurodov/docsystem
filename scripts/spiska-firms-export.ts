@@ -211,7 +211,8 @@ function buildWorkbook(firmName: string, firmCode: string, rows: Row[], crossFir
     SATISFIED: 'FFDFF7E4', FINISHED: 'FFDFF7E4', PARTIAL: 'FFFFF3CD',
     DECLINED: 'FFFCE1E1', RETURNED: 'FFFCE1E1', UNCONSIDERED: 'FFEEEEEE',
     WITHDRAWN: 'FFEEEEEE', DECIDED: 'FFEEE4FA',
-    IN_PROCESS: 'FFE1F0FF', PENDING: 'FFFFF3CD', CREATED: 'FFEAF6FE',
+    IN_PROCESS: 'FFE1F0FF', PENDING: 'FFFFF3CD',
+    CREATED: 'FFEAF6FE', REGISTER: 'FFDDEEFA', ALLOCATE: 'FFCCE4F5',
   };
   rows.forEach((r, i) => {
     const rr = ws1.addRow({ no: i + 1, ...r });

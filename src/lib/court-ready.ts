@@ -895,11 +895,14 @@ const CABINET_RESULT: Record<string, Cls> = {
 const CABINET_STATUS: Record<string, Cls> = {
   DRAFT: { code: 'DRAFT', label: 'Qoralama', tone: 'slate' },
   CREATED: { code: 'CREATED', label: 'Kelgan (ro‘yxatda)', tone: 'sky' },
+  REGISTER: { code: 'REGISTER', label: 'Ro‘yxatga olingan', tone: 'sky' },
+  ALLOCATE: { code: 'ALLOCATE', label: 'Sudyaga taqsimlangan', tone: 'sky' },
   PENDING: { code: 'PENDING', label: 'Kutilmoqda', tone: 'amber' },
   IN_PROCESS: { code: 'IN_PROCESS', label: 'Ko‘rilmoqda', tone: 'blue' },
   DECIDED: { code: 'DECIDED', label: 'Qaror chiqdi', tone: 'violet' },
   FINISHED: { code: 'FINISHED', label: 'Yakunlangan', tone: 'emerald' },
   DECLINED: { code: 'DECLINED', label: 'Rad etilgan', tone: 'rose' },
+  RETURNED: { code: 'RETURNED', label: 'Qaytarilgan', tone: 'rose' },
 };
 // HIPPO talabnoma POSTAL delivery outcome (the `status` field; caseResult="Success" is noise).
 const HIPPO_STATUS: Record<string, Cls> = {
