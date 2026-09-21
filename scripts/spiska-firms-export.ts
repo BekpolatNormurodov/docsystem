@@ -50,9 +50,11 @@ async function collect(firmCode: string, firmName: string): Promise<Row[]> {
   const firm = await prisma.firm.findUnique({ where: { code: firmCode }, select: { id: true } });
   if (!firm) return [];
 
-  // 1) Sudga kirgan hamma ish (CABINET) shu firma bo'yicha
+  // FAQAT SUDDAN ANIQ PINFL. Ism bo'yicha portfel-taxminlar (matchedBy='NAME') va
+  // topilmaganlar (UNMATCHED) EKSPORTGA TUSHMAYDI — noto'g'ri odam bilan ishlash xavfli.
+  // Sud detal so'rovi hali yetmagan bo'lsa, o'sha ish keyingi eksportda paydo bo'ladi.
   const statuses = await prisma.clientCaseStatus.findMany({
-    where: { branchCode: firmCode, source: 'CABINET' },
+    where: { branchCode: firmCode, source: 'CABINET', matchedBy: 'PINFL', pinfl: { not: null } },
     orderBy: [{ registryDt: 'desc' }, { updatedAt: 'desc' }],
   });
   if (!statuses.length) return [];
