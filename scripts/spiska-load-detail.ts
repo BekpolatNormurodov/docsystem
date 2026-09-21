@@ -60,17 +60,20 @@ async function processFirm(firm: { branchCode: string; stir: string; name: strin
   // 2) bizdagi holatlarni chaqiramiz — qaysilariga nima kerakligini aniqlash uchun
   const stored = await prisma.clientCaseStatus.findMany({
     where: { source: 'CABINET', branchCode: firm.branchCode, caseNumber: { in: cases.map((c) => c.caseNumber) } },
-    select: { caseNumber: true, matchedBy: true, judge: true, detail: true },
+    select: { caseNumber: true, matchedBy: true, judge: true, detail: true, status: true },
   });
   const byNum = new Map(stored.map((r) => [r.caseNumber, r]));
+
+  // Sudya so'rovi FAQAT sudya tayinlangan bosqichlarda ma'noli — CREATED/REGISTER ishlari uchun
+  // history bo'sh (sudya hali biriktirilmagan). Buni portalga tegmasdan skip qilamiz.
+  const JUDGE_STATUSES = new Set(['ALLOCATE', 'PENDING', 'IN_PROCESS', 'DECIDED', 'FINISHED', 'DECLINED', 'RETURNED']);
 
   const tasks: Task[] = [];
   for (const c of cases) {
     const s = byNum.get(c.caseNumber);
     const detail: any = s?.detail;
     const needsDetail = !s || s.matchedBy !== 'PINFL' || !detail;
-    const needsJudge = !s?.judge;
-    // Judge only makes sense if we have real caseId — from detail or the listing
+    const needsJudge = !s?.judge && !!s?.status && JUDGE_STATUSES.has(s.status);
     if (needsDetail || needsJudge) tasks.push({ caseNumber: c.caseNumber, caseId: c.caseId, needsDetail, needsJudge });
   }
   if (limit && tasks.length > limit) tasks.length = limit;
