@@ -21,7 +21,7 @@ const toISO = (d: Date | null | undefined) => (d ? new Date(d).toISOString().sli
 const digits = (s: any) => String(s ?? '').replace(/\D+/g, '');
 
 interface Row {
-  pinfl: string; clientName: string;
+  pinfl: string; pinflSource: string; clientName: string;
   caseNumber: string; category: string; claimKind: string;
   courtName: string; judge: string;
   statusLabel: string; caseResult: string;
@@ -30,6 +30,15 @@ interface Row {
   invoiceNo: string; receiptNumber: string;
   courtSentAt: string; updatedAt: string;
 }
+
+// ADOLAT PINFL manbasi. Sud ro'yxatida FAQAT ISM keladi — PINFL ikki yo'l bilan qo'shiladi:
+//   PINFL — detal so'rovidan (get-one-case-by-id) davlat reyestridagi haqiqiy javobgar PINFL'i;
+//   NAME  — sud faqat ismni berdi, biz normName bo'yicha o'z portfeldan topdik (ehtimol);
+//   UNMATCHED — sud ismini portfelda topolmadi yoki noaniq (bir xil ismli 2 mijoz).
+const MATCH_UZ: Record<string, string> = {
+  PINFL: 'Sud (aniq)', NAME: 'Portfel (ism bo‘yicha)', UNMATCHED: '—',
+  CLAIM_ID: 'Sud (claim id)', CUSTOM_ID: 'Sud (custom id)',
+};
 
 const CAT_UZ: Record<string, string> = {
   civil: 'Fuqarolik', economic: 'Iqtisodiy', administrative: 'Ma’muriy', conflict: 'Nizoli',
@@ -99,6 +108,7 @@ async function collect(firmCode: string, firmName: string): Promise<Row[]> {
     const cName = (s.courtId && courtByBid.get(s.courtId)) || ari?.courtName || '';
     return {
       pinfl: s.pinfl ?? '',
+      pinflSource: MATCH_UZ[String(s.matchedBy ?? '').toUpperCase()] ?? (s.matchedBy ?? ''),
       clientName: s.clientName ?? '',
       caseNumber: s.caseNumber ?? '',
       category: CAT_UZ[String(s.category ?? '').toLowerCase()] ?? (s.category ?? ''),
@@ -131,6 +141,7 @@ function buildWorkbook(firmName: string, rows: Row[]): ExcelJS.Workbook {
   const cols = [
     { header: '№', key: 'no', width: 6 },
     { header: 'PINFL', key: 'pinfl', width: 16 },
+    { header: 'PINFL manbasi', key: 'pinflSource', width: 20 },
     { header: 'F.I.O', key: 'clientName', width: 34 },
     { header: 'Ish raqami', key: 'caseNumber', width: 18 },
     { header: 'Tur', key: 'claimKind', width: 12 },
