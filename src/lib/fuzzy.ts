@@ -13,7 +13,7 @@
 //
 // Chegara 0.70 — foydalanuvchi tanlovi. Ko'p tokenli so'rov (masalan «ismoilov karim») da
 // har token o'z eng yaxshi mos tokenini topadi, o'rtachasi 0.70 dan yuqori bo'lishi kerak.
-import { normName } from './cabinet/status-ingest';
+import { normName } from '../core/norm-name';
 
 export const DEFAULT_THRESHOLD = 0.70;
 
