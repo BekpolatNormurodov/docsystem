@@ -138,8 +138,10 @@ async function collect(firmCode: string, firmName: string): Promise<Row[]> {
 }
 
 // Bir PINFL boshqa firmalarda ham sudda bor bo'lishi mumkin. Tab 2'da har PINFL yonida
-// qaysi firmalarda + nechta ish borligini vergul bilan ko'rsatamiz.
-async function buildCrossFirmMap(pinfls: string[], excludeCode: string): Promise<Map<string, string>> {
+// qaysi firmalarda + nechta ish borligini vergul bilan + boshqa firmalardagi jami ish
+// sonini ko'rsatamiz.
+interface CrossFirmInfo { label: string; count: number }
+async function buildCrossFirmMap(pinfls: string[], excludeCode: string): Promise<Map<string, CrossFirmInfo>> {
   if (!pinfls.length) return new Map();
   const rows = await prisma.clientCaseStatus.groupBy({
     by: ['pinfl', 'branchCode'],
@@ -154,12 +156,16 @@ async function buildCrossFirmMap(pinfls: string[], excludeCode: string): Promise
     list.push([shortByCode.get(r.branchCode) ?? r.branchCode, r._count._all]);
     byPinfl.set(r.pinfl, list);
   }
-  const out = new Map<string, string>();
-  for (const [p, list] of byPinfl) out.set(p, list.map(([n, c]) => `${n} (${c})`).join(', '));
+  const out = new Map<string, CrossFirmInfo>();
+  for (const [p, list] of byPinfl) {
+    const label = list.map(([n, c]) => `${n} (${c})`).join(', ');
+    const count = list.reduce((s, [, c]) => s + c, 0);
+    out.set(p, { label, count });
+  }
   return out;
 }
 
-function buildWorkbook(firmName: string, firmCode: string, rows: Row[], crossFirm: Map<string, string>): ExcelJS.Workbook {
+function buildWorkbook(firmName: string, firmCode: string, rows: Row[], crossFirm: Map<string, CrossFirmInfo>): ExcelJS.Workbook {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'docsystem';
   wb.created = new Date(0); // deterministik
@@ -219,12 +225,14 @@ function buildWorkbook(firmName: string, firmCode: string, rows: Row[], crossFir
 
   // Tab 2: PINFL ro'yxati (unikal)
   const ws2 = wb.addWorksheet('PINFL ro‘yxati', { views: [{ state: 'frozen', ySplit: 1 }] });
+  const firmShort = firmName.split(/\s+/)[0];
   ws2.columns = [
     { header: '№', key: 'no', width: 6 },
     { header: 'PINFL', key: 'pinfl', width: 18 },
     { header: 'F.I.O', key: 'clientName', width: 40 },
-    { header: 'Kirgan ishlar soni', key: 'count', width: 20 },
+    { header: `${firmShort} da (bu)`, key: 'count', width: 18 },
     { header: 'Boshqa firmalarda', key: 'otherFirms', width: 36 },
+    { header: 'Jami (4 firma)', key: 'total', width: 16 },
   ];
   ws2.getRow(1).font = { bold: true };
   ws2.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
@@ -238,20 +246,24 @@ function buildWorkbook(firmName: string, firmCode: string, rows: Row[], crossFir
     else byPinfl.set(key, { name: r.clientName, count: 1 });
   }
   const uniq = [...byPinfl.entries()]
-    .map(([p, v]) => ({
-      pinfl: p.startsWith('_no_pinfl:') ? '' : p,
-      clientName: v.name,
-      count: v.count,
-      otherFirms: p.startsWith('_no_pinfl:') ? '' : (crossFirm.get(p) ?? ''),
-    }))
-    .sort((a, b) => a.clientName.localeCompare(b.clientName));
+    .map(([p, v]) => {
+      const cross = p.startsWith('_no_pinfl:') ? undefined : crossFirm.get(p);
+      return {
+        pinfl: p.startsWith('_no_pinfl:') ? '' : p,
+        clientName: v.name,
+        count: v.count,
+        otherFirms: cross?.label ?? '',
+        total: v.count + (cross?.count ?? 0),
+      };
+    })
+    .sort((a, b) => b.total - a.total || a.clientName.localeCompare(b.clientName));
   uniq.forEach((r, i) => {
     const rr = ws2.addRow({ no: i + 1, ...r });
     if (r.otherFirms) rr.eachCell({ includeEmpty: true }, (cell) => {
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3CD' } } as any; // sariq — bir necha firmada
     });
   });
-  ws2.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 5 } };
+  ws2.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 6 } };
 
   return wb;
 }
