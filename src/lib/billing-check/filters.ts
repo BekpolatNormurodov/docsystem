@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client';
+import { fuzzyPrismaOr } from '../fuzzy';
 
 /**
  * «Bizning summalarimiz» — biz yaratadigan kvitansiyalarning summalari (TIYINDA:
@@ -57,19 +58,16 @@ export function buildInvoiceWhere(sp: URLSearchParams, ownAmounts: number[] = []
     ...(issuedAt ? { issuedAt } : {}),
     // Matn qidiruvi — yozuvning ko'zga ko'rinadigan hamma maydoni bo'yicha, shunda
     // «nimani qidirsam bo'ladi» degan savol tug'ilmaydi.
-    ...(q
-      ? {
-          OR: [
-            { number: { contains: q } },
-            { payer: { contains: q } },
-            { payerTin: { contains: q } },
-            { claimCaseNumber: { contains: q } },
-            { court: { contains: q } },
-            { description: { contains: q } },
-            { payCategory: { contains: q } },
-            { forAccount: { contains: q } },
-          ],
-        }
-      : {}),
+    ...(q ? (function () {
+      // Puzzy: to'lovchi ismi/tashkilot nomi bo'yicha tokenlashtirilgan OR-contains (fuzzy.ts).
+      // Raqamli so'rov (kvitansiya №, STIR, hisob raqami) — aniq substring.
+      const payerW: any = fuzzyPrismaOr(q, ['payer']);
+      const payerOr: any[] = payerW?.OR ?? (payerW?.payer ? [{ payer: payerW.payer }] : [{ payer: { contains: q } }]);
+      return { OR: [
+        ...payerOr,
+        { number: { contains: q } }, { payerTin: { contains: q } }, { claimCaseNumber: { contains: q } },
+        { court: { contains: q } }, { description: { contains: q } }, { payCategory: { contains: q } }, { forAccount: { contains: q } },
+      ] };
+    })() : {}),
   };
 }

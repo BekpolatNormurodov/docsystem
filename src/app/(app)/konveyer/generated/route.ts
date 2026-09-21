@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { CaseStage } from '@prisma/client';
 import { requireUser } from '@/lib/auth';
+import { fuzzyPrismaOr } from '@/lib/fuzzy';
 import { prisma } from '@/lib/db';
 
 export const runtime = 'nodejs';
@@ -39,7 +40,17 @@ export async function GET(req: NextRequest) {
 
   const scope = isInvoice ? invoiceScope : isOferta ? { ofertaAt: { not: null } } : { arizaAt: { not: null } };
   const qOr = q
-    ? { OR: [{ pinfl: { contains: q } }, { clientName: { contains: q } }, ...(isInvoice ? [{ receiptNumber: { contains: q } }, { invoiceNo: { contains: q } }] : [])] }
+    ? (function () {
+        // Puzzy: fuzzy.ts — ismli so'rov tokenlashtirilgan OR-contains; raqamli so'rov → pinfl.
+        // Invoice sahifasida qo'shimcha ravishda kvitansiya/invoice raqami ham izlanadi.
+        const w: any = fuzzyPrismaOr(q, ['clientName']) ?? {};
+        if (isInvoice) {
+          const extra = [{ receiptNumber: { contains: q } }, { invoiceNo: { contains: q } }];
+          w.OR = w.OR ? [...w.OR, ...extra] : (w.pinfl ? [{ pinfl: w.pinfl }, ...extra] : extra);
+          if (w.pinfl) delete w.pinfl;
+        }
+        return w;
+      })()
     : {};
   const where = {
     ...(snapshotId ? { snapshotId } : {}),

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { matchesFuzzy } from '@/lib/fuzzy';
 import { Modal, useConfirm } from '@/ui';
 import { useT } from '@/lib/i18n/client';
 import { Dropdown } from './Dropdown';
@@ -696,13 +697,12 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
 
   const filtered = React.useMemo(() => {
     const src = data?.rows ?? [];
-    const needle = debouncedQ.trim().toLowerCase();
     return src.filter((r) => {
       const okFilter = filter === 'sendable' ? r.sendable : filter === 'queued' ? !!r.queued : filter === 'draftReady' ? !!r.draftReady : filter === 'ready' ? r.ready : filter === 'submitted' ? !!r.submitted : filter === 'notready' ? !r.ready : true;
       if (!okFilter) return false;
       if (courtFilter !== 'all' && (r.courtId ?? null) !== courtFilter) return false;
-      if (needle && !`${r.clientName ?? ''} ${r.pinfl ?? ''}`.toLowerCase().includes(needle)) return false;
-      return true;
+      // Puzzy: ismga ~70% (fuzzy.ts), PINFL — aniq.
+      return matchesFuzzy({ name: r.clientName, pinfl: r.pinfl }, debouncedQ);
     });
   }, [data, filter, debouncedQ, courtFilter]);
   const pages = Math.max(1, Math.ceil(filtered.length / DRILL_PAGE));

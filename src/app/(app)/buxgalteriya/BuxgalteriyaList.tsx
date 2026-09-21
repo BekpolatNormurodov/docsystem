@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { matchesFuzzy } from '@/lib/fuzzy';
 import { useRouter } from 'next/navigation';
 import type { BxData, BxFirm, BxRow } from '@/lib/buxgalteriya';
 import { useT } from '@/lib/i18n/client';
@@ -17,9 +18,10 @@ function FirmCard({ firm, query, forceOpen }: { firm: BxFirm; query: string; for
   const [busy, setBusy] = useState<number | null>(null);
   const [openState, setOpen] = useState(false);
   const open = forceOpen || openState;
-  const q = query.trim().toLowerCase();
+  const q = query.trim();
+  // Puzzy: mijoz ismiga ~70% o'xshashlik; kvitansiya/invoice/kod — oddiy substring (raqam-identifikator).
   const visible = q
-    ? rows.filter((r) => [r.clientName, r.receiptNumber, r.invoiceNo, r.kod].some((v) => (v ?? '').toLowerCase().includes(q)))
+    ? rows.filter((r) => matchesFuzzy({ name: r.clientName, extras: [r.receiptNumber, r.invoiceNo, r.kod] }, q))
     : rows;
   if (q && visible.length === 0) return null; // qidiruvda mos qatori yo'q firma — yashiramiz
 

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { matchesFuzzy } from '@/lib/fuzzy';
 import { Ico } from '@/ui';
 import { returnResultInfo } from '@/lib/court-result';
 import { useT } from '@/lib/i18n/client';
@@ -201,11 +202,10 @@ export function CabinetReturns({ snapshotId, firmId }: { snapshotId?: number; fi
   const codes = useMemo(() => Object.keys(byCode).sort((a, b) => byCode[b] - byCode[a]), [byCode]);
 
   const shown = useMemo(() => {
-    const needle = q.trim().toLowerCase();
     return (data?.returns ?? []).filter((r) => {
       if (resultF !== 'all' && r.result !== resultF) return false;
-      if (needle && !`${r.clientName} ${r.pinfl ?? ''} ${r.firmName} ${r.caseNumber ?? ''}`.toLowerCase().includes(needle)) return false;
-      return true;
+      // Puzzy: ismga ~70% (fuzzy.ts), qolgan maydonlar — substring.
+      return matchesFuzzy({ name: r.clientName, pinfl: r.pinfl, extras: [r.firmName, r.caseNumber] }, q);
     });
   }, [data, resultF, q]);
 

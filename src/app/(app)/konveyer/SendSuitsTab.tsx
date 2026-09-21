@@ -27,6 +27,7 @@ import { Dropdown } from './Dropdown';
 import { KeyPicker } from './KeyPicker';
 import { HeaderShell } from './_shared/HeaderShell';
 import { FirmQueue } from './_shared/FirmQueue';
+import { matchesFuzzy } from '@/lib/fuzzy';
 
 // ── kontrakt turlari (GET/POST /konveyer/sud-send) ────────────────────────────
 type SendBlocker =
@@ -364,18 +365,13 @@ export function SendSuitsTab({ snapshotId, firmId, firms, active = true }: { sna
   }, [rows]);
 
   const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    const nd = digits(needle);
     return sorted.filter((r) => {
       if (view === 'eligible' && !r.eligible) return false;
       if (view === 'blocked' && r.eligible) return false;
       if (view === 'result' && !(r.send && r.send.state !== 'SENDING')) return false;
       if (view.startsWith('b:') && !r.blockers.includes(view.slice(2) as SendBlocker)) return false;
-      if (!needle) return true;
-      return (r.clientName ?? '').toLowerCase().includes(needle)
-        || (!!nd && (r.pinfl ?? '').includes(nd))
-        || String(r.cabinetCaseId).toLowerCase().includes(needle) // meta'da raqam bo'lib kelishi mumkin
-        || (r.courtName ?? '').toLowerCase().includes(needle);
+      // Puzzy qidiruv: ismga ~70% o'xshashlik, PINFL/cabinet id/sud nomi — aniq (fuzzy.ts).
+      return matchesFuzzy({ name: r.clientName, pinfl: r.pinfl, extras: [String(r.cabinetCaseId), r.courtName] }, q);
     });
   }, [sorted, view, q]);
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE));

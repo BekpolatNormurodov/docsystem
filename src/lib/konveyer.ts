@@ -2,6 +2,8 @@
 // overall. The Konveyer dashboard reads these. Pure DB reads — no external calls.
 import { cache } from 'react';
 import { prisma } from './db';
+import { fuzzyPrismaOr, isDigitQuery, onlyDigits } from './fuzzy';
+import { normName } from './cabinet/status-ingest';
 import { Prisma, type CaseStage } from '@prisma/client';
 import { dueForStage } from './konveyer-sla';
 import { firmActivity } from './active-firms';
@@ -437,7 +439,7 @@ export async function konveyerCases(opts: {
     ...(opts.firmId ? { firmId: opts.firmId } : {}),
     ...(opts.snapshotId ? { snapshotId: opts.snapshotId } : {}),
     ...(opts.stages && opts.stages.length ? { stage: { in: opts.stages } } : {}),
-    ...(q ? { OR: [{ clientName: { contains: q } }, { kod: { contains: q } }, { pinfl: { contains: q } }] } : {}),
+    ...(fuzzyPrismaOr(q ?? '', ['clientName', 'kod']) ?? {}),
   };
   const [total, rows] = await Promise.all([
     prisma.arizaCase.count({ where }),
@@ -767,7 +769,8 @@ export async function konveyerPersons(opts: {
 }): Promise<{ persons: PersonRow[]; total: number; page: number; pageSize: number; pages: number }> {
   const page = Math.max(1, opts.page ?? 1);
   const pageSize = Math.min(50, Math.max(1, opts.pageSize ?? 5));
-  const q = opts.q?.trim().toLowerCase();
+  const q = opts.q?.trim();
+  const qLow = q?.toLowerCase();
 
   // This is a per-snapshot view. With no snapshot specified, pin to the latest READY
   // one — otherwise a person's cases would load across EVERY snapshot (each sync
@@ -796,7 +799,21 @@ export async function konveyerPersons(opts: {
   if (opts.stages && opts.stages.length) conds.push(Prisma.sql`primStage IN (${Prisma.join(opts.stages)})`);
   if (opts.talabnoma) conds.push(Prisma.sql`hasTal = 1`);
   if (opts.overdue) conds.push(Prisma.sql`hasOverdue = 1`);
-  if (q) { const like = `%${q}%`; conds.push(Prisma.sql`(LOWER(clientName) LIKE ${like} OR LOWER(kod) LIKE ${like} OR pinfl LIKE ${like})`); }
+  if (q) {
+    // Puzzy: raqamli so'rov → faqat pinfl (aniq); ismli so'rov → normName qilib tokenlarga
+    // bo'linadi, har 3+harfli token clientName/kod ga LIKE OR qilinadi. Aniq Dice frontendда.
+    if (isDigitQuery(q)) {
+      const like = `%${onlyDigits(q)}%`;
+      conds.push(Prisma.sql`pinfl LIKE ${like}`);
+    } else {
+      const seeds = [...new Set(normName(q).split(' ').filter((t) => t.length >= 3))];
+      const parts = (seeds.length ? seeds : [qLow!]).flatMap((t: string) => {
+        const like = `%${t.toLowerCase()}%`;
+        return [Prisma.sql`LOWER(clientName) LIKE ${like}`, Prisma.sql`LOWER(kod) LIKE ${like}`];
+      });
+      conds.push(Prisma.sql`(${Prisma.join(parts, ' OR ')})`);
+    }
+  }
   const whereSql = conds.length ? Prisma.sql`WHERE ${Prisma.join(conds, ` AND `)}` : Prisma.empty;
 
   // Shared CTE: one row per person with the primary-case fields + the search fields

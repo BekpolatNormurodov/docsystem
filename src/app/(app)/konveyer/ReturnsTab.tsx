@@ -6,6 +6,7 @@
 // «Sudda» (yuborilgan) · «To'siq» (blocker). Har firma qatorida yagona amal — «Qayta qoralama».
 // Sudga BU YERDAN HECH NARSA yubormaydi: tayyorlangan ishlar «Sudga o'tkazish» tabiga o'tadi.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { matchesFuzzy } from '@/lib/fuzzy';
 import { Ico, Modal, Skeleton, useConfirm } from '@/ui';
 import { useT } from '@/lib/i18n/client';
 import { CaseDocs } from './CaseDocs';
@@ -316,12 +317,11 @@ export function ReturnsTab({ snapshotId, firmId, canEdit, active = true }: { sna
     });
   }, [data]);
   const shown = useMemo(() => {
-    const needle = q.trim().toLowerCase();
     return rows.filter((r) => {
       if (subF !== 'all' && r.sub !== subF) return false;
       if (reasonF !== 'all' && (r.reasonCode ?? 'none') !== reasonF) return false;
-      if (needle && !`${r.clientName ?? ''} ${r.pinfl ?? ''} ${r.firmName} ${r.courtName ?? ''} ${r.portalCaseNumber ?? ''}`.toLowerCase().includes(needle)) return false;
-      return true;
+      // Puzzy: ismga ~70% (fuzzy.ts), PINFL/firma/sud/ish raqami — substring.
+      return matchesFuzzy({ name: r.clientName, pinfl: r.pinfl, extras: [r.firmName, r.courtName, r.portalCaseNumber] }, q);
     });
   }, [rows, subF, reasonF, q]);
   useEffect(() => { setLimit(PAGE); }, [subF, reasonF, q]);
