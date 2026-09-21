@@ -167,15 +167,26 @@ async function main() {
   const onlyCode = args.find((a) => /^\d{4,6}$/.test(a));
   const limit = args.map(Number).find((n) => n && n > 0 && n < 1_000_000);
   const firms = onlyCode ? FIRMS.filter((f) => f.branchCode === onlyCode) : FIRMS;
+  const serial = process.env.LOAD_DETAIL_SERIAL === '1';
   if (!firms.length) { console.error('Firma topilmadi'); process.exit(1); }
 
   const t0 = Date.now();
-  for (const f of firms) {
-    try {
-      await processFirm({ branchCode: f.branchCode, stir: f.stir, name: f.name }, limit);
-    } catch (e) {
-      console.error(`✗ ${f.branchCode}:`, (e as Error).message);
+  if (serial || firms.length === 1) {
+    // Ketma-ket rejim (bir IP, bir stream)
+    for (const f of firms) {
+      try { await processFirm({ branchCode: f.branchCode, stir: f.stir, name: f.name }, limit); }
+      catch (e) { console.error(`✗ ${f.branchCode}:`, (e as Error).message); }
     }
+  } else {
+    // PARALLEL: har firma o'z sessiyasi/tokeni bilan bir vaqtda ishlaydi. Har oqim ichida GAP_MS
+    // saqlanadi — 4 firma × 8s gap = ~0.5 req/s aggregat, 2026-09-06 dagi «6 parallel bitta firma»
+    // burst'iga hech qanday yaqinlashmaydi. Baribir portal blokka olib borsa, LOAD_DETAIL_SERIAL=1
+    // bilan ketma-ketga tushiring.
+    console.log(`\n[parallel] ${firms.length} firma bir vaqtda (har birida ${GAP_MS}ms gap)`);
+    await Promise.all(firms.map(async (f) => {
+      try { await processFirm({ branchCode: f.branchCode, stir: f.stir, name: f.name }, limit); }
+      catch (e) { console.error(`✗ ${f.branchCode}:`, (e as Error).message); }
+    }));
   }
   const min = Math.round((Date.now() - t0) / 60000);
   console.log(`\n=== HAMMASI ${min} daqiqada tugadi ===`);
