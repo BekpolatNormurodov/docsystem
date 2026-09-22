@@ -9,7 +9,7 @@ export const maxDuration = 120;
 // ni portfelga solishtirib to'ldiradi va qaytarib beradi. Original ustunlar/format saqlanadi;
 // faqat Da'vo summasi (asosiy qarz), boji (4%), manzil, tug'ilgan, pasport, JSHSHIR to'ladi.
 export async function POST(req: NextRequest) {
-  await requireAccess('sud:send');
+  await requireAccess('sud-buyruq');
   const form = await req.formData().catch(() => null);
   const file = form?.get('file');
   if (!(file instanceof Blob)) return NextResponse.json({ error: 'Fayl (file) yuborilmagan' }, { status: 400 });

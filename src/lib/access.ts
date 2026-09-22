@@ -24,7 +24,7 @@ export const STEP_META: Record<StepKey, StepMeta> = {
 // «Alohida» modullar — pipeline bosqichi EMAS, lekin ular ham YURISTga alohida berilishi mumkin
 // (foydalanuvchi so'rovi). Grant Admin.steps ichida SHU kalitlar bilan saqlanadi (StepKey bilan bir
 // jadval). Sidebar pastida ko'rinadi, guardlari requireAccess(key) bilan tekshiriladi.
-export const MODULE_KEYS = ['talabnoma-form', 'mib-report', 'invoice-check', 'buxgalteriya'] as const;
+export const MODULE_KEYS = ['talabnoma-form', 'mib-report', 'invoice-check', 'buxgalteriya', 'sud-buyruq'] as const;
 export type ModuleKey = (typeof MODULE_KEYS)[number];
 export interface ModuleMeta { label: string; href: string; icon: string }
 export const MODULE_META: Record<ModuleKey, ModuleMeta> = {
@@ -32,6 +32,9 @@ export const MODULE_META: Record<ModuleKey, ModuleMeta> = {
   'mib-report': { label: 'MIB hisoboti', href: '/mib-hisoboti', icon: 'judge' },
   'invoice-check': { label: 'Invoice tekshiruvi', href: '/invoice-tekshiruvi', icon: 'receipt' },
   'buxgalteriya': { label: 'Buxgalteriya', href: '/buxgalteriya', icon: 'sheet' },
+  // «Sud buyrug'i» — Alohida modul (stepga kirmaydi). Buyruq shabloni Excel to'ldirish + holat
+  // bo'yicha Excel; ruxsat alohida beriladi, sud bosqichisiz ham berish mumkin (foydalanuvchi so'rovi).
+  'sud-buyruq': { label: 'Sud buyrugʻi', href: '/sud/buyruq', icon: 'court' },
 };
 
 // Ko'p sahifali bosqich ichidagi SUB-ITEM'lar — nozik ruxsat (foydalanuvchi so'rovi): yurist stepga

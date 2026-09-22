@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
 import { getT } from '@/lib/i18n/server';
 import { BUYRUQ_STATUSES, STATUS_UZ } from '@/lib/sud-buyruq';
+import UploadCard from './UploadCard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -9,7 +10,7 @@ export const dynamic = 'force-dynamic';
 // «Sud buyrug'i» — ADOLAT holatlari bo'yicha ishlarni tanlab, buyruq-formatida Excel yuklab olish
 // sahifasi. Firma × holat kesimi (nechta ish) ko'rsatiladi; tanlov download route'ga GET bilan boradi.
 export default async function BuyruqPage() {
-  await requireAccess('sud:send');
+  await requireAccess('sud-buyruq');
   const t = getT();
   const firms = await prisma.firm.findMany({ where: { active: true }, select: { code: true, shortName: true }, orderBy: { id: 'asc' } });
   const grouped = await prisma.clientCaseStatus.groupBy({
@@ -27,22 +28,8 @@ export default async function BuyruqPage() {
         {t('Firma va holatlarni tanlab, sudga topshiriladigan buyruq roʻyxatini (asosiy qarz + davlat boji 4%, manzil/pasport/JSHSHIR) Excel qilib yuklab oling.')}
       </p>
 
-      {/* «Namunani to'ldirish» — foydalanuvchi o'zining shablon Excel'ini yuklaydi, tizim ismi bo'yicha
-          portfelga solishtirib Da'vo summasi / manzil / pasport / JSHSHIR / bojini to'ldirib qaytaradi.
-          Original ustunlar/formatlar saqlanadi (Буйрук уч намуна ...xlsx bilan mos). */}
-      <div className="mt-4 rounded-xl border border-line bg-surface-2/40 p-3">
-        <div className="text-sm font-semibold text-fg">{t('Namunani toʻldirish (upload)')}</div>
-        <p className="mt-1 text-xs text-muted">
-          {t('Buyruq shabloningizni (.xlsx) yuklang — Javobgar ustunidagi ismlarga qarab portfelga solishtiriladi va Daʼvo summasi (asosiy qarz) + davlat boji (4%) + manzil + pasport + JSHSHIR toʻldirilgan Excel qaytariladi.')}
-        </p>
-        <form action="/sud/buyruq/fill" method="post" encType="multipart/form-data" className="mt-2 flex flex-wrap items-center gap-2">
-          <input type="file" name="file" accept=".xlsx" required className="text-sm" />
-          <select name="firm" className="field-input">
-            <option value="">{t('Barcha firmalar boʻyicha qidirish')}</option>
-            {firms.map((f) => <option key={f.code} value={f.code}>{f.shortName}</option>)}
-          </select>
-          <button type="submit" className="btn-primary">{t('Toʻldirib olish')}</button>
-        </form>
+      <div className="mt-4">
+        <UploadCard firms={firms} />
       </div>
 
       <div className="mt-6 text-sm font-semibold text-fg">{t('Yoki holat boʻyicha yangi Excel yaratish')}</div>

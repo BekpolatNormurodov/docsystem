@@ -8,7 +8,7 @@ export const maxDuration = 120;
 // «Sud buyrug'i» Excel yuklab olish. Query: firm (bir yoki bir nechta branchCode), status (bir yoki
 // bir nechta ADOLAT holati). Ikkalasini ham vergul bilan yoki takroriy param (firm=a&firm=b) beriladi.
 export async function GET(req: NextRequest) {
-  await requireAccess('sud:send');
+  await requireAccess('sud-buyruq');
   const sp = req.nextUrl.searchParams;
   const multi = (key: string) => {
     const all = sp.getAll(key).flatMap((v) => v.split(','));
