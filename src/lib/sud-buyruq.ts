@@ -52,18 +52,20 @@ interface IdxRow {
 // qatorlar. Shu shablon Excel oddiy 11 ustunli — undi kesim yo'q, shuning uchun faqat asosiy
 // qarz qoldig'ini (debtPrincipal) yozamiz.
 async function firmIndex(branchCode: string): Promise<FirmIdx> {
-  // MUHIM: snapshot bilan filtrlash — har portfel yuklaganda YANGI snapshot yaratiladi va eski
-  // snapshotning loans qoladi. Filtrlanmasa bir kredit har snapshotда bir marta chiqadi va
-  // hammasi jamlanadi (masalan 5 kredit × 2 snapshot = 10 «kredit», jami qarz 2× katta chiqadi —
-  // 2026-09-22 auditi: XUSHMURODOV 98M o'rniga 198M). Ariza (court-submit-job.ts:753) ham xuddi
-  // shunday snapshotId bilan filtrlanadi. Eng so'nggi snapshot bo'yicha olamiz.
-  const snap = await prisma.snapshot.findFirst({ orderBy: { reportDate: 'desc' }, select: { id: true } });
+  // MUHIM: kredit ID (ldId) bo'yicha unik olamiz. Bir kredit har portfel yuklaganда YANGI
+  // snapshotда qayta yoziladi (eski snapshot loans qoladi) — filtrsiz bir kredit har snapshot
+  // uchun 1 marta chiqib jamlanardi (2026-09-22 audit: XUSHMURODOV 98M → 198M). `distinct:['ldId']`
+  // + `orderBy:{snapshotId:desc}` bilan har kredit ENG SO'NGGI snapshotdan bir marta olinadi —
+  // portfel yangilansa qarz avtomatik yangilanadi, dublikat yo'q. Ariza (court-submit-job.ts)
+  // ham snapshotId bilan filtrlaydi, biz bundan kuchliroq: kredit-scoped.
   const loans = await prisma.loan.findMany({
-    where: { branchCode, ...(snap ? { snapshotId: snap.id } : {}) },
+    where: { branchCode },
     select: {
-      clientName: true, pinfl: true, passportSn: true, postAddressUz: true, postAddress: true,
+      ldId: true, clientName: true, pinfl: true, passportSn: true, postAddressUz: true, postAddress: true,
       debtPrincipal: true,
     },
+    orderBy: [{ ldId: 'asc' }, { snapshotId: 'desc' }],
+    distinct: ['ldId'],
   });
   const byPinfl = new Map<string, IdxRow>(), byName = new Map<string, IdxRow>();
   const add = (m: Map<string, IdxRow>, k: string, l: (typeof loans)[number]) => {
