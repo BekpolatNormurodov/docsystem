@@ -41,19 +41,34 @@ const birthFromPinfl = (p?: string | null): string => {
 };
 
 interface FirmIdx { byPinfl: Map<string, IdxRow>; byName: Map<string, IdxRow> }
-interface IdxRow { principal: number; pinfl: string; passport: string; address: string }
+interface IdxRow {
+  principal: number; // ASOSIY QARZ: debtPrincipal + debtOverduePrincipal
+  total: number;     // DA'VO SUMMASI (bank ko'rsatgan jami): principal + foizlar (termInterest + overdueInterest)
+  pinfl: string; passport: string; address: string;
+}
 
-// Bir firma portfelidan (PINFL va nom bo'yicha) asosiy qarz / pasport / manzil indeksini quramiz.
+// Bir firma portfelidan (PINFL va nom bo'yicha) qarzdorlik indeksini quramiz. Foydalanuvchi
+// so'rovi: asosiy qarz alohida, «Da'vo summasi» kattaroq — foizlarni ham qo'shgan jami qarz.
 async function firmIndex(branchCode: string): Promise<FirmIdx> {
   const loans = await prisma.loan.findMany({
     where: { branchCode },
-    select: { clientName: true, pinfl: true, passportSn: true, postAddressUz: true, postAddress: true, debtPrincipal: true, debtOverduePrincipal: true },
+    select: {
+      clientName: true, pinfl: true, passportSn: true, postAddressUz: true, postAddress: true,
+      debtPrincipal: true, debtOverduePrincipal: true, debtTermInterest: true, debtOverdueInterest: true, totalDebt: true,
+    },
   });
   const byPinfl = new Map<string, IdxRow>(), byName = new Map<string, IdxRow>();
   const add = (m: Map<string, IdxRow>, k: string, l: (typeof loans)[number]) => {
     if (!k) return;
-    const a = m.get(k) ?? { principal: 0, pinfl: '', passport: '', address: '' };
-    a.principal += Number(l.debtPrincipal || 0) + Number(l.debtOverduePrincipal || 0);
+    const a = m.get(k) ?? { principal: 0, total: 0, pinfl: '', passport: '', address: '' };
+    const principal = Number(l.debtPrincipal || 0) + Number(l.debtOverduePrincipal || 0);
+    const interest = Number(l.debtTermInterest || 0) + Number(l.debtOverdueInterest || 0);
+    // Da'vo summasi manba tartibi: (1) bankning o'zi hisoblab bergan `totalDebt` — agar bor va musbat bo'lsa;
+    // (2) qismlar yig'indisi (principal + interest). Portfelда totalDebt=0 chuqurchalar bor, ularda fallback ishlaydi.
+    const bankTotal = Number(l.totalDebt || 0);
+    const total = bankTotal > 0 ? bankTotal : principal + interest;
+    a.principal += principal;
+    a.total += total;
     if (!a.pinfl && l.pinfl) a.pinfl = l.pinfl;
     if (!a.passport && l.passportSn) a.passport = l.passportSn;
     const ad = l.postAddress && l.postAddress.length > (l.postAddressUz || '').length ? l.postAddress : l.postAddressUz || l.postAddress || '';
@@ -135,7 +150,7 @@ export async function fillBuyruqTemplate(input: Buffer, opts: { branchCodes?: st
     for (const [k, v] of idx.byName) {
       const cur = merged.get(k);
       if (!cur) merged.set(k, { ...v });
-      else if (v.principal > cur.principal) merged.set(k, { ...v }); // eng katta qarz — asosiy variant
+      else if (v.principal > cur.principal) merged.set(k, { ...v }); // eng katta qarzli firma — asosiy variant
     }
   }
   const look = (name: string) => merged.get(norm(name)) ?? merged.get(norm(name).replace(/^U/, "O'")) ?? merged.get(norm(name).replace(/^O'/, 'U'));
@@ -153,20 +168,28 @@ export async function fillBuyruqTemplate(input: Buffer, opts: { branchCodes?: st
     if (cBirth) row.getCell(cBirth).value = birthFromPinfl(hit.pinfl) || row.getCell(cBirth).value || '';
     if (cPass) row.getCell(cPass).value = hit.passport || row.getCell(cPass).value || '';
     if (cPinfl) row.getCell(cPinfl).value = hit.pinfl || row.getCell(cPinfl).value || '';
-    const p = Math.round(hit.principal);
-    // Asosiy qarzni Asosiy qarzdorlik ustuniga yozamiz (bo'lsa); Da'vo summasi ustuni bor bo'lsa
-    // va u BO'SH bo'lsa fallback sifatida u ham to'ladi — foydalanuvchi yozgan qiymatni bosmaymiz.
-    row.getCell(cPrincipal).value = p;
-    if (cMain && cClaim && cClaim !== cMain) {
-      const cur = row.getCell(cClaim).value;
-      if (cur == null || cur === '') row.getCell(cClaim).value = p;
-    }
+    const principal = Math.round(hit.principal);
+    const debtTotal = Math.round(hit.total);
+    // Asosiy qarzdorlik ustuniga PRINCIPAL, Da'vo summasi ustuniga TOTAL (principal + foizlar).
+    // Foydalanuvchi so'rovi: «Da'vo summasi kattaroq bo'lishi kerak, asosiy qarz emas».
+    // Foydalanuvchi allaqachon yozgan qiymatga (masalan qo'lda kiritilgan) tegilmaydi — bo'sh
+    // katakchalar to'ladi xolos.
+    const setIfEmpty = (col: number, v: number) => {
+      const cell = row.getCell(col);
+      const cur = cell.value;
+      if (cur == null || cur === '') cell.value = v;
+    };
+    if (cMain) setIfEmpty(cMain, principal);
+    if (cClaim) setIfEmpty(cClaim, debtTotal);
+    // Agar ikkalasi ham topilmasa (cPrincipal — cMain yoki cClaim'ning fallback'i), hech bo'lmasa
+    // shu ustunni to'ldirib qo'yamiz — juda eski shablon bo'lsa.
+    if (!cMain && !cClaim) setIfEmpty(cPrincipal, principal);
     if (cBoji) {
       // Boji formulasi: shablondagi formula saqlanadi. Bo'lmasa Asosiy qarzdorlikka havola qilamiz
       // (foydalanuvchi so'rovi: boji asosiy qarzdan hisoblansin, Da'vo summasidan emas).
       const cur = row.getCell(cBoji).value as any;
       const hasFormula = cur && typeof cur === 'object' && ('formula' in cur || 'sharedFormula' in cur);
-      if (!hasFormula) row.getCell(cBoji).value = { formula: `ROUND(${ws.getColumn(cPrincipal).letter}${r}*0.04,0)`, result: Math.round(p * 0.04) };
+      if (!hasFormula) row.getCell(cBoji).value = { formula: `ROUND(${ws.getColumn(cPrincipal).letter}${r}*0.04,0)`, result: Math.round(principal * 0.04) };
     }
     filled++;
   }
