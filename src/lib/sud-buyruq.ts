@@ -169,18 +169,16 @@ export async function fillBuyruqTemplate(input: Buffer, opts: { branchCodes?: st
     if (cPass) row.getCell(cPass).value = hit.passport || row.getCell(cPass).value || '';
     if (cPinfl) row.getCell(cPinfl).value = hit.pinfl || row.getCell(cPinfl).value || '';
     const principal = Math.round(hit.principal);
-    const debtTotal = Math.round(hit.total);
-    // Asosiy qarzdorlik ustuniga PRINCIPAL, Da'vo summasi ustuniga TOTAL (principal + foizlar).
-    // Foydalanuvchi so'rovi: «Da'vo summasi kattaroq bo'lishi kerak, asosiy qarz emas».
-    // Foydalanuvchi allaqachon yozgan qiymatga (masalan qo'lda kiritilgan) tegilmaydi — bo'sh
-    // katakchalar to'ladi xolos.
+    // Foydalanuvchi so'rovi: «foizlar kerak emas, asosiy qarz bo'lsa bo'ldi». Ikkala ustunga
+    // ham (Asosiy qarzdorlik VA Da'vo summasi) asosiy qarzni (principal) yozamiz — foizlar
+    // qo'shilmaydi. Foydalanuvchi qo'lda yozgan qiymatga tegilmaydi — bo'sh katakchalar to'ladi.
     const setIfEmpty = (col: number, v: number) => {
       const cell = row.getCell(col);
       const cur = cell.value;
       if (cur == null || cur === '') cell.value = v;
     };
     if (cMain) setIfEmpty(cMain, principal);
-    if (cClaim) setIfEmpty(cClaim, debtTotal);
+    if (cClaim) setIfEmpty(cClaim, principal);
     // Agar ikkalasi ham topilmasa (cPrincipal — cMain yoki cClaim'ning fallback'i), hech bo'lmasa
     // shu ustunni to'ldirib qo'yamiz — juda eski shablon bo'lsa.
     if (!cMain && !cClaim) setIfEmpty(cPrincipal, principal);
