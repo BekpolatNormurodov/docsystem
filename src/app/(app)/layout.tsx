@@ -84,8 +84,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // «Alohida» modullar — endi ruxsatga bog'liq: ADMIN hammasini, YURIST faqat berilganini ko'radi
   // (foydalanuvchi so'rovi). Sidebar eng pastida (bottom: true).
   // Buxgalteriya — «Alohida»da ham, «Menyu»da ham EMAS: u Sud step ostidagi sub-item (yuqorida qo'shildi).
+  // boss-report — modul sifatida ruxsat oladi (canAccess uchun), lekin sidebar'da ENG TEPADA ko'rsatiladi,
+  // pastdagi «Alohida»da EMAS (izchillik — admin ham xuddi shu joyda ko'radi).
   const moduleNav: NavItem[] = allowedModules(user)
-    .filter((k) => k !== 'buxgalteriya')
+    .filter((k) => k !== 'buxgalteriya' && k !== 'boss-report')
     .map((k) => ({ href: MODULE_META[k].href, label: MODULE_META[k].label, icon: MODULE_META[k].icon, bottom: true }));
 
   // Faqat buxgalteriya ruxsatiga ega YURIST (Ulugbek) — boshqa hech nima yo'q. Uning uchun Sud step
@@ -107,16 +109,20 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // (sahifa ichida guard). Step'lar eng tepasida (step: 0).
   const hujjatlarNav: NavItem = { href: '/hujjatlar', label: 'Hujjatlar', icon: 'files', section: 'Boshqaruv', step: 0 };
 
+  // «Hisobot» (Boshliq paneli) — ENG TEPADA, alohida bo'lim. Admin har doim ko'radi; yurist esa
+  // 'boss-report' moduli berilganda (foydalanuvchi so'rovi: bitta yuristga ham beriladi).
+  const canSeeBoss = isAdmin || user.steps.includes('boss-report');
+  const bossNav: NavItem | null = canSeeBoss
+    ? { href: '/boss', label: 'Hisobot', icon: 'dashboard', section: 'Hisobot' }
+    : null;
+
   // Admin: full app + user/audit management. Yurist: only their granted steps, nothing else.
   const nav: NavItem[] = onlyBux
     ? // Faqat buxgalter (Ulugbek): yolg'iz «Buxgalteriya-invoice».
       (buxSoloNav ? [buxSoloNav] : [])
     : isAdmin
     ? [
-        // «Hisobot» (Boshliq paneli) — ENG TEPADA, ALOHIDA bo'lim (foydalanuvchi so'rovi): Hujjatlardan
-        // ham yuqorida. Bo'limlar nav massividagi birinchi ko'rinishi tartibida chiqadi, shuning uchun
-        // bu birinchi turadi → sidebar tepasida. FAQAT admin (isAdmin shoxida, grant qilinmaydi).
-        { href: '/boss', label: 'Hisobot', icon: 'dashboard', section: 'Hisobot' },
+        ...(bossNav ? [bossNav] : []),
         hujjatlarNav,
         ...withBadges(stepNav),
         { href: '/mijozlar', label: 'Mijozlar', icon: 'users', section: 'Menyu' },
@@ -124,11 +130,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         { href: '/sudlar', label: 'Sudlar', icon: 'court', section: 'Menyu' },
         { href: '/foydalanuvchilar', label: 'Foydalanuvchilar', icon: 'user', section: 'Menyu' },
         { href: '/jurnal', label: 'Amaliyotlar', icon: 'calendar', section: 'Menyu' },
-        // «Alohida» modullar (bottom) — buxgalteriyasiz (u Sud ostida).
+        // «Alohida» modullar (bottom) — buxgalteriyasiz (u Sud ostida), boss-reportsiz (yuqorida).
         ...moduleNav,
       ]
     : [
-        // Yurist: Hujjatlar (ko'rish) + granted steps (Buxgalteriya Sud ostida) + Mijozlar + modules.
+        // Yurist: (agar boss-report berilgan bo'lsa) Hisobot tepada + Hujjatlar + granted steps + Mijozlar + modules.
+        ...(bossNav ? [bossNav] : []),
         hujjatlarNav,
         ...withBadges(stepNav),
         { href: '/mijozlar', label: 'Mijozlar', icon: 'users', section: 'Menyu' },

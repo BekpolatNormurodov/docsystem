@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import ExcelJS from 'exceljs';
-import { requireAdmin } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { konveyerSnapshots } from '@/lib/konveyer';
 import { bossReport, type BossReportData } from '@/lib/boss-report';
 import { getT } from '@/lib/i18n/server';
@@ -97,7 +97,7 @@ function buildBossExcel(d: BossReportData, snapLabel: string, t: ReturnType<type
 }
 
 export async function GET(req: NextRequest) {
-  await requireAdmin();
+  await requireAccess('boss-report');
   const t = getT();
   const snaps = await konveyerSnapshots().catch(() => []);
   const q = req.nextUrl.searchParams.get('s') ?? cookies().get('konv_s')?.value ?? null;

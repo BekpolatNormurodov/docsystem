@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers';
-import { requireAdmin } from '@/lib/auth';
+import { requireAccess } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { konveyerSnapshots } from '@/lib/konveyer';
 import { bossReport } from '@/lib/boss-report';
@@ -8,10 +8,11 @@ import { BossReport } from './BossReport';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-// Boshliq (director) hisoboti — FAQAT admin. Firma × bosqich matritsasi, snapshot bo'yicha filtr
-// (sidebardagi umumiy SnapshotPicker'ning konv_s cookiesi orqali — qo'shimcha ulanish shart emas).
+// Boshliq (director) hisoboti — ADMIN yoki 'boss-report' moduli berilgan YURIST (boshliq). Firma ×
+// bosqich matritsasi, snapshot bo'yicha filtr (sidebardagi umumiy SnapshotPicker'ning konv_s cookiesi
+// orqali — qo'shimcha ulanish shart emas).
 export default async function Page() {
-  await requireAdmin();
+  await requireAccess('boss-report');
   const snaps = await konveyerSnapshots().catch(() => []);
   const raw = cookies().get('konv_s')?.value;
   const parsed = raw ? Number(raw) : NaN;

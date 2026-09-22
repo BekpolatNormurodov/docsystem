@@ -24,10 +24,13 @@ export const STEP_META: Record<StepKey, StepMeta> = {
 // «Alohida» modullar — pipeline bosqichi EMAS, lekin ular ham YURISTga alohida berilishi mumkin
 // (foydalanuvchi so'rovi). Grant Admin.steps ichida SHU kalitlar bilan saqlanadi (StepKey bilan bir
 // jadval). Sidebar pastida ko'rinadi, guardlari requireAccess(key) bilan tekshiriladi.
-export const MODULE_KEYS = ['talabnoma-form', 'mib-report', 'invoice-check', 'buxgalteriya', 'sud-buyruq'] as const;
+export const MODULE_KEYS = ['boss-report', 'talabnoma-form', 'mib-report', 'invoice-check', 'buxgalteriya', 'sud-buyruq'] as const;
 export type ModuleKey = (typeof MODULE_KEYS)[number];
 export interface ModuleMeta { label: string; href: string; icon: string }
 export const MODULE_META: Record<ModuleKey, ModuleMeta> = {
+  // «Hisobot» (Boshliq paneli) — ilgari faqat admin ko'rardi. Foydalanuvchi so'rovi bo'yicha bitta yuristga
+  // ham berilishi mumkin. Sidebar'da alohida joyda ko'rsatiladi (layout.tsx) — pastdagi «Alohida»da emas.
+  'boss-report': { label: 'Hisobot', href: '/boss', icon: 'dashboard' },
   'talabnoma-form': { label: 'Talabnoma shakllantirish', href: '/talabnoma-shakllantirish', icon: 'sms' },
   'mib-report': { label: 'MIB hisoboti', href: '/mib-hisoboti', icon: 'judge' },
   'invoice-check': { label: 'Invoice tekshiruvi', href: '/invoice-tekshiruvi', icon: 'receipt' },
@@ -130,6 +133,8 @@ export function canManageDocs(u: Pick<AppUser, 'role' | 'steps'>): boolean {
  *  yurist → their first granted step; nobody-granted → null (caller decides). */
 export function landingHref(u: Pick<AppUser, 'role' | 'steps'>): string | null {
   if (u.role === 'ADMIN') return '/boss';
+  // Faqat «Hisobot» berilgan yurist (masalan boshliq) — to'g'ridan-to'g'ri /boss ochiladi (tepada tursin).
+  if (u.steps.includes('boss-report')) return '/boss';
   // Birinchi KIRA OLADIGAN sahifa: butun-bosqich bo'lsa o'z sahifasi, aks holda birinchi berilgan sub-item.
   for (const step of STEP_KEYS) {
     if (u.steps.includes(step)) return STEP_META[step].href;
