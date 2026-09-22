@@ -177,7 +177,10 @@ export async function GET(req: NextRequest) {
   s1.getRow(1).height = 26;
   s1.mergeCells(`A2:${last}2`);
   const sc = s1.getCell('A2');
-  sc.value = `${t('Snapshot')}: ${snapLabel}   ·   ${t('Sud roʻyxati')}: ${loans.length.toLocaleString('ru-RU')} ${t('shartnoma')}`;
+  const now = new Date(); const pad0 = (n: number) => String(n).padStart(2, '0');
+  const genStamp = `${pad0(now.getDate())}.${pad0(now.getMonth() + 1)}.${now.getFullYear()} ${pad0(now.getHours())}:${pad0(now.getMinutes())}`;
+  const distinctPinfls = new Set(loans.map((l) => l.pinfl).filter(Boolean) as string[]).size;
+  sc.value = `${t('Snapshot')}: ${snapLabel}   ·   ${loans.length.toLocaleString('ru-RU')} ${t('shartnoma')}   ·   ${distinctPinfls.toLocaleString('ru-RU')} ${t('mijoz')}   ·   ${t('Yuklab olingan')}: ${genStamp}`;
   sc.font = { italic: true, size: 10, color: { argb: 'FF475569' } };
   sc.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
   s1.getRow(2).height = 16;
@@ -241,6 +244,41 @@ export async function GET(req: NextRequest) {
     if (c.date) col.numFmt = 'dd.mm.yyyy';
     if (c.center) col.alignment = { horizontal: 'center' };
   });
+  // ZEBRA (juft qatorlar) — o'qish oson. Statuslar rangi (Navbat holati): Yuborildi → yashil,
+  // Xato → qizil, Ushlab turildi (SKIPPED) → kulrang, Navbatda/Ketmoqda → amber. Foydalanuvchi
+  // uzoq ro'yxatda ham holatni tez ajratadi.
+  const qStateIdx = COLS.findIndex((c) => c.key === 'qState') + 1;
+  const STATE_FILL: Record<string, string> = {
+    [t('Yuborildi')]: 'FFDCFCE7',        // emerald-100
+    [t('Xato')]: 'FFFEE2E2',              // red-100
+    [t('Oʻtkazib yuborildi')]: 'FFE5E7EB',// gray-200
+    [t('Navbatda')]: 'FFFEF3C7',          // amber-100
+    [t('Ketmoqda')]: 'FFDBEAFE',          // blue-100
+  };
+  const STATE_TEXT: Record<string, string> = {
+    [t('Yuborildi')]: 'FF166534', [t('Xato')]: 'FF991B1B',
+    [t('Oʻtkazib yuborildi')]: 'FF374151', [t('Navbatda')]: 'FF92400E', [t('Ketmoqda')]: 'FF1E40AF',
+  };
+  for (let r = dataFrom; r <= dataTo; r++) {
+    const row = s1.getRow(r);
+    row.height = 16;
+    if ((r - dataFrom) % 2 === 1) {
+      for (let c = 1; c <= NC; c++) {
+        const cell = row.getCell(c);
+        if (!cell.fill) cell.fill = fill(C_ZEBRA);
+      }
+    }
+    // Status rangi
+    if (qStateIdx > 0) {
+      const cell = row.getCell(qStateIdx);
+      const v = typeof cell.value === 'string' ? cell.value : '';
+      const bg = STATE_FILL[v];
+      if (bg) {
+        cell.fill = fill(bg);
+        cell.font = { bold: true, color: { argb: STATE_TEXT[v] ?? 'FF111827' } };
+      }
+    }
+  }
 
   // JAMI — jonli SUM
   if (loans.length) {
