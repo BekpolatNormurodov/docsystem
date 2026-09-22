@@ -42,33 +42,28 @@ const birthFromPinfl = (p?: string | null): string => {
 
 interface FirmIdx { byPinfl: Map<string, IdxRow>; byName: Map<string, IdxRow> }
 interface IdxRow {
-  principal: number; // ASOSIY QARZ: debtPrincipal + debtOverduePrincipal
-  total: number;     // DA'VO SUMMASI (bank ko'rsatgan jami): principal + foizlar (termInterest + overdueInterest)
+  principal: number; // ASOSIY QARZ QOLDIG'I: FAQAT debtPrincipal (muddati o'tgan asosiy YO'Q, foizlar YO'Q)
   pinfl: string; passport: string; address: string;
 }
 
 // Bir firma portfelidan (PINFL va nom bo'yicha) qarzdorlik indeksini quramiz. Foydalanuvchi
-// so'rovi: asosiy qarz alohida, «Da'vo summasi» kattaroq — foizlarni ham qo'shgan jami qarz.
+// so'rovi: «arizada berilgan» summa — ariza (CourtArizaDocument) qatorida «Asosiy qarz qoldigʻi»
+// aynan `debtPrincipal` bo'yicha yoziladi. Muddati o'tgan asosiy va foizlar arizaда ALOHIDA
+// qatorlar. Shu shablon Excel oddiy 11 ustunli — undi kesim yo'q, shuning uchun faqat asosiy
+// qarz qoldig'ini (debtPrincipal) yozamiz.
 async function firmIndex(branchCode: string): Promise<FirmIdx> {
   const loans = await prisma.loan.findMany({
     where: { branchCode },
     select: {
       clientName: true, pinfl: true, passportSn: true, postAddressUz: true, postAddress: true,
-      debtPrincipal: true, debtOverduePrincipal: true, debtTermInterest: true, debtOverdueInterest: true, totalDebt: true,
+      debtPrincipal: true,
     },
   });
   const byPinfl = new Map<string, IdxRow>(), byName = new Map<string, IdxRow>();
   const add = (m: Map<string, IdxRow>, k: string, l: (typeof loans)[number]) => {
     if (!k) return;
-    const a = m.get(k) ?? { principal: 0, total: 0, pinfl: '', passport: '', address: '' };
-    const principal = Number(l.debtPrincipal || 0) + Number(l.debtOverduePrincipal || 0);
-    const interest = Number(l.debtTermInterest || 0) + Number(l.debtOverdueInterest || 0);
-    // Da'vo summasi manba tartibi: (1) bankning o'zi hisoblab bergan `totalDebt` — agar bor va musbat bo'lsa;
-    // (2) qismlar yig'indisi (principal + interest). Portfelда totalDebt=0 chuqurchalar bor, ularda fallback ishlaydi.
-    const bankTotal = Number(l.totalDebt || 0);
-    const total = bankTotal > 0 ? bankTotal : principal + interest;
-    a.principal += principal;
-    a.total += total;
+    const a = m.get(k) ?? { principal: 0, pinfl: '', passport: '', address: '' };
+    a.principal += Number(l.debtPrincipal || 0);
     if (!a.pinfl && l.pinfl) a.pinfl = l.pinfl;
     if (!a.passport && l.passportSn) a.passport = l.passportSn;
     const ad = l.postAddress && l.postAddress.length > (l.postAddressUz || '').length ? l.postAddress : l.postAddressUz || l.postAddress || '';
