@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import ExcelJS from 'exceljs';
-import { requireAccess } from '@/lib/auth';
+import { requireUser } from '@/lib/auth';
+import { canAccess, landingHref } from '@/lib/access';
 import { prisma } from '@/lib/db';
 import { konveyerSnapshots } from '@/lib/konveyer';
 import { getT } from '@/lib/i18n/server';
 import { regionFromText } from '@/lib/mib/breakdown';
+import { redirect } from 'next/navigation';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -22,7 +24,10 @@ const STAGE_ORDER = ['IMPORTED', 'TALABNOMA_SENT', 'ARIZA_GENERATED', 'PRINTED',
 const rank = (s: string) => { const i = STAGE_ORDER.indexOf(s); return i < 0 ? 0 : i; };
 
 export async function GET(req: NextRequest) {
-  await requireAccess('sud:send');
+  // Kim ochadi: sud:send (asosiy iste'molchi) YOKI boss-report (Hisobot sahifasidagi tugma).
+  // requireAccess bittasini tekshiradi, boshqasiga ruxsat bermaydi — shu yerda 2ta variantni ochamiz.
+  const u = await requireUser();
+  if (!canAccess(u, 'sud:send') && !canAccess(u, 'boss-report')) redirect(landingHref(u) ?? '/login');
   const t = getT();
   const snaps = await konveyerSnapshots().catch(() => []);
   const q = req.nextUrl.searchParams.get('s') ?? cookies().get('konv_s')?.value ?? null;
