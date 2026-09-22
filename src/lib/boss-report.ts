@@ -4,7 +4,7 @@
 // Manba: konveyerSummary (pipeline bosqichlari + talabnoma) + courtStatusBoard (CABINET sud statuslari).
 // Hech qanday yangi mantiq ixtiro qilinmaydi — mavjud, tekshirilgan funksiyalar qayta ishlatiladi.
 import { prisma } from '@/lib/db';
-import { Prisma } from '@prisma/client';
+import { Prisma, type CaseStage } from '@prisma/client';
 import { konveyerSummary, phaseTotals } from '@/lib/konveyer';
 import { classifyStatus } from '@/lib/court-ready';
 import { regionFromText } from '@/lib/mib/breakdown';
@@ -105,6 +105,14 @@ export async function bossReport(snapshotId?: number): Promise<BossReportData> {
     sud.total += g._count._all;
   }
 
+  // «Sanoat palatasi (skan)» — IMZOLANGAN skan biriktirilganlar. KUMULYATIV: SIGNED_SCANNED
+  // qatorida turgan + kelajakdagi bosqichlarga (Invoice/Sud/MIB) o'tib ketgan hammasi.
+  // Ilgari faqat `byStage['SIGNED_SCANNED']` sanalardi va sud/mib'ga ketgach «yo'qolib» ketardi
+  // (foydalanuvchi shikoyati: 712 kam chiqmoqda). Sud/MIBga chiqqan har bir ish avval SIGNED_SCANNED
+  // bosqichidan o'tgan — bularni ham sanaymiz.
+  const SCAN_AFTER: CaseStage[] = ['SIGNED_SCANNED', 'INVOICE_CREATED', 'INVOICE_PAID', 'COURT_SUBMITTED', 'COURT_ACCEPTED', 'COURT_RETURNED', 'MIB_SUBMITTED', 'CLOSED'];
+  const scanCumulative = (byStage: Record<CaseStage, number>) => SCAN_AFTER.reduce((n, s) => n + (byStage[s] ?? 0), 0);
+
   const firms: BossFirmRow[] = summary.firms.map((f) => {
     const ph = phaseTotals(f.byStage);
     return {
@@ -112,9 +120,7 @@ export async function bossReport(snapshotId?: number): Promise<BossReportData> {
       firmName: f.firmName,
       clients: clientsByFirm.get(f.firmId) ?? 0,
       talabnoma: f.talabnomaSent,
-      // «Sanoat palatasi» = IMZOLANGAN skan biriktirilganlar (SIGNED_SCANNED) — sudga ketadigan
-      // asosiy pool. Butun SIGN fazasi (ariza/chop/palataga yuborilgan…) emas, faqat skanerlangan.
-      sanoat: f.byStage['SIGNED_SCANNED'] ?? 0,
+      sanoat: scanCumulative(f.byStage),
       sud: sudByFirm.get(f.firmId) ?? emptySud(),
       mib: ph.EXEC ?? 0,
       debt: debtByFirm.get(f.firmId) ?? 0,

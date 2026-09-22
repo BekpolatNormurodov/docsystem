@@ -49,7 +49,7 @@ function fixInitialE(s: string): string {
 // Regex: \p{L} chegarasi bilan ajratilgan alohida so'z — ichida ham topsa alohida taniydi.
 const OVERRIDE_TOKENS = Object.keys(CYRL_OVERRIDE).sort((a, b) => b.length - a.length);
 const TOKEN_RE = OVERRIDE_TOKENS.length ? new RegExp(`(?<![\\p{L}\\p{N}])(${OVERRIDE_TOKENS.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?![\\p{L}\\p{N}])`, 'gu') : null;
-const TOKEN_PH = (i: number) => `TK${i}`;
+const TOKEN_PH = (i: number) => `${i}`;
 
 /** Lotin oʻzbek matnini kirillga oʻgiradi. Raqam/tinish belgilari va lotin qolgan harflar oʻzgarmaydi. */
 export function toCyrl(input: string): string {
@@ -63,5 +63,5 @@ export function toCyrl(input: string): string {
   let out = '';
   for (const ch of s) out += SINGLE[ch] ?? ch;
   // Placeholderlarni asl (saqlangan) qiymatlar bilan qaytaramiz.
-  return out.replace(/TK(\d+)/g, (_, i) => kept[Number(i)] ?? '');
+  return out.replace(/(\d+)/g, (_, i) => kept[Number(i)] ?? '');
 }
