@@ -74,6 +74,11 @@ const HEADER_ALIASES: Record<string, string[]> = {
   passport: ['Pasport', 'Паспорт'],
   pinfl: ['JSHSHIR', 'JShShIR', 'ЖШШИР', 'PINFL', 'ПИНФЛ'],
   claimDate: ["Davo ariza sanasi", "Da'vo ariza sanasi", "Даъво ариза санаси", 'Даъво санаси'],
+  // ASOSIY QARZDORLIK — agar shablonda alohida shu ustun bo'lsa, principal AYNAN shu yerga
+  // yoziladi (Da'vo summasiga tegilmaydi). Foydalanuvchi so'rovi: «da'vo summasi xato chiqyabdi,
+  // u asosiy qarzdorlikda». Da'vo summasi ustuni ixtiyoriy — bo'sh bo'lsa foydalanuvchi o'zi
+  // yozadi (masalan, principal + foizlar yig'indisi).
+  mainDebt: ['Asosiy qarzdorlik', 'Asosiy qarz', 'Основной долг', 'Асосий қарздорлик', 'Асосий қарз', 'Мижоз ссуда қолдиғи', 'ссуда қолдиғи'],
   claim: ["Da'vo summasi", 'Даъво суммаси'],
   post: ['Pochta xarajati summasi', 'Почта харажати суммаси'],
   boji: ['davlat boji', 'davlat boj', 'Давлат божи'],
@@ -107,10 +112,13 @@ export async function fillBuyruqTemplate(input: Buffer, opts: { branchCodes?: st
   const cBirth = findCol(header, 'birth');
   const cPass = findCol(header, 'passport');
   const cPinfl = findCol(header, 'pinfl');
-  const cClaim = findCol(header, 'claim');
+  const cMain = findCol(header, 'mainDebt');   // «Asosiy qarzdorlik» — bor bo'lsa AYNAN shu ustunga
+  const cClaim = findCol(header, 'claim');     // «Da'vo summasi» — mainDebt yo'q bo'lsa fallback
   const cBoji = findCol(header, 'boji');
   if (!cJav) throw new Error('«Javobgar» ustuni topilmadi');
-  if (!cClaim) throw new Error('«Da\'vo summasi» ustuni topilmadi');
+  // Asosiy qarzni AYNAN qaysi ustunga yozamiz. mainDebt bor bo'lsa u; aks holda claim.
+  const cPrincipal = cMain || cClaim;
+  if (!cPrincipal) throw new Error('«Asosiy qarzdorlik» yoki «Da\'vo summasi» ustuni topilmadi');
 
   // Firma portfellarini birlashtirib bitta indeks (ism bo'yicha). branchCodes berilmasa hamma
   // faol firmalar bo'ylab qidiramiz — foydalanuvchi qaysi firmani nazarda tutgani noaniq bo'lsa ham
@@ -141,17 +149,25 @@ export async function fillBuyruqTemplate(input: Buffer, opts: { branchCodes?: st
     if (cPass) row.getCell(cPass).value = hit.passport || row.getCell(cPass).value || '';
     if (cPinfl) row.getCell(cPinfl).value = hit.pinfl || row.getCell(cPinfl).value || '';
     const p = Math.round(hit.principal);
-    row.getCell(cClaim).value = p;
+    // Asosiy qarzni Asosiy qarzdorlik ustuniga yozamiz (bo'lsa); Da'vo summasi ustuni bor bo'lsa
+    // va u BO'SH bo'lsa fallback sifatida u ham to'ladi — foydalanuvchi yozgan qiymatni bosmaymiz.
+    row.getCell(cPrincipal).value = p;
+    if (cMain && cClaim && cClaim !== cMain) {
+      const cur = row.getCell(cClaim).value;
+      if (cur == null || cur === '') row.getCell(cClaim).value = p;
+    }
     if (cBoji) {
-      // Shablonda 4% formula bo'lsa ham saqlanib qoladi; bo'lmasa yozib qo'yamiz (ROUND, butun).
+      // Boji formulasi: shablondagi formula saqlanadi. Bo'lmasa Asosiy qarzdorlikka havola qilamiz
+      // (foydalanuvchi so'rovi: boji asosiy qarzdan hisoblansin, Da'vo summasidan emas).
       const cur = row.getCell(cBoji).value as any;
       const hasFormula = cur && typeof cur === 'object' && ('formula' in cur || 'sharedFormula' in cur);
-      if (!hasFormula) row.getCell(cBoji).value = { formula: `ROUND(${ws.getColumn(cClaim).letter}${r}*0.04,0)`, result: Math.round(p * 0.04) };
+      if (!hasFormula) row.getCell(cBoji).value = { formula: `ROUND(${ws.getColumn(cPrincipal).letter}${r}*0.04,0)`, result: Math.round(p * 0.04) };
     }
     filled++;
   }
   // Format
   const money = '#,##0';
+  if (cMain) ws.getColumn(cMain).numFmt = money;
   if (cClaim) ws.getColumn(cClaim).numFmt = money;
   if (cBoji) ws.getColumn(cBoji).numFmt = money;
   if (cPinfl) ws.getColumn(cPinfl).numFmt = '@';
@@ -211,4 +227,47 @@ export async function buildBuyruqExcel(opts: BuyruqOpts): Promise<{ buffer: Buff
 
   const buffer = Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer);
   return { buffer, counts };
+}
+
+// ── Per-firma + ZIP ─────────────────────────────────────────────────────────────
+import archiver from 'archiver';
+
+export interface PerFirmZipResult {
+  buffer: Buffer;
+  perFirm: { code: string; shortName: string; total: number; filled: number; unmatched: number }[];
+}
+
+// Foydalanuvchi shablon Excel'ini yuklaydi va «Hammasi» tanlaydi — tizim shablonni HAR firma
+// alohida ishlaydi: mos ismlar shu firma portfelidan to'ldiriladi. Har firma uchun alohida
+// .xlsx yaratamiz va ZIP qilamiz. «Sanitized» firma nomi ustki faylni fayl tizimi belgilaridan
+// himoyalash uchun.
+export async function fillBuyruqPerFirmZip(input: Buffer, branchCodes?: string[]): Promise<PerFirmZipResult> {
+  const firms = await prisma.firm.findMany({
+    where: branchCodes?.length ? { code: { in: branchCodes } } : { active: true },
+    select: { code: true, shortName: true },
+    orderBy: { id: 'asc' },
+  });
+  const perFirm: PerFirmZipResult['perFirm'] = [];
+  const files: { name: string; buf: Buffer }[] = [];
+  for (const f of firms) {
+    const res = await fillBuyruqTemplate(input, { branchCodes: [f.code] });
+    perFirm.push({ code: f.code, shortName: f.shortName, total: res.total, filled: res.filled, unmatched: res.unmatched });
+    // Fayl nomida qonuniy belgilarni saqlaymiz; ZIP standarti (IBM437/CP437) em-dash'ni buzadi,
+    // shuning uchun oddiy ASCII tire — va Windows/Mac fayl tizimi cheklovlari.
+    const safe = (f.shortName || f.code).replace(/[\\/?*[\]:"<>|]/g, '').trim().slice(0, 60);
+    files.push({ name: `${safe || f.code} - buyruq.xlsx`, buf: res.buffer });
+  }
+
+  const chunks: Buffer[] = [];
+  const archive = archiver('zip', { zlib: { level: 6 } });
+  archive.on('data', (c: Buffer) => chunks.push(c));
+  const done = new Promise<void>((resolve, reject) => {
+    archive.on('end', () => resolve());
+    archive.on('warning', (e) => e.code === 'ENOENT' ? undefined : reject(e));
+    archive.on('error', reject);
+  });
+  for (const f of files) archive.append(f.buf, { name: f.name });
+  await archive.finalize();
+  await done;
+  return { buffer: Buffer.concat(chunks), perFirm };
 }

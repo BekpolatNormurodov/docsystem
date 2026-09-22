@@ -6,7 +6,8 @@ import { useT } from '@/lib/i18n/client';
 
 interface Firm { code: string; shortName: string }
 
-interface Result { total: number; filled: number; unmatched: number; name: string; url: string }
+interface PerFirm { n: string; t: number; f: number; u: number }
+interface Result { total: number; filled: number; unmatched: number; name: string; url: string; isZip: boolean; perFirm?: PerFirm[] }
 
 // Buyruq shabloni upload kartochkasi — drag-drop, firma tanlash, progress, natija toast'i.
 // Server javob header'idan matched/unmatched sonini o'qib jonli ko'rsatadi. Blob'ni yuklab olishga
@@ -49,12 +50,17 @@ export default function UploadCard({ firms }: { firms: Firm[] }) {
       const total = Number(r.headers.get('X-Buyruq-Total')) || 0;
       const filled = Number(r.headers.get('X-Buyruq-Filled')) || 0;
       const unmatched = Number(r.headers.get('X-Buyruq-Unmatched')) || 0;
+      const ct = r.headers.get('Content-Type') || '';
+      const isZip = ct.includes('zip');
+      let perFirm: PerFirm[] | undefined;
+      const pfRaw = r.headers.get('X-Buyruq-PerFirm');
+      if (pfRaw) { try { perFirm = JSON.parse(decodeURIComponent(pfRaw)); } catch { /* ignore */ } }
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);
       const cd = r.headers.get('Content-Disposition') || '';
       const m = cd.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/);
-      const name = decodeURIComponent(m?.[1] || m?.[2] || file.name.replace(/\.xlsx$/i, '') + ' — toʻldirilgan.xlsx');
-      setResult({ total, filled, unmatched, name, url });
+      const name = decodeURIComponent(m?.[1] || m?.[2] || file.name.replace(/\.xlsx$/i, '') + (isZip ? ' — firmalar.zip' : ' — toʻldirilgan.xlsx'));
+      setResult({ total, filled, unmatched, name, url, isZip, perFirm });
       // Auto-download: sinovsiz osilib turmasin, foydalanuvchi bosmasa ham darrov saqlansin.
       const a = document.createElement('a');
       a.href = url; a.download = name;
@@ -135,6 +141,18 @@ export default function UploadCard({ firms }: { firms: Firm[] }) {
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-emerald-500/15">
             <div className="h-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
           </div>
+          {result.isZip && result.perFirm && (
+            <ul className="mt-3 space-y-1 rounded-lg bg-emerald-500/5 p-2 text-xs">
+              {result.perFirm.map((f) => (
+                <li key={f.n} className="flex items-center gap-2">
+                  <span className="truncate text-fg">{f.n}</span>
+                  <span className="ml-auto tabular-nums text-emerald-700 dark:text-emerald-300">{f.f}</span>
+                  <span className="tabular-nums text-muted">/ {f.t}</span>
+                  {f.u > 0 && <span className="tabular-nums text-amber-700 dark:text-amber-300">·{f.u}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
           <a href={result.url} download={result.name} className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700 hover:underline dark:text-emerald-300">
             <Ico.download size={14} /> {result.name}
           </a>
