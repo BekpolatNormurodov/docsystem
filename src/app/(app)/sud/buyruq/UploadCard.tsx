@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useRef, useState } from 'react';
-import { Ico, Spinner } from '@/ui';
+import { Ico, Spinner, Select } from '@/ui';
 import { useT } from '@/lib/i18n/client';
 
 interface Firm { code: string; shortName: string }
@@ -105,15 +105,18 @@ export default function UploadCard({ firms }: { firms: Firm[] }) {
         )}
       </label>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-2 text-sm">
-          <span className="text-muted">{t('Firma')}:</span>
-          <select value={firm} onChange={(e) => setFirm(e.target.value)} className="field-input">
-            <option value="">{t('Hammasi (avtomatik)')}</option>
-            {firms.map((f) => <option key={f.code} value={f.code}>{f.shortName}</option>)}
-          </select>
-        </label>
-        <button type="button" onClick={submit} disabled={!file || busy} className="btn-primary ml-auto">
+      <div className="mt-3 flex flex-wrap items-end gap-3">
+        <div className="min-w-[220px] flex-1">
+          <Select
+            label={t('Firma')}
+            value={firm}
+            onChange={setFirm}
+            placeholder={t('Hammasi (avtomatik)')}
+            options={[{ value: '', label: t('Hammasi (avtomatik)') }, ...firms.map((f) => ({ value: f.code, label: f.shortName }))]}
+            searchAfter={5}
+          />
+        </div>
+        <button type="button" onClick={submit} disabled={!file || busy} className="btn-primary inline-flex items-center gap-1.5">
           {busy ? <><Spinner size={16} /> {t('Toʻldirilmoqda…')}</> : <><Ico.download size={16} /> {t('Toʻldirib olish')}</>}
         </button>
         {(file || result) && !busy && (
