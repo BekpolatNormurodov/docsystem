@@ -156,7 +156,7 @@ export function ClientStatusSearch({ linkDate, placeholder, className }: { linkD
                         <div className="text-sm font-semibold leading-snug">{p.clientName || '—'}</div>
                         <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                           <span className="font-mono text-[11px] tabular-nums text-muted">{p.pinfl}</span>
-                          {cb && <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${cb.tone}`}>{cb.label}</span>}
+                          {cb && <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${cb.tone}`}>{cb.label.split(' · ').map((s) => t(s)).join(' · ')}</span>}
                         </div>
                         {/* Har firma bo'yicha bosqich (step): «FIRMA · bosqich nomi · N/5».
                             Batafsil holat (masalan «Imzo / skan») tooltipda — chip ixcham qoladi. */}

@@ -217,7 +217,7 @@ export async function MijozlarTable({ snapshotId, linkDate, date, q, digitsOnly,
                           <span className="text-muted">· {f.stageLabel}</span>
                         </span>
                       ))}
-                      {r.court && <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium ${r.court.tone}`}>{r.court.label}</span>}
+                      {r.court && <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium ${r.court.tone}`}>{r.court.label.split(' · ').map((s) => t(s)).join(' · ')}</span>}
                     </div>
                   )}
                 </td>

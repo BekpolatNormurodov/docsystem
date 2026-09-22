@@ -120,7 +120,7 @@ export function CourtDetail({ caseId }: { caseId: number }) {
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">{t('Sud maʼlumoti')}</span>
         {badge
-          ? <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium ${badge.tone}`} title={data.result ? `${t('Xom natija')}: ${data.result}` : undefined}>{badge.label}</span>
+          ? <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium ${badge.tone}`} title={data.result ? `${t('Xom natija')}: ${data.result}` : undefined}>{badge.label.split(' · ').map((s) => t(s)).join(' · ')}</span>
           : <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">{t('Jarayonda')}</span>}
         {(data.caseCount ?? 0) > 1 && <span className="rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-muted">{data.caseCount} {t('ish')}</span>}
       </div>
