@@ -16,7 +16,7 @@ const n = (x: number) => (x || 0).toLocaleString('ru-RU');
 const som = (x: number) => (x || 0).toLocaleString('ru-RU', { maximumFractionDigits: 0 });
 const cellNum = (x: number, cls?: string) => <td className={cx('px-3 py-2.5 text-right tabular-nums', cls)}>{x > 0 ? n(x) : <span className="text-muted/50">·</span>}</td>;
 
-export function BossReport({ data, snapLabel, linkDate, statusExcelHref, generatedAt, todayLabel }: { data: BossReportData; snapLabel: string | null; linkDate: string; statusExcelHref: string; generatedAt: string; todayLabel: string }) {
+export function BossReport({ data, snapLabel, linkDate, statusExcelHref, generatedAt }: { data: BossReportData; snapLabel: string | null; linkDate: string; statusExcelHref: string; generatedAt: string; todayLabel?: string }) {
   const t = useT();
   const { pending } = useContext(SnapshotRefreshContext); // snapshot almashtirilyapti — shimmer ko'rsatiladi
   const { firms, totals, regions } = data;
@@ -39,11 +39,11 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref, generat
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           {linkDate && <ClientStatusSearch linkDate={linkDate} />}
-          {/* Tugma yorlig'i — bugungi sana bilan (fayl nomi ham xuddi shu sana). Snapshot sanasi
-              tepadagi chipda (h1 yonida) alohida ko'rinadi, sarlavhaga ham yozilgan. */}
-          <ExcelButton href={statusExcelHref} label={`${t('Mijozlar Excel')} — ${todayLabel}`} title={t('Mijozlar holati (firma · bosqich) — Excel')} />
-          <ExcelButton href="/boss/excel" label={`${t('Matritsa Excel')} — ${todayLabel}`} title={t('Firma × bosqich matritsasi — Excel')} />
-          <ExcelButton href="/sud/forma" label={`${t('Sud formasi (Excel)')} — ${todayLabel}`} title={t('Sud roʻyxati — toʻliq portfel-analitik forma (форма_суд)')} />
+          {/* Tugma yorlig'i — TOZA (sanasiz). Sana faqat yuklab olingan fayl NOMIDA — dizayn qulayligi
+              uchun (tugma qisqaroq, foydalanuvchi to'g'ridan-to'g'ri o'qiydi). */}
+          <ExcelButton href={statusExcelHref} label={t('Mijozlar Excel')} title={t('Mijozlar holati (firma · bosqich) — Excel')} />
+          <ExcelButton href="/boss/excel" label={t('Matritsa Excel')} title={t('Firma × bosqich matritsasi — Excel')} />
+          <ExcelButton href="/sud/forma" label={t('Sud formasi (Excel)')} title={t('Sud roʻyxati — toʻliq portfel-analitik forma (форма_суд)')} />
         </div>
       </header>
 
