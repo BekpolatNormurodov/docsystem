@@ -44,13 +44,24 @@ function fixInitialE(s: string): string {
   return s.replace(/(^|[^A-Za-z'‘’ʻʼ])([Ee])/g, (_, pre, ch) => pre + (ch === 'E' ? 'Э' : 'э'));
 }
 
+// Har bir CYRL_OVERRIDE tokeni uchun (Excel, PDF, MIB, ADOLAT...) — ular JOYIDA saqlansin va
+// transliteratsiyaga chalinmasin (ilgari «Excel» → «Эхcел» kabi buzilgan aralash matn chiqardi).
+// Regex: \p{L} chegarasi bilan ajratilgan alohida so'z — ichida ham topsa alohida taniydi.
+const OVERRIDE_TOKENS = Object.keys(CYRL_OVERRIDE).sort((a, b) => b.length - a.length);
+const TOKEN_RE = OVERRIDE_TOKENS.length ? new RegExp(`(?<![\\p{L}\\p{N}])(${OVERRIDE_TOKENS.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?![\\p{L}\\p{N}])`, 'gu') : null;
+const TOKEN_PH = (i: number) => `TK${i}`;
+
 /** Lotin oʻzbek matnini kirillga oʻgiradi. Raqam/tinish belgilari va lotin qolgan harflar oʻzgarmaydi. */
 export function toCyrl(input: string): string {
   if (!input) return input;
   if (CYRL_OVERRIDE[input] != null) return CYRL_OVERRIDE[input];
-  let s = fixInitialE(input);
+  // Avval CYRL_OVERRIDE tokenlarini placeholder'ga almashtiramiz — transliteratsiya ularga tegmaydi.
+  const kept: string[] = [];
+  let s = TOKEN_RE ? input.replace(TOKEN_RE, (m) => { const i = kept.length; kept.push(CYRL_OVERRIDE[m] ?? m); return TOKEN_PH(i); }) : input;
+  s = fixInitialE(s);
   for (const [re, rep] of DIGRAPHS) s = s.replace(re, rep);
   let out = '';
   for (const ch of s) out += SINGLE[ch] ?? ch;
-  return out;
+  // Placeholderlarni asl (saqlangan) qiymatlar bilan qaytaramiz.
+  return out.replace(/TK(\d+)/g, (_, i) => kept[Number(i)] ?? '');
 }

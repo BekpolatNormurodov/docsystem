@@ -26,6 +26,10 @@ export default async function Page() {
   const statusExcelHref = `/mijozlar/status-excel${selectedId ? `?s=${selectedId}` : ''}`;
   // Hisobot QACHON hisoblangani (server vaqti) — tepadagi «Yangilanish vaqti» rozetkasi uchun.
   // force-dynamic bo'lgani uchun har so'rov (va har avtomatik yangilanish)da yangilanadi.
-  const generatedAt = new Date().toISOString();
-  return <BossReport data={data} snapLabel={snapLabel} linkDate={linkDate} statusExcelHref={statusExcelHref} generatedAt={generatedAt} />;
+  const now = new Date();
+  const generatedAt = now.toISOString();
+  // Excel tugmalari yonidagi «bugungi sana» (DD.MM.YYYY) — foydalanuvchi qaysi kunni tortishini ko'radi.
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const todayLabel = `${pad(now.getDate())}.${pad(now.getMonth() + 1)}.${now.getFullYear()}`;
+  return <BossReport data={data} snapLabel={snapLabel} linkDate={linkDate} statusExcelHref={statusExcelHref} generatedAt={generatedAt} todayLabel={todayLabel} />;
 }
