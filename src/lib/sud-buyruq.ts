@@ -20,6 +20,11 @@ export const STATUS_UZ: Record<string, string> = {
 };
 export const BUYRUQ_STATUSES = Object.keys(STATUS_UZ);
 
+// «Hammasi» tanlanganda default sifatida ishlatiladigan 4 ta asosiy firma kodi (buyruq oqimi
+// aynan shularga tegishli): BRIGHT / URBAN / COMMUNITY / MUVAFFAQIYAT. Foydalanuvchi so'rovi:
+// «4 ta bilan cheklansin». Boshqa firmalar (FUNDFLOW/ZAYMLY/…) shovqin qilmasin.
+export const BUYRUQ_DEFAULT_FIRMS = ['12842', '06292', '55890', '05557'] as const;
+
 const norm = (s?: string | null) =>
   String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase()
     .replace(/[''`ʻʼ‘’]/g, "'").replace(/\s+/g, ' ')
@@ -120,10 +125,10 @@ export async function fillBuyruqTemplate(input: Buffer, opts: { branchCodes?: st
   const cPrincipal = cMain || cClaim;
   if (!cPrincipal) throw new Error('«Asosiy qarzdorlik» yoki «Da\'vo summasi» ustuni topilmadi');
 
-  // Firma portfellarini birlashtirib bitta indeks (ism bo'yicha). branchCodes berilmasa hamma
-  // faol firmalar bo'ylab qidiramiz — foydalanuvchi qaysi firmani nazarda tutgani noaniq bo'lsa ham
-  // to'g'ri odamni topa olamiz.
-  const codes = opts.branchCodes?.length ? opts.branchCodes : (await prisma.firm.findMany({ where: { active: true }, select: { code: true } })).map((f) => f.code);
+  // Firma portfellarini birlashtirib bitta indeks (ism bo'yicha). branchCodes berilmasa
+  // 4 ta asosiy firma (BRIGHT/URBAN/COMMUNITY/MUVAFFAQIYAT) bo'ylab qidiramiz — buyruq oqimi
+  // aynan shu firmalarga tegishli, boshqa firmalar (FUNDFLOW/ZAYMLY/…) ismini «tortib» ketmasin.
+  const codes = opts.branchCodes?.length ? opts.branchCodes : [...BUYRUQ_DEFAULT_FIRMS];
   const merged = new Map<string, IdxRow>();
   for (const code of codes) {
     const idx = await firmIndex(code);
@@ -240,10 +245,11 @@ export interface PerFirmZipResult {
 // Foydalanuvchi shablon Excel'ini yuklaydi va «Hammasi» tanlaydi — tizim shablonni HAR firma
 // alohida ishlaydi: mos ismlar shu firma portfelidan to'ldiriladi. Har firma uchun alohida
 // .xlsx yaratamiz va ZIP qilamiz. «Sanitized» firma nomi ustki faylni fayl tizimi belgilaridan
-// himoyalash uchun.
+// himoyalash uchun. branchCodes berilmasa BUYRUQ_DEFAULT_FIRMS (4 ta asosiy) ishlaydi.
 export async function fillBuyruqPerFirmZip(input: Buffer, branchCodes?: string[]): Promise<PerFirmZipResult> {
+  const codes = branchCodes?.length ? branchCodes : [...BUYRUQ_DEFAULT_FIRMS];
   const firms = await prisma.firm.findMany({
-    where: branchCodes?.length ? { code: { in: branchCodes } } : { active: true },
+    where: { code: { in: codes } },
     select: { code: true, shortName: true },
     orderBy: { id: 'asc' },
   });

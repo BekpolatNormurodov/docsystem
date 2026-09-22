@@ -118,7 +118,7 @@ export default function UploadCard({ firms }: { firms: Firm[] }) {
             value={firm}
             onChange={setFirm}
             placeholder={t('Hammasi (avtomatik)')}
-            options={[{ value: '', label: t('Hammasi (avtomatik)') }, ...firms.map((f) => ({ value: f.code, label: f.shortName }))]}
+            options={[{ value: '', label: t('Hammasi — 4 firma boʻyicha ZIP') }, ...firms.map((f) => ({ value: f.code, label: f.shortName }))]}
             searchAfter={5}
           />
         </div>
