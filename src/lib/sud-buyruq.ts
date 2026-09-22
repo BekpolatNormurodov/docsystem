@@ -42,15 +42,15 @@ const birthFromPinfl = (p?: string | null): string => {
 
 interface FirmIdx { byPinfl: Map<string, IdxRow>; byName: Map<string, IdxRow> }
 interface IdxRow {
-  principal: number; // ASOSIY QARZ QOLDIG'I: FAQAT debtPrincipal (muddati o'tgan asosiy YO'Q, foizlar YO'Q)
+  principal: number; // JAMI QARZDORLIK: bank Excel'idagi `totalDebt` = principal + termInterest +
+                     // overduePrincipal + overdueInterest — arizadagi «Jami qarzdorligi» qatoriga mos.
   pinfl: string; passport: string; address: string;
 }
 
-// Bir firma portfelidan (PINFL va nom bo'yicha) qarzdorlik indeksini quramiz. Foydalanuvchi
-// so'rovi: «arizada berilgan» summa — ariza (CourtArizaDocument) qatorida «Asosiy qarz qoldigʻi»
-// aynan `debtPrincipal` bo'yicha yoziladi. Muddati o'tgan asosiy va foizlar arizaда ALOHIDA
-// qatorlar. Shu shablon Excel oddiy 11 ustunli — undi kesim yo'q, shuning uchun faqat asosiy
-// qarz qoldig'ini (debtPrincipal) yozamiz.
+// Bir firma portfelidan (PINFL va nom bo'yicha) JAMI qarzdorlik indeksini quramiz. Foydalanuvchi
+// so'rovi 2026-09-22: arizadagi «Jami qarzdorligi» (masalan 17,521,972.98) — bu principal + 3 ta
+// qismning yig'indisi. Bank Excel'ida shu qiymat `totalDebt` ustunida saqlanadi. Har kredit ldId
+// bo'yicha unik olamiz — dublikat snapshot loans jamlanmaydi.
 async function firmIndex(branchCode: string): Promise<FirmIdx> {
   // MUHIM: kredit ID (ldId) bo'yicha unik olamiz. Bir kredit har portfel yuklaganда YANGI
   // snapshotда qayta yoziladi (eski snapshot loans qoladi) — filtrsiz bir kredit har snapshot
@@ -58,20 +58,33 @@ async function firmIndex(branchCode: string): Promise<FirmIdx> {
   // + `orderBy:{snapshotId:desc}` bilan har kredit ENG SO'NGGI snapshotdan bir marta olinadi —
   // portfel yangilansa qarz avtomatik yangilanadi, dublikat yo'q. Ariza (court-submit-job.ts)
   // ham snapshotId bilan filtrlaydi, biz bundan kuchliroq: kredit-scoped.
+  // MUHIM: eng so'nggi snapshot bo'yicha filtrlash — dublikat snapshot loans YIG'ILMASIN. Bir
+  // snapshot ichida bir ldId bir necha qatorда bo'lishi mumkin (bank Excel: asosiy, foizlar,
+  // muddati o'tgan alohida qatorlar) — hammasi bir kreditning qismlari, jamlab olsak
+  // arizadagi «Jami qarzdorligi» chiqadi. `distinct` ishlatilmaydi — u qismlarni tashlab
+  // kredit jami-qarzini qismlab beradi (2026-09-22 audit: XUSHMURODOV 144M o'rniga to'liq
+  // jami-qarz kerak).
+  const snap = await prisma.snapshot.findFirst({ orderBy: { reportDate: 'desc' }, select: { id: true } });
   const loans = await prisma.loan.findMany({
-    where: { branchCode },
+    where: { branchCode, ...(snap ? { snapshotId: snap.id } : {}) },
     select: {
-      ldId: true, clientName: true, pinfl: true, passportSn: true, postAddressUz: true, postAddress: true,
-      debtPrincipal: true,
+      clientName: true, pinfl: true, passportSn: true, postAddressUz: true, postAddress: true,
+      // Jami qarzdorlik uchun 4 qism (arizadagi 4 qatorga to'liq mos). totalDebt bank o'zi hisoblab
+      // bergan qiymat; agar u yo'q/0 bo'lsa qismlar yig'indisidan hisoblanadi.
+      debtPrincipal: true, debtOverduePrincipal: true, debtTermInterest: true, debtOverdueInterest: true,
+      totalDebt: true,
     },
-    orderBy: [{ ldId: 'asc' }, { snapshotId: 'desc' }],
-    distinct: ['ldId'],
   });
   const byPinfl = new Map<string, IdxRow>(), byName = new Map<string, IdxRow>();
   const add = (m: Map<string, IdxRow>, k: string, l: (typeof loans)[number]) => {
     if (!k) return;
     const a = m.get(k) ?? { principal: 0, pinfl: '', passport: '', address: '' };
-    a.principal += Number(l.debtPrincipal || 0);
+    // Jami qarzdorlik: totalDebt (bank raqami) > 0 bo'lsa u; aks holda 4 qism yig'indisi
+    // (principal + overduePrincipal + termInterest + overdueInterest) — arizadagi «Jami qarzdorligi».
+    const bankTotal = Number(l.totalDebt || 0);
+    const partsTotal = Number(l.debtPrincipal || 0) + Number(l.debtOverduePrincipal || 0)
+                    + Number(l.debtTermInterest || 0) + Number(l.debtOverdueInterest || 0);
+    a.principal += bankTotal > 0 ? bankTotal : partsTotal;
     if (!a.pinfl && l.pinfl) a.pinfl = l.pinfl;
     if (!a.passport && l.passportSn) a.passport = l.passportSn;
     const ad = l.postAddress && l.postAddress.length > (l.postAddressUz || '').length ? l.postAddress : l.postAddressUz || l.postAddress || '';
