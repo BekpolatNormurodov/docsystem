@@ -36,6 +36,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       // 2026-09-19: «Qaytganlar» — /sud ichidagi 1-tab (alohida sahifa emas). Ruxsat kaliti o'sha
       // (sud:returns) — href query'li bo'lgani uchun SUBITEM_META.href bo'yicha topilmaydi, aniq beramiz.
       { href: '/sud?tab=qaytgan', label: 'Qaytganlar', key: 'sud:returns' },
+      // «Sud buyrug'i» — ADOLAT holatlari bo'yicha ishlarni buyruq-formatida Excel qilib yuklab olish
+      // (asosiy qarz + davlat boji). Alohida sahifa; route'ning o'zi sud:send ruxsatini talab qiladi.
+      { href: '/sud/buyruq', label: 'Sud buyrugʻi' },
     ],
   };
   // Sub-item href → ruxsat kaliti (masalan /sud/invoice → 'sud:invoice'); qulflashni shu bilan hisoblaymiz.
