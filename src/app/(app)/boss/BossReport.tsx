@@ -30,7 +30,7 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref, generat
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-semibold">{t('Hisobot')}</h1>
-            <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400">{t('Faqat admin')}</span>
+            {snapLabel && <span className="badge border-brand-500/30 text-brand-600 dark:text-brand-400 tabular-nums">{snapLabel}</span>}
           </div>
           <p className="mt-1 max-w-2xl text-sm text-muted">
             {t('Firmalar bo‘yicha oqim: Talabnoma → Sanoat palatasi → Sudga chiqarilgan (holatlar bilan) → MIBga.')}
@@ -39,9 +39,9 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref, generat
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           {linkDate && <ClientStatusSearch linkDate={linkDate} />}
-          <ExcelButton href={statusExcelHref} label="Mijozlar Excel" title="Mijozlar holati (firma · bosqich) — Excel" />
-          <ExcelButton href="/boss/excel" label="Matritsa Excel" title="Firma × bosqich matritsasi — Excel" />
-          <ExcelButton href="/sud/forma" label="Sud formasi (Excel)" title="Sud roʻyxati — toʻliq portfel-analitik forma (форма_суд)" />
+          <ExcelButton href={statusExcelHref} label={`${t('Mijozlar Excel')}${snapLabel ? ` — ${snapLabel}` : ''}`} title={t('Mijozlar holati (firma · bosqich) — Excel')} />
+          <ExcelButton href="/boss/excel" label={`${t('Matritsa Excel')}${snapLabel ? ` — ${snapLabel}` : ''}`} title={t('Firma × bosqich matritsasi — Excel')} />
+          <ExcelButton href="/sud/forma" label={`${t('Sud formasi (Excel)')}${snapLabel ? ` — ${snapLabel}` : ''}`} title={t('Sud roʻyxati — toʻliq portfel-analitik forma (форма_суд)')} />
         </div>
       </header>
 

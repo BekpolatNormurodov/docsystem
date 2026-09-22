@@ -6,7 +6,7 @@
 import { prisma } from '@/lib/db';
 import { Prisma } from '@prisma/client';
 import { konveyerSummary, phaseTotals } from '@/lib/konveyer';
-import { courtStatusBoard, classifyStatus } from '@/lib/court-ready';
+import { classifyStatus } from '@/lib/court-ready';
 import { regionFromText } from '@/lib/mib/breakdown';
 import { firmActivity } from '@/lib/active-firms';
 
@@ -48,42 +48,64 @@ const emptySud = (): BossSud => ({ inReview: 0, granted: 0, returned: 0, rejecte
 const PRECOURT_CODES = new Set(['DRAFT', 'CREATED']);
 
 export async function bossReport(snapshotId?: number): Promise<BossReportData> {
-  const summary = await konveyerSummary(snapshotId);
+  // firmActivity bir marta — hamma sub-funksiya (region, sud-bulk) shuni ishlatadi.
   const fa = await firmActivity();
   const scope = { ...(snapshotId ? { snapshotId } : {}), ...fa.caseWhere };
   const snapCond = snapshotId ? Prisma.sql`AND snapshotId = ${snapshotId}` : Prisma.empty;
   // Nofaol firma ishlarini grand-total (DISTINCT PINFL) va region agregatlaridan ham chiqaramiz.
   const inactiveCaseCond = fa.hasInactive ? Prisma.sql`AND firmId NOT IN (${Prisma.join(fa.inactiveIds)})` : Prisma.empty;
 
-  // Firma bo'yicha jami qarz (summalar) — bitta groupBy.
-  const debtRows = await prisma.arizaCase.groupBy({ by: ['firmId'], where: scope, _sum: { totalDebt: true } });
+  // 3 ta og'ir so'rov parallel: konveyer summary, firma-jami qarzi, region kesimi. Ilgari
+  // ular ketma-ket bajarilardi — endi bir vaqtda (~30-40% tez).
+  const [summary, debtRows, regions] = await Promise.all([
+    konveyerSummary(snapshotId),
+    prisma.arizaCase.groupBy({ by: ['firmId'], where: scope, _sum: { totalDebt: true } }),
+    regionBreakdown(snapshotId, fa),
+  ]);
   const debtByFirm = new Map<number, number>();
   for (const d of debtRows) debtByFirm.set(d.firmId, Number(d._sum.totalDebt ?? 0));
 
   // Alohida qarzdorlar (PINFL) soni — firma bo'yicha + umumiy («userlar soni»). Bir odam ikki
   // firmada bo'lsa: firma kesimida ikkalasida ham, UMUMIYda BIR marta sanaladi (COUNT DISTINCT).
-  const clientRows = await prisma.$queryRaw<{ firmId: number; n: bigint }[]>`
+  // Bitta SQL: firma bo'yicha + jami (WITH ROLLUP) — ikki round-trip o'rniga bittasi.
+  const clientRows = await prisma.$queryRaw<{ firmId: number | null; n: bigint }[]>`
     SELECT firmId, COUNT(DISTINCT pinfl) AS n FROM ArizaCase
-    WHERE pinfl IS NOT NULL ${snapCond} ${inactiveCaseCond} GROUP BY firmId`;
+    WHERE pinfl IS NOT NULL ${snapCond} ${inactiveCaseCond}
+    GROUP BY firmId WITH ROLLUP`;
   const clientsByFirm = new Map<number, number>();
-  for (const r of clientRows) clientsByFirm.set(Number(r.firmId), Number(r.n));
-  const totalClientsRows = await prisma.$queryRaw<{ n: bigint }[]>`
-    SELECT COUNT(DISTINCT pinfl) AS n FROM ArizaCase WHERE pinfl IS NOT NULL ${snapCond} ${inactiveCaseCond}`;
-  const totalClients = Number(totalClientsRows[0]?.n ?? 0);
+  let totalClients = 0;
+  for (const r of clientRows) {
+    if (r.firmId == null) totalClients = Number(r.n);
+    else clientsByFirm.set(Number(r.firmId), Number(r.n));
+  }
 
-  const firms: BossFirmRow[] = await Promise.all(summary.firms.map(async (f) => {
-    // MUHIM: sud (CABINET) statuslari snapshot bo'yicha FILTRLANMAYDI. Sabab: status-ingest BARCHA
-    // cabinet yozuvlarini FAQAT eng oxirgi snapshotId bilan belgilaydi (court-returns.ts izohi), shuning
-    // uchun eski snapshot tanlansa courtStatusBoard(snapshotId) 0 qaytarardi — «Qanoatlantirilgan» va
-    // butun sud ustuni yo'qolardi. Firma (branchCode) bo'yicha filtr yetarli; sud = ADOLAT hozirgi holati.
-    const board = await courtStatusBoard(undefined, f.firmId);
-    const sud = emptySud();
-    for (const b of board.buckets) {
-      if (b.source !== 'CABINET') continue; // faqat sud (ADOLAT) statuslari
-      if (PRECOURT_CODES.has(b.code)) continue; // qoralama/CREATED — sudga chiqarilgan emas
-      sud[sudBucketOf(b.code)] += b.count;
-      sud.total += b.count;
-    }
+  // SUD (CABINET) statuslarini BITTA groupBy'da barcha firmalar uchun olamiz (ilgari N firma × 2
+  // so'rov = 8-10 round-trip; endi bittasi). branchCode → firmId JS'da bog'lanadi.
+  // MUHIM: snapshotSIZ — status-ingest cabinet yozuvlarini FAQAT eng oxirgi snapshotId bilan
+  // belgilaydi (court-returns.ts izohi + memory: cabinet-status-snapshot-and-result). Firma
+  // (branchCode) filtri yetarli; sud = ADOLAT hozirgi holati.
+  const firmMeta = await prisma.firm.findMany({ select: { id: true, code: true } });
+  const firmIdByCode = new Map(firmMeta.filter((f) => f.code).map((f) => [f.code!, f.id]));
+  const inactiveCodeSet = new Set(fa.inactiveCodes);
+  const sudGrouped = await prisma.clientCaseStatus.groupBy({
+    by: ['branchCode', 'status', 'statusLabel', 'caseResult', 'source'],
+    where: { source: 'CABINET' },
+    _count: { _all: true },
+  });
+  const sudByFirm = new Map<number, BossSud>();
+  for (const g of sudGrouped) {
+    if (!g.branchCode || inactiveCodeSet.has(g.branchCode)) continue;
+    const fid = firmIdByCode.get(g.branchCode);
+    if (!fid) continue;
+    const code = classifyStatus('CABINET', { status: g.status, statusLabel: g.statusLabel, caseResult: g.caseResult }).code;
+    if (PRECOURT_CODES.has(code)) continue; // qoralama/CREATED — sudga chiqarilgan emas
+    let sud = sudByFirm.get(fid);
+    if (!sud) { sud = emptySud(); sudByFirm.set(fid, sud); }
+    sud[sudBucketOf(code)] += g._count._all;
+    sud.total += g._count._all;
+  }
+
+  const firms: BossFirmRow[] = summary.firms.map((f) => {
     const ph = phaseTotals(f.byStage);
     return {
       firmId: f.firmId,
@@ -93,12 +115,12 @@ export async function bossReport(snapshotId?: number): Promise<BossReportData> {
       // «Sanoat palatasi» = IMZOLANGAN skan biriktirilganlar (SIGNED_SCANNED) — sudga ketadigan
       // asosiy pool. Butun SIGN fazasi (ariza/chop/palataga yuborilgan…) emas, faqat skanerlangan.
       sanoat: f.byStage['SIGNED_SCANNED'] ?? 0,
-      sud,
+      sud: sudByFirm.get(f.firmId) ?? emptySud(),
       mib: ph.EXEC ?? 0,
       debt: debtByFirm.get(f.firmId) ?? 0,
       total: f.total,
     };
-  }));
+  });
 
   const totals: BossTotals = firms.reduce<BossTotals>((a, r) => ({
     clients: a.clients + r.clients,
@@ -118,8 +140,6 @@ export async function bossReport(snapshotId?: number): Promise<BossReportData> {
   // Umumiy «userlar» — firma yig'indisi EMAS (bir odam bir necha firmada): butun DISTINCT PINFL.
   totals.clients = totalClients;
 
-  const regions = await regionBreakdown(snapshotId);
-
   return { snapshotId: snapshotId ?? null, firms, totals, regions };
 }
 
@@ -131,7 +151,7 @@ export async function bossReport(snapshotId?: number): Promise<BossReportData> {
 //   • MIBga    = ArizaCase EXEC (MIB_SUBMITTED/CLOSED) soni.
 //   • Jami qarz= SUM(ArizaCase.totalDebt) — firma «Jami qarz»i bilan bir manba (aniq mos keladi).
 //   • Sud      = ClientCaseStatus (CABINET), snapshotSIZ (cabinet oxirgi holat); DRAFT/CREATED chiqarilmaydi.
-async function regionBreakdown(snapshotId?: number): Promise<BossRegionRow[]> {
+async function regionBreakdown(snapshotId: number | undefined, fa: Awaited<ReturnType<typeof firmActivity>>): Promise<BossRegionRow[]> {
   const regionSnapId = snapshotId
     ?? (await prisma.snapshot.findFirst({ orderBy: { reportDate: 'desc' }, select: { id: true } }))?.id
     ?? 0;
@@ -141,7 +161,6 @@ async function regionBreakdown(snapshotId?: number): Promise<BossRegionRow[]> {
   // qotib qolardi (snapshot almashtirib bo'lmasdi). Endi region FAQAT kerakli pinfl'lar uchun,
   // pinfl-indeks bilan (FORCE INDEX Loan_pinfl_snapshotId_idx) olinadi (~2s). ArizaCase/ClientCaseStatus
   // kichik va indeksli — yig'ish JS'da. acRows/ccsRows parallel; region so'rovi ular topgan PINFL'lar bo'yicha.
-  const fa = await firmActivity();
   const [acRows, ccsRows] = await Promise.all([
     prisma.arizaCase.findMany({ where: { snapshotId: regionSnapId, pinfl: { not: null }, ...fa.caseWhere }, select: { pinfl: true, stage: true, totalDebt: true, talabnomaAt: true } }),
     prisma.clientCaseStatus.findMany({ where: { source: 'CABINET', pinfl: { not: null }, ...(fa.hasInactive ? { branchCode: { notIn: fa.inactiveCodes } } : {}) }, select: { pinfl: true, status: true, statusLabel: true, caseResult: true } }),
