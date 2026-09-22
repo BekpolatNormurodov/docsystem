@@ -52,8 +52,14 @@ interface IdxRow {
 // qatorlar. Shu shablon Excel oddiy 11 ustunli — undi kesim yo'q, shuning uchun faqat asosiy
 // qarz qoldig'ini (debtPrincipal) yozamiz.
 async function firmIndex(branchCode: string): Promise<FirmIdx> {
+  // MUHIM: snapshot bilan filtrlash — har portfel yuklaganda YANGI snapshot yaratiladi va eski
+  // snapshotning loans qoladi. Filtrlanmasa bir kredit har snapshotда bir marta chiqadi va
+  // hammasi jamlanadi (masalan 5 kredit × 2 snapshot = 10 «kredit», jami qarz 2× katta chiqadi —
+  // 2026-09-22 auditi: XUSHMURODOV 98M o'rniga 198M). Ariza (court-submit-job.ts:753) ham xuddi
+  // shunday snapshotId bilan filtrlanadi. Eng so'nggi snapshot bo'yicha olamiz.
+  const snap = await prisma.snapshot.findFirst({ orderBy: { reportDate: 'desc' }, select: { id: true } });
   const loans = await prisma.loan.findMany({
-    where: { branchCode },
+    where: { branchCode, ...(snap ? { snapshotId: snap.id } : {}) },
     select: {
       clientName: true, pinfl: true, passportSn: true, postAddressUz: true, postAddress: true,
       debtPrincipal: true,
