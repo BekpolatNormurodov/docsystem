@@ -324,7 +324,10 @@ export async function GET(req: NextRequest) {
   table(t('Klassifikatsiya boʻyicha'), byKlass);
 
   const buf = Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer);
-  const name = `${t('Sud formasi').replace(/\s+/g, '_')}_${snapLabel.replace(/[^\p{L}\p{N}]+/gu, '_')}.xlsx`;
+  // Fayl nomida BUGUNGI sana (yuklab olingan sana) — snapshot sanasi emas (u ichida yozilgan).
+  const today = new Date(); const pad = (n: number) => String(n).padStart(2, '0');
+  const stamp = `${pad(today.getDate())}.${pad(today.getMonth() + 1)}.${today.getFullYear()}`;
+  const name = `${t('Sud formasi').replace(/\s+/g, '_')}_${stamp}.xlsx`;
   return new NextResponse(new Uint8Array(buf), {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

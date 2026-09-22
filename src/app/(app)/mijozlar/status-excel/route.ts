@@ -116,10 +116,13 @@ export async function GET(req: NextRequest) {
 
   const buf = Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer);
   const tag = step || (stages.length ? 'bosqich' : 'hammasi');
+  // Fayl nomida BUGUNGI sana (yuklab olingan kun) — foydalanuvchi qaysi kun tortib olganini biladi.
+  const today = new Date(); const pad = (n: number) => String(n).padStart(2, '0');
+  const stamp = `${pad(today.getDate())}.${pad(today.getMonth() + 1)}.${today.getFullYear()}`;
   return new NextResponse(new Uint8Array(buf), {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="${encodeURIComponent(`${t('Mijozlar holati').replace(/\s+/g, '_')}_${tag}.xlsx`)}"`,
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(`${t('Mijozlar holati').replace(/\s+/g, '_')}_${tag}_${stamp}.xlsx`)}"`,
     },
   });
 }

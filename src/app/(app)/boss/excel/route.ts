@@ -107,7 +107,10 @@ export async function GET(req: NextRequest) {
 
   const data = await bossReport(selectedId);
   const buf = await buildBossExcel(data, snapLabel, t);
-  const name = `${t('Boshliq hisoboti')}_${snapLabel.replace(/[^\p{L}\p{N}]+/gu, '_')}.xlsx`;
+  // Fayl nomida BUGUNGI sana (yuklab olingan kun) — snapshot sanasi ichida sarlavhada bor.
+  const today = new Date(); const pad = (n: number) => String(n).padStart(2, '0');
+  const stamp = `${pad(today.getDate())}.${pad(today.getMonth() + 1)}.${today.getFullYear()}`;
+  const name = `${t('Boshliq hisoboti')}_${stamp}.xlsx`;
   return new NextResponse(new Uint8Array(buf), {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
