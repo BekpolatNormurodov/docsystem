@@ -474,6 +474,7 @@ async function courtDetailSyncLoop(): Promise<void> {
   console.log(`[worker] sud detali (aniq PINFL): har ${Math.round(COURT_DETAIL_EVERY_MS / 60_000)} daqiqada, firma boshiga ${COURT_DETAIL_BATCH} ta`);
   await new Promise((r) => setTimeout(r, 150_000)); // status sync birinchi o'tsin — ro'yxat to'lsin
   while (!stopping) {
+    let anyFetched = 0;
     for (const f of FIRMS) {
       if (stopping) break;
       try {
@@ -482,12 +483,15 @@ async function courtDetailSyncLoop(): Promise<void> {
         if (r.total > 0) {
           console.log(`[worker] sud detali ${f.branchCode}: ${r.fetched}/${r.total} olindi, ${r.withPinfl} tasida PINFL, ${r.failed} xato`);
         }
+        anyFetched += r.fetched;
       } catch (e) {
         const msg = e instanceof SessionExpiredError ? 'sessiya yo\'q' : (e as Error).message?.slice(0, 120);
         if (!(e instanceof SessionExpiredError)) console.error(`[worker] sud detali ${f.branchCode}: ${msg}`);
       }
       await new Promise((r) => setTimeout(r, COURT_STATUS_FIRM_GAP_MS));
     }
+    // Har iteratsiyadan keyin timestamp — UI (Boss/Sudyalar bo'limi) qachon yangilanganini ko'rsatadi.
+    if (anyFetched > 0) await stampRefresh('court_detail_refreshed_at');
     await new Promise((r) => setTimeout(r, COURT_DETAIL_EVERY_MS));
   }
 }

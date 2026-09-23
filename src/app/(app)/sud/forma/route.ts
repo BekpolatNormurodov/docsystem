@@ -593,7 +593,7 @@ export async function GET(req: NextRequest) {
   s4.getRow(1).height = 26;
   s4.mergeCells(`A2:${jLast}2`);
   const jt2 = s4.getCell('A2');
-  jt2.value = `${jRows.length} ${t('sudya')} · ${withJ.toLocaleString('ru-RU')}/${submTotal.toLocaleString('ru-RU')} ${t('ishda sudya aniqlangan (cabinet detail)')}`;
+  jt2.value = `${jRows.length} ${t('sudya')} · ${withJ.toLocaleString('ru-RU')}/${submTotal.toLocaleString('ru-RU')} ${t('ishda sudya aniqlangan')} · ${t('Yuklab olingan')}: ${genStamp}`;
   jt2.font = { italic: true, size: 10, color: { argb: 'FF475569' } };
   jt2.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
   s4.getRow(2).height = 16;

@@ -178,16 +178,17 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref, generat
           className="flex w-full items-center justify-between gap-3 border-b border-line px-4 py-3 text-left hover:bg-surface-2">
           <div className="flex items-center gap-2 text-sm font-semibold">
             <svg className={cx('h-4 w-4 shrink-0 text-muted transition-transform', judOpen && 'rotate-90')} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="m9 6 6 6-6 6" /></svg>
-            {t('Sudya bo‘yicha — Jami · Qanoat. · Qaytar. · %')}
-            <span className="rounded-full bg-brand-500/15 px-1.5 py-0.5 text-[10px] font-medium text-brand-600 dark:text-brand-300">{n(judges.rows.length)}</span>
+            {t('Sudya boʻyicha')}
+            <span className="rounded-full bg-brand-500/15 px-1.5 py-0.5 text-[10px] font-medium text-brand-600 dark:text-brand-300">{n(judges.rows.length)} {t('sudya')}</span>
+            <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-muted tabular-nums">{n(judges.withJudge)}/{n(judges.submittedTotal)}</span>
           </div>
           <span className="text-xs text-muted">
-            {judOpen
-              ? `${n(judges.withJudge)}/${n(judges.submittedTotal)} ${t('ishda sudya aniqlangan')}`
-              : `${n(judges.rows.length)} ${t('ta sudya · ochish')}`}
+            {judOpen ? t('Har 20 daqiqada avtomatik yangilanadi') : t('Ochish')}
           </span>
         </button>
         {judOpen && (
+        <>
+        <JudgeSyncPanel judges={judges} />
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px] text-sm">
             <thead className="bg-surface text-xs uppercase tracking-wide text-muted">
@@ -240,14 +241,91 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref, generat
             <div className="border-t border-line bg-surface-2/40 px-3 py-2 text-center">
               <button type="button" onClick={() => setJudLimit(judges.rows.length)}
                 className="text-xs font-medium text-brand-600 hover:text-brand-700 dark:text-brand-300">
-                {t('Barchasini ko‘rsatish')} ({judges.rows.length - judLimit} {t('ta yana')})
+                {t('Barchasini koʻrsatish')} ({judges.rows.length - judLimit} {t('ta yana')})
               </button>
             </div>
           )}
         </div>
+        </>
         )}
       </div>
       </>)}
+    </div>
+  );
+}
+
+// «Sudya sinxron holati» — kesim tepasidagi kompakt panel:
+// coverage progress-bar + so'nggi/keyingi sinxron vaqti + «Kuchaytirilgan sinxron» tugmasi.
+// Har so'rov cabinet.sud.uz'dan 8 s da bittadan olinadi (portalni bloklamaslik uchun),
+// shuning uchun tugma bosilsa fon rejimida yugurtiriladi va tez tugamaydi (5-6 soat).
+function JudgeSyncPanel({ judges }: { judges: BossReportData['judges'] }) {
+  const t = useT();
+  const [status, setStatus] = useState<'idle' | 'starting' | 'running' | 'ok' | 'err'>('idle');
+  const [msg, setMsg] = useState<string>('');
+  const coverage = judges.submittedTotal > 0 ? Math.min(100, Math.round((judges.withJudge / judges.submittedTotal) * 100)) : 0;
+  const missing = Math.max(0, judges.submittedTotal - judges.withJudge);
+  const lastAbs = judges.lastSyncAt ? fmtAbs(judges.lastSyncAt) : null;
+
+  useEffect(() => { let dead = false;
+    fetch('/api/cabinet/detail-sync-now', { cache: 'no-store' })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (!dead && d?.running) { setStatus('running'); setMsg(t('Kuchaytirilgan sinxron ishlab turibdi — 5-6 soatda tugaydi')); } });
+    return () => { dead = true; };
+  }, [t]);
+
+  async function trigger() {
+    setStatus('starting'); setMsg('');
+    try {
+      const r = await fetch('/api/cabinet/detail-sync-now', { method: 'POST' });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error || String(r.status));
+      if (d.started) {
+        setStatus('running');
+        setMsg(`${t('Sinxron boshlandi:')} ${d.firms} ${t('firma')} × ${d.perFirm} ${t('ish')} · ${t('taxminan')} ${Math.round(d.estimatedMinutes / 60)} ${t('soat')}`);
+      } else {
+        setStatus('running');
+        setMsg(`${t('Sinxron allaqachon ishlab turibdi')} (${d.startedSecondsAgo} ${t('soniya oldin boshlangan')})`);
+      }
+    } catch (e) {
+      setStatus('err'); setMsg((e as Error).message);
+    }
+  }
+
+  return (
+    <div className="border-b border-line bg-surface-2/40 px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="mb-1 flex flex-wrap items-baseline gap-x-2 text-xs">
+            <span className="text-muted">{t('Sudya aniqlangan')}:</span>
+            <span className="font-semibold tabular-nums text-fg">{n(judges.withJudge)} / {n(judges.submittedTotal)}</span>
+            <span className="tabular-nums text-brand-600 dark:text-brand-300">({coverage}%)</span>
+            <span className="text-muted">·</span>
+            <span className="text-muted">{t('Sudyasi olinmagan')}:</span>
+            <span className="font-semibold tabular-nums text-fg">{n(missing)}</span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
+            <div className="h-full rounded-full bg-brand-500 transition-all" style={{ width: `${coverage}%` }} />
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
+            {lastAbs && <span>{t('Soʻnggi sinxron')}: <b className="tabular-nums text-fg">{lastAbs}</b></span>}
+            <span>{t('Har')} <b className="text-fg">{judges.syncIntervalMin}</b> {t('daqiqada firma boshiga')} <b className="text-fg">{judges.perFirmBatch}</b> {t('ta ish avtomatik olinadi')}</span>
+          </div>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <button
+            type="button"
+            onClick={trigger}
+            disabled={status === 'starting' || status === 'running'}
+            className="btn-ghost shrink-0 whitespace-nowrap text-xs disabled:opacity-60"
+            title={t('Bitta yo‘la 5 firma × 200 ta ish detali olinadi (cabinet rate-limit sabab ~5-6 soat)')}
+          >
+            {status === 'starting' ? t('Boshlanmoqda…')
+              : status === 'running' ? t('Sinxron ishlab turibdi')
+              : t('Kuchaytirilgan sinxron')}
+          </button>
+          {msg && <span className={cx('text-[10px]', status === 'err' ? 'text-rose-600 dark:text-rose-300' : 'text-muted')}>{msg}</span>}
+        </div>
+      </div>
     </div>
   );
 }

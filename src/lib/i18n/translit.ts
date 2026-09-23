@@ -15,6 +15,20 @@ export const CYRL_OVERRIDE: Record<string, string> = {
   PINFL: 'ПИНФЛ',
   JShShIR: 'ЖШШИР',
   Snapshot: 'Снапшот',
+  // Brend/domen nomlari — LOTIN qoladi. Aks holda 'c' harfi SINGLE jadvalida yo'qligi sabab
+  // «cabinet» → «cабинет» kabi aralash matn chiqardi (2026-09-23 foydalanuvchi ko'rigi).
+  cabinet: 'cabinet',
+  Cabinet: 'Cabinet',
+  hippo: 'hippo',
+  // «sudya» — «ya» digrafi «я» beradi va «судя» chiqadi; to'g'ri o'zbek kirillchasi «судья».
+  // Har shakli alohida yoziladi (override SO'Z chegarasi bilan ishlaydi).
+  Sudya: 'Судья',
+  sudya: 'судья',
+  SUDYA: 'СУДЬЯ',
+  Sudyasi: 'Судьяси',
+  sudyasi: 'судьяси',
+  Sudyalar: 'Судьялар',
+  sudyalar: 'судьялар',
 };
 
 // Uch va ikki harfli birikmalar (avval eng uzuni). Apostrof variantlari: ' (ASCII), ‘ ’ ʻ ʼ.

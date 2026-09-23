@@ -44,6 +44,9 @@ export interface BossJudgesBlock {
   rows: BossJudgeRow[];
   withJudge: number;       // sudya aniqlangan CABINET yozuvlari soni
   submittedTotal: number;  // sudga yuborilgan barcha ishlar (DRAFT/CREATED-siz)
+  lastSyncAt: string | null; // ISO — court_detail_refreshed_at (worker'dan)
+  syncIntervalMin: number;   // keyingi tsikl o'rtasidagi vaqt (daqiqa)
+  perFirmBatch: number;      // bir tsiklda firmaga qancha ish tortiladi
 }
 export interface BossReportData {
   snapshotId: number | null;
@@ -266,7 +269,15 @@ async function judgesReport(
     };
   }).sort((a, b) => b.totalCases - a.totalCases || b.granted - a.granted);
 
-  return { rows, withJudge: withJudgeRow, submittedTotal: submittedRow };
+  const lastStamp = await prisma.setting.findUnique({ where: { key: 'court_detail_refreshed_at' }, select: { value: true } }).catch(() => null);
+  return {
+    rows,
+    withJudge: withJudgeRow,
+    submittedTotal: submittedRow,
+    lastSyncAt: lastStamp?.value ?? null,
+    syncIntervalMin: 20,
+    perFirmBatch: 40,
+  };
 }
 
 // ── Viloyat kesimi (mijozlar + MIBga + Sud + qarz) ────────────────────────────
