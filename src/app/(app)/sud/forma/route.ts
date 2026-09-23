@@ -544,7 +544,7 @@ export async function GET(req: NextRequest) {
   // Sud nomi cabinet detail JSON'ining courtNameUz maydonidan (courtId — UUID, Court jadvali bilan
   // mos kelmaydi). Distinct courtId lar kam — har biriga bitta detaildan nom olamiz.
   const courtNameRows = await prisma.$queryRaw<{ courtId: string; name: string | null }[]>`
-    SELECT courtId, JSON_UNQUOTE(JSON_EXTRACT(detail, '$.courtNameUz')) AS name
+    SELECT courtId, MAX(JSON_UNQUOTE(JSON_EXTRACT(detail, '$.courtNameUz'))) AS name
     FROM ClientCaseStatus
     WHERE source = 'CABINET' AND courtId IS NOT NULL AND detail IS NOT NULL
       AND JSON_EXTRACT(detail, '$.courtNameUz') IS NOT NULL
