@@ -29,6 +29,7 @@ export const CYRL_OVERRIDE: Record<string, string> = {
   sudyasi: 'судьяси',
   Sudyalar: 'Судьялар',
   sudyalar: 'судьялар',
+  SUDYALAR: 'СУДЬЯЛАР',
 };
 
 // Uch va ikki harfli birikmalar (avval eng uzuni). Apostrof variantlari: ' (ASCII), ‘ ’ ʻ ʼ.

@@ -42,9 +42,10 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref, generat
           {linkDate && <ClientStatusSearch linkDate={linkDate} />}
           {/* Tugma yorlig'i — TOZA (sanasiz). Sana faqat yuklab olingan fayl NOMIDA — dizayn qulayligi
               uchun (tugma qisqaroq, foydalanuvchi to'g'ridan-to'g'ri o'qiydi). */}
-          <ExcelButton href={statusExcelHref} label={t('Mijozlar Excel')} title={t('Mijozlar holati (firma · bosqich) — Excel')} />
-          <ExcelButton href="/boss/excel" label={t('Matritsa Excel')} title={t('Firma × bosqich matritsasi — Excel')} />
-          <ExcelButton href="/sud/forma" label={t('Sud formasi (Excel)')} title={t('Sud roʻyxati — toʻliq portfel-analitik forma (форма_суд)')} />
+          <ExcelButton href={statusExcelHref} label={t('Mijozlar')} title={t('Mijozlar holati (firma · bosqich) — Excel')} />
+          <ExcelButton href="/boss/excel" label={t('Matritsa')} title={t('Firma × bosqich matritsasi — Excel')} />
+          <ExcelButton href="/sud/forma" label={t('Sud formasi')} title={t('Sud roʻyxati — toʻliq portfel-analitik forma (форма_суд)')} />
+          <ExcelButton href="/boss/sudyalar-excel" label={t('Sudyalar')} title={t('Sudyalar hisoboti — qanoat/qaytar kesimi bilan (Excel)')} />
         </div>
       </header>
 
@@ -374,46 +375,61 @@ function FulfilBar({ pct }: { pct: number }) {
   );
 }
 
-// «Sudya sinxron holati» — kesim tepasidagi kompakt panel:
-// coverage progress-bar + so'nggi/keyingi sinxron vaqti + «Kuchaytirilgan sinxron» tugmasi.
-// Har so'rov cabinet.sud.uz'dan 8 s da bittadan olinadi (portalni bloklamaslik uchun),
-// shuning uchun tugma bosilsa fon rejimida yugurtiriladi va tez tugamaydi (5-6 soat).
+// «Sudya sinxron holati» — kesim tepasidagi boshqaruv paneli:
+// coverage progress-bar + so'nggi/keyingi sinxron + JONLI holat (firma N/M, olingan K, o'tgan vaqt)
+// + Boshlash / To'xtatish / Qayta boshlash tugmalari. Har so'rov cabinet'dan 8 s da bittadan
+// olinadi (portalni bloklamaslik uchun) — shuning uchun fon rejimida ~5-6 soat davom etadi.
+interface BoostState { running: boolean; startedAt: string | null; elapsedSec: number; progress: { firmsDone: number; firmsTotal: number; fetched: number } | null; }
 function JudgeSyncPanel({ judges }: { judges: BossReportData['judges'] }) {
   const t = useT();
-  const [status, setStatus] = useState<'idle' | 'starting' | 'running' | 'ok' | 'err'>('idle');
-  const [msg, setMsg] = useState<string>('');
+  const [busy, setBusy] = useState(false);            // tugma bosildi — javob kutilyapti
+  const [err, setErr] = useState('');
+  const [live, setLive] = useState<BoostState | null>(null);
   const coverage = judges.submittedTotal > 0 ? Math.min(100, Math.round((judges.withJudge / judges.submittedTotal) * 100)) : 0;
   const missing = Math.max(0, judges.submittedTotal - judges.withJudge);
   const lastAbs = judges.lastSyncAt ? fmtAbs(judges.lastSyncAt) : null;
+  const running = live?.running ?? false;
 
-  useEffect(() => { let dead = false;
-    fetch('/api/cabinet/detail-sync-now', { cache: 'no-store' })
-      .then((r) => r.ok ? r.json() : null)
-      .then((d) => { if (!dead && d?.running) { setStatus('running'); setMsg(t('Kuchaytirilgan sinxron ishlab turibdi — 5-6 soatda tugaydi')); } });
-    return () => { dead = true; };
-  }, [t]);
+  // Jonli holatni davriy so'rab turamiz: ishlaganda 8s, bo'sh turganda 30s.
+  useEffect(() => {
+    let dead = false;
+    const poll = async () => {
+      try {
+        const r = await fetch('/api/cabinet/detail-sync-now', { cache: 'no-store' });
+        if (!r.ok) return;
+        const d = await r.json();
+        if (!dead) setLive({ running: !!d.running, startedAt: d.startedAt ?? null, elapsedSec: d.elapsedSec ?? 0, progress: d.progress ?? null });
+      } catch { /* tarmoq xatosi — keyingi urinishda */ }
+    };
+    poll();
+    const id = setInterval(poll, live?.running ? 8_000 : 30_000);
+    return () => { dead = true; clearInterval(id); };
+  }, [live?.running]);
 
-  async function trigger() {
-    setStatus('starting'); setMsg('');
+  async function call(action: 'start' | 'stop' | 'restart') {
+    setBusy(true); setErr('');
     try {
-      const r = await fetch('/api/cabinet/detail-sync-now', { method: 'POST' });
+      const r = await fetch('/api/cabinet/detail-sync-now', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) });
       const d = await r.json();
       if (!r.ok) throw new Error(d?.error || String(r.status));
-      if (d.started) {
-        setStatus('running');
-        setMsg(`${t('Sinxron boshlandi:')} ${d.firms} ${t('firma')} × ${d.perFirm} ${t('ish')} · ${t('taxminan')} ${Math.round(d.estimatedMinutes / 60)} ${t('soat')}`);
-      } else {
-        setStatus('running');
-        setMsg(`${t('Sinxron allaqachon ishlab turibdi')} (${d.startedSecondsAgo} ${t('soniya oldin boshlangan')})`);
-      }
+      // Darhol holatni yangilaymiz (poll'ni kutmasdan).
+      const g = await fetch('/api/cabinet/detail-sync-now', { cache: 'no-store' }).then((x) => x.json()).catch(() => null);
+      if (g) setLive({ running: !!g.running, startedAt: g.startedAt ?? null, elapsedSec: g.elapsedSec ?? 0, progress: g.progress ?? null });
     } catch (e) {
-      setStatus('err'); setMsg((e as Error).message);
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
     }
   }
 
+  const elapsedLabel = (sec: number) => {
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+    return h > 0 ? `${h} ${t('soat')} ${m} ${t('daq')}` : `${m} ${t('daq')}`;
+  };
+
   return (
     <div className="border-b border-line bg-surface-2/40 px-4 py-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex flex-wrap items-baseline gap-x-2 text-xs">
             <span className="text-muted">{t('Sudya aniqlangan')}:</span>
@@ -430,20 +446,43 @@ function JudgeSyncPanel({ judges }: { judges: BossReportData['judges'] }) {
             {lastAbs && <span>{t('Soʻnggi sinxron')}: <b className="tabular-nums text-fg">{lastAbs}</b></span>}
             <span>{t('Har')} <b className="text-fg">{judges.syncIntervalMin}</b> {t('daqiqada firma boshiga')} <b className="text-fg">{judges.perFirmBatch}</b> {t('ta ish avtomatik olinadi')}</span>
           </div>
+          {/* JONLI holat — kuchaytirilgan sinxron ishlaganda */}
+          {running && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-brand-500/25 bg-brand-500/[0.06] px-2.5 py-1.5 text-[11px]">
+              <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-brand-500" aria-hidden />
+              <span className="font-medium text-brand-700 dark:text-brand-300">{t('Kuchaytirilgan sinxron ketmoqda')}</span>
+              {live?.progress && (
+                <span className="tabular-nums text-muted">
+                  · {t('firma')} {live.progress.firmsDone}/{live.progress.firmsTotal}
+                  · {t('olingan')}: <b className="text-fg">{n(live.progress.fetched)}</b>
+                </span>
+              )}
+              <span className="tabular-nums text-muted">· {elapsedLabel(live?.elapsedSec ?? 0)}</span>
+            </div>
+          )}
         </div>
-        <div className="flex flex-col items-end gap-1">
-          <button
-            type="button"
-            onClick={trigger}
-            disabled={status === 'starting' || status === 'running'}
-            className="btn-ghost shrink-0 whitespace-nowrap text-xs disabled:opacity-60"
-            title={t('Bitta yo‘la 5 firma × 200 ta ish detali olinadi (cabinet rate-limit sabab ~5-6 soat)')}
-          >
-            {status === 'starting' ? t('Boshlanmoqda…')
-              : status === 'running' ? t('Sinxron ishlab turibdi')
-              : t('Kuchaytirilgan sinxron')}
-          </button>
-          {msg && <span className={cx('text-[10px]', status === 'err' ? 'text-rose-600 dark:text-rose-300' : 'text-muted')}>{msg}</span>}
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          {!running ? (
+            <button type="button" onClick={() => call('start')} disabled={busy}
+              className="btn-primary shrink-0 whitespace-nowrap px-3 py-1.5 text-xs disabled:opacity-60"
+              title={t('Bitta yo‘la 5 firma × 200 ta ish detali olinadi (cabinet rate-limit sabab ~5-6 soat)')}>
+              {busy ? t('Boshlanmoqda…') : t('Kuchaytirilgan sinxron')}
+            </button>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <button type="button" onClick={() => call('stop')} disabled={busy}
+                className="btn-ghost shrink-0 whitespace-nowrap px-2.5 py-1.5 text-xs text-rose-600 disabled:opacity-60 dark:text-rose-300"
+                title={t('Keyingi firma oldidan to‘xtaydi')}>
+                {t('To‘xtatish')}
+              </button>
+              <button type="button" onClick={() => call('restart')} disabled={busy}
+                className="btn-ghost shrink-0 whitespace-nowrap px-2.5 py-1.5 text-xs disabled:opacity-60"
+                title={t('Turib qolgan bo‘lsa — qulfni tozalab yangidan boshlaydi')}>
+                {t('Qayta boshlash')}
+              </button>
+            </div>
+          )}
+          {err && <span className="text-[10px] text-rose-600 dark:text-rose-300">{err}</span>}
         </div>
       </div>
     </div>
