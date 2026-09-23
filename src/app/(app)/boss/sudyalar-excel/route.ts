@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   const snapLabel = snaps.find((s) => s.id === selectedId)?.label ?? '—';
 
   const data = await bossReport(selectedId);
-  const J = data.judges;
+  const J = data.judges; // rows.courts allaqachon detail.courtNameUz'dan (bossReport ichida) to'g'ri nom bilan
 
   const wb = new ExcelJS.Workbook();
   wb.created = new Date();

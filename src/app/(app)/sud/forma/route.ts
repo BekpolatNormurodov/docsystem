@@ -541,9 +541,16 @@ export async function GET(req: NextRequest) {
     prisma.clientCaseStatus.count({ where: { source: 'CABINET', status: { notIn: ['DRAFT', 'CREATED'] } } }),
     prisma.clientCaseStatus.count({ where: { source: 'CABINET', judge: { not: null }, NOT: { judge: '' } } }),
   ]);
-  const courtRows = await prisma.court.findMany({ select: { billingCourtId: true, shortName: true, nameUz: true } });
+  // Sud nomi cabinet detail JSON'ining courtNameUz maydonidan (courtId — UUID, Court jadvali bilan
+  // mos kelmaydi). Distinct courtId lar kam — har biriga bitta detaildan nom olamiz.
+  const courtNameRows = await prisma.$queryRaw<{ courtId: string; name: string | null }[]>`
+    SELECT courtId, JSON_UNQUOTE(JSON_EXTRACT(detail, '$.courtNameUz')) AS name
+    FROM ClientCaseStatus
+    WHERE source = 'CABINET' AND courtId IS NOT NULL AND detail IS NOT NULL
+      AND JSON_EXTRACT(detail, '$.courtNameUz') IS NOT NULL
+    GROUP BY courtId`;
   const courtName = new Map<string, string>();
-  for (const c of courtRows) if (c.billingCourtId) courtName.set(c.billingCourtId, c.shortName || c.nameUz || c.billingCourtId);
+  for (const c of courtNameRows) if (c.courtId && c.name) courtName.set(c.courtId, c.name);
   const JUDGE_PRECOURT = new Set(['DRAFT', 'CREATED']);
   const jBy = new Map<string, {
     judge: string; courts: Set<string>; firms: Set<string>; pinfls: Set<string>;
@@ -555,7 +562,7 @@ export async function GET(req: NextRequest) {
     if (!a) { a = { judge: j, courts: new Set(), firms: new Set(), pinfls: new Set(), total: 0, granted: 0, returned: 0, inProcess: 0, lastHearing: null }; jBy.set(j, a); }
     a.total++;
     if (r.pinfl) a.pinfls.add(r.pinfl);
-    if (r.courtId) a.courts.add(courtName.get(r.courtId) ?? r.courtId);
+    if (r.courtId) { const cn = courtName.get(r.courtId); if (cn) a.courts.add(cn); }
     if (r.branchCode) a.firms.add(firmByCode.get(r.branchCode) ?? r.branchCode);
     const resU = (r.caseResult || '').toUpperCase();
     const stU = (r.status || '').toUpperCase();

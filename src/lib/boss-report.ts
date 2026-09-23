@@ -192,12 +192,17 @@ async function judgesReport(
   // Firma nomlari (shortName) — coldingi so'rov faqat code oldi.
   const firmsFull = await prisma.firm.findMany({ select: { code: true, shortName: true } });
   const firmNameByCode = new Map(firmsFull.filter((f) => f.code).map((f) => [f.code!, f.shortName]));
-  // Sudlar (courtId → nomi). billingCourtId — Court'ning unique kaliti (billing.sud.uz da).
-  // Agar cabinet court_id billing courtId bilan mos kelmasa, xom raqam ko'rsatiladi (uzoqroq
-  // katalog kerak bo'lsa keyin qo'shamiz). Aksariyat sudlar bir xil id ishlatadi.
-  const courts = await prisma.court.findMany({ select: { billingCourtId: true, shortName: true, nameUz: true } });
+  // Sudlar (courtId → nomi). cabinet court_id — UUID, Court.billingCourtId bilan MOS KELMAYDI.
+  // To'g'ri nom cabinet detail JSON'ining `courtNameUz` maydonida. Distinct courtId lar kam (~4-18),
+  // shuning uchun har biriga BITTA detaildan nomni JSON_EXTRACT bilan olamiz (arzon, indeksli).
+  const courtNameRows = await prisma.$queryRaw<{ courtId: string; name: string | null }[]>`
+    SELECT courtId, JSON_UNQUOTE(JSON_EXTRACT(detail, '$.courtNameUz')) AS name
+    FROM ClientCaseStatus
+    WHERE source = 'CABINET' AND courtId IS NOT NULL AND detail IS NOT NULL
+      AND JSON_EXTRACT(detail, '$.courtNameUz') IS NOT NULL
+    GROUP BY courtId`;
   const courtNameById = new Map<string, string>();
-  for (const c of courts) if (c.billingCourtId) courtNameById.set(c.billingCourtId, c.shortName || c.nameUz || c.billingCourtId);
+  for (const c of courtNameRows) if (c.courtId && c.name) courtNameById.set(c.courtId, c.name);
 
   // withJudge va submittedTotal — bir marta groupBy (2 count parallel).
   const [rawRows, submittedRow, withJudgeRow] = await Promise.all([
@@ -242,7 +247,8 @@ async function judgesReport(
     }
     a.total += 1;
     if (r.pinfl) a.pinfls.add(r.pinfl);
-    if (r.courtId) a.courts.add(courtNameById.get(r.courtId) ?? r.courtId);
+    // Faqat NOM topilsa qo'shamiz — xom UUID ko'rsatilmaydi (detail hali olinmagan bo'lsa bo'sh).
+    if (r.courtId) { const cn = courtNameById.get(r.courtId); if (cn) a.courts.add(cn); }
     if (r.branchCode && !inactiveCodes.has(r.branchCode)) {
       const fname = firmNameByCode.get(r.branchCode) ?? r.branchCode;
       a.firms.add(fname);
