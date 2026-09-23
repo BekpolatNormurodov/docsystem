@@ -22,7 +22,6 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref, generat
   const { firms, totals, regions, judges } = data;
   const [regOpen, setRegOpen] = useState(false); // default YOPIQ — bosib ochiladi
   const [judOpen, setJudOpen] = useState(false);
-  const [judLimit, setJudLimit] = useState(15); // birinchi 15 sudya; «Barchasini ko'rsatish» bosilsa hammasi
   const rtot = regions.reduce((a, r) => ({ clients: a.clients + r.clients, talabnoma: a.talabnoma + r.talabnoma, mib: a.mib + r.mib, sudTotal: a.sudTotal + r.sudTotal, granted: a.granted + r.granted, returned: a.returned + r.returned, debt: a.debt + r.debt }), { clients: 0, talabnoma: 0, mib: 0, sudTotal: 0, granted: 0, returned: 0, debt: 0 });
 
   return (
@@ -189,67 +188,188 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref, generat
         {judOpen && (
         <>
         <JudgeSyncPanel judges={judges} />
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-sm">
-            <thead className="bg-surface text-xs uppercase tracking-wide text-muted">
-              <tr className="border-b border-line">
-                <th className="sticky left-0 z-10 bg-surface px-3 py-2 text-left">{t('Sudya')}</th>
-                <th className="px-3 py-2 text-left">{t('Sud')}</th>
-                <th className="px-3 py-2 text-left">{t('Firmalar')}</th>
-                <th className="px-3 py-2 text-right">{t('Kishi')}</th>
-                <th className="px-3 py-2 text-right">{t('Jami ish')}</th>
-                <th className="px-3 py-2 text-right text-emerald-600 dark:text-emerald-300">{t('Qanoat.')}</th>
-                <th className="px-3 py-2 text-right text-amber-600 dark:text-amber-300">{t('Qaytar.')}</th>
-                <th className="px-3 py-2 text-right text-sky-600 dark:text-sky-300">{t('Jarayonda')}</th>
-                <th className="px-3 py-2 text-right">{t('% qanoat')}</th>
-                <th className="px-3 py-2 text-left">{t('So‘nggi tinglash')}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {judges.rows.slice(0, judLimit).map((r) => (
-                <tr key={r.judge} className="hover:bg-surface-2/40">
-                  <td className="sticky left-0 bg-surface px-3 py-2 font-semibold">{r.judge}</td>
-                  <td className="px-3 py-2 text-xs text-muted">{r.courts.join(', ')}</td>
-                  <td className="px-3 py-2">
-                    <div className="flex flex-wrap gap-1">
-                      {r.firms.map((f) => (
-                        <span key={f} className="badge border-line bg-surface-2 text-[10px]">{f}</span>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums">{n(r.clients)}</td>
-                  <td className="px-3 py-2 text-right font-semibold tabular-nums">{n(r.totalCases)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-emerald-600 dark:text-emerald-300">{r.granted > 0 ? n(r.granted) : <span className="text-muted/50">·</span>}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-amber-600 dark:text-amber-300">{r.returned > 0 ? n(r.returned) : <span className="text-muted/50">·</span>}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-sky-600 dark:text-sky-300">{r.inProcess > 0 ? n(r.inProcess) : <span className="text-muted/50">·</span>}</td>
-                  <td className="px-3 py-2 text-right font-semibold tabular-nums">
-                    {(r.granted + r.returned) > 0
-                      ? <span className={cx(r.fulfilmentPct >= 60 ? 'text-emerald-600 dark:text-emerald-300' : r.fulfilmentPct >= 30 ? 'text-amber-600 dark:text-amber-300' : 'text-rose-600 dark:text-rose-300')}>{r.fulfilmentPct}%</span>
-                      : <span className="text-muted/50">·</span>}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-muted tabular-nums">{r.lastHearing ? new Date(r.lastHearing).toLocaleDateString('ru-RU') : '—'}</td>
-                </tr>
-              ))}
-              {judges.rows.length === 0 && (
-                <tr><td colSpan={10} className="px-4 py-10 text-center text-muted">
-                  {t('Hali sudya aniqlangan ish yo‘q. «Ulanishlar» dan cabinet.sud.uz ga ulanib detail sinxronlang.')}
-                </td></tr>
-              )}
-            </tbody>
-          </table>
-          {judges.rows.length > judLimit && (
-            <div className="border-t border-line bg-surface-2/40 px-3 py-2 text-center">
-              <button type="button" onClick={() => setJudLimit(judges.rows.length)}
-                className="text-xs font-medium text-brand-600 hover:text-brand-700 dark:text-brand-300">
-                {t('Barchasini koʻrsatish')} ({judges.rows.length - judLimit} {t('ta yana')})
-              </button>
-            </div>
-          )}
-        </div>
+        <JudgeTable rows={judges.rows} />
         </>
         )}
       </div>
       </>)}
+    </div>
+  );
+}
+
+// «Sudyalar hisoboti» jadvali — saralanadigan (ustun sarlavhasiga bosib), reyting raqamli,
+// vizual «% qanoat» chizig'i va pastda JAMI qatori bilan. Boshliq bir qarashda qaysi sudya
+// arizalarni ko'proq qanoatlantiradi / qaytaradi ni ko'radi.
+type JudgeSortKey = 'totalCases' | 'clients' | 'granted' | 'returned' | 'inProcess' | 'fulfilmentPct';
+function JudgeTable({ rows }: { rows: BossReportData['judges']['rows'] }) {
+  const t = useT();
+  const [sortKey, setSortKey] = useState<JudgeSortKey>('totalCases');
+  const [asc, setAsc] = useState(false);
+  const [limit, setLimit] = useState(15);
+
+  const sorted = React.useMemo(() => {
+    const arr = [...rows];
+    arr.sort((a, b) => {
+      // «% qanoat» faqat hal qilingan ishlari bor sudyalar uchun ma'noli — 0/0 larni pastga.
+      if (sortKey === 'fulfilmentPct') {
+        const ad = a.granted + a.returned, bd = b.granted + b.returned;
+        if (ad === 0 && bd === 0) return b.totalCases - a.totalCases;
+        if (ad === 0) return 1;
+        if (bd === 0) return -1;
+      }
+      const d = (b[sortKey] as number) - (a[sortKey] as number);
+      return asc ? -d : d;
+    });
+    return arr;
+  }, [rows, sortKey, asc]);
+
+  const shown = sorted.slice(0, limit);
+  const tot = React.useMemo(() => rows.reduce((s, r) => ({
+    clients: s.clients + r.clients, totalCases: s.totalCases + r.totalCases,
+    granted: s.granted + r.granted, returned: s.returned + r.returned, inProcess: s.inProcess + r.inProcess,
+  }), { clients: 0, totalCases: 0, granted: 0, returned: 0, inProcess: 0 }), [rows]);
+  const totDecided = tot.granted + tot.returned;
+  const totPct = totDecided > 0 ? Math.round((tot.granted / totDecided) * 100) : 0;
+
+  const th = (key: JudgeSortKey, label: string, tone?: string) => (
+    <th className={cx('cursor-pointer select-none px-3 py-2 text-right transition-colors hover:text-fg', tone)}
+      onClick={() => { if (sortKey === key) setAsc((v) => !v); else { setSortKey(key); setAsc(false); } }}>
+      <span className="inline-flex items-center gap-0.5">
+        {label}
+        <span className={cx('text-[8px] transition-opacity', sortKey === key ? 'opacity-100' : 'opacity-25')}>{sortKey === key && asc ? '▲' : '▼'}</span>
+      </span>
+    </th>
+  );
+
+  // Direktor uchun «insight» — kamida 5 ta hal qilingan ishi bor sudyalardan eng yaxshi/eng past
+  // qanoat foizi + eng ko'p qaytaradigan. Kam ma'lumotli sudyalar (1-2 ish) reytingni buzmasin.
+  const insight = React.useMemo(() => {
+    const decided = rows.filter((r) => (r.granted + r.returned) >= 5);
+    const best = decided.length ? [...decided].sort((a, b) => b.fulfilmentPct - a.fulfilmentPct)[0] : null;
+    const worst = decided.length ? [...decided].sort((a, b) => a.fulfilmentPct - b.fulfilmentPct)[0] : null;
+    const mostReturns = rows.length ? [...rows].sort((a, b) => b.returned - a.returned)[0] : null;
+    return { best, worst, mostReturns };
+  }, [rows]);
+  const shortName = (full: string) => { const p = full.trim().split(/\s+/); return p.length >= 2 ? `${p[0]} ${p[1]}` : full; };
+
+  if (rows.length === 0) {
+    return (
+      <div className="px-4 py-10 text-center text-sm text-muted">
+        {t('Hali sudya aniqlangan ish yo‘q. «Ulanishlar» dan cabinet.sud.uz ga ulanib detail sinxronlang.')}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* Insight — 3 ta kartochka: eng ko'p qanoatlantiradigan · eng past · eng ko'p qaytaradigan */}
+      {(insight.best || insight.mostReturns) && (
+        <div className="grid grid-cols-1 gap-3 border-b border-line px-4 py-3 sm:grid-cols-3">
+          {insight.best && (
+            <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">{t('Eng ko‘p qanoatlantiradi')}</div>
+              <div className="mt-0.5 truncate text-sm font-semibold" title={insight.best.judge}>{shortName(insight.best.judge)}</div>
+              <div className="text-xs text-muted">{insight.best.fulfilmentPct}% · {n(insight.best.granted)}/{n(insight.best.granted + insight.best.returned)} {t('hal qilingan')}</div>
+            </div>
+          )}
+          {insight.worst && insight.worst.judge !== insight.best?.judge && (
+            <div className="rounded-xl border border-rose-500/25 bg-rose-500/[0.06] p-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-rose-700 dark:text-rose-300">{t('Eng past qanoat')}</div>
+              <div className="mt-0.5 truncate text-sm font-semibold" title={insight.worst.judge}>{shortName(insight.worst.judge)}</div>
+              <div className="text-xs text-muted">{insight.worst.fulfilmentPct}% · {n(insight.worst.granted)}/{n(insight.worst.granted + insight.worst.returned)} {t('hal qilingan')}</div>
+            </div>
+          )}
+          {insight.mostReturns && insight.mostReturns.returned > 0 && (
+            <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">{t('Eng ko‘p qaytaradi')}</div>
+              <div className="mt-0.5 truncate text-sm font-semibold" title={insight.mostReturns.judge}>{shortName(insight.mostReturns.judge)}</div>
+              <div className="text-xs text-muted">{n(insight.mostReturns.returned)} {t('qaytgan')} · {n(insight.mostReturns.totalCases)} {t('jami')}</div>
+            </div>
+          )}
+        </div>
+      )}
+      <div className="overflow-x-auto">
+      <table className="w-full min-w-[940px] text-sm">
+        <thead className="bg-surface text-xs uppercase tracking-wide text-muted">
+          <tr className="border-b border-line">
+            <th className="px-3 py-2 text-center">#</th>
+            <th className="sticky left-0 z-10 bg-surface px-3 py-2 text-left">{t('Sudya')}</th>
+            <th className="px-3 py-2 text-left">{t('Sud')}</th>
+            <th className="px-3 py-2 text-left">{t('Firmalar')}</th>
+            {th('clients', t('Kishi'))}
+            {th('totalCases', t('Jami ish'))}
+            {th('granted', t('Qanoat.'), 'text-emerald-600 dark:text-emerald-300')}
+            {th('returned', t('Qaytar.'), 'text-amber-600 dark:text-amber-300')}
+            {th('inProcess', t('Jarayonda'), 'text-sky-600 dark:text-sky-300')}
+            {th('fulfilmentPct', t('% qanoat'))}
+            <th className="px-3 py-2 text-left">{t('So‘nggi tinglash')}</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-line">
+          {shown.map((r, i) => {
+            const decided = r.granted + r.returned;
+            return (
+              <tr key={r.judge} className="hover:bg-surface-2/40">
+                <td className="px-3 py-2 text-center text-xs font-semibold text-muted tabular-nums">{i + 1}</td>
+                <td className="sticky left-0 bg-surface px-3 py-2 font-semibold">{r.judge}</td>
+                <td className="px-3 py-2 text-xs text-muted">{r.courts.join(', ')}</td>
+                <td className="px-3 py-2">
+                  <div className="flex flex-wrap gap-1">
+                    {r.firms.map((f) => (<span key={f} className="badge border-line bg-surface-2 text-[10px]">{f}</span>))}
+                  </div>
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">{n(r.clients)}</td>
+                <td className="px-3 py-2 text-right font-semibold tabular-nums">{n(r.totalCases)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-emerald-600 dark:text-emerald-300">{r.granted > 0 ? n(r.granted) : <span className="text-muted/50">·</span>}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-amber-600 dark:text-amber-300">{r.returned > 0 ? n(r.returned) : <span className="text-muted/50">·</span>}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-sky-600 dark:text-sky-300">{r.inProcess > 0 ? n(r.inProcess) : <span className="text-muted/50">·</span>}</td>
+                <td className="px-3 py-2">
+                  {decided > 0 ? <FulfilBar pct={r.fulfilmentPct} /> : <span className="block text-right text-muted/50">·</span>}
+                </td>
+                <td className="px-3 py-2 text-xs text-muted tabular-nums">{r.lastHearing ? new Date(r.lastHearing).toLocaleDateString('ru-RU') : '—'}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+        <tfoot>
+          <tr className="border-t-2 border-line bg-surface-2/60 font-semibold">
+            <td className="px-3 py-2.5" />
+            <td className="sticky left-0 bg-surface-2/60 px-3 py-2.5">{t('JAMI')}</td>
+            <td className="px-3 py-2.5" />
+            <td className="px-3 py-2.5" />
+            <td className="px-3 py-2.5 text-right tabular-nums">{n(tot.clients)}</td>
+            <td className="px-3 py-2.5 text-right tabular-nums">{n(tot.totalCases)}</td>
+            <td className="px-3 py-2.5 text-right tabular-nums text-emerald-600 dark:text-emerald-300">{n(tot.granted)}</td>
+            <td className="px-3 py-2.5 text-right tabular-nums text-amber-600 dark:text-amber-300">{n(tot.returned)}</td>
+            <td className="px-3 py-2.5 text-right tabular-nums text-sky-600 dark:text-sky-300">{n(tot.inProcess)}</td>
+            <td className="px-3 py-2.5">{totDecided > 0 ? <FulfilBar pct={totPct} /> : <span className="block text-right text-muted/50">·</span>}</td>
+            <td className="px-3 py-2.5" />
+          </tr>
+        </tfoot>
+      </table>
+      {sorted.length > limit && (
+        <div className="border-t border-line bg-surface-2/40 px-3 py-2 text-center">
+          <button type="button" onClick={() => setLimit(sorted.length)}
+            className="text-xs font-medium text-brand-600 hover:text-brand-700 dark:text-brand-300">
+            {t('Barchasini koʻrsatish')} ({sorted.length - limit} {t('ta yana')})
+          </button>
+        </div>
+      )}
+      </div>
+    </div>
+  );
+}
+
+// «% qanoat» — vizual chiziq + son. Yashil ≥60, amber 30-60, qizil <30 (boshliq bir qarashda ajratadi).
+function FulfilBar({ pct }: { pct: number }) {
+  const tone = pct >= 60 ? 'bg-emerald-500' : pct >= 30 ? 'bg-amber-500' : 'bg-rose-500';
+  const txt = pct >= 60 ? 'text-emerald-600 dark:text-emerald-300' : pct >= 30 ? 'text-amber-600 dark:text-amber-300' : 'text-rose-600 dark:text-rose-300';
+  return (
+    <div className="flex items-center justify-end gap-2">
+      <div className="h-1.5 w-14 overflow-hidden rounded-full bg-surface-2">
+        <div className={cx('h-full rounded-full', tone)} style={{ width: `${Math.max(2, pct)}%` }} />
+      </div>
+      <span className={cx('w-9 text-right text-xs font-semibold tabular-nums', txt)}>{pct}%</span>
     </div>
   );
 }

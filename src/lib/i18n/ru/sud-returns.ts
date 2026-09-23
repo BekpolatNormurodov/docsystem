@@ -72,6 +72,12 @@ export const sudReturns: Record<string, string> = {
   'soniya oldin boshlangan': 'сек. назад начата',
   'Kuchaytirilgan sinxron ishlab turibdi — 5-6 soatda tugaydi':
     'Ускоренная синхронизация выполняется — завершится через 5-6 часов',
+  // Sudyalar insight kartochkalari
+  'Eng ko‘p qanoatlantiradi': 'Чаще всего удовлетворяет',
+  'Eng past qanoat': 'Самый низкий % удов.',
+  'Eng ko‘p qaytaradi': 'Чаще всего возвращает',
+  'hal qilingan': 'решено',
+  'jami': 'всего',
   'Firmalar boʻyicha oqim': 'Поток по фирмам',
   'Sud statuslari (firma boʻyicha)': 'Статусы суда (по фирмам)',
   'Bosqichlar (funnel)': 'Этапы (воронка)',
