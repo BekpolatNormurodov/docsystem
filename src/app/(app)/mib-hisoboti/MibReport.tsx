@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Ico, Spinner, useConfirm, Modal } from '@/ui';
 import { useT } from '@/lib/i18n/client';
 import { MibDashboard } from '../konveyer/MibDashboard';
+import { RecheckModal, type RecheckInfo } from './RecheckModal';
 
 // ── API shapes ────────────────────────────────────────────────────────────────
 // Report ro'yxati (chap panel) + natija ko'rinishi endi MibDashboard'da (konveyer bilan bir xil).
@@ -112,27 +113,30 @@ function TekshirishCard({ onUploaded }: { onUploaded: (id: number) => void }) {
   const [pinfl, setPinfl] = useState('');
   const [pBusy, setPBusy] = useState(false);
   const [pMsg, setPMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // Reused PINFL — modal (window.confirm o'rniga): sana + ish soni + arxiv izohli.
+  const [reusedInfo, setReusedInfo] = useState<(RecheckInfo & { clientId: number }) | null>(null);
   const checkPinfl = async (e: React.FormEvent) => {
     e.preventDefault();
     const p = pinfl.replace(/\D/g, '');
     if (p.length !== 14) { setPMsg({ ok: false, text: t('PINFL 14 ta raqamdan iborat boʻlishi kerak') }); return; }
     setPBusy(true); setPMsg(null);
     const { ok, json } = await jpost('/api/mib/check-pinfl', { pinfl: p });
-    if (!ok) { setPMsg({ ok: false, text: json.error || t('Xatolik') }); setPBusy(false); return; }
-    // REUSED — bu PINFL ilgari tekshirilgan. Foydalanuvchidan «yangi dalniy olish»ni so'raymiz;
-    // eski nusxa arxivга ko'chib, yangi tekshirish boshlanadi. «Yo'q» → mavjud sahifa ochiladi.
+    setPBusy(false);
+    if (!ok) { setPMsg({ ok: false, text: json.error || t('Xatolik') }); return; }
     if (json.reused) {
-      const dt = json.lastCheckedAt ? new Date(json.lastCheckedAt).toLocaleString() : t('nomaʼlum sana');
-      const msg = `${t('Bu PINFL allaqachon tekshirilgan')}: ${dt}. ${t('Yangi dalniy olamizmi? (eski natija arxivга o‘tadi)')}`;
-      if (window.confirm(msg)) {
-        const r2 = await jpost('/api/mib/check-pinfl', { pinfl: p, force: true });
-        if (!r2.ok) { setPMsg({ ok: false, text: r2.json.error || t('Xatolik') }); setPBusy(false); return; }
-        router.push(`/mib-hisoboti/mijoz/${r2.json.clientId}`);
-        return;
-      }
+      // Modal ochamiz. «Yangi dalniy olamiz» → force=true, «Eski natijaga o'tish» → mavjud sahifa.
+      setReusedInfo({ pinfl: p, lastCheckedAt: json.lastCheckedAt, cases: json.cases, clientId: json.clientId });
+      return;
     }
     router.push(`/mib-hisoboti/mijoz/${json.clientId}`);
   };
+  const doForce = async () => {
+    if (!reusedInfo) return;
+    const { json } = await jpost('/api/mib/check-pinfl', { pinfl: reusedInfo.pinfl, force: true });
+    setReusedInfo(null);
+    router.push(`/mib-hisoboti/mijoz/${json.clientId || reusedInfo.clientId}`);
+  };
+  const doKeepOld = () => { if (reusedInfo) router.push(`/mib-hisoboti/mijoz/${reusedInfo.clientId}`); };
   // Excel — HISOBOT ro'yxatini yuklab, «Holat» bo'yicha qurib GO qilinadi.
   const fileRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -160,6 +164,7 @@ function TekshirishCard({ onUploaded }: { onUploaded: (id: number) => void }) {
 
   return (
     <div className="card p-4">
+      <RecheckModal open={!!reusedInfo} info={reusedInfo} onClose={() => setReusedInfo(null)} onConfirm={doForce} onKeepOld={doKeepOld} />
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-500/10 text-brand-600 dark:text-brand-300"><Ico.flash size={20} /></span>
         <div className="min-w-0">

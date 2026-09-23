@@ -10,6 +10,7 @@ import { Ico, Spinner } from '@/ui';
 import { useT } from '@/lib/i18n/client';
 import { money, val, type ClientRow, type CaseRow } from './MibClientDetail';
 import { MibLogPanel } from './MibLogPanel';
+import { RecheckModal } from './RecheckModal';
 import { regionOf, parseMoney, clean, shortFirm } from '@/lib/mib/breakdown';
 
 const cx = (...c: (string | false | undefined | null)[]) => c.filter(Boolean).join(' ');
@@ -27,6 +28,8 @@ export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { rep
   // tekshirish nusxalari) ham. Server `archivedCount` ni beradi — tugmada ko'rsatamiz.
   const [showArchived, setShowArchived] = useState(false);
   const [archivedCount, setArchivedCount] = useState(0);
+  // «Qayta tekshirish» modali
+  const [recheckOpen, setRecheckOpen] = useState(false);
 
   const load = useCallback(async () => {
     const qs = showArchived ? '?archived=1' : '';
@@ -48,14 +51,12 @@ export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { rep
     return () => clearInterval(t);
   }, [active, load]);
 
-  const recheck = async () => {
+  const openRecheck = () => setRecheckOpen(true);
+  const doRecheck = async () => {
     if (!client) return;
-    // «Qayta tekshirish» — foydalanuvchidan tasdiqlaymiz. Eski natija arxivга ko'chadi, yangi tekshirish
-    // boshlanadi. Client detali sahifasida so'ralaganда har doim force (foydalanuvchi ataylab bosgan).
-    const dt = client.checkedAt ? new Date(client.checkedAt).toLocaleString() : t('nomaʼlum sana');
-    if (!window.confirm(`${t('Bu PINFL')} ${dt} ${t('да tekshirilgan. Yangi dalniy olamizmi? (eski natija arxivга o‘tadi)')}`)) return;
     setRechecking(true);
     await fetch(`/api/mib/${reportId}/add-pinfl`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pinfl: client.pinfl, force: true }) }).catch(() => {});
+    setRecheckOpen(false);
     await load();
     setRechecking(false);
   };
@@ -77,6 +78,12 @@ export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { rep
 
   return (
     <div className="space-y-4">
+      <RecheckModal
+        open={recheckOpen}
+        info={client ? { pinfl: client.pinfl, lastCheckedAt: client.checkedAt, cases: showArchived ? undefined : client.cases.length } : null}
+        onClose={() => setRecheckOpen(false)}
+        onConfirm={doRecheck}
+      />
       <div className="flex flex-wrap items-center justify-between gap-2">
         {back}
         <div className="flex items-center gap-2">
@@ -89,7 +96,7 @@ export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { rep
               <Ico.archive size={14} /> {showArchived ? t('Arxivни yashirish') : `${t('Arxiv')} · ${archivedCount}`}
             </button>
           )}
-          <button className="btn-ghost text-xs" disabled={rechecking || active} onClick={recheck}>
+          <button className="btn-ghost text-xs" disabled={rechecking || active} onClick={openRecheck}>
             {rechecking ? <Spinner size={14} /> : <Ico.refresh size={14} />} {t('Qayta tekshirish')}
           </button>
           <a className="btn-ghost text-xs" href={`/api/mib/${reportId}/excel?client=${client.id}`}><Ico.download size={14} /> {t('Shu mijoz — Excel')}</a>
@@ -134,7 +141,7 @@ export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { rep
       ) : !active && client.status === 'PENDING' && client.cases.length === 0 ? (
         <div className="card grid place-items-center gap-3 py-12 text-sm text-muted">
           <span>{t('Hali tekshirilmagan (navbatda, jonli tekshiruv yoʻq).')}</span>
-          <button className="btn-primary" disabled={rechecking} onClick={recheck}>{rechecking ? <Spinner size={16} /> : <Ico.flash size={16} />} {t('Qayta tekshirish')}</button>
+          <button className="btn-primary" disabled={rechecking} onClick={openRecheck}>{rechecking ? <Spinner size={16} /> : <Ico.flash size={16} />} {t('Qayta tekshirish')}</button>
         </div>
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
