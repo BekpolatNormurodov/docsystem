@@ -120,8 +120,16 @@ export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { rep
       </div>
 
       {active && client.cases.length === 0 ? (
-        <div className="card grid place-items-center gap-2 py-14 text-sm text-muted">
-          <Spinner /> {t('mib.uz dan tekshirilmoqda… natija shu yerda paydo boʻladi.')}
+        <div className="relative overflow-hidden rounded-2xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/8 via-surface to-surface p-6 text-center dark:from-emerald-400/10">
+          <div className="flex flex-col items-center gap-3">
+            <span className="relative flex h-4 w-4">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex h-4 w-4 rounded-full bg-emerald-500" />
+            </span>
+            <div className="text-base font-semibold text-emerald-700 dark:text-emerald-300">{t('mib.uz’dan tekshirilmoqda — jonli')}</div>
+            <div className="text-xs text-muted">{t('Captcha yechilib, SMS OTP kutilmoqda. Natija shu yerda avtomatik paydo boʻladi (har 3.5 s’da yangilanadi).')}</div>
+            <Spinner size={20} />
+          </div>
         </div>
       ) : !active && client.status === 'PENDING' && client.cases.length === 0 ? (
         <div className="card grid place-items-center gap-3 py-12 text-sm text-muted">

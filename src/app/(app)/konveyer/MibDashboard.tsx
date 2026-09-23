@@ -269,12 +269,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
       ) : (
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm text-muted">
-          {report.autoRun ? (
-            <span className="flex items-center gap-2 font-medium text-emerald-600 dark:text-emerald-300">
-              <span className="relative flex h-2.5 w-2.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" /><span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" /></span>
-              {t('Avtomator ishlayapti')} — {n(checked)}/{n(report.total)} {t('tekshirildi')}
-            </span>
-          ) : (
+          {report.autoRun ? null /* jonli progress panelida (pastda) */ : (
             <span>
               {variant === 'standalone' && <b className="text-fg">{statusFilter || t('Barchasi')}</b>}{variant === 'standalone' && ' · '}
               {variant === 'konveyer' && t('Konveyerdan ')}<b className="tabular-nums text-fg">{n(report.total)}</b> {t('ta mijoz · mib.uz dan tekshiriladi')}
@@ -316,6 +311,22 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
           {addMsg && <span className={cx('text-sm', addMsg.ok ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300')}>{addMsg.text}</span>}
           <span className="ml-auto text-xs text-muted">{t('natija ijro ishlari + sana bilan shu roʻyxatga yigʻiladi')}</span>
         </form>
+      )}
+
+      {/* ── JONLI PROGRESS: autoRun bo'lganda karta ko'rinishida — progress bar + foiz + bizniki
+             live + qolgan / xato. Har 3.5s poll bilan yangilanadi. Report tugagach yashiriladi. */}
+      {report.autoRun && (
+        <LiveProgressCard
+          checked={checked}
+          total={report.total}
+          pending={stats?.status.PENDING ?? 0}
+          running={stats?.status.RUNNING ?? 0}
+          failed={stats?.status.FAILED ?? 0}
+          oursCases={oursCases}
+          totalCases={totalCases}
+          onStop={stop}
+          busyStop={busy === 'stop'}
+        />
       )}
 
       {/* ── KPI: MIBda jami / bizniki / summalar ─────────────────────────── */}
@@ -637,6 +648,89 @@ function Pager({ page, totalPages, total, pageSize, onPage, onPageSize }: { page
               className={cx('h-8 min-w-8 rounded-lg px-2 text-sm tabular-nums transition-colors', x === page ? 'bg-brand-500 text-white' : 'border border-line text-muted hover:bg-surface-2')}>{x}</button>)}
         <button className="grid h-8 w-8 place-items-center rounded-lg border border-line text-muted transition-colors hover:bg-surface-2 disabled:opacity-40" disabled={page >= totalPages} onClick={() => onPage(page + 1)} aria-label={t('Keyingi')}><Ico.chevron size={16} /></button>
       </div>
+    </div>
+  );
+}
+
+// ── JONLI PROGRESS KARTASI — autoRun paytida, KPI'lardan oldin ko'rinadi. ─────────────────────
+//    Vizual: chapdan yorqin pulsatsiyalayotgan yashil «LIVE» + katta progress bar (foiz), o'ngdan
+//    STOP tugmasi. Ostida qatorda: bizniki live counter, RUNNING/PENDING/FAILED chip'lar.
+function LiveProgressCard({
+  checked, total, pending, running, failed, oursCases, totalCases, onStop, busyStop,
+}: {
+  checked: number; total: number; pending: number; running: number; failed: number;
+  oursCases: number; totalCases: number; onStop: () => void; busyStop: boolean;
+}) {
+  const t = useT();
+  const pct = total > 0 ? Math.min(100, Math.round((checked / total) * 1000) / 10) : 0;
+  const remaining = Math.max(0, total - checked);
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/8 via-surface to-surface p-4 shadow-sm dark:from-emerald-400/10">
+      {/* animated shimmer overlay — nozik, chalg'itmaydigan */}
+      <div className="pointer-events-none absolute inset-0 -z-0 opacity-40">
+        <div className="absolute -left-1/3 top-0 h-full w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-emerald-400/12 to-transparent animate-[shimmer_2.4s_linear_infinite]" style={{ animationName: 'mibShimmer' }} />
+      </div>
+      <div className="relative flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <span className="relative flex h-3 w-3">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-500" />
+          </span>
+          <div>
+            <div className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">{t('Avtomator ishlayapti — jonli')}</div>
+            <div className="mt-0.5 text-xs text-muted">{t('mib.uz’dan tekshirilmoqda · natija darhol saqlanadi · sahifa har 3.5 s’da yangilanadi')}</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <div className="text-2xl font-bold tabular-nums leading-none text-emerald-700 dark:text-emerald-300">{pct}%</div>
+            <div className="mt-1 text-xs text-muted tabular-nums">{n(checked)} / {n(total)}</div>
+          </div>
+          <button className="btn-danger shrink-0" disabled={busyStop} onClick={onStop} title={t('Avtomatorni to‘xtatish (davom ettirsangiz shu joydan davom etadi)')}>
+            {busyStop ? <Spinner size={16} /> : <Ico.minus size={16} />} STOP
+          </button>
+        </div>
+      </div>
+
+      {/* progress bar — animated stripes */}
+      <div className="relative mt-3 h-3 overflow-hidden rounded-full bg-emerald-500/12">
+        <div className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-[width] duration-500 ease-out" style={{ width: `${pct}%` }}>
+          <div className="h-full w-full bg-[repeating-linear-gradient(45deg,rgba(255,255,255,0.18)_0_10px,transparent_10px_20px)] animate-[stripes_1.2s_linear_infinite]" style={{ animationName: 'mibStripes' }} />
+        </div>
+      </div>
+
+      {/* live chips: bizniki count + queues */}
+      <div className="relative mt-3 flex flex-wrap items-center gap-2 text-xs">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/8 px-2.5 py-1 font-medium text-emerald-700 dark:text-emerald-300">
+          <Ico.shield size={12} /> {t('Bizniki topildi')}: <b className="tabular-nums">{n(oursCases)}</b>
+          {totalCases > 0 && <span className="text-emerald-600/70">· {Math.round((oursCases / totalCases) * 100)}%</span>}
+        </span>
+        {running > 0 && (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/8 px-2.5 py-1 text-amber-700 dark:text-amber-300">
+            <Spinner size={11} /> <b className="tabular-nums">{n(running)}</b> {t('tekshirilmoqda')}
+          </span>
+        )}
+        {pending > 0 && (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2.5 py-1 text-muted">
+            <b className="tabular-nums">{n(pending)}</b> {t('navbatda')}
+          </span>
+        )}
+        {failed > 0 && (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-500/8 px-2.5 py-1 text-rose-700 dark:text-rose-300">
+            <b className="tabular-nums">{n(failed)}</b> {t('xato')}
+          </span>
+        )}
+        {remaining > 0 && (
+          <span className="ml-auto text-muted tabular-nums">
+            {t('qoldi')}: <b className="text-fg">{n(remaining)}</b>
+          </span>
+        )}
+      </div>
+      {/* keyframes — inline (Tailwind default'да yo'q) */}
+      <style jsx>{`
+        @keyframes mibStripes { 0% { transform: translateX(0); } 100% { transform: translateX(20px); } }
+        @keyframes mibShimmer { 0% { transform: translateX(0); } 100% { transform: translateX(400%); } }
+      `}</style>
     </div>
   );
 }
