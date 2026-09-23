@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(_req: NextRequest) {
   await requireAccess('mib-report');
   const t = getT();
-  const all = await prisma.mibClient.findMany({ orderBy: { id: 'asc' }, include: { cases: { orderBy: { id: 'asc' } } } });
+  const all = await prisma.mibClient.findMany({ orderBy: { id: 'asc' }, include: { cases: { where: { archivedAt: null }, orderBy: { id: 'asc' } } } });
 
   const byPinfl = new Map<string, (typeof all)[number]>();
   for (const c of all) {

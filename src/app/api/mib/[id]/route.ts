@@ -32,7 +32,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       if (res) console.log(`[mib] resume-on-view: report ${id} → ${res.pending} PENDING davom ettirildi`);
     }
   } catch { /* resume ixtiyoriy — GET javobini to'smaydi */ }
-  const clients = await prisma.mibClient.findMany({ where: { reportId: id }, orderBy: { id: 'asc' }, include: { cases: true } });
+  // Faol ishlar (archivedAt IS NULL) — arxivlangan (qayta tekshirishда eski nusxa) jadval/statistikaга kirmasin.
+  // Arxivnи mijoz sahifasида «arxiv» toggle ochib ko'radi (ClientDetailFull).
+  const clients = await prisma.mibClient.findMany({ where: { reportId: id }, orderBy: { id: 'asc' }, include: { cases: { where: { archivedAt: null } } } });
   const stats = computeStats(clients);
   // «Holat» + date-range filter options.
   let holatValues: { value: string; count: number }[] = [];

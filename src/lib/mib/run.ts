@@ -62,7 +62,9 @@ export async function reconcileZombieClients(reportId: number): Promise<number> 
   if (ACTIVE.has(reportId)) return 0;
   const stuck = await prisma.mibClient.findMany({ where: { reportId, status: 'RUNNING' }, select: { id: true } });
   for (const c of stuck) {
-    await prisma.mibCase.deleteMany({ where: { clientId: c.id } });
+    // Zombi RUNNING'даgi FAOL ishlarni arxivlash (yarim to'lgan bo'lishi mumkin — qayta olamiz), lekin
+    // eski to'la nusxa DB'да saqlanadi.
+    await prisma.mibCase.updateMany({ where: { clientId: c.id, archivedAt: null }, data: { archivedAt: new Date() } });
     await prisma.mibClient.update({ where: { id: c.id }, data: { status: 'PENDING', error: null, checkedAt: null } });
   }
   if (stuck.length) await prisma.mibReport.update({ where: { id: reportId }, data: { autoRun: false, runJobId: null } }).catch(() => {});

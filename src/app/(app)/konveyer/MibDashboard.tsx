@@ -207,7 +207,16 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
     const p = pinfl.replace(/\D/g, '');
     if (p.length !== 14) { setAddMsg({ ok: false, text: t('PINFL 14 ta raqam boʻlishi kerak') }); return; }
     setBusy('add'); setAddMsg(null);
-    const { ok, json } = await jpost(`/api/mib/${reportId}/add-pinfl`, { pinfl: p });
+    const doPost = (force: boolean) => jpost(`/api/mib/${reportId}/add-pinfl`, { pinfl: p, force });
+    let { ok, json } = await doPost(false);
+    if (ok && json.reused) {
+      // REUSED — bu PINFL ilgari shu reportда tekshirilgan. So'raymiz: yangi dalniy kerakmi?
+      const dt = json.lastCheckedAt ? new Date(json.lastCheckedAt).toLocaleString() : t('nomaʼlum sana');
+      const msg = `${t('Bu PINFL allaqachon tekshirilgan')}: ${dt}. ${t('Yangi dalniy olamizmi? (eski natija arxivга o‘tadi)')}`;
+      if (window.confirm(msg)) {
+        const r2 = await doPost(true); ok = r2.ok; json = r2.json;
+      }
+    }
     if (!ok) setAddMsg({ ok: false, text: json.error || t('Xatolik') });
     else {
       setPinfl(''); setAddMsg({ ok: true, text: json.running ? `${p} ${t('qoʻshildi — tekshirilmoqda…')}` : `${p} ${t('qoʻshildi (navbatda)')}` });

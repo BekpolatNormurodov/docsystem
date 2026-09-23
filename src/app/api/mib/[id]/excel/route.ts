@@ -22,9 +22,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const clientRaw = Number(req.nextUrl.searchParams.get('client'));
   const clientId = Number.isInteger(clientRaw) && clientRaw > 0 ? clientRaw : undefined;
 
+  // Excel — faqat faol (archivedAt IS NULL) ishlar. Arxiv (qayta tekshirishда eski nusxa) chiqmasin.
   const clients = await prisma.mibClient.findMany({
     where: { reportId: id, ...(clientId ? { id: clientId } : {}) },
-    orderBy: { id: 'asc' }, include: { cases: true },
+    orderBy: { id: 'asc' }, include: { cases: { where: { archivedAt: null } } },
   });
 
   const buf = await buildMibExcel(report, clients, { tab, clientId });

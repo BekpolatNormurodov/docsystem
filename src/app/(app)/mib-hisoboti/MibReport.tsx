@@ -119,6 +119,18 @@ function TekshirishCard({ onUploaded }: { onUploaded: (id: number) => void }) {
     setPBusy(true); setPMsg(null);
     const { ok, json } = await jpost('/api/mib/check-pinfl', { pinfl: p });
     if (!ok) { setPMsg({ ok: false, text: json.error || t('Xatolik') }); setPBusy(false); return; }
+    // REUSED — bu PINFL ilgari tekshirilgan. Foydalanuvchidan «yangi dalniy olish»ni so'raymiz;
+    // eski nusxa arxivга ko'chib, yangi tekshirish boshlanadi. «Yo'q» → mavjud sahifa ochiladi.
+    if (json.reused) {
+      const dt = json.lastCheckedAt ? new Date(json.lastCheckedAt).toLocaleString() : t('nomaʼlum sana');
+      const msg = `${t('Bu PINFL allaqachon tekshirilgan')}: ${dt}. ${t('Yangi dalniy olamizmi? (eski natija arxivга o‘tadi)')}`;
+      if (window.confirm(msg)) {
+        const r2 = await jpost('/api/mib/check-pinfl', { pinfl: p, force: true });
+        if (!r2.ok) { setPMsg({ ok: false, text: r2.json.error || t('Xatolik') }); setPBusy(false); return; }
+        router.push(`/mib-hisoboti/mijoz/${r2.json.clientId}`);
+        return;
+      }
+    }
     router.push(`/mib-hisoboti/mijoz/${json.clientId}`);
   };
   // Excel — HISOBOT ro'yxatini yuklab, «Holat» bo'yicha qurib GO qilinadi.

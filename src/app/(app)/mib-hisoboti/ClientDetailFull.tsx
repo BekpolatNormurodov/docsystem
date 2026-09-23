@@ -23,13 +23,20 @@ export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { rep
   const [loading, setLoading] = useState(true);
   const [missing, setMissing] = useState(false);
   const [rechecking, setRechecking] = useState(false);
+  // Arxiv toggle: default OFF — faqat faol (so'nggi tekshiruv) ishlari. ON — arxivlangan (eski qayta
+  // tekshirish nusxalari) ham. Server `archivedCount` ni beradi — tugmada ko'rsatamiz.
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedCount, setArchivedCount] = useState(0);
 
   const load = useCallback(async () => {
-    const r = await fetch(`/api/mib/client/${clientId}`, { cache: 'no-store' });
+    const qs = showArchived ? '?archived=1' : '';
+    const r = await fetch(`/api/mib/client/${clientId}${qs}`, { cache: 'no-store' });
     if (r.status === 404) { setMissing(true); setLoading(false); return; }
     const j = await r.json().catch(() => null);
-    setClient(j?.client ?? null); setRunning(!!j?.running); setLoading(false);
-  }, [clientId]);
+    setClient(j?.client ?? null); setRunning(!!j?.running);
+    if (typeof j?.archivedCount === 'number') setArchivedCount(j.archivedCount);
+    setLoading(false);
+  }, [clientId, showArchived]);
   useEffect(() => { void load(); }, [load]);
 
   // Jonli yangilanish: RUNNING bo'lsa, yoki PENDING bo'lib run ham ketayotgan bo'lsa. PENDING lekin run
@@ -43,8 +50,12 @@ export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { rep
 
   const recheck = async () => {
     if (!client) return;
+    // «Qayta tekshirish» — foydalanuvchidan tasdiqlaymiz. Eski natija arxivга ko'chadi, yangi tekshirish
+    // boshlanadi. Client detali sahifasida so'ralaganда har doim force (foydalanuvchi ataylab bosgan).
+    const dt = client.checkedAt ? new Date(client.checkedAt).toLocaleString() : t('nomaʼlum sana');
+    if (!window.confirm(`${t('Bu PINFL')} ${dt} ${t('да tekshirilgan. Yangi dalniy olamizmi? (eski natija arxivга o‘tadi)')}`)) return;
     setRechecking(true);
-    await fetch(`/api/mib/${reportId}/add-pinfl`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pinfl: client.pinfl }) }).catch(() => {});
+    await fetch(`/api/mib/${reportId}/add-pinfl`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pinfl: client.pinfl, force: true }) }).catch(() => {});
     await load();
     setRechecking(false);
   };
@@ -69,6 +80,15 @@ export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { rep
       <div className="flex flex-wrap items-center justify-between gap-2">
         {back}
         <div className="flex items-center gap-2">
+          {(archivedCount > 0 || showArchived) && (
+            <button
+              className={cx('btn-ghost text-xs', showArchived && 'bg-amber-500/15 text-amber-700 dark:text-amber-300')}
+              onClick={() => setShowArchived((v) => !v)}
+              title={t('Arxivlangan (eski qayta tekshirish) ishlarini koʻrsatish/yashirish')}
+            >
+              <Ico.archive size={14} /> {showArchived ? t('Arxivни yashirish') : `${t('Arxiv')} · ${archivedCount}`}
+            </button>
+          )}
           <button className="btn-ghost text-xs" disabled={rechecking || active} onClick={recheck}>
             {rechecking ? <Spinner size={14} /> : <Ico.refresh size={14} />} {t('Qayta tekshirish')}
           </button>

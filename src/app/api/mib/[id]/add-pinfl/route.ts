@@ -20,8 +20,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!report) return NextResponse.json({ error: t('Hisobot topilmadi') }, { status: 404 });
 
   const body = await req.json().catch(() => ({}));
-  const res = await addPinflAndCheck(id, String(body?.pinfl ?? ''), (String(body?.fio ?? '').trim() || null));
+  const force = !!body?.force;
+  const res = await addPinflAndCheck(id, String(body?.pinfl ?? ''), (String(body?.fio ?? '').trim() || null), { force });
   if (!res.ok) return NextResponse.json({ error: res.error }, { status: 400 });
   const cfg = await getMibConfig();
-  return NextResponse.json({ ok: true, reportId: id, clientId: res.clientId, running: res.running, phoneConfigured: !!cfg.phone });
+  return NextResponse.json({
+    ok: true, reportId: id, clientId: res.clientId, running: res.running,
+    reused: 'reused' in res ? res.reused === true : false,
+    lastCheckedAt: 'lastCheckedAt' in res ? res.lastCheckedAt : null,
+    cases: 'cases' in res ? res.cases : undefined,
+    phoneConfigured: !!cfg.phone,
+  });
 }
