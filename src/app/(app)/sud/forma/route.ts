@@ -530,6 +530,129 @@ export async function GET(req: NextRequest) {
   ;[2, 3, 4, 7, 8, 9].forEach((n) => { const cl = gtR.getCell(n); cl.font = { bold: true }; cl.fill = fill(C_TOT); cl.border = box; if (n > 2) cl.alignment = { horizontal: 'right' }; });
   gtR.getCell(7).numFmt = MONEY; gtR.getCell(8).numFmt = MONEY; gtR.getCell(9).numFmt = MONEY;
 
+  // ── Sudya bo'yicha varag'i (4-varaq) ────────────────────────────────────────
+  // ClientCaseStatus.judge maydonidan (cabinet detail sinxron qilingan ishlar). Coverage:
+  // aksariyat ishlarda detail hali olinmagan → sudyasi bo'sh. Sarlavhada withJudge/submittedTotal.
+  const [judgeRawRows, submTotal, withJ] = await Promise.all([
+    prisma.clientCaseStatus.findMany({
+      where: { source: 'CABINET', judge: { not: null }, NOT: { judge: '' } },
+      select: { judge: true, courtId: true, branchCode: true, pinfl: true, status: true, statusLabel: true, caseResult: true, hearingDate: true },
+    }),
+    prisma.clientCaseStatus.count({ where: { source: 'CABINET', status: { notIn: ['DRAFT', 'CREATED'] } } }),
+    prisma.clientCaseStatus.count({ where: { source: 'CABINET', judge: { not: null }, NOT: { judge: '' } } }),
+  ]);
+  const courtRows = await prisma.court.findMany({ select: { billingCourtId: true, shortName: true, nameUz: true } });
+  const courtName = new Map<string, string>();
+  for (const c of courtRows) if (c.billingCourtId) courtName.set(c.billingCourtId, c.shortName || c.nameUz || c.billingCourtId);
+  const JUDGE_PRECOURT = new Set(['DRAFT', 'CREATED']);
+  const jBy = new Map<string, {
+    judge: string; courts: Set<string>; firms: Set<string>; pinfls: Set<string>;
+    total: number; granted: number; returned: number; inProcess: number; lastHearing: Date | null;
+  }>();
+  for (const r of judgeRawRows) {
+    const j = (r.judge || '').trim(); if (!j) continue;
+    let a = jBy.get(j);
+    if (!a) { a = { judge: j, courts: new Set(), firms: new Set(), pinfls: new Set(), total: 0, granted: 0, returned: 0, inProcess: 0, lastHearing: null }; jBy.set(j, a); }
+    a.total++;
+    if (r.pinfl) a.pinfls.add(r.pinfl);
+    if (r.courtId) a.courts.add(courtName.get(r.courtId) ?? r.courtId);
+    if (r.branchCode) a.firms.add(firmByCode.get(r.branchCode) ?? r.branchCode);
+    const resU = (r.caseResult || '').toUpperCase();
+    const stU = (r.status || '').toUpperCase();
+    if (JUDGE_PRECOURT.has(stU)) continue;
+    if (['FULFILLED', 'PARTIALLY_FULFILLED'].includes(resU)) a.granted++;
+    else if (['RETURNED', 'REFUSED', 'UNCONSIDERED', 'WITHDRAWN'].includes(resU) || ['RETURNED', 'DECLINED'].includes(stU)) a.returned++;
+    else a.inProcess++;
+    if (r.hearingDate && (!a.lastHearing || r.hearingDate > a.lastHearing)) a.lastHearing = r.hearingDate;
+  }
+  const jRows = [...jBy.values()].sort((a, b) => b.total - a.total || b.granted - a.granted);
+
+  const s4 = wb.addWorksheet(t('Sudya boʻyicha'), { views: [{ state: 'frozen', ySplit: 3, xSplit: 1 }] });
+  type JCol = { key: string; w: number; h: string; money?: boolean; center?: boolean; sum?: boolean; pct?: boolean };
+  const JCOLS: JCol[] = [
+    { key: 'no',        w: 5,  h: '№',              center: true },
+    { key: 'judge',     w: 34, h: t('Sudya') },
+    { key: 'court',     w: 28, h: t('Sud') },
+    { key: 'firms',     w: 20, h: t('Firmalar') },
+    { key: 'total',     w: 11, h: t('Jami ish'),    center: true, sum: true },
+    { key: 'clients',   w: 10, h: t('Kishi'),       center: true, sum: true },
+    { key: 'granted',   w: 12, h: t('Qanoat.'),     center: true, sum: true },
+    { key: 'returned',  w: 12, h: t('Qaytar.'),     center: true, sum: true },
+    { key: 'inProcess', w: 12, h: t('Jarayonda'),   center: true, sum: true },
+    { key: 'pct',       w: 11, h: t('% qanoat'),    center: true, pct: true },
+    { key: 'last',      w: 14, h: t('Soʻnggi tinglash'), center: true },
+  ];
+  const JNC = JCOLS.length, jLast = colL(JNC);
+  s4.columns = JCOLS.map((c) => ({ key: c.key, width: c.w }));
+
+  s4.mergeCells(`A1:${jLast}1`);
+  const jt1 = s4.getCell('A1');
+  jt1.value = t('SUDYA BOʻYICHA').toUpperCase();
+  jt1.font = { bold: true, size: 15, color: { argb: 'FFFFFFFF' } };
+  jt1.fill = fill(C_TITLE); jt1.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+  s4.getRow(1).height = 26;
+  s4.mergeCells(`A2:${jLast}2`);
+  const jt2 = s4.getCell('A2');
+  jt2.value = `${jRows.length} ${t('sudya')} · ${withJ.toLocaleString('ru-RU')}/${submTotal.toLocaleString('ru-RU')} ${t('ishda sudya aniqlangan (cabinet detail)')}`;
+  jt2.font = { italic: true, size: 10, color: { argb: 'FF475569' } };
+  jt2.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+  s4.getRow(2).height = 16;
+
+  const jh = s4.getRow(3); jh.height = 30;
+  JCOLS.forEach((c, idx) => {
+    const cell = jh.getCell(idx + 1);
+    cell.value = c.h; cell.font = { bold: true, size: 10, color: { argb: 'FFFFFFFF' } };
+    cell.fill = fill(C_HEAD); cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    cell.border = box;
+  });
+
+  let jNo = 0;
+  for (const j of jRows) {
+    const decided = j.granted + j.returned;
+    const pct = decided > 0 ? Math.round((j.granted / decided) * 100) : 0;
+    s4.addRow({
+      no: ++jNo, judge: j.judge, court: [...j.courts].sort().join(', '), firms: [...j.firms].sort().join(', '),
+      total: j.total, clients: j.pinfls.size, granted: j.granted, returned: j.returned, inProcess: j.inProcess,
+      pct: decided > 0 ? pct / 100 : null,
+      last: j.lastHearing,
+    });
+  }
+  const jDataFrom = 4, jDataTo = 3 + jRows.length;
+  JCOLS.forEach((c, idx) => {
+    const col = s4.getColumn(idx + 1);
+    if (c.money) col.numFmt = MONEY;
+    if (c.pct) col.numFmt = '0%';
+    if (c.center) col.alignment = { horizontal: 'center' };
+  });
+  s4.getColumn('last').numFmt = 'dd.mm.yyyy';
+  // Zebra + status ranglari (Qanoat. yashil, Qaytar. amber)
+  for (let r = jDataFrom; r <= jDataTo; r++) {
+    const row = s4.getRow(r); row.height = 16;
+    if ((r - jDataFrom) % 2 === 1) {
+      for (let c = 1; c <= JNC; c++) { const cell = row.getCell(c); if (!cell.fill) cell.fill = fill(C_ZEBRA); }
+    }
+    row.getCell(7).font = { color: { argb: 'FF166534' }, bold: (row.getCell(7).value as number) > 0 };
+    row.getCell(8).font = { color: { argb: 'FF92400E' }, bold: (row.getCell(8).value as number) > 0 };
+    // % qanoat rangi
+    const pctCell = row.getCell(10);
+    const pctVal = typeof pctCell.value === 'number' ? pctCell.value * 100 : null;
+    if (pctVal != null) {
+      const col = pctVal >= 60 ? 'FF166534' : pctVal >= 30 ? 'FF92400E' : 'FF991B1B';
+      pctCell.font = { color: { argb: col }, bold: true };
+    }
+  }
+  if (jRows.length) {
+    const tr = s4.getRow(jDataTo + 1); tr.height = 18;
+    tr.getCell(2).value = t('JAMI');
+    for (let cidx = 1; cidx <= JNC; cidx++) {
+      const cell = tr.getCell(cidx);
+      cell.font = { bold: true }; cell.fill = fill(C_TOT);
+      cell.border = { top: { style: 'medium', color: { argb: C_HEAD } }, bottom: thin, left: thin, right: thin };
+      if (JCOLS[cidx - 1].sum) { cell.value = { formula: `SUM(${colL(cidx)}${jDataFrom}:${colL(cidx)}${jDataTo})` }; if (JCOLS[cidx - 1].money) cell.numFmt = MONEY; }
+    }
+  }
+  s4.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: JNC } };
+
   const buf = Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer);
   // Fayl nomida BUGUNGI sana (yuklab olingan sana) — snapshot sanasi emas (u ichida yozilgan).
   const today = new Date(); const pad = (n: number) => String(n).padStart(2, '0');

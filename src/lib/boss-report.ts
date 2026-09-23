@@ -26,7 +26,32 @@ export type BossTotals = Omit<BossFirmRow, 'firmId' | 'firmName'>;
 // Viloyat (14 ta) kesimi — mijozlar + MIBga + Sud (qanoatlantirilgan/qaytarilgan) + jami qarz.
 // Manba: portfel Excel (Loan.regionName), tuman→viloyatga yig'iladi (regionFromText). Rus/kirill/lotin.
 export interface BossRegionRow { region: string; clients: number; talabnoma: number; mib: number; sudTotal: number; granted: number; returned: number; debt: number }
-export interface BossReportData { snapshotId: number | null; firms: BossFirmRow[]; totals: BossTotals; regions: BossRegionRow[] }
+// Sudya bo'yicha kesim (Sudyalar hisoboti) — ClientCaseStatus.judge maydonidan (cabinet detail
+// dan olingan). MUAMMO: ko'p ishlarda judge bo'sh (detail sync qilinmagan). Coverage rozetkasi bilan.
+export interface BossJudgeRow {
+  judge: string;
+  courts: string[];       // sud nomi(lari) — asosan bitta, lekin sudya boshqa sudda ham o'tirishi mumkin
+  firms: string[];        // qaysi firmalar (branchCode → firmName)
+  totalCases: number;     // shu sudyada bizning firmalar ishlari
+  clients: number;        // alohida PINFL (kishi)
+  granted: number;        // qanoatlantirilgan (FULFILLED + PARTIAL)
+  returned: number;       // qaytarilgan (RETURNED + DECLINED + REFUSED + UNCONSIDERED + WITHDRAWN)
+  inProcess: number;      // qolganlari (REGISTER + PENDING + IN_PROCESS + DECIDED-natijasiz + FINISHED-natijasiz)
+  fulfilmentPct: number;  // 0..100 (granted / (granted+returned) * 100 — jarayondagilarni chiqarib)
+  lastHearing: Date | null; // eng oxirgi tinglash sanasi
+}
+export interface BossJudgesBlock {
+  rows: BossJudgeRow[];
+  withJudge: number;       // sudya aniqlangan CABINET yozuvlari soni
+  submittedTotal: number;  // sudga yuborilgan barcha ishlar (DRAFT/CREATED-siz)
+}
+export interface BossReportData {
+  snapshotId: number | null;
+  firms: BossFirmRow[];
+  totals: BossTotals;
+  regions: BossRegionRow[];
+  judges: BossJudgesBlock;
+}
 
 // courtStatusBoard bucket kodini direktor guruhiga solamiz.
 // Foydalanuvchi qoidasi (2026-09-14): «rad qilingan» deb kelsa HAM, ajrim varaqasi bilan
@@ -146,7 +171,102 @@ export async function bossReport(snapshotId?: number): Promise<BossReportData> {
   // Umumiy «userlar» — firma yig'indisi EMAS (bir odam bir necha firmada): butun DISTINCT PINFL.
   totals.clients = totalClients;
 
-  return { snapshotId: snapshotId ?? null, firms, totals, regions };
+  const judges = await judgesReport(fa, firmMeta);
+
+  return { snapshotId: snapshotId ?? null, firms, totals, regions, judges };
+}
+
+// ── Sudyalar bo'yicha kesim ─────────────────────────────────────────────────
+// Manba: ClientCaseStatus.judge (cabinet detail'dan). Coverage: ~6% (778/12k) — chunki har
+// bir case uchun detail alohida olinadi. Ogohlantirish rozetkasi bilan (withJudge/submittedTotal).
+async function judgesReport(
+  fa: Awaited<ReturnType<typeof firmActivity>>,
+  firmMeta: { id: number; code: string | null }[],
+): Promise<BossJudgesBlock> {
+  const inactiveCodes = new Set(fa.inactiveCodes);
+  const firmByCode = new Map<string, string>();
+  for (const f of firmMeta) if (f.code) firmByCode.set(f.code, ''); // nom keyingi so'rovda
+  // Firma nomlari (shortName) — coldingi so'rov faqat code oldi.
+  const firmsFull = await prisma.firm.findMany({ select: { code: true, shortName: true } });
+  const firmNameByCode = new Map(firmsFull.filter((f) => f.code).map((f) => [f.code!, f.shortName]));
+  // Sudlar (courtId → nomi). billingCourtId — Court'ning unique kaliti (billing.sud.uz da).
+  // Agar cabinet court_id billing courtId bilan mos kelmasa, xom raqam ko'rsatiladi (uzoqroq
+  // katalog kerak bo'lsa keyin qo'shamiz). Aksariyat sudlar bir xil id ishlatadi.
+  const courts = await prisma.court.findMany({ select: { billingCourtId: true, shortName: true, nameUz: true } });
+  const courtNameById = new Map<string, string>();
+  for (const c of courts) if (c.billingCourtId) courtNameById.set(c.billingCourtId, c.shortName || c.nameUz || c.billingCourtId);
+
+  // withJudge va submittedTotal — bir marta groupBy (2 count parallel).
+  const [rawRows, submittedRow, withJudgeRow] = await Promise.all([
+    prisma.clientCaseStatus.findMany({
+      where: {
+        source: 'CABINET',
+        judge: { not: null },
+        NOT: { judge: '' },
+        ...(fa.hasInactive ? { branchCode: { notIn: fa.inactiveCodes } } : {}),
+      },
+      select: { judge: true, courtId: true, branchCode: true, pinfl: true, status: true, statusLabel: true, caseResult: true, hearingDate: true },
+    }),
+    prisma.clientCaseStatus.count({
+      where: {
+        source: 'CABINET',
+        status: { notIn: ['DRAFT', 'CREATED'] },
+        ...(fa.hasInactive ? { branchCode: { notIn: fa.inactiveCodes } } : {}),
+      },
+    }),
+    prisma.clientCaseStatus.count({
+      where: {
+        source: 'CABINET',
+        judge: { not: null },
+        NOT: { judge: '' },
+        ...(fa.hasInactive ? { branchCode: { notIn: fa.inactiveCodes } } : {}),
+      },
+    }),
+  ]);
+
+  const byJudge = new Map<string, {
+    judge: string; courts: Set<string>; firms: Set<string>; pinfls: Set<string>;
+    total: number; granted: number; returned: number; inProcess: number; lastHearing: Date | null;
+  }>();
+
+  for (const r of rawRows) {
+    const j = (r.judge || '').trim();
+    if (!j) continue;
+    let a = byJudge.get(j);
+    if (!a) {
+      a = { judge: j, courts: new Set(), firms: new Set(), pinfls: new Set(), total: 0, granted: 0, returned: 0, inProcess: 0, lastHearing: null };
+      byJudge.set(j, a);
+    }
+    a.total += 1;
+    if (r.pinfl) a.pinfls.add(r.pinfl);
+    if (r.courtId) a.courts.add(courtNameById.get(r.courtId) ?? r.courtId);
+    if (r.branchCode && !inactiveCodes.has(r.branchCode)) {
+      const fname = firmNameByCode.get(r.branchCode) ?? r.branchCode;
+      a.firms.add(fname);
+    }
+    const code = classifyStatus('CABINET', { status: r.status, statusLabel: r.statusLabel, caseResult: r.caseResult }).code;
+    if (PRECOURT_CODES.has(code)) continue; // draft/created — hisobga olinmaydi
+    if (code === 'SATISFIED' || code === 'PARTIAL' || code === 'FINISHED') a.granted += 1;
+    else if (code === 'RETURNED' || code === 'DECLINED' || code === 'UNCONSIDERED' || code === 'WITHDRAWN') a.returned += 1;
+    else a.inProcess += 1;
+    if (r.hearingDate && (!a.lastHearing || r.hearingDate > a.lastHearing)) a.lastHearing = r.hearingDate;
+  }
+
+  const rows: BossJudgeRow[] = [...byJudge.values()].map((a) => {
+    const decided = a.granted + a.returned;
+    return {
+      judge: a.judge,
+      courts: [...a.courts].sort(),
+      firms: [...a.firms].sort(),
+      totalCases: a.total,
+      clients: a.pinfls.size,
+      granted: a.granted, returned: a.returned, inProcess: a.inProcess,
+      fulfilmentPct: decided > 0 ? Math.round((a.granted / decided) * 100) : 0,
+      lastHearing: a.lastHearing,
+    };
+  }).sort((a, b) => b.totalCases - a.totalCases || b.granted - a.granted);
+
+  return { rows, withJudge: withJudgeRow, submittedTotal: submittedRow };
 }
 
 // ── Viloyat kesimi (mijozlar + MIBga + Sud + qarz) ────────────────────────────

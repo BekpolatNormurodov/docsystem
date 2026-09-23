@@ -19,8 +19,10 @@ const cellNum = (x: number, cls?: string) => <td className={cx('px-3 py-2.5 text
 export function BossReport({ data, snapLabel, linkDate, statusExcelHref, generatedAt }: { data: BossReportData; snapLabel: string | null; linkDate: string; statusExcelHref: string; generatedAt: string; todayLabel?: string }) {
   const t = useT();
   const { pending } = useContext(SnapshotRefreshContext); // snapshot almashtirilyapti — shimmer ko'rsatiladi
-  const { firms, totals, regions } = data;
+  const { firms, totals, regions, judges } = data;
   const [regOpen, setRegOpen] = useState(false); // default YOPIQ — bosib ochiladi
+  const [judOpen, setJudOpen] = useState(false);
+  const [judLimit, setJudLimit] = useState(15); // birinchi 15 sudya; «Barchasini ko'rsatish» bosilsa hammasi
   const rtot = regions.reduce((a, r) => ({ clients: a.clients + r.clients, talabnoma: a.talabnoma + r.talabnoma, mib: a.mib + r.mib, sudTotal: a.sudTotal + r.sudTotal, granted: a.granted + r.granted, returned: a.returned + r.returned, debt: a.debt + r.debt }), { clients: 0, talabnoma: 0, mib: 0, sudTotal: 0, granted: 0, returned: 0, debt: 0 });
 
   return (
@@ -165,6 +167,83 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref, generat
               </tfoot>
             )}
           </table>
+        </div>
+        )}
+      </div>
+
+      {/* Sudya kesimi — cabinet.sud.uz detail'idan olingan `judge` maydonidan. Coverage rozetkasi
+          bilan (aksariyat ishlarda hali detail sinxron qilinmagan → sudya bo'sh). */}
+      <div className="card overflow-hidden">
+        <button type="button" onClick={() => setJudOpen((v) => !v)}
+          className="flex w-full items-center justify-between gap-3 border-b border-line px-4 py-3 text-left hover:bg-surface-2">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <svg className={cx('h-4 w-4 shrink-0 text-muted transition-transform', judOpen && 'rotate-90')} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+            {t('Sudya bo‘yicha — Jami · Qanoat. · Qaytar. · %')}
+            <span className="rounded-full bg-brand-500/15 px-1.5 py-0.5 text-[10px] font-medium text-brand-600 dark:text-brand-300">{n(judges.rows.length)}</span>
+          </div>
+          <span className="text-xs text-muted">
+            {judOpen
+              ? `${n(judges.withJudge)}/${n(judges.submittedTotal)} ${t('ishda sudya aniqlangan')}`
+              : `${n(judges.rows.length)} ${t('ta sudya · ochish')}`}
+          </span>
+        </button>
+        {judOpen && (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[900px] text-sm">
+            <thead className="bg-surface text-xs uppercase tracking-wide text-muted">
+              <tr className="border-b border-line">
+                <th className="sticky left-0 z-10 bg-surface px-3 py-2 text-left">{t('Sudya')}</th>
+                <th className="px-3 py-2 text-left">{t('Sud')}</th>
+                <th className="px-3 py-2 text-left">{t('Firmalar')}</th>
+                <th className="px-3 py-2 text-right">{t('Kishi')}</th>
+                <th className="px-3 py-2 text-right">{t('Jami ish')}</th>
+                <th className="px-3 py-2 text-right text-emerald-600 dark:text-emerald-300">{t('Qanoat.')}</th>
+                <th className="px-3 py-2 text-right text-amber-600 dark:text-amber-300">{t('Qaytar.')}</th>
+                <th className="px-3 py-2 text-right text-sky-600 dark:text-sky-300">{t('Jarayonda')}</th>
+                <th className="px-3 py-2 text-right">{t('% qanoat')}</th>
+                <th className="px-3 py-2 text-left">{t('So‘nggi tinglash')}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {judges.rows.slice(0, judLimit).map((r) => (
+                <tr key={r.judge} className="hover:bg-surface-2/40">
+                  <td className="sticky left-0 bg-surface px-3 py-2 font-semibold">{r.judge}</td>
+                  <td className="px-3 py-2 text-xs text-muted">{r.courts.join(', ')}</td>
+                  <td className="px-3 py-2">
+                    <div className="flex flex-wrap gap-1">
+                      {r.firms.map((f) => (
+                        <span key={f} className="badge border-line bg-surface-2 text-[10px]">{f}</span>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">{n(r.clients)}</td>
+                  <td className="px-3 py-2 text-right font-semibold tabular-nums">{n(r.totalCases)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-emerald-600 dark:text-emerald-300">{r.granted > 0 ? n(r.granted) : <span className="text-muted/50">·</span>}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-amber-600 dark:text-amber-300">{r.returned > 0 ? n(r.returned) : <span className="text-muted/50">·</span>}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-sky-600 dark:text-sky-300">{r.inProcess > 0 ? n(r.inProcess) : <span className="text-muted/50">·</span>}</td>
+                  <td className="px-3 py-2 text-right font-semibold tabular-nums">
+                    {(r.granted + r.returned) > 0
+                      ? <span className={cx(r.fulfilmentPct >= 60 ? 'text-emerald-600 dark:text-emerald-300' : r.fulfilmentPct >= 30 ? 'text-amber-600 dark:text-amber-300' : 'text-rose-600 dark:text-rose-300')}>{r.fulfilmentPct}%</span>
+                      : <span className="text-muted/50">·</span>}
+                  </td>
+                  <td className="px-3 py-2 text-xs text-muted tabular-nums">{r.lastHearing ? new Date(r.lastHearing).toLocaleDateString('ru-RU') : '—'}</td>
+                </tr>
+              ))}
+              {judges.rows.length === 0 && (
+                <tr><td colSpan={10} className="px-4 py-10 text-center text-muted">
+                  {t('Hali sudya aniqlangan ish yo‘q. «Ulanishlar» dan cabinet.sud.uz ga ulanib detail sinxronlang.')}
+                </td></tr>
+              )}
+            </tbody>
+          </table>
+          {judges.rows.length > judLimit && (
+            <div className="border-t border-line bg-surface-2/40 px-3 py-2 text-center">
+              <button type="button" onClick={() => setJudLimit(judges.rows.length)}
+                className="text-xs font-medium text-brand-600 hover:text-brand-700 dark:text-brand-300">
+                {t('Barchasini ko‘rsatish')} ({judges.rows.length - judLimit} {t('ta yana')})
+              </button>
+            </div>
+          )}
         </div>
         )}
       </div>
