@@ -25,8 +25,24 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const dateTo = (String(body?.dateTo ?? '').trim() || null) as string | null;
 
   const parsed = await parseHisobot(report.sourcePath);
+  // «Holat» filtri qo'llanmasi: bo'sh (null) → hammasi. Aks holda uch bosqichli mos kelish —
+  // (1) exact, (2) normalize (kichik + probel/tinish/qavs tozalash), (3) substring. Excel qatorда
+  // «Holati (MIB)» bo'sh (null) bo'lsa ham hisobga olamiz — user aytдi: «MIBда yoq bolsa ham bosaver».
+  // Filter kirill/lotin farqi va qavsli qo'shimchalarga (masalan «MIBda (jarayonda)» ↔ «MIBда»)
+  // bardosh qiladi.
+  const normHolat = (s: string | null | undefined) => String(s || '').toLowerCase().replace(/[\s.`'()[\]{}\-_/\\,;:!?"«»""]/g, '');
+  const wantExact = statusFilter || '';
+  const wantNorm = normHolat(statusFilter);
+  const matchHolat = (holat: string | null): boolean => {
+    if (!statusFilter) return true;
+    if (holat && holat === wantExact) return true;
+    const h = normHolat(holat);
+    if (!h && !wantNorm) return true;
+    if (!h) return false;
+    return h === wantNorm || h.includes(wantNorm) || wantNorm.includes(h);
+  };
   const rows = parsed.rows.filter((r) => {
-    if (statusFilter && r.holat !== statusFilter) return false;
+    if (!matchHolat(r.holat)) return false;
     if (dateFrom && (!r.sentDate || r.sentDate < dateFrom)) return false;
     if (dateTo && (!r.sentDate || r.sentDate > dateTo)) return false;
     return true;

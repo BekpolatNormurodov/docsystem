@@ -29,16 +29,21 @@ export interface MibParseResult {
   sentDateRange: { min: string | null; max: string | null }; // for the date picker hints
 }
 
-const PINFL_NAMES = ['PINFL', 'ПИНФЛ', 'ПНФЛ', 'ЖШШИР', 'JSHSHIR'];
-const FIO_NAMES = ['F.I.SH.', 'FISH', 'F.I.O', 'F.I.O.', 'ФИО', 'F I SH', 'FIO'];
-const PHONE_NAMES = ['Тел', 'Tel', 'Телефон', 'Phone', 'Тел номер', 'Тел. номер'];
-const FIRM_NAMES = ['MKO', 'МКО', 'Firma', 'МКО_Анкета'];
-const ISH_NAMES = ['Ish raqami', 'Иш рақами', 'Ish raqami '];
-const HOLAT_NAMES = ['Holat', 'Холат', 'Holati'];
-const REGION_NAMES = ['Viloyat', 'Вилоят', 'Область', 'Регион'];
-const ADDR_NAMES = ['Манзил', 'Manzil', 'Address'];
-const DEBT_NAMES = ['Жами карздорлик', 'Jami qarzdorlik', 'Умумий кредит карз', 'Жами карзи Асосий', 'Жами карзи', 'Муддати утган карз'];
-const SENT_NAMES = ['Yuborilgan sana', 'Юборилган сана', 'Ish ko`ril(adi)gan', 'Yuborilgan'];
+// PINFL sinonimlari — 5+ xil (uzb/rus, katta/kichik farqi norm bilan hal, qavsli variantlar findCol
+// substring fallback bilan hal). «Ж.Ш.Ш.И.Р» — davlat guvohnomasi shakli, «ID / IDN» — eng qisqa.
+const PINFL_NAMES = ['PINFL', 'PNFL', 'ПИНФЛ', 'ПНФЛ', 'ЖШШИР', 'JSHSHIR', 'ЖШШР', 'IDN'];
+// F.I.O sinonimlari — HISOBOT'да «Javobgar» (mijoz nomi) ham ishlatiladi; Qarzdor/Aybdor/Fuqaro
+// variantlari ham. Debtor/Ф.И.О — chet el/rasmiy.
+const FIO_NAMES = ['F.I.SH.', 'FISH', 'F.I.O', 'F.I.O.', 'ФИО', 'F I SH', 'FIO', 'Javobgar', 'Жавобгар', 'Qarzdor', 'Қарздор', 'Aybdor', 'Айбдор', 'Fuqaro', 'Фуқаро', 'Ismi sharif', 'Ismisharif', 'Debtor', 'Должник'];
+const PHONE_NAMES = ['Тел', 'Tel', 'Телефон', 'Phone', 'Тел номер', 'Тел. номер', 'Telefon', 'Telefon raqam', 'Тел раками'];
+const FIRM_NAMES = ['MKO', 'МКО', 'Firma', 'МКО_Анкета', 'Фирма'];
+const ISH_NAMES = ['Ish raqami', 'Иш рақами', 'Ish raqami ', 'Ish №', 'Иш №'];
+// «Holati (MIB)» kabi qavsli variantlar — norm qavsni yo'q qiladi, va findCol substring fallback ishlatadi.
+const HOLAT_NAMES = ['Holat', 'Холат', 'Holati', 'Xolat', 'Ҳолат', 'Status', 'Статус'];
+const REGION_NAMES = ['Viloyat', 'Вилоят', 'Область', 'Регион', 'Hudud', 'Ҳудуд', 'Hududi'];
+const ADDR_NAMES = ['Манзил', 'Manzil', 'Address', 'Адрес', 'Yashash manzili'];
+const DEBT_NAMES = ['Жами карздорлик', 'Jami qarzdorlik', 'Умумий кредит карз', 'Жами карзи Асосий', 'Жами карзи', 'Муддати утган карз', 'Qarzdorligi', 'Қарздорлиги', 'Qarz'];
+const SENT_NAMES = ['Yuborilgan sana', 'Юборилган сана', 'Ish ko`ril(adi)gan', 'Yuborilgan', 'Ish ko\'rilgan sana', 'Иш кўрилган сана', 'Ish korilgan sana'];
 
 /** Normalize HISOBOT's mixed date shapes (Date, «DD-MM-YYYY», «YYYY-MM-DD …», Excel serial) → ISO date. */
 function toIsoDate(v: unknown): string | null {
@@ -75,14 +80,30 @@ function unwrap(v: unknown): string | null {
   return String(v).trim() || null;
 }
 
-const norm = (s: string) => s.toLowerCase().replace(/[\s.`'\n]/g, '');
+// Sarlavha nomlarini solishtirish uchun normallashtirish: kichik harfga + probel, nuqta, tinish
+// belgilari, qavslar, tirelar, \n olib tashlanadi. «Holati (MIB)» ↔ «holatimib»; «F.I.O» ↔ «fio»;
+// «Ish ko'rilgan sana» ↔ «ishkorilgansana». Boshqa mumkin qavsli qo'shimchalar («... (2)», «... MIB»)
+// baribir qavs ichida — tozalanadi.
+const norm = (s: string) => s.toLowerCase().replace(/[\s.`'`\n()[\]{}\-_/\\,;:!?"«»""]/g, '');
 
-/** Find the 1-based column index whose header matches any of `names` (first match wins). */
+/** Find the 1-based column index whose header matches any of `names` (first match wins).
+ *  1) Exact normalized match ("Holati (MIB)" → "holatimib" matches "Holati" → "holati" after includes).
+ *     Chunki qavslar tozalanadi, «Holati (MIB)» → «holatimib» → «holati» substring bo'ladi.
+ *  2) Substring fallback — mavjud sarlavha ichida qidirilgan nom TO'LIQ SO'Z sifatida uchrasa.
+ *     Faqat wanted uzunligi ≥3 bo'lganda (qisqa sinonimlar false positive bermasin). */
 function findCol(header: (string | null)[], names: string[]): number {
   const wanted = names.map(norm);
   for (let i = 0; i < header.length; i++) {
     const h = header[i];
     if (h && wanted.includes(norm(h))) return i + 1;
+  }
+  // Substring fallback — «Ish raqami (MIB)», «F.I.O — 1» va h.k. uchun.
+  for (let i = 0; i < header.length; i++) {
+    const h = header[i]; if (!h) continue;
+    const nh = norm(h);
+    for (const w of wanted) {
+      if (w.length >= 3 && nh.includes(w)) return i + 1;
+    }
   }
   return 0;
 }
