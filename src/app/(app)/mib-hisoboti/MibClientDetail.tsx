@@ -8,6 +8,7 @@ import { useT } from '@/lib/i18n/client';
 
 export interface CaseRow {
   id: number; workNumber: string; monitoringUrl: string | null;
+  judge?: string | null; courtCaseNumber?: string | null; // server qo'shadi (cabinet'dagi sud ishidan)
   personFullName: string | null; creditor: string | null; firmName: string | null; firmInn: string | null; isTargetFirm: boolean;
   executorName: string | null; executorPhone: string | null; executorDept: string | null;
   courtOrgan: string | null; courtDocType: string | null; courtDocNumber: string | null; courtDocDate: string | null; courtEffectiveDate: string | null; caseSubject: string | null;

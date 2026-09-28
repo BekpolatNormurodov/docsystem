@@ -7,6 +7,10 @@ import { firmsDueForSync, syncFirm, AUTO_EVERY_MS } from '../lib/billing-check/s
 import { FIRMS } from '../lib/firms';
 import { getStoredCabinetSession } from '../lib/cabinet/session';
 import { ingestCabinetDetails } from '../lib/cabinet/detail-ingest';
+import {
+  runJudgeSync, readJudgeState, writeJudgeState, requestJudgeSync,
+  JUDGE_SYNC_REQUEST, JUDGE_SYNC_STOP,
+} from '../lib/cabinet/judge-sync';
 import { ingestCabinetStatuses } from '../lib/cabinet/status-ingest';
 import { SessionExpiredError } from '../lib/session-store';
 import { autoResumeTick } from '../lib/court-auto-resume';
@@ -470,12 +474,21 @@ const COURT_STATUS_FIRM_GAP_MS = 15_000;
 const COURT_DETAIL_EVERY_MS = 20 * 60_000;
 const COURT_DETAIL_BATCH = 40;
 
+// Cabinet detal so'rovlari BITTA ketma-ketlikda bo'lishi shart (parallellik *.sud.uz blokini
+// keltirib chiqargan, 2026-09-06). Sudya sinxroni ishlayotganda 20 daqiqalik detal sikli o'tkazib
+// yuboriladi; sudya sinxroni esa detal sikli joriy firmani tugatishini kutadi.
+let judgeSyncActive = false;
+let detailLoopActive = false;
+
 async function courtDetailSyncLoop(): Promise<void> {
   console.log(`[worker] sud detali (aniq PINFL): har ${Math.round(COURT_DETAIL_EVERY_MS / 60_000)} daqiqada, firma boshiga ${COURT_DETAIL_BATCH} ta`);
   await new Promise((r) => setTimeout(r, 150_000)); // status sync birinchi o'tsin — ro'yxat to'lsin
   while (!stopping) {
+    if (judgeSyncActive) { await new Promise((r) => setTimeout(r, 60_000)); continue; }
+    detailLoopActive = true;
     let anyFetched = 0;
     for (const f of FIRMS) {
+      if (judgeSyncActive) break;
       if (stopping) break;
       try {
         const s = await getStoredCabinetSession(f.stir);
@@ -490,9 +503,63 @@ async function courtDetailSyncLoop(): Promise<void> {
       }
       await new Promise((r) => setTimeout(r, COURT_STATUS_FIRM_GAP_MS));
     }
+    detailLoopActive = false;
     // Har iteratsiyadan keyin timestamp — UI (Boss/Sudyalar bo'limi) qachon yangilanganini ko'rsatadi.
     if (anyFetched > 0) await stampRefresh('court_detail_refreshed_at');
     await new Promise((r) => setTimeout(r, COURT_DETAIL_EVERY_MS));
+  }
+}
+
+// ── SUDYA SINXRONI (oxirigacha) ─────────────────────────────────────────────────────────
+// Hisobot «Sudyalar» paneli va MIB «Sudyalarni topish» `judge_sync_request` qo'yadi; bu sikl uni
+// oladi va ro'yxat TUGAGUNCHA ishlaydi (src/lib/cabinet/judge-sync.ts). Worker restart bo'lsa —
+// holat «running» qolgan bo'ladi, shu sabab boshlanishda so'rov qayta qo'yiladi (davom etadi).
+// Cabinet javob bermay to'xtasa, 30 daqiqadan keyin o'zi qayta urinadi.
+const JUDGE_POLL_MS = 15_000;
+const JUDGE_RETRY_MS = 30 * 60_000;
+
+async function judgeSyncLoop(): Promise<void> {
+  const prev = await readJudgeState().catch(() => null);
+  if (prev?.running) {
+    await writeJudgeState({ ...prev, running: false, note: 'worker qayta ishga tushdi — davom ettiriladi' }).catch(() => {});
+    await requestJudgeSync(prev.mibReportId ?? null).catch(() => {});
+    console.log('[worker] sudya sinxroni: uzilgan edi — qayta navbatga qo\'yildi');
+  }
+  while (!stopping) {
+    await new Promise((r) => setTimeout(r, JUDGE_POLL_MS));
+    if (stopping) break;
+    const req = await prisma.setting.findUnique({ where: { key: JUDGE_SYNC_REQUEST }, select: { value: true } }).catch(() => null);
+    if (!req?.value) continue;
+    let parsed: { mibReportId?: number | null; retryAt?: string | null } = {};
+    try { parsed = JSON.parse(req.value); } catch { /* bo'sh — default */ }
+    if (parsed.retryAt && new Date(parsed.retryAt).getTime() > Date.now()) continue;
+    while (detailLoopActive && !stopping) await new Promise((r) => setTimeout(r, 5_000));
+    await prisma.setting.deleteMany({ where: { key: JUDGE_SYNC_REQUEST } });
+    judgeSyncActive = true;
+    try {
+      const st = await runJudgeSync({
+        firms: FIRMS, sessionFor: (stir) => getStoredCabinetSession(stir), mibReportId: parsed.mibReportId ?? null,
+        shouldStop: async () => stopping
+          || !!(await prisma.setting.findUnique({ where: { key: JUDGE_SYNC_STOP }, select: { value: true } }).catch(() => null))?.value,
+        log: (m) => console.log(m),
+      });
+      const userStopped = !!(await prisma.setting.findUnique({ where: { key: JUDGE_SYNC_STOP }, select: { value: true } }).catch(() => null))?.value;
+      await prisma.setting.deleteMany({ where: { key: JUDGE_SYNC_STOP } });
+      if (st.found > 0) await stampRefresh('court_detail_refreshed_at');
+      if (!userStopped) {
+        // Worker o'chyapti (deploy) — keyingi jarayon darhol davom ettiradi.
+        if (stopping) await requestJudgeSync(st.mibReportId);
+        // Xato bilan yarim qolgan — 30 daqiqadan keyin o'zi davom etadi.
+        else if (st.failed > 0) await requestJudgeSync(st.mibReportId, new Date(Date.now() + JUDGE_RETRY_MS));
+      }
+    } catch (e) {
+      console.error('[worker] sudya sinxroni:', (e as Error).message?.slice(0, 200));
+      const st = await readJudgeState().catch(() => null);
+      if (st) await writeJudgeState({ ...st, running: false, finishedAt: new Date().toISOString(), note: 'xato — 30 daqiqadan keyin davom etadi' }).catch(() => {});
+      await requestJudgeSync(parsed.mibReportId ?? null, new Date(Date.now() + JUDGE_RETRY_MS)).catch(() => {});
+    } finally {
+      judgeSyncActive = false;
+    }
   }
 }
 
@@ -782,6 +849,7 @@ void courtAutoResumeLoop().catch((e) => console.error('[worker] avto-davom fatal
 void courtDraftAutoLoop().catch((e) => console.error('[worker] avto-qoralama fatal', e));
 void courtStatusSyncLoop().catch((e) => console.error('[worker] sud status sync fatal', e));
 void courtDetailSyncLoop().catch((e) => console.error('[worker] sud detali sync fatal', e));
+void judgeSyncLoop().catch((e) => console.error('[worker] sudya sinxroni fatal', e));
 void courtOutcomeSyncLoop().catch((e) => console.error('[worker] sud natijalari sinxroni fatal', e));
 void hippoStatusSyncLoop().catch((e) => console.error('[worker] talabnoma (hippo) sinxroni fatal', e));
 

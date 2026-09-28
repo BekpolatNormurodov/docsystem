@@ -6,6 +6,7 @@ import { computeStats } from '@/lib/mib/stats';
 import { parseHisobot } from '@/lib/mib/parse';
 import { mibReportDir } from '@/lib/mib/store';
 import { reconcileZombieClients, startMibRun, isMibRunActive } from '@/lib/mib/run';
+import { attachJudgesToClients } from '@/lib/mib/judges';
 import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
@@ -34,7 +35,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   } catch { /* resume ixtiyoriy — GET javobini to'smaydi */ }
   // Faol ishlar (archivedAt IS NULL) — arxivlangan (qayta tekshirishда eski nusxa) jadval/statistikaга kirmasin.
   // Arxivnи mijoz sahifasида «arxiv» toggle ochib ko'radi (ClientDetailFull).
-  const clients = await prisma.mibClient.findMany({ where: { reportId: id }, orderBy: { id: 'asc' }, include: { cases: { where: { archivedAt: null } } } });
+  const clients = await attachJudgesToClients(
+    await prisma.mibClient.findMany({ where: { reportId: id }, orderBy: { id: 'asc' }, include: { cases: { where: { archivedAt: null } } } }),
+  );
   const stats = computeStats(clients);
   // «Holat» + date-range filter options.
   let holatValues: { value: string; count: number }[] = [];

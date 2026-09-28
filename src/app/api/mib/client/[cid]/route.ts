@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
 import { reconcileZombieClients, isMibRunActive } from '@/lib/mib/run';
+import { attachJudgesToClients } from '@/lib/mib/judges';
 import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
@@ -26,5 +27,6 @@ export async function GET(req: NextRequest, { params }: { params: { cid: string 
   }
   // Arxiv soni — UI toggle uchun (archived=0 rejimида ham hisoblanadi).
   const archivedCount = withArchived ? 0 : await prisma.mibCase.count({ where: { clientId: cid, archivedAt: { not: null } } });
-  return NextResponse.json({ client, running: isMibRunActive(client.reportId), archivedCount });
+  const [withJudges] = await attachJudgesToClients([client]);
+  return NextResponse.json({ client: withJudges, running: isMibRunActive(client.reportId), archivedCount });
 }

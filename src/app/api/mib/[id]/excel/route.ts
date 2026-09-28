@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
 import { buildMibExcel } from '@/lib/mib/excel';
+import { attachJudgesToClients } from '@/lib/mib/judges';
 import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
@@ -23,10 +24,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const clientId = Number.isInteger(clientRaw) && clientRaw > 0 ? clientRaw : undefined;
 
   // Excel — faqat faol (archivedAt IS NULL) ishlar. Arxiv (qayta tekshirishда eski nusxa) chiqmasin.
-  const clients = await prisma.mibClient.findMany({
+  const clients = await attachJudgesToClients(await prisma.mibClient.findMany({
     where: { reportId: id, ...(clientId ? { id: clientId } : {}) },
     orderBy: { id: 'asc' }, include: { cases: { where: { archivedAt: null } } },
-  });
+  }));
 
   const buf = await buildMibExcel(report, clients, { tab, clientId });
   const tag = tab ? `_${tab}` : clientId ? `_mijoz${clientId}` : '';

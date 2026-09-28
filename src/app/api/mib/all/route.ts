@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
 import { computeStats } from '@/lib/mib/stats';
+import { attachJudgesToClients } from '@/lib/mib/judges';
 import { getT } from '@/lib/i18n/server';
 
 export const runtime = 'nodejs';
@@ -23,7 +24,7 @@ export async function GET(_req: NextRequest) {
       || (c.cases.length === ex.cases.length && (c.checkedAt?.getTime() ?? 0) > (ex.checkedAt?.getTime() ?? 0));
     if (better) byPinfl.set(c.pinfl, c);
   }
-  const clients = [...byPinfl.values()];
+  const clients = await attachJudgesToClients([...byPinfl.values()]);
   const stats = computeStats(clients);
   const report = { id: 0, createdAt: new Date().toISOString(), label: t('Umumiy'), sourceFileName: 'aggregate', statusFilter: null, total: clients.length, autoRun: false, runJobId: null };
   return NextResponse.json({ report, clients, stats, holatValues: [], sentDateRange: { min: null, max: null } });

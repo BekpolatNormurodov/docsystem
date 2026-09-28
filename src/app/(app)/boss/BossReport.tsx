@@ -379,7 +379,11 @@ function FulfilBar({ pct }: { pct: number }) {
 // coverage progress-bar + so'nggi/keyingi sinxron + JONLI holat (firma N/M, olingan K, o'tgan vaqt)
 // + Boshlash / To'xtatish / Qayta boshlash tugmalari. Har so'rov cabinet'dan 8 s da bittadan
 // olinadi (portalni bloklamaslik uchun) — shuning uchun fon rejimida ~5-6 soat davom etadi.
-interface BoostState { running: boolean; startedAt: string | null; elapsedSec: number; progress: { firmsDone: number; firmsTotal: number; fetched: number } | null; }
+interface BoostState {
+  running: boolean; queued: boolean; retryAt: string | null; startedAt: string | null; elapsedSec: number;
+  progress: { total: number; done: number; found: number; failed: number; firm: string | null } | null;
+  remaining: number; etaMinutes: number; note: string | null;
+}
 function JudgeSyncPanel({ judges }: { judges: BossReportData['judges'] }) {
   const t = useT();
   const [busy, setBusy] = useState(false);            // tugma bosildi — javob kutilyapti
@@ -389,8 +393,16 @@ function JudgeSyncPanel({ judges }: { judges: BossReportData['judges'] }) {
   const missing = Math.max(0, judges.submittedTotal - judges.withJudge);
   const lastAbs = judges.lastSyncAt ? fmtAbs(judges.lastSyncAt) : null;
   const running = live?.running ?? false;
+  const queued = !running && !!live?.queued;
+  const active = running || queued;
 
-  // Jonli holatni davriy so'rab turamiz: ishlaganda 8s, bo'sh turganda 30s.
+  const toState = (d: any): BoostState => ({
+    running: !!d.running, queued: !!d.queued, retryAt: d.retryAt ?? null, startedAt: d.startedAt ?? null,
+    elapsedSec: d.elapsedSec ?? 0, progress: d.progress ?? null, remaining: d.remaining ?? 0,
+    etaMinutes: d.etaMinutes ?? 0, note: d.note ?? null,
+  });
+
+  // Jonli holatni davriy so'rab turamiz: ishlaganda/navbatda 8s, bo'sh turganda 30s.
   useEffect(() => {
     let dead = false;
     const poll = async () => {
@@ -398,13 +410,13 @@ function JudgeSyncPanel({ judges }: { judges: BossReportData['judges'] }) {
         const r = await fetch('/api/cabinet/detail-sync-now', { cache: 'no-store' });
         if (!r.ok) return;
         const d = await r.json();
-        if (!dead) setLive({ running: !!d.running, startedAt: d.startedAt ?? null, elapsedSec: d.elapsedSec ?? 0, progress: d.progress ?? null });
+        if (!dead) setLive(toState(d));
       } catch { /* tarmoq xatosi — keyingi urinishda */ }
     };
     poll();
-    const id = setInterval(poll, live?.running ? 8_000 : 30_000);
+    const id = setInterval(poll, active ? 8_000 : 30_000);
     return () => { dead = true; clearInterval(id); };
-  }, [live?.running]);
+  }, [active]);
 
   async function call(action: 'start' | 'stop' | 'restart') {
     setBusy(true); setErr('');
@@ -414,13 +426,16 @@ function JudgeSyncPanel({ judges }: { judges: BossReportData['judges'] }) {
       if (!r.ok) throw new Error(d?.error || String(r.status));
       // Darhol holatni yangilaymiz (poll'ni kutmasdan).
       const g = await fetch('/api/cabinet/detail-sync-now', { cache: 'no-store' }).then((x) => x.json()).catch(() => null);
-      if (g) setLive({ running: !!g.running, startedAt: g.startedAt ?? null, elapsedSec: g.elapsedSec ?? 0, progress: g.progress ?? null });
+      if (g) setLive(toState(g));
     } catch (e) {
       setErr((e as Error).message);
     } finally {
       setBusy(false);
     }
   }
+  const pr = live?.progress;
+  const livePct = pr && pr.total > 0 ? Math.min(100, Math.round((pr.done / pr.total) * 100)) : 0;
+  const etaLabel = (min: number) => (min >= 60 ? `~${Math.floor(min / 60)} ${t('soat')} ${min % 60} ${t('daq')}` : `~${min} ${t('daq')}`);
 
   const elapsedLabel = (sec: number) => {
     const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
@@ -444,40 +459,58 @@ function JudgeSyncPanel({ judges }: { judges: BossReportData['judges'] }) {
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
             {lastAbs && <span>{t('Soʻnggi sinxron')}: <b className="tabular-nums text-fg">{lastAbs}</b></span>}
-            <span>{t('Har')} <b className="text-fg">{judges.syncIntervalMin}</b> {t('daqiqada firma boshiga')} <b className="text-fg">{judges.perFirmBatch}</b> {t('ta ish avtomatik olinadi')}</span>
+            {!active && live && live.remaining > 0 && (
+              <span>{t('Tekshirilishi kerak')}: <b className="tabular-nums text-fg">{n(live.remaining)}</b> {t('ta sud ishi')} ({etaLabel(live.etaMinutes)})</span>
+            )}
+            {!active && live && live.remaining === 0 && <span className="text-emerald-700 dark:text-emerald-300">{t('Barcha sud ishlari tekshirilgan')}</span>}
           </div>
-          {/* JONLI holat — kuchaytirilgan sinxron ishlaganda */}
+          {/* JONLI holat — sudya sinxroni ishlaganda (worker, oxirigacha) */}
           {running && (
-            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-brand-500/25 bg-brand-500/[0.06] px-2.5 py-1.5 text-[11px]">
-              <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-brand-500" aria-hidden />
-              <span className="font-medium text-brand-700 dark:text-brand-300">{t('Kuchaytirilgan sinxron ketmoqda')}</span>
-              {live?.progress && (
-                <span className="tabular-nums text-muted">
-                  · {t('firma')} {live.progress.firmsDone}/{live.progress.firmsTotal}
-                  · {t('olingan')}: <b className="text-fg">{n(live.progress.fetched)}</b>
-                </span>
-              )}
-              <span className="tabular-nums text-muted">· {elapsedLabel(live?.elapsedSec ?? 0)}</span>
+            <div className="mt-2 rounded-lg border border-brand-500/25 bg-brand-500/[0.06] px-2.5 py-2 text-[11px]">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-brand-500" aria-hidden />
+                <span className="font-medium text-brand-700 dark:text-brand-300">{t('Sudyalar tortilmoqda — oxirigacha')}</span>
+                {pr?.firm && <span className="text-muted">· {pr.firm}</span>}
+                {pr && (
+                  <span className="tabular-nums text-muted">
+                    · <b className="text-fg">{n(pr.done)}</b> / {n(pr.total)} {t('tekshirildi')}
+                    · {t('sudya topildi')}: <b className="text-emerald-700 dark:text-emerald-300">{n(pr.found)}</b>
+                    {pr.failed > 0 && <> · {t('xato')}: <b className="text-rose-600 dark:text-rose-300">{n(pr.failed)}</b></>}
+                  </span>
+                )}
+                <span className="tabular-nums text-muted">· {elapsedLabel(live?.elapsedSec ?? 0)}</span>
+                {live && live.remaining > 0 && <span className="tabular-nums text-muted">· {t('qoldi')} {etaLabel(live.etaMinutes)}</span>}
+              </div>
+              <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-surface-2">
+                <div className="h-full rounded-full bg-brand-500 transition-all" style={{ width: `${livePct}%` }} />
+              </div>
+            </div>
+          )}
+          {queued && (
+            <div className="mt-2 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-2.5 py-1.5 text-[11px] text-amber-800 dark:text-amber-200">
+              {live?.retryAt
+                ? <>{live.note || t('Cabinet javob bermadi')} — <b>{fmtAbs(live.retryAt)}</b> {t('da oʻzi davom etadi')}</>
+                : t('Navbatda — bir necha soniyada boshlanadi')}
             </div>
           )}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
-          {!running ? (
+          {!active ? (
             <button type="button" onClick={() => call('start')} disabled={busy}
               className="btn-primary shrink-0 whitespace-nowrap px-3 py-1.5 text-xs disabled:opacity-60"
-              title={t('Bitta yo‘la 5 firma × 200 ta ish detali olinadi (cabinet rate-limit sabab ~5-6 soat)')}>
-              {busy ? t('Boshlanmoqda…') : t('Kuchaytirilgan sinxron')}
+              title={t('Sudyasi yo‘q har bir sud ishi detali qayta olinadi — ro‘yxat tugaguncha (8 s da bittadan)')}>
+              {busy ? t('Boshlanmoqda…') : t('Sudyalarni topish')}
             </button>
           ) : (
             <div className="flex items-center gap-1.5">
               <button type="button" onClick={() => call('stop')} disabled={busy}
                 className="btn-ghost shrink-0 whitespace-nowrap px-2.5 py-1.5 text-xs text-rose-600 disabled:opacity-60 dark:text-rose-300"
-                title={t('Keyingi firma oldidan to‘xtaydi')}>
+                title={t('Keyingi ish oldidan to‘xtaydi')}>
                 {t('To‘xtatish')}
               </button>
               <button type="button" onClick={() => call('restart')} disabled={busy}
                 className="btn-ghost shrink-0 whitespace-nowrap px-2.5 py-1.5 text-xs disabled:opacity-60"
-                title={t('Turib qolgan bo‘lsa — qulfni tozalab yangidan boshlaydi')}>
+                title={t('Joriy yurish tugagach ro‘yxat boshidan qayta tekshiriladi')}>
                 {t('Qayta boshlash')}
               </button>
             </div>

@@ -28,20 +28,12 @@ const detailCursor = new Map<string, number>();
 // kuni soatlab 4 soniyada bittadan so'rov yuboradi va hech qachon bloklanmagan.
 // Shuning uchun 8 soniya: dvigateldan IKKI BAROBAR sekinroq, lekin 3 173 ta ishni
 // ~7 soatda emas, kerakli qismini ~1 soatda o'tadi.
-const DETAIL_FETCH_INTERVAL_MS = Number(process.env.CABINET_DETAIL_GAP_MS) || 8_000;
+export const DETAIL_FETCH_INTERVAL_MS = Number(process.env.CABINET_DETAIL_GAP_MS) || 8_000;
 
 export interface DetailResult { total: number; fetched: number; withPinfl: number; failed: number }
 
-export async function ingestCabinetDetails(
-  session: CabinetSession, branchCode: string,
-  opts: {
-    /** Shu partiyada eng ko'pi shuncha ish olinadi (worker sikli uchun). */
-    limit?: number;
-    /** Allaqachon aniq bog'langan yoki detali olingan ishlarni qayta so'ramaslik. */
-    onlyUnresolved?: boolean;
-  } = {},
-): Promise<DetailResult> {
-  // re-pull the list to get case_id (the detail key) alongside our stored caseNumber
+/** Firma ro'yxatlarini qayta o'qib, har ish uchun detal kaliti (case_id) ni qaytaradi. */
+export async function listCabinetCaseIds(session: CabinetSession): Promise<{ caseId: string; caseNumber: string }[]> {
   const cases: { caseId: string; caseNumber: string }[] = [];
   const seen = new Set<string>();
   for (const cat of CATS) for (const list of LISTS) {
@@ -56,6 +48,64 @@ export async function ingestCabinetDetails(
       }
     } catch { /* one flaky list endpoint must not abort the whole ingest */ }
   }
+  return cases;
+}
+
+/**
+ * Bitta ishning detal javobini yozadi (javobgar PINFL'i, manzil, pasport, sudya). Detalga
+ * `_checkedAt` belgisi qo'yiladi — sudya sinxroni shu bo'yicha «yaqinda tekshirilgan» ishni qayta
+ * so'ramaydi va ro'yxat oxiriga yetadi. Qaytaradi: {pinfl, judge} yoki null (javob detal emas).
+ */
+export async function applyCaseDetail(
+  branchCode: string, caseNumber: string, d: any, snapId: number | null,
+): Promise<{ pinfl: string | null; judge: string | null } | null> {
+  if (!d || !d.participants) return null;
+  const defs = (d.participants || []).filter((p: any) => p?.participant?.type === 'DEFENDANT');
+  const main = defs.find((p: any) => p?.participant?.is_main) ?? defs[0];
+  const pinfl = main?.entity?.pinfl ? String(main.entity.pinfl) : null;
+  const det = main?.entity_details ?? {};
+  const address = det.address ?? det.mailing_address ?? null;
+  const passport = det.passport_serial || det.passport_number ? `${det.passport_serial ?? ''}${det.passport_number ?? ''}` : null;
+  // link exactly to our portfolio client by that pinfl (confirm it's ours)
+  let ourPinfl: string | null = null;
+  let inPortfolio = false;
+  if (pinfl && snapId) {
+    const loan = await prisma.loan.findFirst({ where: { snapshotId: snapId, branchCode, pinfl }, select: { pinfl: true } });
+    inPortfolio = !!loan;
+    ourPinfl = loan?.pinfl ?? pinfl; // keep the real defendant pinfl even if not in portfolio
+  }
+  const judge = (d.chairman ?? d.responsible_judge ?? null) || null;
+  await prisma.clientCaseStatus.updateMany({
+    // `branchCode` SHART: sud ish raqami akkauntlar bo'ylab yagona emas, ya'ni
+    // usiz bitta firmaning detali BOSHQA firmaning yozuvini ustiga yozib yuboradi
+    // (javobgar PINFL'i, manzili, sudyasi bilan birga). Yuqoridagi «hal qilinganlar»
+    // so'rovi allaqachon branchCode bilan cheklangan edi — yozuv esa emas.
+    where: { source: 'CABINET', branchCode, caseNumber },
+    data: {
+      pinfl: ourPinfl ?? pinfl ?? undefined,
+      // Claim a confirmed PINFL match ONLY when the defendant is actually in OUR
+      // portfolio — a raw cabinet pinfl not among our clients is UNMATCHED, not a match.
+      matchedBy: pinfl ? (inPortfolio ? 'PINFL' : 'UNMATCHED') : undefined,
+      defAddress: address, defPassport: passport,
+      judge,
+      registryDt: toDate(d.registry_dt), hearingDate: toDate(d.hearing_date),
+      detail: { ...d, _checkedAt: new Date().toISOString() } as any,
+    },
+  });
+  return { pinfl, judge };
+}
+
+export async function ingestCabinetDetails(
+  session: CabinetSession, branchCode: string,
+  opts: {
+    /** Shu partiyada eng ko'pi shuncha ish olinadi (worker sikli uchun). */
+    limit?: number;
+    /** Allaqachon aniq bog'langan yoki detali olingan ishlarni qayta so'ramaslik. */
+    onlyUnresolved?: boolean;
+  } = {},
+): Promise<DetailResult> {
+  // re-pull the list to get case_id (the detail key) alongside our stored caseNumber
+  const cases = await listCabinetCaseIds(session);
 
   // FAQAT HAL QILINMAGANLARNI olamiz.
   //
@@ -144,45 +194,9 @@ export async function ingestCabinetDetails(
     const c = pending[idx];
     try {
       const r = await cabinetFetch(session, `/api/cabinet/case/get-one-case-by-id/${c.caseId}`);
-      const d: any = r.json ?? {};
-      if (!d || !d.participants) { res.failed++; }
-      else {
-        res.fetched++;
-
-        const defs = (d.participants || []).filter((p: any) => p?.participant?.type === 'DEFENDANT');
-        const main = defs.find((p: any) => p?.participant?.is_main) ?? defs[0];
-        const pinfl = main?.entity?.pinfl ? String(main.entity.pinfl) : null;
-        const det = main?.entity_details ?? {};
-        const address = det.address ?? det.mailing_address ?? null;
-        const passport = det.passport_serial || det.passport_number ? `${det.passport_serial ?? ''}${det.passport_number ?? ''}` : null;
-        // link exactly to our portfolio client by that pinfl (confirm it's ours)
-        let ourPinfl: string | null = null;
-        let inPortfolio = false;
-        if (pinfl && snap) {
-          const loan = await prisma.loan.findFirst({ where: { snapshotId: snap.id, branchCode, pinfl }, select: { pinfl: true } });
-          inPortfolio = !!loan;
-          ourPinfl = loan?.pinfl ?? pinfl; // keep the real defendant pinfl even if not in portfolio
-        }
-        if (pinfl) res.withPinfl++;
-
-        await prisma.clientCaseStatus.updateMany({
-          // `branchCode` SHART: sud ish raqami akkauntlar bo'ylab yagona emas, ya'ni
-          // usiz bitta firmaning detali BOSHQA firmaning yozuvini ustiga yozib yuboradi
-          // (javobgar PINFL'i, manzili, sudyasi bilan birga). Yuqoridagi «hal qilinganlar»
-          // so'rovi allaqachon branchCode bilan cheklangan edi — yozuv esa emas.
-          where: { source: 'CABINET', branchCode, caseNumber: c.caseNumber },
-          data: {
-            pinfl: ourPinfl ?? pinfl ?? undefined,
-            // Claim a confirmed PINFL match ONLY when the defendant is actually in OUR
-            // portfolio — a raw cabinet pinfl not among our clients is UNMATCHED, not a match.
-            matchedBy: pinfl ? (inPortfolio ? 'PINFL' : 'UNMATCHED') : undefined,
-            defAddress: address, defPassport: passport,
-            judge: d.chairman ?? d.responsible_judge ?? null,
-            registryDt: toDate(d.registry_dt), hearingDate: toDate(d.hearing_date),
-            detail: d as any,
-          },
-        });
-      }
+      const applied = await applyCaseDetail(branchCode, c.caseNumber, r.json ?? {}, snap?.id ?? null);
+      if (!applied) res.failed++;
+      else { res.fetched++; if (applied.pinfl) res.withPinfl++; }
     } catch { res.failed++; }
     if (idx < pending.length - 1) await sleep(DETAIL_FETCH_INTERVAL_MS);
   }

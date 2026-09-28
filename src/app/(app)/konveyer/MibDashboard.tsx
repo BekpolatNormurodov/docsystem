@@ -39,6 +39,7 @@ interface Enriched extends ClientRow {
   region2: string;
   depts: string[];
   banks: string[];
+  judges: string[];
   ourFirms: string[];
   firmKeys: string[];
   ours: boolean;
@@ -50,29 +51,32 @@ function enrich(c: ClientRow): Enriched {
   // depts/banks/firmKeys — breakdown rowKey bilan BIR XIL (bo'sh → «Aniqlanmagan»), aks holda kesim
   // qatorini bosганда filtr mos kelmay «Filtrga mos mijoz yo'q» chiqardi (2026-09-17). ourFirms — faqat
   // bizniki (dropdown + «bizniki» belgisi uchun); firmKeys — HAMMA kesim yorlig'i (kesimni bosish uchun).
-  const depts = new Set<string>(), banks = new Set<string>(), ourFirms = new Set<string>(), firmKeys = new Set<string>();
+  const depts = new Set<string>(), banks = new Set<string>(), judges = new Set<string>(), ourFirms = new Set<string>(), firmKeys = new Set<string>();
   let remainingSum = 0, ours = false;
   for (const k of c.cases) {
     depts.add(clean(k.executorDept) || UNKNOWN);
     banks.add(normalizeBank(k.bankName) || UNKNOWN);
+    judges.add(clean(k.judge) || UNKNOWN);
     firmKeys.add(k.firmName ? shortFirm(k.firmName) : OTHER_FIRM);
     if (k.isTargetFirm && k.firmName) { ours = true; ourFirms.add(shortFirm(k.firmName)); }
     remainingSum += parseMoney(k.remainingDebt);
   }
   const hay = [c.pinfl, c.fio2, c.fio, c.firm, c.ishRaqami, ...c.cases.map((k) => k.workNumber)].filter(Boolean).join(' ').toLowerCase();
-  return { ...c, region2: regionOf(c) ?? UNKNOWN, depts: [...depts], banks: [...banks], ourFirms: [...ourFirms], firmKeys: [...firmKeys], ours, remainingSum, caseCount: c.cases.length, hay };
+  return { ...c, region2: regionOf(c) ?? UNKNOWN, depts: [...depts], banks: [...banks], judges: [...judges], ourFirms: [...ourFirms], firmKeys: [...firmKeys], ours, remainingSum, caseCount: c.cases.length, hay };
 }
 
 type Tab = 'mijozlar' | Dim;
-// Kesim (region/hudud/bank/firma) OLDINDA — default «Region»; «Mijozlar» ro'yxati oxirida.
+// Kesim (region/hudud/sudya/bank/firma) OLDINDA — default «Region»; «Mijozlar» ro'yxati oxirida.
 const TABS: { key: Tab; label: string }[] = [
-  { key: 'region', label: 'Region' }, { key: 'hudud', label: 'Hudud (MIB)' }, { key: 'bank', label: 'Bank' },
-  { key: 'firma', label: 'Firma' }, { key: 'mijozlar', label: 'Mijozlar' },
+  { key: 'region', label: 'Region' }, { key: 'hudud', label: 'Hudud (MIB)' }, { key: 'sudya', label: 'Sudya' },
+  { key: 'bank', label: 'Bank' }, { key: 'firma', label: 'Firma' }, { key: 'mijozlar', label: 'Mijozlar' },
 ];
 const PAGE_SIZES = [25, 50, 100];
 type Own = 'all' | 'ours' | 'others'; // Hammasi / Bizga tegishli / Bizga tegishli emas
-const emptyFilters = { q: '', region: '', dept: '', bank: '', firm: '', own: 'all' as Own };
+const emptyFilters = { q: '', region: '', dept: '', judge: '', bank: '', firm: '', own: 'all' as Own };
 type Filters = typeof emptyFilters;
+// Kesim tabi → uni filtrlaydigan maydon (kesim qatorini bosganda).
+const FILTER_KEY: Record<Dim, 'region' | 'dept' | 'judge' | 'bank' | 'firm'> = { region: 'region', hudud: 'dept', sudya: 'judge', bank: 'bank', firma: 'firm' };
 
 // ── component ────────────────────────────────────────────────────────────────
 export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged, clientHrefBase, aggregate = false }: {
@@ -129,15 +133,16 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
 
   const opts = useMemo(() => {
     const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
-    const R = new Map<string, number>(), D = new Map<string, number>(), B = new Map<string, number>(), F = new Map<string, number>();
+    const R = new Map<string, number>(), D = new Map<string, number>(), J = new Map<string, number>(), B = new Map<string, number>(), F = new Map<string, number>();
     for (const c of enriched) {
       if (c.region2) bump(R, c.region2);
       for (const d of c.depts) bump(D, d);
+      for (const j of c.judges) bump(J, j);
       for (const b of c.banks) bump(B, b);
       for (const f of c.ourFirms) bump(F, f);
     }
     const sort = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-    return { regions: sort(R), depts: sort(D), banks: sort(B), firms: sort(F) };
+    return { regions: sort(R), depts: sort(D), judges: sort(J), banks: sort(B), firms: sort(F) };
   }, [enriched]);
 
   const filtered = useMemo(() => {
@@ -146,6 +151,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
       (!q || c.hay.includes(q)) &&
       (!filters.region || c.region2 === filters.region) &&
       (!filters.dept || c.depts.includes(filters.dept)) &&
+      (!filters.judge || c.judges.includes(filters.judge)) &&
       (!filters.bank || c.banks.includes(filters.bank)) &&
       (!filters.firm || c.firmKeys.includes(filters.firm)) &&
       (filters.own === 'all' || (filters.own === 'ours' ? c.ours : !c.ours)),
@@ -178,12 +184,11 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   const pageClamped = Math.min(page, totalPages);
   const pageRows = filtered.slice((pageClamped - 1) * pageSize, pageClamped * pageSize);
 
-  const anyFilter = !!(filters.q || filters.region || filters.dept || filters.bank || filters.firm || filters.own !== 'all');
+  const anyFilter = !!(filters.q || filters.region || filters.dept || filters.judge || filters.bank || filters.firm || filters.own !== 'all');
   const setF = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
   const jumpFilter = (dim: Dim, label: string) => {
-    const key = dim === 'region' ? 'region' : dim === 'hudud' ? 'dept' : dim === 'bank' ? 'bank' : 'firm';
-    const cur = filters[key as 'region' | 'dept' | 'bank' | 'firm'];
-    setF({ [key]: cur === label ? '' : label } as Partial<Filters>);
+    const key = FILTER_KEY[dim];
+    setF({ [key]: filters[key] === label ? '' : label } as Partial<Filters>);
     setTab('mijozlar');
   };
   // Standalone — alohida to'liq sahifa; konveyer modal — ichki ko'rinish.
@@ -353,6 +358,9 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
         <Kpi wide accent label={t('shundan bizning qoldiq qarz (soʻm)')} value={som(oursDebt)} icon={<Ico.receipt size={18} />} />
       </div>
 
+      {/* ── Sudyalar — har bir bizniki ijro ishining sudyasi (MIB'dan keyin, cabinet orqali) ──── */}
+      {pulled && <MibJudgesCard reportId={aggregate ? 0 : reportId} onProgress={load} />}
+
       {built && !pulled && !report.autoRun && (
         <div className="rounded-xl border border-dashed border-line bg-surface-2/40 px-4 py-3 text-sm text-muted">
           {t('Ijro ishlari hali mib.uz dan tortilmagan.')} <b className="text-fg">GO</b> {t('bosilsa har mijoz ketma-ket tekshiriladi — region / hudud / bank kesimlari va summalar shundan keyin toʻladi.')}
@@ -368,6 +376,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
           </label>
           <FilterSelect label={t('Region')} value={filters.region} onChange={(v) => setF({ region: v })} options={opts.regions} />
           <FilterSelect label={t('Hudud (MIB boʻlimi)')} value={filters.dept} onChange={(v) => setF({ dept: v })} options={opts.depts} wide />
+          <FilterSelect label={t('Sudya')} value={filters.judge} onChange={(v) => setF({ judge: v })} options={opts.judges} wide />
           <FilterSelect label={t('Bank')} value={filters.bank} onChange={(v) => setF({ bank: v })} options={opts.banks} wide />
           <FilterSelect label={t('Firma')} value={filters.firm} onChange={(v) => setF({ firm: v })} options={opts.firms} />
           <div className="shrink-0">
@@ -466,7 +475,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
             {filtered.length > 0 && <Pager page={pageClamped} totalPages={totalPages} total={filtered.length} pageSize={pageSize} onPage={setPage} onPageSize={setPageSize} />}
           </>
         ) : (
-          <BreakdownTable rows={breakdown} dim={tab} activeLabel={filters[tab === 'region' ? 'region' : tab === 'hudud' ? 'dept' : tab === 'bank' ? 'bank' : 'firm']} onPick={(label) => jumpFilter(tab, label)} />
+          <BreakdownTable rows={breakdown} dim={tab} activeLabel={filters[FILTER_KEY[tab]]} onPick={(label) => jumpFilter(tab, label)} />
         )}
       </div>
 
@@ -482,7 +491,7 @@ type BRow = { label: string; cases: number; clients: number; ours: number; debt:
 function BreakdownTable({ rows, dim, activeLabel, onPick }: { rows: BRow[]; dim: Dim; activeLabel: string; onPick: (label: string) => void }) {
   const t = useT();
   const [showOthers, setShowOthers] = useState(false);
-  const head = dim === 'firma' ? t('Firma') : dim === 'region' ? t('Region') : dim === 'hudud' ? t('Hudud (MIB boʻlimi)') : t('Bank');
+  const head = dim === 'firma' ? t('Firma') : dim === 'region' ? t('Region') : dim === 'hudud' ? t('Hudud (MIB boʻlimi)') : dim === 'sudya' ? t('Sudya') : t('Bank');
   const totals = rows.reduce((a, r) => ({ cases: a.cases + r.cases, ours: a.ours + r.ours, debt: a.debt + r.debt }), { cases: 0, ours: 0, debt: 0 });
   if (rows.length === 0) return <p className="px-4 py-10 text-center text-sm text-muted">{t('Maʼlumot yoʻq — GO bosib tekshiring yoki filtrni oʻzgartiring.')}</p>;
 
@@ -745,6 +754,92 @@ function LiveProgressCard({
         @keyframes mibStripes { 0% { transform: translateX(0); } 100% { transform: translateX(20px); } }
         @keyframes mibShimmer { 0% { transform: translateX(0); } 100% { transform: translateX(400%); } }
       `}</style>
+    </div>
+  );
+}
+
+// ── SUDYALAR KARTASI — har bir bizniki ijro ishining sudyasi. Sud hujjat raqami cabinet'dagi sud ishiga
+// bog'lanadi; sudyasi yo'q ishlarni worker oxirigacha tortadi (src/lib/cabinet/judge-sync.ts). MIB run
+// tugagach o'zi navbatga tushadi; bu tugma — qo'lda (shu hisobot ishlari birinchi). ─────────────────
+interface JudgeCov {
+  ours: number; linked: number; withJudge: number; running: boolean; queued: boolean; retryAt: string | null;
+  progress: { total: number; done: number; found: number; failed: number; firm: string | null };
+  note: string | null;
+}
+function MibJudgesCard({ reportId, onProgress }: { reportId: number; onProgress: () => void | Promise<void> }) {
+  const t = useT();
+  const [cov, setCov] = useState<JudgeCov | null>(null);
+  const [busy, setBusy] = useState(false);
+  const lastFound = useRef(-1);
+  const active = !!cov && (cov.running || cov.queued);
+
+  const poll = useCallback(async () => {
+    const d = await jget(`/api/mib/${reportId}/judges`);
+    if (typeof d?.ours !== 'number') return;
+    setCov(d);
+    // Yangi sudyalar topilsa — jadval/kesimlar ham yangilansin.
+    if (d.running && d.progress.found !== lastFound.current) {
+      if (lastFound.current >= 0) void onProgress();
+      lastFound.current = d.progress.found;
+    }
+  }, [reportId, onProgress]);
+  useEffect(() => { void poll(); }, [poll]);
+  useEffect(() => { const id = setInterval(() => void poll(), active ? 30_000 : 120_000); return () => clearInterval(id); }, [active, poll]);
+
+  const start = async () => { setBusy(true); await jpost(`/api/mib/${reportId}/judges`); await poll(); setBusy(false); };
+  if (!cov || cov.ours === 0) return null;
+  const pct = Math.min(100, Math.round((cov.withJudge / cov.ours) * 100));
+  const missing = Math.max(0, cov.ours - cov.withJudge);
+  const pr = cov.progress;
+  const livePct = pr.total > 0 ? Math.min(100, Math.round((pr.done / pr.total) * 100)) : 0;
+
+  return (
+    <div className="card p-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-500/10 text-brand-600 dark:text-brand-300"><Ico.judge size={20} /></span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-x-2 text-sm">
+            <span className="font-semibold">{t('Sudyalar')}</span>
+            <span className="text-muted">{t('har bir bizniki ijro ishi boʻyicha')}</span>
+          </div>
+          <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-xs">
+            <span className="text-muted">{t('Sudya topildi')}:</span>
+            <b className="tabular-nums">{n(cov.withJudge)} / {n(cov.ours)}</b>
+            <span className="tabular-nums text-brand-600 dark:text-brand-300">({pct}%)</span>
+            {missing > 0 && <><span className="text-muted">·</span><span className="text-muted">{t('qolgan')}:</span><b className="tabular-nums">{n(missing)}</b></>}
+          </div>
+          <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
+            <div className="h-full rounded-full bg-brand-500 transition-all" style={{ width: `${pct}%` }} />
+          </div>
+        </div>
+        {!active ? (
+          <button type="button" className="btn-primary shrink-0 whitespace-nowrap text-sm disabled:opacity-60" disabled={busy || missing === 0} onClick={start}
+            title={t('Sudyasi yoʻq ishlar cabinet’dan oxirigacha tortiladi (shu hisobot ishlari birinchi)')}>
+            {busy ? <Spinner size={14} /> : <Ico.judge size={14} />} {missing === 0 ? t('Hammasi topilgan') : t('Sudyalarni topish')}
+          </button>
+        ) : null}
+      </div>
+      {cov.running && (
+        <div className="mt-3 rounded-lg border border-brand-500/25 bg-brand-500/[0.06] px-3 py-2 text-xs">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-brand-500" aria-hidden />
+            <span className="font-medium text-brand-700 dark:text-brand-300">{t('Sudyalar tortilmoqda — oxirigacha')}</span>
+            {pr.firm && <span className="text-muted">· {pr.firm}</span>}
+            <span className="tabular-nums text-muted">· <b className="text-fg">{n(pr.done)}</b> / {n(pr.total)} {t('tekshirildi')}</span>
+            <span className="tabular-nums text-muted">· {t('topildi')}: <b className="text-emerald-700 dark:text-emerald-300">{n(pr.found)}</b></span>
+          </div>
+          <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-surface-2">
+            <div className="h-full rounded-full bg-brand-500 transition-all" style={{ width: `${livePct}%` }} />
+          </div>
+        </div>
+      )}
+      {!cov.running && cov.queued && (
+        <div className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+          {cov.retryAt
+            ? <>{cov.note || t('Cabinet javob bermadi')} — {new Date(cov.retryAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} {t('da oʻzi davom etadi')}</>
+            : t('Navbatda — bir necha soniyada boshlanadi')}
+        </div>
+      )}
     </div>
   );
 }

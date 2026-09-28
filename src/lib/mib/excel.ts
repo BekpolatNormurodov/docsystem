@@ -7,21 +7,36 @@ import type { MibCase, MibClient, MibReport } from '@prisma/client';
 import { parseMoney } from './stats';
 import { groupBreakdown, regionFromText, clean, type Dim } from './breakdown';
 
-type ClientWithCases = MibClient & { cases: MibCase[] };
+// Ishlarga server sudya va sud ish raqamini qo'shadi (src/lib/mib/judges.ts, attachJudgesToClients).
+type CaseRowX = MibCase & { judge?: string | null; courtCaseNumber?: string | null };
+type ClientWithCases = MibClient & { cases: CaseRowX[] };
 
 const num = (s: string | null) => (s ? parseMoney(s) : 0);
-const txt = (s: string | null) => (s && s !== 'Nomaʼlum' ? s : '');
+const txt = (s: string | null | undefined) => (s && s !== 'Nomaʼlum' ? s : '');
 const UNK = 'Aniqlanmagan';
 
-const DIMS: Dim[] = ['firma', 'region', 'hudud', 'bank'];
-const DIM_SHEET: Record<Dim, string> = { firma: 'Firma boʻyicha', region: 'Region boʻyicha', hudud: 'Hudud (MIB)', bank: 'Bank boʻyicha' };
-const DIM_HEAD: Record<Dim, string> = { firma: 'Firma', region: 'Region', hudud: 'Hudud (MIB boʻlimi)', bank: 'Bank' };
+const DIMS: Dim[] = ['sudya', 'firma', 'region', 'hudud', 'bank'];
+const DIM_SHEET: Record<Dim, string> = { sudya: 'Sudya boʻyicha', firma: 'Firma boʻyicha', region: 'Region boʻyicha', hudud: 'Hudud (MIB)', bank: 'Bank boʻyicha' };
+const DIM_HEAD: Record<Dim, string> = { sudya: 'Sudya', firma: 'Firma', region: 'Region', hudud: 'Hudud (MIB boʻlimi)', bank: 'Bank' };
 
-// Kesim varag'i (Firma/Region/Bank) — 6 ustun: yorliq + hudud/region konteksti + son + summa. «Hudud»
-// uchun Region ustuni ham qo'shiladi (qaysi viloyat), «Region» uchun hudud/ijrochi soni.
+// Kesim varag'i (Firma/Region/Bank/Sudya) — yorliq + kontekst ustuni + son + summa. «Hudud» uchun
+// Region ustuni (qaysi viloyat), «Sudya» uchun Sud ustuni (sudya qaysi sudda) qo'shiladi.
 function addBreakdownSheet(wb: ExcelJS.Workbook, clients: ClientWithCases[], dim: Dim): void {
   const ws = wb.addWorksheet(DIM_SHEET[dim]);
-  const extra = dim === 'hudud' ? { header: 'Region', key: 'region', width: 18 } : null;
+  const extra = dim === 'hudud' ? { header: 'Region', key: 'region', width: 18 }
+    : dim === 'sudya' ? { header: 'Sud', key: 'court', width: 46 } : null;
+  // Sudya → eng ko'p uchragan sud nomi.
+  const courtOf = new Map<string, string>();
+  if (dim === 'sudya') {
+    const cnt = new Map<string, Map<string, number>>();
+    for (const c of clients) for (const k of c.cases) {
+      const j = clean(k.judge), court = txt(k.courtOrgan);
+      if (!j || !court) continue;
+      const m = cnt.get(j) ?? new Map<string, number>();
+      m.set(court, (m.get(court) ?? 0) + 1); cnt.set(j, m);
+    }
+    for (const [j, m] of cnt) courtOf.set(j, [...m.entries()].sort((a, b) => b[1] - a[1])[0]![0]);
+  }
   ws.columns = [
     { header: DIM_HEAD[dim], key: 'label', width: 46 },
     ...(extra ? [extra] : []),
@@ -35,7 +50,8 @@ function addBreakdownSheet(wb: ExcelJS.Workbook, clients: ClientWithCases[], dim
   const totalDebt = rows.reduce((a, r) => a + r.debt, 0) || 1;
   for (const r of rows) {
     const row: Record<string, unknown> = { label: r.label, cases: r.cases, ours: r.ours, clients: r.clients, share: Math.round((r.debt / totalDebt) * 1000) / 10, debt: r.debt };
-    if (extra) row.region = regionFromText(r.label) ?? (r.label === UNK ? UNK : ''); // hudud → qaysi viloyat
+    if (dim === 'hudud') row.region = regionFromText(r.label) ?? (r.label === UNK ? UNK : ''); // hudud → qaysi viloyat
+    if (dim === 'sudya') row.court = courtOf.get(r.label) ?? '';
     ws.addRow(row);
   }
   const t = rows.reduce((a, r) => ({ cases: a.cases + r.cases, ours: a.ours + r.ours, debt: a.debt + r.debt }), { cases: 0, ours: 0, debt: 0 });
@@ -145,6 +161,8 @@ export async function buildMibExcel(
     { header: 'Undiruvchi (firma)', key: 'firm', width: 40 },
     { header: 'INN', key: 'inn', width: 14 },
     { header: 'Sud organi', key: 'court', width: 40 },
+    { header: 'Sud ish raqami', key: 'courtcase', width: 20 },
+    { header: 'Sudya', key: 'judge', width: 32 },
     { header: 'Hujjat turi', key: 'doctype', width: 16 },
     { header: 'Hujjat raqami', key: 'docnum', width: 24 },
     { header: 'Hujjat sanasi', key: 'docdate', width: 14 },
@@ -171,7 +189,8 @@ export async function buildMibExcel(
       const dec = Array.isArray(k.decisions) ? (k.decisions as { article: string; date: string }[]).map((d) => `${d.article} (${d.date})`).join('; ') : '';
       s2.addRow({
         no: c.rowNo ?? '', pinfl: c.pinfl, fio: fullName, work: k.workNumber,
-        firm: txt(k.firmName), inn: txt(k.firmInn), court: txt(k.courtOrgan), doctype: txt(k.courtDocType), docnum: txt(k.courtDocNumber),
+        firm: txt(k.firmName), inn: txt(k.firmInn), court: txt(k.courtOrgan), courtcase: txt(k.courtCaseNumber), judge: txt(k.judge),
+        doctype: txt(k.courtDocType), docnum: txt(k.courtDocNumber),
         docdate: txt(k.courtDocDate), eff: txt(k.courtEffectiveDate), exec: txt(k.executorName), execphone: txt(k.executorPhone), dept: txt(k.executorDept),
         received: txt(k.mibReceivedDate), initiated: txt(k.mibInitiatedDate),
         total: num(k.totalAmount), main: num(k.mainDebt), fee: num(k.executionFee), fine: num(k.fine), remaining: num(k.remainingDebt),

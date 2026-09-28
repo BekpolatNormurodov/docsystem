@@ -167,6 +167,9 @@ function CaseBig({ c }: { c: CaseRow }) {
       {c.error && <div className="mb-2 text-xs text-rose-500">{c.error}</div>}
       <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
         <Field l={t('Sud organi')} v={val(c.courtOrgan)} span />
+        {c.isTargetFirm && (
+          <Field l={t('Sudya')} v={c.judge ? `${c.judge}${c.courtCaseNumber ? ' · ' + c.courtCaseNumber : ''}` : c.courtCaseNumber ? `${t('hali aniqlanmagan')} · ${c.courtCaseNumber}` : '—'} span />
+        )}
         <Field l={t('Hujjat')} v={`${val(c.courtDocType)}${c.courtDocNumber && c.courtDocNumber !== 'Nomaʼlum' ? ' № ' + c.courtDocNumber : ''}`} />
         <Field l={t('Hujjat sanasi')} v={val(c.courtDocDate)} />
         <Field l={t('Kuchga kirgan')} v={val(c.courtEffectiveDate)} />

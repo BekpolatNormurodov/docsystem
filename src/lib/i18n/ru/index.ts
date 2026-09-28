@@ -11,6 +11,7 @@ import { sudShell } from './sud-shell';
 import { sudReturns } from './sud-returns';
 import { sudSend } from './sud-send';
 import { sudSendApi } from './sud-send-api';
+import { judges } from './judges';
 
 const SECTIONS: Record<string, string>[] = [
   app,      // avto-generatsiya (workflow) — sayt UI
@@ -19,6 +20,7 @@ const SECTIONS: Record<string, string>[] = [
   filenames, // yuklab olinadigan hisobot/eksport fayllari nomlari
   courtResult, // sud natijasi (court-result.ts) yorliq/izoh/tavsiya
   sudShell, sudReturns, sudSend, sudSendApi, // /sud 3 tab (2026-09-19): qobiq · qaytganlar · sudga o'tkazish (UI + API)
+  judges,   // sudya sinxroni (Hisobot «Sudyalar» + MIB «Sudyalarni topish»), 2026-09-28
   common,   // qo'lda yozilgan umumiy (ustun — app'dagini bekor qiladi)
 ];
 

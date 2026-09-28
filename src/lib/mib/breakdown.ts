@@ -10,6 +10,7 @@ export interface BCase {
   firmName: string | null;
   isTargetFirm: boolean;
   remainingDebt: string | null;
+  judge?: string | null; // cabinet'dagi sud ishidan (src/lib/mib/judges.ts) — server qo'shadi
 }
 export interface BClient {
   id: number;
@@ -17,7 +18,7 @@ export interface BClient {
   cases: BCase[];
 }
 
-export type Dim = 'firma' | 'region' | 'hudud' | 'bank';
+export type Dim = 'firma' | 'region' | 'hudud' | 'bank' | 'sudya';
 export interface BRow { label: string; cases: number; clients: number; ours: number; debt: number }
 
 export const parseMoney = (s: string | null | undefined): number => {
@@ -126,6 +127,7 @@ export function rowKey(c: BClient, k: BCase, dim: Dim): string {
   if (dim === 'firma') return k.firmName ? shortFirm(k.firmName) : OTHER_FIRM;
   if (dim === 'region') return regionOf(c) ?? UNKNOWN;
   if (dim === 'hudud') return clean(k.executorDept) || UNKNOWN;
+  if (dim === 'sudya') return clean(k.judge) || UNKNOWN;
   return normalizeBank(k.bankName) || UNKNOWN;
 }
 
