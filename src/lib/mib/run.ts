@@ -138,7 +138,8 @@ export async function runMibReportJob(jobId: number): Promise<void> {
       await prisma.mibClient.update({ where: { id: clientId }, data: { status: 'PENDING', error: `SMS kelmadi — qayta urinadi (${attemptNo}/${MAX_SMS_ATTEMPTS})` } });
       log(`report ${reportId}: PINFL ${pinfl} → SMS kelmadi, qayta navbatga (${attemptNo}/${MAX_SMS_ATTEMPTS})`);
     } else {
-      await prisma.mibClient.update({ where: { id: clientId }, data: { status: 'DONE', checkedAt: new Date() } });
+      // Oldingi urinishdagi «qayta urinadi (n/3)» xatosi qolib ketmasin — sahifa «to'xtab qolgan» ko'rinardi.
+      await prisma.mibClient.update({ where: { id: clientId }, data: { status: 'DONE', checkedAt: new Date(), error: bad ? 'Baʼzi SMS kelmadi — detal toʻliq emas' : null } });
       log(`report ${reportId}: PINFL ${pinfl} → ${m.cases} ijro (${m.ours} bizniki, ${m.other} boshqa)${bad ? ` — ba'zi SMS kelmadi` : ''}`);
     }
     remaining.delete(clientId); smsBad.delete(clientId); cliAttempt.delete(clientId); cliMeta.delete(clientId);
@@ -290,7 +291,13 @@ export async function runMibReportJob(jobId: number): Promise<void> {
       while (inflight.length < SMS_WINDOW && !noMore && (await stillRunning(reportId))) {
         if (!(await searchAndQueue())) { noMore = true; break; }
       }
-      if (inflight.length === 0) break; // hech narsa qolmadi
+      if (inflight.length === 0) {
+        // SMS kelmagan mijoz finalizeClient'da qayta PENDING bo'ladi — bu `noMore`dan KEYIN sodir bo'lishi
+        // mumkin. Tekshirmasak run oxiridagi qayta urinishlar hech qachon bajarilmay «Toʻxtatildi» bo'lardi
+        // (2026-09-28: BEKTOSHEV 1/3 da qolib ketdi). Urinishlar MAX_SMS_ATTEMPTS bilan cheklangan — cheksiz emas.
+        if (noMore && (await prisma.mibClient.count({ where: { reportId, status: 'PENDING' } })) > 0) { noMore = false; continue; }
+        break; // hech narsa qolmadi
+      }
       await drainOldest();
       if (!(await stillRunning(reportId))) break;
       if (cfg.intervalSec > 0) await sleep(Math.min(cfg.intervalSec, 5) * 1000); // yengil oraliq
