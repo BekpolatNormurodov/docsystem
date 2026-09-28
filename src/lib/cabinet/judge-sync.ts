@@ -152,6 +152,9 @@ export async function runJudgeSync(opts: {
     try {
       session = await opts.sessionFor(f.stir);
       idByNumber = new Map((await listCabinetCaseIds(session)).map((c) => [c.caseNumber, c.caseId]));
+      // Ro'yxat BO'SH — cabinet'ga ulanib bo'lmadi (egress/tunnel o'chgan, 2026-09-28). Bu holatda ishlarni
+      // «portalda yo'q» deb BELGILAMAYMIZ — aks holda sudyalar 3 kun tortilmay qolardi. Firma xato hisoblanadi.
+      if (idByNumber.size === 0) throw new Error('cabinet ro\'yxati bo\'sh — ulanish yo\'q');
     } catch (e) {
       opts.log(`[sudya] ${f.name}: sessiya/ro'yxat xatosi — ${(e as Error).message?.slice(0, 120)}`);
       await beat({ failed: st.failed + mine.length, done: st.done + mine.length });
