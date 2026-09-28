@@ -8,8 +8,8 @@ import { FIRMS } from '../lib/firms';
 import { getStoredCabinetSession } from '../lib/cabinet/session';
 import { ingestCabinetDetails } from '../lib/cabinet/detail-ingest';
 import {
-  runJudgeSync, readJudgeState, writeJudgeState, requestJudgeSync, requestMibJudgeSync, readMibJudgeRequest,
-  JUDGE_SYNC_REQUEST, JUDGE_SYNC_REQUEST_MIB, JUDGE_SYNC_STOP,
+  runJudgeSync, readJudgeState, writeJudgeState, requestJudgeSync,
+  JUDGE_SYNC_REQUEST, JUDGE_SYNC_STOP, JUDGE_SCHEDULE_MS,
 } from '../lib/cabinet/judge-sync';
 import { ingestCabinetStatuses } from '../lib/cabinet/status-ingest';
 import { SessionExpiredError } from '../lib/session-store';
@@ -511,79 +511,57 @@ async function courtDetailSyncLoop(): Promise<void> {
 }
 
 // ── SUDYA SINXRONI (oxirigacha) ─────────────────────────────────────────────────────────
-// Ikki navbat (src/lib/cabinet/judge-sync.ts):
-//   • MIB (`judge_sync_request_mib`) — MIB hisoboti «Sudyalarni topish» / MIB run tugagach: FAQAT o'sha
-//     hisobot ishlari, alohida va tez tugaydi. USTUN: kelsa umumiy yurish pauza qiladi.
-//   • Umumiy (`judge_sync_request`) — Hisobot «Sudyalar» paneli: barcha sudga tushgan ishlar, oxirigacha.
-// Worker restart bo'lsa — uzilgan yurish qayta navbatga qo'yiladi (davom etadi). Cabinet javob bermasa
-// 30 daqiqadan keyin o'zi qayta urinadi.
+// Hisobot «Sudyalar» paneli va MIB «Sudyalarni topish» `judge_sync_request` qo'yadi; bu sikl uni
+// oladi va ro'yxat TUGAGUNCHA ishlaydi (src/lib/cabinet/judge-sync.ts). Worker restart bo'lsa —
+// holat «running» qolgan bo'ladi, shu sabab boshlanishda so'rov qayta qo'yiladi (davom etadi).
+// Cabinet javob bermay to'xtasa, 30 daqiqadan keyin o'zi qayta urinadi.
 const JUDGE_POLL_MS = 15_000;
 const JUDGE_RETRY_MS = 30 * 60_000;
-const isDue = (retryAt?: string | null) => !retryAt || new Date(retryAt).getTime() <= Date.now();
-
-type JudgeJob = { kind: 'mib'; ids: number[] } | { kind: 'all'; mibReportId: number | null };
-async function requeueJudge(job: JudgeJob, retryAt: Date | null): Promise<void> {
-  if (job.kind === 'mib') for (const id of job.ids) await requestMibJudgeSync(id, retryAt);
-  else await requestJudgeSync(job.mibReportId, retryAt);
-}
-async function mibJudgeDue(): Promise<boolean> {
-  const r = await readMibJudgeRequest().catch(() => null);
-  return !!r && isDue(r.retryAt);
-}
 
 async function judgeSyncLoop(): Promise<void> {
   const prev = await readJudgeState().catch(() => null);
   if (prev?.running) {
     await writeJudgeState({ ...prev, running: false, note: 'worker qayta ishga tushdi — davom ettiriladi' }).catch(() => {});
-    await requeueJudge(prev.scope === 'mib' ? { kind: 'mib', ids: prev.mibReportIds.length ? prev.mibReportIds : [0] } : { kind: 'all', mibReportId: prev.mibReportId ?? null }, null).catch(() => {});
+    await requestJudgeSync(prev.mibReportId ?? null).catch(() => {});
     console.log('[worker] sudya sinxroni: uzilgan edi — qayta navbatga qo\'yildi');
+  } else if (!(await prisma.setting.findUnique({ where: { key: JUDGE_SYNC_REQUEST }, select: { value: true } }).catch(() => null))?.value) {
+    // Navbat bo'sh — avtomatik rejim: darhol bitta yurish (keyin har JUDGE_SCHEDULE_MS da o'zi).
+    await requestJudgeSync(null).catch(() => {});
   }
   while (!stopping) {
     await new Promise((r) => setTimeout(r, JUDGE_POLL_MS));
     if (stopping) break;
-    // MIB navbati birinchi; keyin umumiy.
-    let job: JudgeJob | null = null;
-    const mibReq = await readMibJudgeRequest().catch(() => null);
-    if (mibReq && isDue(mibReq.retryAt)) job = { kind: 'mib', ids: mibReq.reportIds };
-    else {
-      const req = await prisma.setting.findUnique({ where: { key: JUDGE_SYNC_REQUEST }, select: { value: true } }).catch(() => null);
-      if (req?.value) {
-        let parsed: { mibReportId?: number | null; retryAt?: string | null } = {};
-        try { parsed = JSON.parse(req.value); } catch { /* bo'sh — default */ }
-        if (isDue(parsed.retryAt)) job = { kind: 'all', mibReportId: parsed.mibReportId ?? null };
-      }
-    }
-    if (!job) continue;
+    const req = await prisma.setting.findUnique({ where: { key: JUDGE_SYNC_REQUEST }, select: { value: true } }).catch(() => null);
+    if (!req?.value) continue;
+    let parsed: { mibReportId?: number | null; retryAt?: string | null } = {};
+    try { parsed = JSON.parse(req.value); } catch { /* bo'sh — default */ }
+    if (parsed.retryAt && new Date(parsed.retryAt).getTime() > Date.now()) continue;
     while (detailLoopActive && !stopping) await new Promise((r) => setTimeout(r, 5_000));
-    await prisma.setting.deleteMany({ where: { key: job.kind === 'mib' ? JUDGE_SYNC_REQUEST_MIB : JUDGE_SYNC_REQUEST } });
+    await prisma.setting.deleteMany({ where: { key: JUDGE_SYNC_REQUEST } });
     judgeSyncActive = true;
-    const current = job;
     try {
       const st = await runJudgeSync({
-        firms: FIRMS, sessionFor: (stir) => getStoredCabinetSession(stir),
-        mibReportId: current.kind === 'mib' ? (current.ids.find((x) => x > 0) ?? null) : current.mibReportId,
-        onlyMibReportIds: current.kind === 'mib' ? current.ids : null,
+        firms: FIRMS, sessionFor: (stir) => getStoredCabinetSession(stir), mibReportId: parsed.mibReportId ?? null,
         shouldStop: async () => stopping
-          || !!(await prisma.setting.findUnique({ where: { key: JUDGE_SYNC_STOP }, select: { value: true } }).catch(() => null))?.value
-          // Umumiy yurish MIB so'rovi kelsa pauza qiladi (MIB ishlari tez va alohida tugasin).
-          || (current.kind === 'all' && await mibJudgeDue()),
+          || !!(await prisma.setting.findUnique({ where: { key: JUDGE_SYNC_STOP }, select: { value: true } }).catch(() => null))?.value,
         log: (m) => console.log(m),
       });
       const userStopped = !!(await prisma.setting.findUnique({ where: { key: JUDGE_SYNC_STOP }, select: { value: true } }).catch(() => null))?.value;
       await prisma.setting.deleteMany({ where: { key: JUDGE_SYNC_STOP } });
       if (st.found > 0) await stampRefresh('court_detail_refreshed_at');
       if (!userStopped) {
-        const preempted = current.kind === 'all' && await mibJudgeDue();
-        // Worker o'chyapti (deploy) yoki MIB navbati uchun pauza — darhol davom ettiriladi.
-        if (stopping || preempted) await requeueJudge(current, null);
+        // Worker o'chyapti (deploy) — keyingi jarayon darhol davom ettiradi.
+        if (stopping) await requestJudgeSync(st.mibReportId);
         // Xato bilan yarim qolgan — 30 daqiqadan keyin o'zi davom etadi.
-        else if (st.failed > 0) await requeueJudge(current, new Date(Date.now() + JUDGE_RETRY_MS));
+        else if (st.failed > 0) await requestJudgeSync(st.mibReportId, new Date(Date.now() + JUDGE_RETRY_MS), 'retry');
+        // Oxirigacha yetdi — keyingi rejali tekshiruv (yangi sud ishlari, keyin tayinlangan sudyalar).
+        else await requestJudgeSync(null, new Date(Date.now() + JUDGE_SCHEDULE_MS), 'schedule');
       }
     } catch (e) {
       console.error('[worker] sudya sinxroni:', (e as Error).message?.slice(0, 200));
       const st = await readJudgeState().catch(() => null);
       if (st) await writeJudgeState({ ...st, running: false, finishedAt: new Date().toISOString(), note: 'xato — 30 daqiqadan keyin davom etadi' }).catch(() => {});
-      await requeueJudge(current, new Date(Date.now() + JUDGE_RETRY_MS)).catch(() => {});
+      await requestJudgeSync(parsed.mibReportId ?? null, new Date(Date.now() + JUDGE_RETRY_MS), 'retry').catch(() => {});
     } finally {
       judgeSyncActive = false;
     }

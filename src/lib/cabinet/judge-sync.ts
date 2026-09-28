@@ -17,9 +17,6 @@ import type { CabinetSession } from './oneid';
 import { applyCaseDetail, listCabinetCaseIds, DETAIL_FETCH_INTERVAL_MS } from './detail-ingest';
 
 export const JUDGE_SYNC_REQUEST = 'judge_sync_request'; // JSON {at, mibReportId?, retryAt?}
-// MIB hisoboti — ALOHIDA navbat (faqat o'sha hisobot ishlari). Umumiy sinxrondan USTUN: kelsa umumiy
-// yurish pauza qiladi, MIB ishlari tugagach umumiy qolgan joyidan davom etadi.
-export const JUDGE_SYNC_REQUEST_MIB = 'judge_sync_request_mib'; // JSON {reportIds:number[], retryAt?}  (0 = barcha MIB)
 export const JUDGE_SYNC_STATE = 'judge_sync_state';     // JSON JudgeSyncState
 export const JUDGE_SYNC_STOP = 'judge_sync_stop';       // '1' — keyingi ish oldidan to'xtaydi
 /** Sudyasi topilmagan ish shuncha kundan keyin qayta so'raladi (sudya keyin tayinlanishi mumkin). */
@@ -38,15 +35,12 @@ export interface JudgeSyncState {
   failed: number;     // so'rov xatosi (keyinroq qayta urinadi)
   firm: string | null;
   mibReportId: number | null;
-  /** 'mib' — faqat MIB hisobot(lar)i ishlari (alohida navbat); 'all' — barcha sud ishlari. */
-  scope: 'all' | 'mib';
-  mibReportIds: number[];
   stopped: boolean;
   note: string | null;
 }
 export const EMPTY_JUDGE_STATE: JudgeSyncState = {
   running: false, startedAt: null, heartbeatAt: null, finishedAt: null, total: 0, done: 0, found: 0, failed: 0,
-  firm: null, mibReportId: null, scope: 'all', mibReportIds: [], stopped: false, note: null,
+  firm: null, mibReportId: null, stopped: false, note: null,
 };
 
 /** Sud hujjat raqamidan sud ish raqami: «2-1004-2606/36069-2-8916» → «2-1004-2606/36069». */
@@ -67,32 +61,18 @@ export async function writeJudgeState(st: JudgeSyncState): Promise<void> {
 export const judgeStateAlive = (st: JudgeSyncState) =>
   st.running && !!st.heartbeatAt && Date.now() - new Date(st.heartbeatAt).getTime() < JUDGE_HEARTBEAT_STALE_MS;
 
-/** Worker'ga sinxron so'rovi. mibReportId berilsa — o'sha MIB hisobotining ishlari BIRINCHI. */
-export async function requestJudgeSync(mibReportId: number | null = null, retryAt: Date | null = null): Promise<void> {
-  const value = JSON.stringify({ at: new Date().toISOString(), mibReportId, retryAt: retryAt?.toISOString() ?? null });
-  await prisma.setting.upsert({ where: { key: JUDGE_SYNC_REQUEST }, create: { key: JUDGE_SYNC_REQUEST, value }, update: { value } });
-  await prisma.setting.deleteMany({ where: { key: JUDGE_SYNC_STOP } });
-}
-
-/** MIB navbati: o'qish (reportIds, retryAt). */
-export async function readMibJudgeRequest(): Promise<{ reportIds: number[]; retryAt: string | null } | null> {
-  const s = await prisma.setting.findUnique({ where: { key: JUDGE_SYNC_REQUEST_MIB }, select: { value: true } });
-  if (!s?.value) return null;
-  try { const j = JSON.parse(s.value); return { reportIds: Array.isArray(j.reportIds) ? j.reportIds.map(Number) : [0], retryAt: j.retryAt ?? null }; }
-  catch { return { reportIds: [0], retryAt: null }; }
-}
+/** Keyingi rejali (avtomatik) tekshiruv oralig'i — yangi sud ishlarining sudyalari doim to'lib tursin. */
+export const JUDGE_SCHEDULE_MS = 6 * 3_600_000;
 
 /**
- * MIB hisoboti uchun ALOHIDA sudya tortish — faqat o'sha hisobot ishlari (reportId 0 = barcha MIB).
- * Navbatda turganlar bilan birlashtiriladi (bir nechta hisobot bitta yurishda).
+ * Worker'ga sinxron so'rovi. mibReportId berilsa — o'sha MIB hisobotining ishlari BIRINCHI.
+ * retryAt — shu vaqtdan oldin boshlanmaydi; reason: 'retry' (cabinet javob bermadi) | 'schedule' (rejali).
  */
-export async function requestMibJudgeSync(reportId: number, retryAt: Date | null = null): Promise<void> {
-  const prev = await readMibJudgeRequest();
-  const ids = new Set<number>(prev?.reportIds ?? []);
-  ids.add(reportId);
-  const reportIds = ids.has(0) ? [0] : [...ids];
-  const value = JSON.stringify({ at: new Date().toISOString(), reportIds, retryAt: retryAt?.toISOString() ?? null });
-  await prisma.setting.upsert({ where: { key: JUDGE_SYNC_REQUEST_MIB }, create: { key: JUDGE_SYNC_REQUEST_MIB, value }, update: { value } });
+export async function requestJudgeSync(
+  mibReportId: number | null = null, retryAt: Date | null = null, reason: 'retry' | 'schedule' | null = null,
+): Promise<void> {
+  const value = JSON.stringify({ at: new Date().toISOString(), mibReportId, retryAt: retryAt?.toISOString() ?? null, reason });
+  await prisma.setting.upsert({ where: { key: JUDGE_SYNC_REQUEST }, create: { key: JUDGE_SYNC_REQUEST, value }, update: { value } });
   await prisma.setting.deleteMany({ where: { key: JUDGE_SYNC_STOP } });
 }
 
@@ -142,38 +122,27 @@ export async function runJudgeSync(opts: {
   firms: { branchCode: string; stir: string; name: string }[];
   sessionFor: (stir: string) => Promise<CabinetSession>;
   mibReportId: number | null;
-  /** Berilsa — FAQAT shu MIB hisobotlari ishlari (0 = barcha MIB). Alohida MIB navbati uchun. */
-  onlyMibReportIds?: number[] | null;
   shouldStop: () => Promise<boolean>;
   log: (m: string) => void;
 }): Promise<JudgeSyncState> {
-  const onlyMib = !!opts.onlyMibReportIds?.length;
   const st: JudgeSyncState = {
     ...EMPTY_JUDGE_STATE, running: true, startedAt: new Date().toISOString(), heartbeatAt: new Date().toISOString(),
-    mibReportId: opts.mibReportId, scope: onlyMib ? 'mib' : 'all', mibReportIds: opts.onlyMibReportIds ?? [],
+    mibReportId: opts.mibReportId,
   };
   const beat = async (patch: Partial<JudgeSyncState> = {}) => {
     Object.assign(st, patch, { heartbeatAt: new Date().toISOString() });
     await writeJudgeState(st).catch(() => {});
   };
 
-  const [all, reportBases, anyMibBases] = await Promise.all([
+  const [pending, reportBases, anyMibBases] = await Promise.all([
     judgePending(), opts.mibReportId ? mibCourtBases(opts.mibReportId) : Promise.resolve(new Set<string>()), mibCourtBases(null),
   ]);
-  // «Faqat MIB» — tanlangan hisobot(lar) ishlari; aks holda hammasi.
-  let scopeBases: Set<string> | null = null;
-  if (onlyMib) {
-    const ids = opts.onlyMibReportIds!;
-    scopeBases = ids.includes(0) ? anyMibBases : new Set<string>();
-    if (!ids.includes(0)) for (const id of ids) for (const b of await mibCourtBases(id)) scopeBases.add(b);
-  }
-  const pending = scopeBases ? all.filter((p) => scopeBases!.has(p.caseNumber)) : all;
   // Ustuvorlik: shu MIB hisoboti → boshqa MIB ishlari → hal qilingan (DECIDED/FINISHED) → qolganlari.
   const rank = (r: PendingRow) =>
     (reportBases.has(r.caseNumber) ? 0 : anyMibBases.has(r.caseNumber) ? 10 : 20) + (STATUS_RANK[r.status] ?? 4);
   pending.sort((a, b) => rank(a) - rank(b));
   await beat({ total: pending.length });
-  opts.log(`[sudya] boshlandi: ${pending.length} ta ish (${onlyMib ? `faqat MIB: ${opts.onlyMibReportIds!.join(',')}` : `hammasi, MIB hisoboti: ${opts.mibReportId ?? '—'} birinchi`})`);
+  opts.log(`[sudya] boshlandi: ${pending.length} ta ish (MIB hisoboti: ${opts.mibReportId ?? '—'})`);
 
   const snap = await prisma.snapshot.findFirst({ orderBy: { reportDate: 'desc' }, select: { id: true } });
   // Firmalar tartibi — eng ustuvor ishi bor firma birinchi.

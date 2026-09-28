@@ -380,9 +380,9 @@ function FulfilBar({ pct }: { pct: number }) {
 // + Boshlash / To'xtatish / Qayta boshlash tugmalari. Har so'rov cabinet'dan 8 s da bittadan
 // olinadi (portalni bloklamaslik uchun) — shuning uchun fon rejimida ~5-6 soat davom etadi.
 interface BoostState {
-  running: boolean; queued: boolean; retryAt: string | null; startedAt: string | null; elapsedSec: number;
+  running: boolean; queued: boolean; nextAt: string | null; nextReason: 'retry' | 'schedule' | null; startedAt: string | null; elapsedSec: number;
   progress: { total: number; done: number; found: number; failed: number; firm: string | null } | null;
-  remaining: number; etaMinutes: number; note: string | null; scope: 'all' | 'mib';
+  remaining: number; etaMinutes: number; note: string | null;
 }
 function JudgeSyncPanel({ judges }: { judges: BossReportData['judges'] }) {
   const t = useT();
@@ -397,9 +397,9 @@ function JudgeSyncPanel({ judges }: { judges: BossReportData['judges'] }) {
   const active = running || queued;
 
   const toState = (d: any): BoostState => ({
-    running: !!d.running, queued: !!d.queued, retryAt: d.retryAt ?? null, startedAt: d.startedAt ?? null,
+    running: !!d.running, queued: !!d.queued, nextAt: d.nextAt ?? null, nextReason: d.nextReason ?? null, startedAt: d.startedAt ?? null,
     elapsedSec: d.elapsedSec ?? 0, progress: d.progress ?? null, remaining: d.remaining ?? 0,
-    etaMinutes: d.etaMinutes ?? 0, note: d.note ?? null, scope: d.scope === 'mib' ? 'mib' : 'all',
+    etaMinutes: d.etaMinutes ?? 0, note: d.note ?? null,
   });
 
   // Jonli holatni davriy so'rab turamiz: ishlaganda/navbatda 8s, bo'sh turganda 30s.
@@ -463,15 +463,16 @@ function JudgeSyncPanel({ judges }: { judges: BossReportData['judges'] }) {
               <span>{t('Tekshirilishi kerak')}: <b className="tabular-nums text-fg">{n(live.remaining)}</b> {t('ta sud ishi')} ({etaLabel(live.etaMinutes)})</span>
             )}
             {!active && live && live.remaining === 0 && <span className="text-emerald-700 dark:text-emerald-300">{t('Barcha sud ishlari tekshirilgan')}</span>}
+            {!active && live?.nextAt && live.nextReason === 'schedule' && (
+              <span>{t('Keyingi avtomatik tekshiruv')}: <b className="tabular-nums text-fg">{fmtAbs(live.nextAt)}</b></span>
+            )}
           </div>
           {/* JONLI holat — sudya sinxroni ishlaganda (worker, oxirigacha) */}
           {running && (
             <div className="mt-2 rounded-lg border border-brand-500/25 bg-brand-500/[0.06] px-2.5 py-2 text-[11px]">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-brand-500" aria-hidden />
-                <span className="font-medium text-brand-700 dark:text-brand-300">
-                  {live?.scope === 'mib' ? t('MIB hisoboti sudyalari tortilmoqda (alohida) — keyin umumiy davom etadi') : t('Sudyalar tortilmoqda — oxirigacha')}
-                </span>
+                <span className="font-medium text-brand-700 dark:text-brand-300">{t('Sudyalar tortilmoqda — oxirigacha')}</span>
                 {pr?.firm && <span className="text-muted">· {pr.firm}</span>}
                 {pr && (
                   <span className="tabular-nums text-muted">
@@ -489,10 +490,13 @@ function JudgeSyncPanel({ judges }: { judges: BossReportData['judges'] }) {
             </div>
           )}
           {queued && (
+            <div className="mt-2 rounded-lg border border-brand-500/25 bg-brand-500/[0.06] px-2.5 py-1.5 text-[11px] text-brand-700 dark:text-brand-300">
+              {t('Navbatda — bir necha soniyada boshlanadi')}
+            </div>
+          )}
+          {!active && live?.nextAt && live.nextReason === 'retry' && (
             <div className="mt-2 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-2.5 py-1.5 text-[11px] text-amber-800 dark:text-amber-200">
-              {live?.retryAt
-                ? <>{live.note || t('Cabinet javob bermadi')} — <b>{fmtAbs(live.retryAt)}</b> {t('da oʻzi davom etadi')}</>
-                : t('Navbatda — bir necha soniyada boshlanadi')}
+              {live.note || t('Cabinet javob bermadi')} — <b>{fmtAbs(live.nextAt)}</b> {t('da oʻzi davom etadi')}
             </div>
           )}
         </div>

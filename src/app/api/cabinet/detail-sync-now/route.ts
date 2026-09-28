@@ -24,20 +24,26 @@ export async function GET() {
     prisma.setting.findUnique({ where: { key: 'court_detail_refreshed_at' }, select: { value: true } }),
   ]);
   const running = judgeStateAlive(st);
-  let queued = false; let retryAt: string | null = null;
-  if (req?.value) { queued = true; try { retryAt = JSON.parse(req.value).retryAt ?? null; } catch { /* */ } }
+  // So'rov: hozir navbatda (queued) yoki kelajakdagi vaqtga rejalangan (nextAt + sabab).
+  let queued = false; let nextAt: string | null = null; let nextReason: 'retry' | 'schedule' | null = null;
+  if (req?.value) {
+    let j: { retryAt?: string | null; reason?: 'retry' | 'schedule' | null } = {};
+    try { j = JSON.parse(req.value); } catch { /* */ }
+    if (j.retryAt && new Date(j.retryAt).getTime() > Date.now()) { nextAt = j.retryAt; nextReason = j.reason ?? 'retry'; }
+    else queued = true;
+  }
   const remaining = running ? Math.max(0, st.total - st.done) : pending.length;
   return NextResponse.json({
     running,
-    queued,                       // so'rov qo'yilgan — worker ~15 s ichida oladi (yoki retryAt'da)
-    retryAt,
+    queued,                       // hozir navbatda — worker ~15 s ichida oladi
+    nextAt,                       // keyingi yurish vaqti (rejali yoki cabinet javob bermagani uchun)
+    nextReason,
     startedAt: st.startedAt,
     finishedAt: st.finishedAt,
     elapsedSec: running && st.startedAt ? Math.round((Date.now() - new Date(st.startedAt).getTime()) / 1000) : 0,
     progress: { total: st.total, done: st.done, found: st.found, failed: st.failed, firm: st.firm },
     remaining,                    // hali tekshirilishi kerak bo'lgan ishlar
     etaMinutes: Math.round((remaining * DETAIL_FETCH_INTERVAL_MS) / 60_000),
-    scope: st.scope,              // 'mib' — hozir MIB hisoboti uchun alohida yurish (umumiy pauzada)
     stopped: st.stopped,
     note: st.note,
     lastSyncAt: stamp?.value ?? null,

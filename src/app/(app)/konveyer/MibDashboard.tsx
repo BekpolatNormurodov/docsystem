@@ -358,9 +358,6 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
         <Kpi wide accent label={t('shundan bizning qoldiq qarz (soʻm)')} value={som(oursDebt)} icon={<Ico.receipt size={18} />} />
       </div>
 
-      {/* ── Sudyalar — har bir bizniki ijro ishining sudyasi (MIB'dan keyin, cabinet orqali) ──── */}
-      {pulled && <MibJudgesCard reportId={aggregate ? 0 : reportId} onProgress={load} />}
-
       {built && !pulled && !report.autoRun && (
         <div className="rounded-xl border border-dashed border-line bg-surface-2/40 px-4 py-3 text-sm text-muted">
           {t('Ijro ishlari hali mib.uz dan tortilmagan.')} <b className="text-fg">GO</b> {t('bosilsa har mijoz ketma-ket tekshiriladi — region / hudud / bank kesimlari va summalar shundan keyin toʻladi.')}
@@ -754,95 +751,6 @@ function LiveProgressCard({
         @keyframes mibStripes { 0% { transform: translateX(0); } 100% { transform: translateX(20px); } }
         @keyframes mibShimmer { 0% { transform: translateX(0); } 100% { transform: translateX(400%); } }
       `}</style>
-    </div>
-  );
-}
-
-// ── SUDYALAR KARTASI — har bir bizniki ijro ishining sudyasi. Sud hujjat raqami cabinet'dagi sud ishiga
-// bog'lanadi; sudyasi yo'q ishlarni worker oxirigacha tortadi (src/lib/cabinet/judge-sync.ts). MIB run
-// tugagach o'zi navbatga tushadi; bu tugma — qo'lda (shu hisobot ishlari birinchi). ─────────────────
-interface JudgeCov {
-  ours: number; linked: number; withJudge: number; running: boolean; queued: boolean; retryAt: string | null;
-  scope: 'all' | 'mib';
-  progress: { total: number; done: number; found: number; failed: number; firm: string | null };
-  note: string | null;
-}
-function MibJudgesCard({ reportId, onProgress }: { reportId: number; onProgress: () => void | Promise<void> }) {
-  const t = useT();
-  const [cov, setCov] = useState<JudgeCov | null>(null);
-  const [busy, setBusy] = useState(false);
-  const lastFound = useRef(-1);
-  const active = !!cov && (cov.running || cov.queued);
-
-  const poll = useCallback(async () => {
-    const d = await jget(`/api/mib/${reportId}/judges`);
-    if (typeof d?.ours !== 'number') return;
-    setCov(d);
-    // Yangi sudyalar topilsa — jadval/kesimlar ham yangilansin.
-    if (d.running && d.progress.found !== lastFound.current) {
-      if (lastFound.current >= 0) void onProgress();
-      lastFound.current = d.progress.found;
-    }
-  }, [reportId, onProgress]);
-  useEffect(() => { void poll(); }, [poll]);
-  useEffect(() => { const id = setInterval(() => void poll(), active ? 30_000 : 120_000); return () => clearInterval(id); }, [active, poll]);
-
-  const start = async () => { setBusy(true); await jpost(`/api/mib/${reportId}/judges`); await poll(); setBusy(false); };
-  if (!cov || cov.ours === 0) return null;
-  const pct = Math.min(100, Math.round((cov.withJudge / cov.ours) * 100));
-  const missing = Math.max(0, cov.ours - cov.withJudge);
-  const pr = cov.progress;
-  const livePct = pr.total > 0 ? Math.min(100, Math.round((pr.done / pr.total) * 100)) : 0;
-
-  return (
-    <div className="card p-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-500/10 text-brand-600 dark:text-brand-300"><Ico.judge size={20} /></span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline gap-x-2 text-sm">
-            <span className="font-semibold">{t('Sudyalar')}</span>
-            <span className="text-muted">{t('har bir bizniki ijro ishi boʻyicha')}</span>
-          </div>
-          <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-xs">
-            <span className="text-muted">{t('Sudya topildi')}:</span>
-            <b className="tabular-nums">{n(cov.withJudge)} / {n(cov.ours)}</b>
-            <span className="tabular-nums text-brand-600 dark:text-brand-300">({pct}%)</span>
-            {missing > 0 && <><span className="text-muted">·</span><span className="text-muted">{t('qolgan')}:</span><b className="tabular-nums">{n(missing)}</b></>}
-          </div>
-          <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
-            <div className="h-full rounded-full bg-brand-500 transition-all" style={{ width: `${pct}%` }} />
-          </div>
-        </div>
-        {!active ? (
-          <button type="button" className="btn-primary shrink-0 whitespace-nowrap text-sm disabled:opacity-60" disabled={busy || missing === 0} onClick={start}
-            title={t('Sudyasi yoʻq ishlar cabinet’dan oxirigacha tortiladi (shu hisobot ishlari birinchi)')}>
-            {busy ? <Spinner size={14} /> : <Ico.judge size={14} />} {missing === 0 ? t('Hammasi topilgan') : t('Sudyalarni topish')}
-          </button>
-        ) : null}
-      </div>
-      {cov.running && (
-        <div className="mt-3 rounded-lg border border-brand-500/25 bg-brand-500/[0.06] px-3 py-2 text-xs">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-brand-500" aria-hidden />
-            <span className="font-medium text-brand-700 dark:text-brand-300">
-              {cov.scope === 'mib' ? t('Shu hisobot sudyalari tortilmoqda (alohida)') : t('Umumiy sinxron — MIB ishlari birinchi')}
-            </span>
-            {pr.firm && <span className="text-muted">· {pr.firm}</span>}
-            <span className="tabular-nums text-muted">· <b className="text-fg">{n(pr.done)}</b> / {n(pr.total)} {t('tekshirildi')}</span>
-            <span className="tabular-nums text-muted">· {t('topildi')}: <b className="text-emerald-700 dark:text-emerald-300">{n(pr.found)}</b></span>
-          </div>
-          <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-surface-2">
-            <div className="h-full rounded-full bg-brand-500 transition-all" style={{ width: `${livePct}%` }} />
-          </div>
-        </div>
-      )}
-      {!cov.running && cov.queued && (
-        <div className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-          {cov.retryAt
-            ? <>{cov.note || t('Cabinet javob bermadi')} — {new Date(cov.retryAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} {t('da oʻzi davom etadi')}</>
-            : t('Navbatda — bir necha soniyada boshlanadi')}
-        </div>
-      )}
     </div>
   );
 }
