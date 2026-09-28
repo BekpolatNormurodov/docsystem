@@ -48,6 +48,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return true;
   });
 
+  // XAVFSIZLIK GUARD (2026-09-28): agar filter/parse natija 0 chiqargan bo'lsa VA reportда mavjud
+  // (Excelдан qurilgan) clientlar bor bo'lsa — DELETE QILMAYMIZ. Aks holda «filter mos kelmadi» tufayli
+  // 2400+ mijoz jimgina yo'qolib ketardi. Foydalanuvchiga aniq xato + o'chirilmagan clientlar soni.
+  const existingExcel = await prisma.mibClient.count({ where: { reportId: id, OR: [{ holat: { not: MANUAL_HOLAT } }, { holat: null }] } });
+  if (rows.length === 0 && existingExcel > 0) {
+    return NextResponse.json({
+      error: t('Filter tanlangan holat bilan mijoz topilmadi. Mavjud mijozlar o‘chirilmadi.'),
+      matched: 0, existing: existingExcel, statusFilter,
+    }, { status: 400 });
+  }
+
   // Qo'lda qo'shilgan (bitta PINFL) mijozlarni SAQLAB qolamiz — faqat Excel'dan qurilganlarini
   // qayta quramiz. Excelda ham bor PINFL qo'lda qo'shilgan bo'lsa, dublikat bo'lmasin uchun chiqarib tashlaymiz.
   const manual = await prisma.mibClient.findMany({ where: { reportId: id, holat: MANUAL_HOLAT }, select: { pinfl: true } });

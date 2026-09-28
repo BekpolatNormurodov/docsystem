@@ -165,7 +165,13 @@ export async function parseHisobot(filePath: string): Promise<MibParseResult> {
     // (yoki lotin «qarz») bo'lgan birinchi ustunni olamiz.
     const cDebt = findCol(header, DEBT_NAMES) || (header.findIndex((h) => h && /карз|qarz/i.test(norm(h))) + 1);
     const cSent = findCol(header, SENT_NAMES);
-    const sheetHolat = (ws.name || '').trim() || null; // «Holat» ustuni yo'q bo'lsa — varaq nomi
+    // «Holat» ustuni yo'q bo'lsa — MA'NOLI varaq nomi (masalan «MIBda» / «Ochiq» / «90+»/«60-90»).
+    // Umumiy DEFAULT nomlar (Excel'ning «Лист1»/«Sheet1»/«Sheet2»/…) — foydali ma'lumot bermaydi,
+    // fallback qilish UI dropdown'даги filtrni ifloslantiradi (2026-09-28: 2423 mijoz «Лист1» holatда
+    // qolib, MIBда filtri 0 chiqargan). Bunday varaq nomlarини NULL qoldiramiz.
+    const rawSheet = (ws.name || '').trim();
+    const isDefaultSheetName = /^(лист|sheet)\s*\d*$/i.test(rawSheet);
+    const sheetHolat = rawSheet && !isDefaultSheetName ? rawSheet : null;
 
     const lastRow = ws.rowCount || 0;
     for (let r = headerRow + 1; r <= lastRow; r++) {
