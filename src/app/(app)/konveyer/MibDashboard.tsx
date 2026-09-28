@@ -763,6 +763,7 @@ function LiveProgressCard({
 // tugagach o'zi navbatga tushadi; bu tugma — qo'lda (shu hisobot ishlari birinchi). ─────────────────
 interface JudgeCov {
   ours: number; linked: number; withJudge: number; running: boolean; queued: boolean; retryAt: string | null;
+  scope: 'all' | 'mib';
   progress: { total: number; done: number; found: number; failed: number; firm: string | null };
   note: string | null;
 }
@@ -823,7 +824,9 @@ function MibJudgesCard({ reportId, onProgress }: { reportId: number; onProgress:
         <div className="mt-3 rounded-lg border border-brand-500/25 bg-brand-500/[0.06] px-3 py-2 text-xs">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-brand-500" aria-hidden />
-            <span className="font-medium text-brand-700 dark:text-brand-300">{t('Sudyalar tortilmoqda — oxirigacha')}</span>
+            <span className="font-medium text-brand-700 dark:text-brand-300">
+              {cov.scope === 'mib' ? t('Shu hisobot sudyalari tortilmoqda (alohida)') : t('Umumiy sinxron — MIB ishlari birinchi')}
+            </span>
             {pr.firm && <span className="text-muted">· {pr.firm}</span>}
             <span className="tabular-nums text-muted">· <b className="text-fg">{n(pr.done)}</b> / {n(pr.total)} {t('tekshirildi')}</span>
             <span className="tabular-nums text-muted">· {t('topildi')}: <b className="text-emerald-700 dark:text-emerald-300">{n(pr.found)}</b></span>

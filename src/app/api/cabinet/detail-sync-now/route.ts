@@ -37,6 +37,7 @@ export async function GET() {
     progress: { total: st.total, done: st.done, found: st.found, failed: st.failed, firm: st.firm },
     remaining,                    // hali tekshirilishi kerak bo'lgan ishlar
     etaMinutes: Math.round((remaining * DETAIL_FETCH_INTERVAL_MS) / 60_000),
+    scope: st.scope,              // 'mib' — hozir MIB hisoboti uchun alohida yurish (umumiy pauzada)
     stopped: st.stopped,
     note: st.note,
     lastSyncAt: stamp?.value ?? null,

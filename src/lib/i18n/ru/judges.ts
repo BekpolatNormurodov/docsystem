@@ -23,4 +23,7 @@ export const judges: Record<string, string> = {
   'Sudyasi yoʻq ishlar cabinet’dan oxirigacha tortiladi (shu hisobot ishlari birinchi)':
     'Дела без судьи загружаются из кабинета до конца (дела этого отчёта — первыми)',
   'hali aniqlanmagan': 'ещё не определён',
+  'Shu hisobot sudyalari tortilmoqda (alohida)': 'Загрузка судей этого отчёта (отдельно)',
+  'Umumiy sinxron — MIB ishlari birinchi': 'Общая синхронизация — дела МИБ первыми',
+  'MIB hisoboti sudyalari tortilmoqda (alohida) — keyin umumiy davom etadi': 'Загрузка судей отчёта МИБ (отдельно) — затем продолжится общая',
 };

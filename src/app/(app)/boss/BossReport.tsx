@@ -382,7 +382,7 @@ function FulfilBar({ pct }: { pct: number }) {
 interface BoostState {
   running: boolean; queued: boolean; retryAt: string | null; startedAt: string | null; elapsedSec: number;
   progress: { total: number; done: number; found: number; failed: number; firm: string | null } | null;
-  remaining: number; etaMinutes: number; note: string | null;
+  remaining: number; etaMinutes: number; note: string | null; scope: 'all' | 'mib';
 }
 function JudgeSyncPanel({ judges }: { judges: BossReportData['judges'] }) {
   const t = useT();
@@ -399,7 +399,7 @@ function JudgeSyncPanel({ judges }: { judges: BossReportData['judges'] }) {
   const toState = (d: any): BoostState => ({
     running: !!d.running, queued: !!d.queued, retryAt: d.retryAt ?? null, startedAt: d.startedAt ?? null,
     elapsedSec: d.elapsedSec ?? 0, progress: d.progress ?? null, remaining: d.remaining ?? 0,
-    etaMinutes: d.etaMinutes ?? 0, note: d.note ?? null,
+    etaMinutes: d.etaMinutes ?? 0, note: d.note ?? null, scope: d.scope === 'mib' ? 'mib' : 'all',
   });
 
   // Jonli holatni davriy so'rab turamiz: ishlaganda/navbatda 8s, bo'sh turganda 30s.
@@ -469,7 +469,9 @@ function JudgeSyncPanel({ judges }: { judges: BossReportData['judges'] }) {
             <div className="mt-2 rounded-lg border border-brand-500/25 bg-brand-500/[0.06] px-2.5 py-2 text-[11px]">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-brand-500" aria-hidden />
-                <span className="font-medium text-brand-700 dark:text-brand-300">{t('Sudyalar tortilmoqda — oxirigacha')}</span>
+                <span className="font-medium text-brand-700 dark:text-brand-300">
+                  {live?.scope === 'mib' ? t('MIB hisoboti sudyalari tortilmoqda (alohida) — keyin umumiy davom etadi') : t('Sudyalar tortilmoqda — oxirigacha')}
+                </span>
                 {pr?.firm && <span className="text-muted">· {pr.firm}</span>}
                 {pr && (
                   <span className="tabular-nums text-muted">

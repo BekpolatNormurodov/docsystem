@@ -15,7 +15,7 @@ import { resolveCreditor } from './companies';
 import { getMibConfig } from './config';
 import { pushMibLog } from './log-buffer';
 import { firmKeyWords, creditorIsOurs } from './creditor-match';
-import { requestJudgeSync } from '../cabinet/judge-sync';
+import { requestMibJudgeSync } from '../cabinet/judge-sync';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // SMS OTP kutish chegarasi endi Sozlamalarда (cfg.smsTimeoutSec, default 120s) — deploy'siz o'zgartiriladi.
@@ -311,9 +311,9 @@ export async function runMibReportJob(jobId: number): Promise<void> {
     await prisma.job.update({ where: { id: jobId }, data: { status: 'DONE', message: remainingCnt ? 'Toʻxtatildi' : 'Yakunlandi' } }).catch(() => {});
     log(`report ${reportId}: tugadi (${processed} ta ishlandi, ${remainingCnt} qoldi)`);
     // MIB'DAN KEYIN — SUDYALAR: yangi tortilgan ijro ishlarining sudyasini topish uchun worker'ga
-    // so'rov (shu hisobot ishlari birinchi). Sudya MIB Excel/dashboard'da «Sudya» bo'lib chiqadi.
+    // ALOHIDA so'rov (faqat shu hisobot ishlari). Sudya MIB Excel/dashboard'da «Sudya» bo'lib chiqadi.
     if (!remainingCnt && processed > 0) {
-      await requestJudgeSync(reportId).catch(() => {});
+      await requestMibJudgeSync(reportId).catch(() => {});
       log(`report ${reportId}: sudyalarni topish navbatga qoʻyildi`);
     }
   } finally {

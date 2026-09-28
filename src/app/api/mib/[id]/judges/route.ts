@@ -2,10 +2,9 @@
 // sinxronining jonli holati. POST: worker'ga so'rov (shu hisobot ishlari BIRINCHI tekshiriladi).
 // id = 0 — «Umumiy» (barcha hisobotlar).
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
 import { mibJudgeCoverage } from '@/lib/mib/judges';
-import { readJudgeState, judgeStateAlive, requestJudgeSync, JUDGE_SYNC_REQUEST } from '@/lib/cabinet/judge-sync';
+import { readJudgeState, judgeStateAlive, requestMibJudgeSync, readMibJudgeRequest } from '@/lib/cabinet/judge-sync';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -13,28 +12,32 @@ export const dynamic = 'force-dynamic';
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   await requireAccess('mib-report');
   const id = Number(params.id) || 0;
-  const [cov, st, req] = await Promise.all([
+  const [cov, st, mibReq] = await Promise.all([
     mibJudgeCoverage(id > 0 ? id : null),
     readJudgeState(),
-    prisma.setting.findUnique({ where: { key: JUDGE_SYNC_REQUEST }, select: { value: true } }),
+    readMibJudgeRequest(),
   ]);
-  let retryAt: string | null = null;
-  if (req?.value) { try { retryAt = JSON.parse(req.value).retryAt ?? null; } catch { /* */ } }
+  const alive = judgeStateAlive(st);
+  // Joriy yurish shu hisobot uchunmi: alohida MIB yurishi (shu hisobot yoki «barcha MIB») yoki
+  // umumiy yurish (u ham MIB ishlarini birinchi oladi).
+  const mine = st.scope === 'mib' ? (st.mibReportIds.includes(0) || st.mibReportIds.includes(id) || id === 0) : true;
+  const queuedMine = !!mibReq && (mibReq.reportIds.includes(0) || mibReq.reportIds.includes(id) || id === 0);
   return NextResponse.json({
     ...cov,
-    running: judgeStateAlive(st),
-    queued: !!req?.value,
-    retryAt,
+    running: alive && mine,
+    scope: st.scope,                                  // 'mib' — alohida (faqat MIB ishlari), 'all' — umumiy
+    queued: queuedMine,
+    retryAt: queuedMine ? mibReq!.retryAt : null,
     progress: { total: st.total, done: st.done, found: st.found, failed: st.failed, firm: st.firm },
-    forThisReport: st.mibReportId === (id > 0 ? id : null),
     finishedAt: st.finishedAt,
     note: st.note,
   });
 }
 
+// POST — shu hisobot ishlari uchun ALOHIDA sudya tortish (umumiy navbatdan ustun).
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   await requireAccess('mib-report');
   const id = Number(params.id) || 0;
-  await requestJudgeSync(id > 0 ? id : null);
+  await requestMibJudgeSync(id > 0 ? id : 0);
   return NextResponse.json({ ok: true });
 }
