@@ -27,10 +27,9 @@ interface FirmReadiness { firmId: number; firmName: string; total: number; ready
 const FIRM_DOCS_ALL = ['guvohnoma', 'ishonchnoma', 'shartnoma'];
 export interface CourtOverall { total: number; ready: number; exported: number; submitted: number; submittedExternal: number; draftReady: number; queued: number; sendable: number; missing: Missing; almost: Missing }
 type Overall = CourtOverall;
-// 2026-09-19 (/sud 3-tab): `statusBoard`/`returns` endi ishlatilmaydi — o'lik «stat»/«returns»
-// tablari olib tashlandi (qaytganlar — alohida «Qaytganlar» tabi). court-ready route ularni hali
-// qaytaradi, shuning uchun maydonlar ixtiyoriy (e'tiborsiz) qoldi.
-export interface CourtData { snapshotId?: number; readiness: { firms: FirmReadiness[]; overall: Overall }; statusBoard?: unknown; returns?: unknown }
+// 2026-09-19 (/sud 3-tab): o'lik «stat»/«returns» tablari olib tashlandi (qaytganlar — alohida «Qaytganlar»
+// tabi); 2026-09-29 dan court-ready route ularni hisoblamaydi ham.
+export interface CourtData { snapshotId?: number; readiness: { firms: FirmReadiness[]; overall: Overall } }
 type Data = CourtData;
 
 type ReadyFilter = 'all' | 'sendable' | 'queued' | 'draftReady' | 'ready' | 'exported' | 'submitted' | 'notready';

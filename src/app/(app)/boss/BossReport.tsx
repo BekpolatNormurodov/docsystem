@@ -39,7 +39,7 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref, generat
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          {linkDate && <ClientStatusSearch linkDate={linkDate} />}
+          {linkDate && <ClientStatusSearch linkDate={linkDate} snapshotId={data.snapshotId} />}
           {/* Tugma yorlig'i — TOZA (sanasiz). Sana faqat yuklab olingan fayl NOMIDA — dizayn qulayligi
               uchun (tugma qisqaroq, foydalanuvchi to'g'ridan-to'g'ri o'qiydi). */}
           <ExcelButton href={statusExcelHref} label={t('Mijozlar')} title={t('Mijozlar holati (firma · bosqich) — Excel')} />

@@ -89,9 +89,10 @@ export async function ingestHippoStatuses(
               caseResult: m.sendStatus ?? null, matchedBy: pinfl ? 'NAME' : 'UNMATCHED', snapshotId: snap.id,
               registryDt: mailDt,
             },
-            // refresh snapshotId too so a re-ingest under a newer snapshot doesn't
-            // leave B-derived pinfl attributed to snapshot A.
-            update: { status, caseResult: m.sendStatus ?? null, pinfl, matchedBy: pinfl ? 'NAME' : 'UNMATCHED', snapshotId: snap.id, registryDt: mailDt },
+            // snapshotId faqat yaratishda (birinchi ko'rilgan davr). Ilgari har sinxron uni eng oxirgi
+            // snapshot bilan qayta yozardi — iyuldan beri yuborilgan HAMMA xat 29.09 ga «ko'chgan» edi.
+            // Xat qaysi snapshotniki — uning reyestri (claimId) va «TLB:» izi bo'yicha aniqlanadi.
+            update: { status, caseResult: m.sendStatus ?? null, pinfl, matchedBy: pinfl ? 'NAME' : 'UNMATCHED', registryDt: mailDt },
           });
         }
         if (mails.length < 100) break;

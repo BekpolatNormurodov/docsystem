@@ -19,9 +19,10 @@ export default async function Page() {
   const selectedId = Number.isInteger(parsed) && parsed > 0 && snaps.some((s) => s.id === parsed) ? parsed : snaps[0]?.id;
   const data = await bossReport(selectedId);
   const snapLabel = snaps.find((s) => s.id === selectedId)?.label ?? null;
-  // Mijoz-holati qidiruvidagi kartochka havolasi uchun (/s/<sana>/p/<pinfl>) — eng so'nggi portfel sanasi.
-  const latest = await prisma.snapshot.findFirst({ where: { status: 'READY' }, orderBy: { reportDate: 'desc' }, select: { reportDate: true } });
-  const linkDate = latest ? latest.reportDate.toISOString().slice(0, 10) : '';
+  // Mijoz-holati qidiruvidagi kartochka havolasi uchun (/s/<sana>/p/<pinfl>) — hisobotda TANLANGAN snapshot
+  // sanasi (ilgari eng so'nggisi edi: 25.08 hisobotidan ochilgan kartochka 29.09 ma'lumotini ko'rsatardi).
+  const linkSnap = selectedId ? await prisma.snapshot.findUnique({ where: { id: selectedId }, select: { reportDate: true } }) : null;
+  const linkDate = linkSnap ? linkSnap.reportDate.toISOString().slice(0, 10) : '';
   // Mijoz-holati (firma · bosqich) eksporti — matritsa Excel'idan tashqari, kishi darajasida.
   const statusExcelHref = `/mijozlar/status-excel${selectedId ? `?s=${selectedId}` : ''}`;
   // Hisobot QACHON hisoblangani (server vaqti) — tepadagi «Yangilanish vaqti» rozetkasi uchun.

@@ -109,7 +109,7 @@ export async function ingestCabinetStatuses(
         claimKind: c.claim_kind ?? null, instance: c.instance ?? null,
         status, statusLabel: STATUS_UZ[status] ?? null, caseResult: c.case_result ?? null,
         courtId: c.court_id ?? null, hearingDate: toDate(c.hearing_date), registryDt: toDate(c.registry_dt),
-        matchedBy: pinfl ? 'NAME' : 'UNMATCHED', snapshotId: snap!.id,
+        matchedBy: pinfl ? 'NAME' : 'UNMATCHED',
       });
     }
   }
@@ -123,11 +123,14 @@ export async function ingestCabinetStatuses(
   // overwrite a detail-ingest exact match: this coarse pass only ever produces a
   // NAME/UNMATCHED guess, so blindly writing pinfl/matchedBy here would downgrade a
   // matchedBy='PINFL' row back to a name guess (possibly a colliding wrong person).
+  // snapshotId faqat YARATISHDA (birinchi ko'rilgan davr): ilgari har sinxron uni eng oxirgi snapshot
+  // bilan qayta yozardi va barcha sud yozuvlari yangi snapshotga «ko'chib» ketardi. Qaysi snapshotning
+  // ishi ekani — court-scope.ts (sud navbati bo'yicha).
   for (const row of rows) {
     const { pinfl, matchedBy, ...statusFields } = row;
     await prisma.clientCaseStatus.upsert({
       where: { source_caseNumber: { source: 'CABINET', caseNumber: row.caseNumber } },
-      create: row, update: statusFields,
+      create: { ...row, snapshotId: snap.id }, update: statusFields,
     });
     // Apply the name match only where a detail pass hasn't already pinned an exact PINFL.
     await prisma.clientCaseStatus.updateMany({

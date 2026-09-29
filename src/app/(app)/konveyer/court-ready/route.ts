@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { requireStep } from '@/lib/auth';
 import { konveyerSnapshots } from '@/lib/konveyer';
-import { courtReadiness, courtStatusBoard, courtReturns } from '@/lib/court-ready';
+import { courtReadiness } from '@/lib/court-ready';
 
 export const runtime = 'nodejs';
 
@@ -12,8 +12,8 @@ const num = (v: string | null): number | undefined => {
   return Number.isInteger(n) && n > 0 ? n : undefined;
 };
 
-// GET ?s=&firmId= — Sud sahifasi paneli uchun: sudga-tayyorlik (firma-firma),
-// to'liq status hisoboti, va qaytganlar ro'yxati. Snapshot: ?s= → cookie → latest.
+// GET ?s=&firmId= — Sud sahifasi paneli uchun: sudga-tayyorlik (firma-firma). Snapshot: ?s= → cookie → latest.
+// Status hisoboti / qaytganlar endi qaytarilmaydi — UI ularni 2026-09-19 dan beri ko'rsatmaydi (CourtManager).
 export async function GET(req: NextRequest) {
   await requireStep('sud:send');
   const snaps = await konveyerSnapshots();
@@ -22,11 +22,6 @@ export async function GET(req: NextRequest) {
   const snapshotId = parsed && snaps.some((s) => s.id === parsed) ? parsed : snaps[0]?.id;
   const firmId = num(req.nextUrl.searchParams.get('firmId'));
 
-  const [readiness, statusBoard, returns] = await Promise.all([
-    courtReadiness(snapshotId, firmId),
-    courtStatusBoard(snapshotId, firmId),
-    courtReturns(snapshotId, firmId),
-  ]);
-
-  return NextResponse.json({ snapshotId, readiness, statusBoard, returns });
+  const readiness = await courtReadiness(snapshotId, firmId);
+  return NextResponse.json({ snapshotId, readiness });
 }

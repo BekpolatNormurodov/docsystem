@@ -6,6 +6,7 @@ import { getT } from '@/lib/i18n/server';
 import { konveyerPersons, PHASES, STAGE_LABEL } from '@/lib/konveyer';
 import { courtBadge } from '@/lib/court-result';
 import { firmActivity } from '@/lib/active-firms';
+import { snapshotCourtScope } from '@/lib/court-scope';
 
 const PAGE = 50;
 
@@ -123,11 +124,15 @@ export async function MijozlarTable({ snapshotId, linkDate, date, q, digitsOnly,
     // (c) sud holati — hammasi PINFL bo'yicha bitta partiyada (arzon, indeksli), exPinfls kabi.
     // Nofaol firmaning bosqich-chipi va sud holati mijoz kartasida ko'rinmasin.
     const fa = await firmActivity();
-    const [exRows, caseRows, statusRows] = await Promise.all([
+    // Sud holati — faqat SHU snapshotdan sudga yuborilgan ishlar (court-scope.ts, Hisobot bilan bir xil qoida);
+    // ClientCaseStatus.snapshotId'ga tayanilmaydi (u «qaysi snapshotning ishi» emas).
+    const [exRows, caseRows, statusAll, courtScope] = await Promise.all([
       pagePinfls.length ? prisma.loan.findMany({ where: { pinfl: { in: pagePinfls }, excluded: true, snapshotId }, select: { pinfl: true }, distinct: ['pinfl'] }) : Promise.resolve([]),
       pagePinfls.length ? prisma.arizaCase.findMany({ where: { snapshotId, pinfl: { in: pagePinfls }, ...fa.caseWhere }, orderBy: { firmId: 'asc' }, select: { pinfl: true, stage: true, firm: { select: { shortName: true } } } }) : Promise.resolve([]),
-      pagePinfls.length ? prisma.clientCaseStatus.findMany({ where: { source: 'CABINET', pinfl: { in: pagePinfls }, snapshotId, ...(fa.hasInactive ? { branchCode: { notIn: fa.inactiveCodes } } : {}) }, select: { pinfl: true, status: true, statusLabel: true, caseResult: true, updatedAt: true } }) : Promise.resolve([]),
+      pagePinfls.length ? prisma.clientCaseStatus.findMany({ where: { source: 'CABINET', pinfl: { in: pagePinfls }, ...(fa.hasInactive ? { branchCode: { notIn: fa.inactiveCodes } } : {}) }, select: { pinfl: true, branchCode: true, status: true, statusLabel: true, caseResult: true, updatedAt: true, registryDt: true, createdAt: true } }) : Promise.resolve([]),
+      snapshotCourtScope(snapshotId, fa.caseWhere),
     ]);
+    const statusRows = courtScope ? statusAll.filter((s) => courtScope.has(s)) : statusAll;
 
     const exPinfls = new Set(exRows.map((r) => r.pinfl));
     const firmsByPinfl = new Map<string, FirmStatus[]>();

@@ -61,7 +61,9 @@ const initials = (name: string | null) => ((name || '—').trim().split(/\s+/).s
 const firmShort = (name: string) => (name || '').trim().split(/\s+/)[0] || name;
 const sum = (v: string) => Number(v || 0).toLocaleString('ru-RU');
 
-export function ClientStatusSearch({ linkDate, placeholder, className }: { linkDate: string; placeholder?: string; className?: string }) {
+// snapshotId berilsa qidiruv SHU snapshotda (havola linkDate ham o'sha snapshot sanasi bo'lishi kerak); berilmasa —
+// eng so'nggi snapshot (konveyer/cases standarti).
+export function ClientStatusSearch({ linkDate, snapshotId, placeholder, className }: { linkDate: string; snapshotId?: number | null; placeholder?: string; className?: string }) {
   const t = useT();
   const router = useRouter();
   const [q, setQ] = useState('');
@@ -80,7 +82,7 @@ export function ClientStatusSearch({ linkDate, placeholder, className }: { linkD
     const myReq = ++reqRef.current;
     setLoading(true);
     const ctrl = new AbortController();
-    fetch(`/konveyer/cases?q=${encodeURIComponent(debouncedQ)}&pageSize=8`, { signal: ctrl.signal })
+    fetch(`/konveyer/cases?q=${encodeURIComponent(debouncedQ)}&pageSize=8${snapshotId ? `&s=${snapshotId}` : ''}`, { signal: ctrl.signal })
       .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
       .then((data) => {
         if (myReq !== reqRef.current) return;
@@ -90,7 +92,7 @@ export function ClientStatusSearch({ linkDate, placeholder, className }: { linkD
       })
       .catch((e) => { if (e?.name === 'AbortError' || myReq !== reqRef.current) return; setPersons([]); setTotal(0); setLoading(false); });
     return () => ctrl.abort();
-  }, [debouncedQ]);
+  }, [debouncedQ, snapshotId]);
 
   // Tashqariga bosilganda / Esc bosilganda yopish.
   useEffect(() => {

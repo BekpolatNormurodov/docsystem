@@ -15,7 +15,6 @@
 // Bu modul faqat DB o'qiydi — chiqarilgan-yo'qligini ArizaCase.meta.exportedAt
 // da saqlaymiz (schema o'zgarmasdan, db push kerak emas).
 import { prisma } from './db';
-import { firmActivity } from './active-firms';
 import { MAX_COURT_BATCH } from './court-batch';
 // Tab sonlari qoidasi — brauzer bilan YAGONA manba (court-counts.ts izohiga qarang).
 import { tallyClientCounts, emptyClientCounts, type ClientReadyCounts } from './court-counts';
@@ -870,14 +869,6 @@ export async function undoCaseState(caseIds: number[]): Promise<number> {
 // ── Real status hisoboti (ClientCaseStatus — Adolat/hippo ingest) ────────────
 // Two DIFFERENT axes: CABINET = sud (court) ish holati; HIPPO = talabnoma (pochta)
 // yetkazish holati. Buckets carry `source` so the UI can segment (Sud / Talabnoma).
-export interface StatusBucket { code: string; label: string; tone: string; count: number; source: string }
-export interface CourtStatusBoard {
-  total: number;
-  matched: number;   // portfel mijoziga bog'langan (pinfl bor)
-  buckets: StatusBucket[];
-  sources: Record<string, number>; // CABINET / HIPPO
-}
-
 type Cls = { code: string; label: string; tone: string };
 // CABINET court OUTCOME (caseResult is ENGLISH — the decisive result when present).
 const CABINET_RESULT: Record<string, Cls> = {
@@ -934,102 +925,6 @@ export function classifyStatus(source: string, row: { status: string; statusLabe
   // HIPPO delivery
   if (HIPPO_STATUS[stU]) return HIPPO_STATUS[stU];
   return { code: 'H_OTHER', label: 'Boshqa (yetkazish)', tone: 'slate' }; // numeric/unknown codes → one bucket
-}
-
-/** ClientCaseStatus'ni Uzbek toifalarga guruhlab, to'liq status hisoboti.
- *  Hech qaysi status tashlab ketilmaydi. */
-export async function courtStatusBoard(snapshotId?: number, firmId?: number): Promise<CourtStatusBoard> {
-  let branchCode: string | undefined;
-  if (firmId) {
-    const firm = await prisma.firm.findUnique({ where: { id: firmId }, select: { code: true } });
-    branchCode = firm?.code ?? '__none__';
-  }
-  // Aniq firma so'ralmasa (umumiy board — /boss) nofaol firma branchCode'lari chiqarib tashlanadi.
-  const fa = await firmActivity();
-  const inactiveBranchCond = !firmId && fa.hasInactive ? { branchCode: { notIn: fa.inactiveCodes } } : {};
-  const where = { ...(branchCode ? { branchCode } : {}), ...(snapshotId ? { snapshotId } : {}), ...inactiveBranchCond };
-  // Group in the DB rather than loading every row: classifyStatus is a pure function of
-  // (status, statusLabel, caseResult), so classifying each DISTINCT combo once and summing
-  // its _count is identical to classifying every row — far less transfer + no big JS loop.
-  const [grouped, matched] = await Promise.all([
-    // Deterministic order so the representative label of an unmapped-status bucket (and the
-    // left-right position of equal-count buckets) is stable across builds — counts are
-    // identical either way; only which label variant "wins" for an ambiguous code was unstable.
-    prisma.clientCaseStatus.groupBy({
-      by: ['status', 'statusLabel', 'caseResult', 'source'],
-      where,
-      _count: { _all: true },
-      orderBy: [{ status: 'asc' }, { statusLabel: 'asc' }, { caseResult: 'asc' }],
-    }),
-    prisma.clientCaseStatus.count({ where: { ...where, pinfl: { not: null } } }),
-  ]);
-
-  const byCode = new Map<string, StatusBucket>();
-  const sources: Record<string, number> = {};
-  let total = 0;
-  for (const g of grouped) {
-    const cnt = g._count._all;
-    total += cnt;
-    sources[g.source] = (sources[g.source] ?? 0) + cnt;
-    const c = classifyStatus(g.source, g);
-    // Key by source+code so a court bucket and a delivery bucket never merge, and the UI can segment.
-    const key = `${g.source}:${c.code}`;
-    const b = byCode.get(key) ?? { code: c.code, label: c.label, tone: c.tone, count: 0, source: g.source };
-    b.count += cnt;
-    byCode.set(key, b);
-  }
-  const buckets = [...byCode.values()].sort((a, b) => b.count - a.count || a.code.localeCompare(b.code));
-  return { total, matched, buckets, sources };
-}
-
-// ── Qaytganlar (to'ldirib qayta yuborish) ────────────────────────────────────
-export interface ReturnCase {
-  caseId: number;
-  clientName: string | null;
-  pinfl: string | null;
-  firmId: number;
-  firmName: string;
-  stage: CaseStage;
-  stageLabel: string;
-  receiptNumber: string | null;
-  talabnomaSent: boolean;
-  totalDebt: string;
-  daysLeft: number | null;
-  docCount: number;
-}
-
-const RETURN_STAGES: CaseStage[] = ['COURT_RETURNED', 'CHAMBER_RETURNED'];
-
-/** Qaytgan ishlar (sud qaytardi / palatadan qaytgan) — to'ldirib, belgilab,
- *  qayta yuborish uchun. */
-export async function courtReturns(snapshotId?: number, firmId?: number): Promise<ReturnCase[]> {
-  const fa = await firmActivity();
-  const rows = await prisma.arizaCase.findMany({
-    where: { stage: { in: RETURN_STAGES }, ...(snapshotId ? { snapshotId } : {}), ...(firmId ? { firmId } : fa.caseWhere) },
-    orderBy: [{ dueAt: 'asc' }, { id: 'asc' }],
-    select: {
-      id: true, clientName: true, pinfl: true, firmId: true, stage: true, receiptNumber: true,
-      talabnomaAt: true, totalDebt: true, dueAt: true,
-      firm: { select: { shortName: true } },
-      _count: { select: { documents: true } },
-    },
-  });
-  const now = Date.now();
-  const day = 86400000;
-  return rows.map((r) => ({
-    caseId: r.id,
-    clientName: r.clientName,
-    pinfl: r.pinfl,
-    firmId: r.firmId,
-    firmName: r.firm?.shortName ?? '',
-    stage: r.stage,
-    stageLabel: STAGE_LABEL[r.stage],
-    receiptNumber: r.receiptNumber,
-    talabnomaSent: !!r.talabnomaAt,
-    totalDebt: String(r.totalDebt),
-    daysLeft: r.dueAt ? ((v: number) => (v < 0 ? Math.floor(v) : Math.ceil(v)))((r.dueAt.getTime() - now) / day) : null,
-    docCount: r._count.documents,
-  }));
 }
 
 // ── Ish-darajali tayyorlik (id bo'yicha) — /sud «Qaytganlar» tab'i uchun ─────────

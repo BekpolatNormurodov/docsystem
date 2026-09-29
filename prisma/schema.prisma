@@ -712,14 +712,17 @@ model ClientCaseStatus {
   defAddress  String? // defendant address (from detail)
   defPassport String? // defendant passport serial+number (from detail)
   judge       String? // chairman/responsible judge (from detail)
+  // Birinchi ko'rilgan paytdagi eng oxirgi snapshot — «qaysi snapshotning ishi» EMAS (court-scope.ts).
   snapshotId  Int?
+  // Birinchi ko'rilgan vaqt: ro'yxatga olinmagan (registryDt yo'q) ADOLAT ishini snapshotga biriktirish
+  // uchun (court-scope.ts). 2026-09-29 dan oldingi yozuvlarda — ustun qo'shilgan vaqt.
+  createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   @@unique([source, caseNumber])
   @@index([branchCode, source, status])
   @@index([pinfl])
-  // courtStatusBoard groupBy filters by (snapshotId, branchCode); the aggregate (no firm)
-  // path filters snapshotId alone, which had no index. Lets that filtered aggregate use an index.
+  // Talabnoma izi (TLB:) o'qilishi (getSentTalabnomaPinfls) (snapshotId, branchCode) bo'yicha filtrlaydi.
   @@index([snapshotId, branchCode])
 }
 

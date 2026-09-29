@@ -4,6 +4,7 @@
 // and re-filed. Read-only aggregation for the «Qaytganlar» page + its Excel export.
 import { prisma } from './db';
 import { COURT_RESULT_UZ } from './court-result';
+import { snapshotCourtScope, uniqueClaims } from './court-scope';
 
 const BAD = ['RETURNED', 'REFUSED', 'UNCONSIDERED', 'WITHDRAWN'];
 
@@ -20,26 +21,31 @@ export interface CabinetReturn {
   registryDt: string | null;     // ro'yxatga olingan sana (detail.registry_dt)
 }
 
-// NB: NOT snapshot-filtered. A court «return» is about the court case, not the portfolio snapshot;
-// and status-ingest stamps ALL cabinet rows with the single latest snapshotId, so filtering by the
-// UI's selected snapshot would wrongly hide returns. `snapshotId` is accepted (routes pass it) but
-// intentionally unused. Firm (branchCode) filtering is honoured.
-export async function cabinetReturnedCases(_snapshotId?: number, firmId?: number): Promise<CabinetReturn[]> {
+// Snapshot berilsa — faqat SHU snapshotdan sudga yuborilgan ishlarning qaytishlari (court-scope.ts: sud
+// navbati bo'yicha, Hisobot «Qaytarilgan» bilan bir xil qoida; ClientCaseStatus.snapshotId'ga tayanilmaydi).
+// Berilmasa — hamma qaytgan ishlar. Bitta da'vo — bitta qator (uniqueClaims). Firma (branchCode) filtri ham.
+export async function cabinetReturnedCases(snapshotId?: number, firmId?: number): Promise<CabinetReturn[]> {
   let branchCode: string | undefined;
   if (firmId) {
     const f = await prisma.firm.findUnique({ where: { id: firmId }, select: { code: true } });
     branchCode = f?.code ?? '__none__'; // a real firm with no code → match nothing rather than all
   }
 
-  const rows = await prisma.clientCaseStatus.findMany({
+  const scope = await snapshotCourtScope(snapshotId);
+  const all = await prisma.clientCaseStatus.findMany({
     where: {
       source: 'CABINET',
       caseResult: { in: BAD },
       ...(branchCode ? { branchCode } : {}),
+      ...(scope ? { pinfl: { in: scope.pinfls } } : {}),
     },
-    select: { pinfl: true, clientName: true, branchCode: true, caseNumber: true, caseResult: true, detail: true },
+    select: { pinfl: true, clientName: true, branchCode: true, caseNumber: true, caseResult: true, detail: true, claimId: true, registryDt: true, createdAt: true },
     orderBy: { updatedAt: 'desc' },
   });
+  const inScope = scope ? all.filter((r) => scope.has(r)) : all;
+  // Egizak qatorlardan detail'i (ajrim sanasi, ish raqami) borini qoldiramiz; tartib — updatedAt bo'yicha.
+  const keep = new Set(uniqueClaims([...inScope].sort((a, b) => Number(!!b.detail) - Number(!!a.detail))));
+  const rows = inScope.filter((r) => keep.has(r));
 
   const codes = [...new Set(rows.map((r) => r.branchCode))];
   const firms = await prisma.firm.findMany({ where: { code: { in: codes } }, select: { code: true, shortName: true } });

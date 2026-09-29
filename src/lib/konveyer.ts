@@ -7,6 +7,7 @@ import { normName } from './cabinet/status-ingest';
 import { Prisma, type CaseStage } from '@prisma/client';
 import { dueForStage } from './konveyer-sla';
 import { firmActivity } from './active-firms';
+import { courtPairKey, snapshotCourtScope } from './court-scope';
 
 // React's server `cache` dedupes a call within one request. It's undefined in the plain (non-RSC)
 // vitest runtime, where invoking it throws "cache is not a function" at module load — degrade to a
@@ -501,6 +502,33 @@ const courtStatusMeta = (s?: string | null) => (s ? COURT_STATUS_META[s] ?? { la
 // Pick the most-advanced status when a client has several cabinet cases.
 const COURT_STATUS_RANK: Record<string, number> = { FINISHED: 7, DECIDED: 6, IN_PROCESS: 5, RETURNED: 4, DECLINED: 4, PENDING: 2, CREATED: 1, DRAFT: 0 };
 
+/** Ishning REAL sud holati (cabinet.sud.uz, ClientCaseStatus CABINET) — O'Z firmasi × PINFL bo'yicha va faqat
+ *  shu snapshotdan sudga yuborilgan ishlar (court-scope.ts — Hisobot bilan bir xil qoida). Ilgari PINFL bo'yicha
+ *  (boshqa firma ishi ham) va ingest qayta yozadigan snapshotId bo'yicha olinardi. Bir juftlikda bir necha da'vo
+ *  bo'lsa — eng ilg'or holat. */
+async function courtStatusByCase(snapshotId: number | undefined, pinfls: string[]) {
+  const scope = await snapshotCourtScope(snapshotId);
+  const sent = scope ? new Set(scope.pinfls) : null;
+  const wanted = sent ? pinfls.filter((p) => sent.has(p)) : pinfls;
+  const rows = wanted.length
+    ? await prisma.clientCaseStatus.findMany({
+        where: { source: 'CABINET', pinfl: { in: wanted } },
+        select: { pinfl: true, branchCode: true, status: true, statusLabel: true, caseResult: true, caseNumber: true, updatedAt: true, registryDt: true, createdAt: true },
+      })
+    : [];
+  const best = new Map<string, (typeof rows)[number]>();
+  for (const s of rows) {
+    if (scope && !scope.has(s)) continue;
+    const k = courtPairKey(s.branchCode, s.pinfl);
+    if (!k) continue;
+    const cur = best.get(k);
+    const rank = COURT_STATUS_RANK[s.status] ?? 0;
+    const curRank = cur ? (COURT_STATUS_RANK[cur.status] ?? 0) : -1;
+    if (!cur || rank > curRank || (rank === curRank && s.updatedAt > cur.updatedAt)) best.set(k, s);
+  }
+  return (kod: string | null, pinfl: string | null) => best.get(courtPairKey(kod, pinfl) ?? '') ?? null;
+}
+
 export interface MibCaseRow {
   id: number;
   firmId: number;
@@ -588,26 +616,11 @@ export async function mibEligibleCases(opts: { firmId?: number; snapshotId?: num
   const capped = rows.length > MIB_CASE_CAP;
   const shown = capped ? rows.slice(0, MIB_CASE_CAP) : rows;
 
-  // Attach the REAL court status pulled from cabinet.sud.uz (ClientCaseStatus source CABINET), matched
-  // by PINFL. A client with several cabinet cases → keep the most-advanced status.
-  const pinfls = [...new Set(shown.map((r) => r.pinfl).filter((p): p is string => !!p))];
-  const statusRows = pinfls.length
-    ? await prisma.clientCaseStatus.findMany({
-        where: { source: 'CABINET', pinfl: { in: pinfls }, ...(snapshotId ? { snapshotId } : {}) },
-        select: { pinfl: true, status: true, statusLabel: true, caseResult: true, caseNumber: true, updatedAt: true },
-      })
-    : [];
-  const bestByPinfl = new Map<string, (typeof statusRows)[number]>();
-  for (const s of statusRows) {
-    if (!s.pinfl) continue;
-    const cur = bestByPinfl.get(s.pinfl);
-    const rank = COURT_STATUS_RANK[s.status] ?? 0;
-    const curRank = cur ? (COURT_STATUS_RANK[cur.status] ?? 0) : -1;
-    if (!cur || rank > curRank || (rank === curRank && s.updatedAt > cur.updatedAt)) bestByPinfl.set(s.pinfl, s);
-  }
+  // Attach the REAL court status (cabinet.sud.uz) — the case's own firm × PINFL, this snapshot's court sends.
+  const courtOf = await courtStatusByCase(snapshotId, [...new Set(shown.map((r) => r.pinfl).filter((p): p is string => !!p))]);
 
   const cases: MibCaseRow[] = shown.map((r) => {
-    const st = r.pinfl ? bestByPinfl.get(r.pinfl) ?? null : null;
+    const st = courtOf(r.kod, r.pinfl);
     return {
       id: r.id,
       firmId: r.firmId,
@@ -687,25 +700,11 @@ export async function mibEligibleExport(opts: { firmId?: number; snapshotId?: nu
   ]);
   const nameOf = new Map(firms.map((f) => [f.id, f.shortName]));
 
-  // Attach the best (most-advanced) cabinet court status per PINFL — same rule as mibEligibleCases.
-  const pinfls = [...new Set(rows.map((r) => r.pinfl).filter((p): p is string => !!p))];
-  const statusRows = pinfls.length
-    ? await prisma.clientCaseStatus.findMany({
-        where: { source: 'CABINET', pinfl: { in: pinfls }, ...(snapshotId ? { snapshotId } : {}) },
-        select: { pinfl: true, status: true, statusLabel: true, caseResult: true, caseNumber: true, updatedAt: true },
-      })
-    : [];
-  const bestByPinfl = new Map<string, (typeof statusRows)[number]>();
-  for (const s of statusRows) {
-    if (!s.pinfl) continue;
-    const cur = bestByPinfl.get(s.pinfl);
-    const rank = COURT_STATUS_RANK[s.status] ?? 0;
-    const curRank = cur ? (COURT_STATUS_RANK[cur.status] ?? 0) : -1;
-    if (!cur || rank > curRank || (rank === curRank && s.updatedAt > cur.updatedAt)) bestByPinfl.set(s.pinfl, s);
-  }
+  // Court status — same rule as mibEligibleCases (courtStatusByCase).
+  const courtOf = await courtStatusByCase(snapshotId, [...new Set(rows.map((r) => r.pinfl).filter((p): p is string => !!p))]);
 
   return rows.map((r) => {
-    const st = r.pinfl ? bestByPinfl.get(r.pinfl) ?? null : null;
+    const st = courtOf(r.kod, r.pinfl);
     return {
       clientName: r.clientName,
       pinfl: r.pinfl,
@@ -863,20 +862,9 @@ export async function konveyerPersons(opts: {
     select: { id: true, pinfl: true, clientName: true, kod: true, firmId: true, stage: true, dueAt: true, totalDebt: true, receiptNumber: true, courtCaseId: true, talabnomaAt: true, firm: { select: { shortName: true } } },
   });
 
-  // Real court status per person (cabinet.sud.uz, matched by PINFL) — attached to every case so the
-  // list can show «qanoatlantirilgan» under a client. Most-advanced status wins across cabinet cases.
-  const statusRows = pinfls.length ? await prisma.clientCaseStatus.findMany({
-    where: { source: 'CABINET', pinfl: { in: pinfls }, ...(snapshotId ? { snapshotId } : {}) },
-    select: { pinfl: true, status: true, statusLabel: true, caseResult: true, updatedAt: true },
-  }) : [];
-  const courtByPinfl = new Map<string, (typeof statusRows)[number]>();
-  for (const s of statusRows) {
-    if (!s.pinfl) continue;
-    const cur = courtByPinfl.get(s.pinfl);
-    const rank = COURT_STATUS_RANK[s.status] ?? 0;
-    const curRank = cur ? (COURT_STATUS_RANK[cur.status] ?? 0) : -1;
-    if (!cur || rank > curRank || (rank === curRank && s.updatedAt > cur.updatedAt)) courtByPinfl.set(s.pinfl, s);
-  }
+  // Real court status per case (cabinet.sud.uz) — the case's own firm × PINFL, this snapshot's court sends
+  // (courtStatusByCase), so the list can show «qanoatlantirilgan» under a client.
+  const courtOf = await courtStatusByCase(snapshotId, pinfls);
 
   const now = Date.now();
   const day = 86400000;
@@ -884,7 +872,7 @@ export async function konveyerPersons(opts: {
   for (const r of rows) {
     if (!r.pinfl) continue;
     const daysLeft = r.dueAt ? ((v) => (v < 0 ? Math.floor(v) : Math.ceil(v)))((r.dueAt.getTime() - now) / day) : null;
-    const cs = courtByPinfl.get(r.pinfl) ?? null;
+    const cs = courtOf(r.kod, r.pinfl);
     const pc: PersonCase = {
       caseId: r.id, firmId: r.firmId, firmName: r.firm?.shortName ?? '', stage: r.stage,
       stageLabel: STAGE_LABEL[r.stage], receiptNumber: r.receiptNumber, talabnomaSent: !!r.talabnomaAt,
