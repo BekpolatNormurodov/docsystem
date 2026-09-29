@@ -392,6 +392,14 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
         <StatCard label={t('Tayyor emas')} value={n(result?.unreadyPersonCount ?? 0)} bad />
       </div>
 
+      {/* Hujjat sanasi — chiqarishdan oldin tanlanadi; barcha reyestr/xat/Excel/PDF shu bitta sana bilan. */}
+      <div className="card flex flex-wrap items-center gap-3 p-4">
+        <span className="text-sm font-semibold text-brand-600 dark:text-brand-400">📅 {t('Hujjat sanasi')}</span>
+        <input type="date" value={docDate} onChange={(e) => setDocDate(e.target.value)}
+          className="field-input w-auto px-3 py-1.5 text-sm tabular-nums" title={t('Talabnoma/xat sanasi — shu sana bilan chiqariladi')} />
+        <span className="text-xs text-muted">{t('Shu sana barcha xat va reyestrlarga qo‘yiladi (default: bugun).')}</span>
+      </div>
+
       {/* inline filter bar — always visible */}
       <div className="card p-4">
         <div className="mb-3 flex flex-wrap items-center gap-2 text-sm font-semibold">
@@ -447,14 +455,7 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
       {/* per-firm table */}
       <div className="card overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-sm font-semibold">{t('Firmalar bo‘yicha')}</span>
-            {/* Hujjat sanasi — chiqarishdan oldin kiritiladi; barcha reyestr/xat/PDF'larga qo'llanadi. */}
-            <label className="flex items-center gap-1.5 text-xs text-muted">
-              {t('Hujjat sanasi')}:
-              <input type="date" value={docDate} onChange={(e) => setDocDate(e.target.value)} className="field-input px-2 py-1 text-xs tabular-nums" title={t('Talabnoma/xat sanasi — shu sana bilan chiqariladi')} />
-            </label>
-          </div>
+          <span className="text-sm font-semibold">{t('Firmalar bo‘yicha')}</span>
           {/* Nechta firma bo'lsa ham — hammasi bittada: Excel yoki PDF (firmalar ichida). */}
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-muted">{t('Barcha firmalar — hammasi bittada')}:</span>

@@ -2,16 +2,20 @@
 // rule the operator described:
 //   A) total overdue (Лист1 «12405%+16377%») ≥ thresholdTotal (default 2 mln) → the debtor qualifies;
 //   B) optional per-firm minimum — a firm-row is kept only when that firm's overdue ≥ perFirmMin.
-// A firm is «ready» (full form) only when its code ∈ the 3 wired firms (Bright/Urban/Community); other
-// firms are surfaced but blocked from sending until the operator confirms.
-import { FIRMS } from '@/lib/firms';
+// A firm is «ready» (full form) when it has a COMPLETE letterhead reqvizit — manzil + STIR + bank + MFO.
+// Bu modul xatni CHOP etadi (hippo/cabinet orqali yubormaydi), shuning uchun E-IMZO kaliti (firms.ts)
+// EMAS, balki firma rekviziti to'liqligi muhim: kalitsiz firmalar ham (ZAYMLY, DARROWMAD, MUVAFFAQIYAT…)
+// o'z manzili/direktori bilan talabnoma chiqara oladi.
+import { FIRMS_SEED } from '@/core/firms.seed';
 import type { CandidatePerson, CandidatesFile, FilterOpts, FilterResult, FirmBucket } from './types';
 
 /** Canonical firm code: trim + drop leading zeros so '06292' (Лист3) and 6292 (Лист2 numeric) unify. */
 export const canonCode = (x: unknown): string => String(x ?? '').trim().replace(/^0+/, '') || '0';
 
-/** The 3 firms with a complete letter form today (src/lib/firms.ts), by canonical code. */
-export const READY_CODES = new Set(FIRMS.map((f) => canonCode(f.branchCode)));
+/** Letterhead to'liq (manzil+STIR+bank+MFO) firmalar, kanonik kod bo'yicha. */
+export const READY_CODES = new Set(
+  FIRMS_SEED.filter((f) => !!f.address && !!f.stir && !!f.bankAccount && !!f.mfo).map((f) => canonCode(f.code)),
+);
 export const isReadyFirm = (code: string): boolean => READY_CODES.has(canonCode(code));
 
 export const DEFAULT_THRESHOLD = 2_000_000;
