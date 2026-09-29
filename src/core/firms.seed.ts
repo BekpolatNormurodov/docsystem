@@ -18,9 +18,11 @@ export interface FirmSeed {
 // Latin addresses (the ariza is Latin). Two shared blocks from the firms' rekvizit.
 const GURUCHARIQ = 'Toshkent shahar, Olmazor tumani, Guruchariq MFY, Sagʻbon koʻchasi 30 berk, 7/1-uy';
 const CHINNIOBOD = 'Toshkent shahar, Olmazor tumani, Chinniobod MFY, Chinniobod-2 mavzesi, 7-uy';
-// 2026-09-29 firma letterheadlaridan yangilangan manzillar.
+// 2026-09-29 «манзил МКО» ro'yxatidan yangilangan manzillar.
 const ANDIJON = 'Andijon viloyati, Andijon shahri, Boburshoh koʻchasi, 20/g-uy'; // COMMUNITY
 const QARSHI = 'Qashqadaryo viloyati, Qarshi shahri, Gʻafur Gʻulom MFY, Gʻuzor koʻchasi, 14-uy'; // ZAYMLY
+const FARGONA = 'Fargʻona viloyati, Fargʻona shahri, Navroʻz MFY, Universitet koʻchasi, 24/4-uy'; // URBAN
+const SAMARQAND = 'Samarqand viloyati, Samarqand shahri, Mirzo Bedil MFY, Buyuk ipak yoʻli koʻchasi, 41-uy, 19-xonadon'; // FUNDFLOW
 const MFO = '01183'; // every firm banks at ANORBANK
 const POST = '100174';
 
@@ -38,7 +40,7 @@ export const FIRMS_SEED: FirmSeed[] = [
     cabinetClaimantId: 'a9c49a63-5b0b-48c6-b2fb-48db85dd6f5a' },
   { code: '06292', shortName: 'URBAN FINANCE SOLUTIONS',
     legalName: '«URBAN FINANCE SOLUTIONS MIKROMOLIYA TASHKILOTI» MCHJ',
-    address: CHINNIOBOD, bankAccount: '20216000307206292001', mfo: MFO, stir: '311 943 592', postIndex: POST },
+    address: FARGONA, bankAccount: '20216000307206292001', mfo: MFO, stir: '311 943 592', postIndex: POST },
   { code: '55890', shortName: 'COMMUNITY MMT',
     legalName: '«COMMUNITY MICROFINANCE MIKROMOLIYA TASHKILOTI» MCHJ',
     address: ANDIJON, bankAccount: '20216000307255890001', mfo: MFO, stir: '312 191 604', postIndex: POST },
@@ -47,7 +49,7 @@ export const FIRMS_SEED: FirmSeed[] = [
     address: GURUCHARIQ, bankAccount: '20216000007205557001', mfo: MFO, stir: '311 939 991', postIndex: POST },
   { code: '14276', shortName: 'FUNDFLOW',
     legalName: '«FUNDFLOW MIKROMOLIYA TASHKILOTI» MCHJ',
-    address: GURUCHARIQ, bankAccount: '20216000307214276001', mfo: MFO, stir: '311 979 413', postIndex: POST },
+    address: SAMARQAND, bankAccount: '20216000307214276001', mfo: MFO, stir: '311 979 413', postIndex: POST },
   { code: '31685', shortName: 'ZAYMLY',
     legalName: '«ZAYMLY MIKROMOLIYA TASHKILOTI» MCHJ',
     address: QARSHI, bankAccount: '20216000407331685001', mfo: MFO, stir: '312 500 154', postIndex: POST },
