@@ -31,6 +31,20 @@ describe('buildTalabnomaRows', () => {
     expect(rows.map((r) => r.total_debt)).toEqual([100, 200]);
   });
 
+  it('full_debt = ariza «Jami qarzdorligi» from the four parts, to the tiyin', () => {
+    const rows = buildTalabnomaRows([
+      { ...base, debtPrincipal: 1_000_000.10, debtTermInterest: 50_000.20, debtOverduePrincipal: 30_000.30, debtOverdueInterest: 20_000.40 },
+      { ...base, ldId: '222', debtPrincipal: 100.25, debtTermInterest: 0.25, debtOverduePrincipal: 0.25, debtOverdueInterest: 0.25 },
+    ], docDate);
+    expect(rows[0].full_debt).toBeCloseTo(1_100_102, 2);
+  });
+
+  it('full_debt falls back to the totalDebt sum (kept to the tiyin) without parts', () => {
+    const rows = buildTalabnomaRows([base, { ...base, ldId: '222', totalDebt: 600_000.456 }], docDate);
+    expect(rows[0].full_debt).toBeCloseTo(1_700_000.46, 2);
+    expect(rows[0].total_debt).toBe(1_700_000);
+  });
+
   it('prefers the cleaned Uzbek address, transliterated to Cyrillic', () => {
     const rows = buildTalabnomaRows([base], docDate);
     expect(rows[0].address).toBe('Тошкент шаҳри, Чилонзор тумани');

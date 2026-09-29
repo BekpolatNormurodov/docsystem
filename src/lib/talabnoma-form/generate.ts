@@ -121,6 +121,7 @@ export async function writeAllFirmsReyestr(file: CandidatesFile, opts: FilterOpt
     { header: 'Shartnoma sanasi', key: 'cdate', width: 15 },
     { header: 'Kredit summasi', key: 'loan', width: 16 },
     { header: 'Jami qarzdorlik', key: 'debt', width: 18 },
+    { header: 'Umumiy qarzdorlik', key: 'umumiy', width: 18 },
     { header: 'Viloyat', key: 'region', width: 18 },
     { header: 'Tuman/Shahar', key: 'area', width: 20 },
   ];
@@ -133,7 +134,7 @@ export async function writeAllFirmsReyestr(file: CandidatesFile, opts: FilterOpt
       ws.addRow({
         firma, fish: r.receiver, pinfl: r.pinfl ?? '', address: r.address,
         cnum: r.contract_number, cdate: dmy(r.contract_date),
-        loan: r.loan_amount, debt: r.total_debt,
+        loan: r.loan_amount, debt: r.total_debt, umumiy: r.full_debt,
         region: regionName(r.region), area: areaName(r.area),
       });
       count += 1;
@@ -143,7 +144,8 @@ export async function writeAllFirmsReyestr(file: CandidatesFile, opts: FilterOpt
   ws.getColumn('pinfl').numFmt = '@';
   ws.getColumn('loan').numFmt = '#,##0';
   ws.getColumn('debt').numFmt = '#,##0';
-  ws.autoFilter = { from: 'A1', to: `J${Math.max(1, ws.rowCount)}` };
+  ws.getColumn('umumiy').numFmt = '#,##0.00';
+  ws.autoFilter = { from: 'A1', to: `K${Math.max(1, ws.rowCount)}` };
   ws.views = [{ state: 'frozen', ySplit: 1 }];
   await wb.xlsx.writeFile(outPath);
   return count;
