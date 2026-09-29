@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico, Spinner, useConfirm } from '@/ui';
+import { DatePicker } from '@/ui/DatePicker';
 import { useT } from '@/lib/i18n/client';
 
 // ── API shapes ──────────────────────────────────────────────────────────────
@@ -408,13 +409,17 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
           <p className="mt-0.5 text-xs text-muted">{t('Tanlangan sana barcha xat va reyestrlarga qo‘yiladi.')}</p>
         </div>
         <div className="flex items-center gap-2">
-          <input
-            id="tf-doc-date"
-            type="date"
-            value={docDate}
-            onChange={(e) => setDocDate(e.target.value || localToday())}
-            className="field-input w-auto px-3 py-2 text-sm font-medium tabular-nums"
-          />
+          {/* Ilova bo'ylab bir xil pro kalendar (klaviatura, bugun belgisi, DD.MM.YYYY). O'ng chetda —
+              popover o'ngga tekislanadi; sana majburiy — «Tozalash» yo'q. */}
+          <div className="w-40">
+            <DatePicker
+              id="tf-doc-date"
+              value={docDate}
+              onChange={(iso) => setDocDate(iso || localToday())}
+              align="right"
+              clearable={false}
+            />
+          </div>
           {docDate !== localToday() ? (
             <button type="button" onClick={() => setDocDate(localToday())} className="btn-ghost h-9 px-3 text-xs" title={t('Bugungi sanaga qaytarish')}>
               <Ico.undo size={14} /> {t('Bugun')}

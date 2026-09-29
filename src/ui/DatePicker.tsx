@@ -34,6 +34,8 @@ export function DatePicker({
   placeholder,
   disabled,
   ariaLabel,
+  align = 'left',
+  clearable = true,
 }: {
   value: string;
   onChange: (iso: string) => void;
@@ -46,6 +48,10 @@ export function DatePicker({
   disabled?: boolean;
   /** For standalone use (filters), where there is no <Shell> label to point at. */
   ariaLabel?: string;
+  /** Popover anchor — 'right' when the field sits at the right edge, so the grid doesn't overflow. */
+  align?: 'left' | 'right';
+  /** Hide «Tozalash» for required dates (the value must never be empty). */
+  clearable?: boolean;
 }) {
   const t = useT();
   const auto = useId();
@@ -195,7 +201,7 @@ export function DatePicker({
           id={gridId}
           role="dialog"
           aria-label={t('Sana tanlash')}
-          className="absolute left-0 top-full z-50 mt-2 w-[19rem] rounded-xl border border-line bg-surface p-3 shadow-xl shadow-slate-900/10 animate-fade-in dark:shadow-black/40"
+          className={cx('absolute top-full z-50 mt-2 w-[19rem]', align === 'right' ? 'right-0' : 'left-0', ' rounded-xl border border-line bg-surface p-3 shadow-xl shadow-slate-900/10 animate-fade-in dark:shadow-black/40')}
         >
           <div className="mb-2 flex items-center justify-between gap-2">
             <button
@@ -205,7 +211,7 @@ export function DatePicker({
               onClick={() => setView((v) => shiftMonth(v, -1))}
               disabled={prevBlocked}
               aria-label={t('Oldingi oy')}
-              className="rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg disabled:pointer-events-none disabled:opacity-30"
+              className="rounded-lg p-1.5 text-muted transition hover:bg-surface-2 hover:text-fg active:scale-95 disabled:pointer-events-none disabled:opacity-30"
             >
               <Ico.chevronLeft size={18} />
             </button>
@@ -219,7 +225,7 @@ export function DatePicker({
               onClick={() => setView((v) => shiftMonth(v, 1))}
               disabled={nextBlocked}
               aria-label={t('Keyingi oy')}
-              className="rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg disabled:pointer-events-none disabled:opacity-30"
+              className="rounded-lg p-1.5 text-muted transition hover:bg-surface-2 hover:text-fg active:scale-95 disabled:pointer-events-none disabled:opacity-30"
             >
               <Ico.chevron size={18} />
             </button>
@@ -259,7 +265,7 @@ export function DatePicker({
                   aria-pressed={isSel}
                   onClick={() => commit(iso)}
                   className={cx(
-                    'relative grid h-9 place-items-center rounded-lg text-[13px] font-medium tabular-nums transition-colors',
+                    'relative grid h-9 place-items-center rounded-lg text-[13px] font-medium tabular-nums transition active:scale-95',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50',
                     blocked && 'cursor-not-allowed text-muted/40',
                     !blocked && isSel && 'bg-brand-600 text-white hover:bg-brand-700',
@@ -293,13 +299,15 @@ export function DatePicker({
             >
               {t('Bugun')}
             </button>
-            <button
-              type="button"
-              onClick={() => { onChange(''); setText(''); close(true); }}
-              className="btn-ghost px-2.5 py-1 text-xs text-muted"
-            >
-              {t('Tozalash')}
-            </button>
+            {clearable && (
+              <button
+                type="button"
+                onClick={() => { onChange(''); setText(''); close(true); }}
+                className="btn-ghost px-2.5 py-1 text-xs text-muted"
+              >
+                {t('Tozalash')}
+              </button>
+            )}
           </div>
         </div>
       )}
