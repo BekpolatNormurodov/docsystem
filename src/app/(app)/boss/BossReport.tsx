@@ -65,7 +65,7 @@ export function BossReport({ data, snapLabel, linkDate, statusExcelHref, generat
       <div className="card overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
           <span className="text-sm font-semibold">{t('Firmalar bo‘yicha')} ({n(firms.length)})</span>
-          <span className="text-xs text-muted">{t('Sudga chiqarilgan ustuni — ADOLAT portalidagi holat bo‘yicha')}</span>
+          <span className="text-xs text-muted">{t('Sudga chiqarilgan — shu snapshotdan sudga yuborilgan ishlar, ADOLAT portalidagi holat bo‘yicha')}</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[920px] text-sm">

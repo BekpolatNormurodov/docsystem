@@ -14,7 +14,7 @@ export const app: Record<string, string> = {
   "MIBga chiqarilgan": "Передано в МИБ",
   "Jami qarz (soʻm)": "Итого долг (сум)",
   "Firmalar bo‘yicha": "По фирмам",
-  "Sudga chiqarilgan ustuni — ADOLAT portalidagi holat bo‘yicha": "Столбец «Передано в суд» — по статусу на портале ADOLAT",
+  "Sudga chiqarilgan — shu snapshotdan sudga yuborilgan ishlar, ADOLAT portalidagi holat bo‘yicha": "«Передано в суд» — дела, отправленные в суд из этого снимка, по статусу на портале ADOLAT",
   "Firma": "Фирма",
   "Mijozlar": "Клиенты",
   "MIBga": "В МИБ",

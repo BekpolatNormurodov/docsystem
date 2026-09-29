@@ -5,6 +5,7 @@
 // Hech qanday yangi mantiq ixtiro qilinmaydi — mavjud, tekshirilgan funksiyalar qayta ishlatiladi.
 import { prisma } from '@/lib/db';
 import { Prisma, type CaseStage } from '@prisma/client';
+import { canonCode } from '@/lib/talabnoma-form/filter';
 import { konveyerSummary, phaseTotals } from '@/lib/konveyer';
 import { classifyStatus } from '@/lib/court-ready';
 import { regionFromText } from '@/lib/mib/breakdown';
@@ -85,13 +86,14 @@ export async function bossReport(snapshotId?: number): Promise<BossReportData> {
 
   // 3 ta og'ir so'rov parallel: konveyer summary, firma-jami qarzi, region kesimi. Ilgari
   // ular ketma-ket bajarilardi — endi bir vaqtda (~30-40% tez).
-  // Snapshot tanlangan bo'lsa — sud (CABINET) faqat SHU snapshot ishlarining (firma × PINFL) juftliklari
-  // bo'yicha. cabinet yozuvidagi snapshotId ishonchsiz (faqat eng oxirgisi) — ArizaCase orqali bog'lanadi.
-  const inSnap = await snapshotPairFilter(snapshotId, fa);
-  const [summary, debtRows, regions] = await Promise.all([
+  // Snapshot tanlangan bo'lsa — «Sudga chiqarilgan» faqat SHU snapshotdan sud navbatiga qo'yilgan ishlarning
+  // (firma × PINFL) ADOLAT yozuvlari (snapshotPairFilter). Parallel boshlanadi; region va sud bloklari kutadi.
+  const inSnapP = snapshotPairFilter(snapshotId, fa);
+  const [summary, debtRows, regions, inSnap] = await Promise.all([
     konveyerSummary(snapshotId),
     prisma.arizaCase.groupBy({ by: ['firmId'], where: scope, _sum: { totalDebt: true } }),
-    regionBreakdown(snapshotId, fa, inSnap),
+    inSnapP.then((f) => regionBreakdown(snapshotId, fa, f)),
+    inSnapP,
   ]);
   const debtByFirm = new Map<number, number>();
   for (const d of debtRows) debtByFirm.set(d.firmId, Number(d._sum.totalDebt ?? 0));
@@ -112,9 +114,9 @@ export async function bossReport(snapshotId?: number): Promise<BossReportData> {
 
   // SUD (CABINET) statuslarini BITTA groupBy'da barcha firmalar uchun olamiz (ilgari N firma × 2
   // so'rov = 8-10 round-trip; endi bittasi). branchCode → firmId JS'da bog'lanadi.
-  // MUHIM: snapshotSIZ — status-ingest cabinet yozuvlarini FAQAT eng oxirgi snapshotId bilan
-  // belgilaydi (court-returns.ts izohi + memory: cabinet-status-snapshot-and-result). Firma
-  // (branchCode) filtri yetarli; sud = ADOLAT hozirgi holati.
+  // MUHIM: cabinet yozuvidagi snapshotId'ga TAYANILMAYDI — status-ingest uni har sinxronda eng oxirgi
+  // snapshot bilan qayta yozadi (memory: cabinet-status-snapshot-and-result). Snapshot bo'yicha kesim
+  // inSnap orqali (shu snapshotdan sud navbatiga qo'yilgan ishlar); snapshot berilmasa — ADOLAT hozirgi holati.
   const firmMeta = await prisma.firm.findMany({ select: { id: true, code: true } });
   const firmIdByCode = new Map(firmMeta.filter((f) => f.code).map((f) => [f.code!, f.id]));
   const inactiveCodeSet = new Set(fa.inactiveCodes);
@@ -220,14 +222,15 @@ async function judgesReport(
       },
       select: { judge: true, courtId: true, branchCode: true, pinfl: true, status: true, statusLabel: true, caseResult: true, hearingDate: true },
     }),
-    prisma.clientCaseStatus.count({
+    // Snapshot filtri bo'lsa bu ikki son pastda snapRows'dan hisoblanadi — COUNT so'rovlari kerak emas.
+    inSnap ? Promise.resolve(0) : prisma.clientCaseStatus.count({
       where: {
         source: 'CABINET',
         status: { notIn: ['DRAFT', 'CREATED'] },
         ...(fa.hasInactive ? { branchCode: { notIn: fa.inactiveCodes } } : {}),
       },
     }),
-    prisma.clientCaseStatus.count({
+    inSnap ? Promise.resolve(0) : prisma.clientCaseStatus.count({
       where: {
         source: 'CABINET',
         judge: { not: null },
@@ -235,7 +238,6 @@ async function judgesReport(
         ...(fa.hasInactive ? { branchCode: { notIn: fa.inactiveCodes } } : {}),
       },
     }),
-    // Snapshot filtri bo'lsa ikki count'ni shu yozuvlardan qayta hisoblaymiz (juftlik SQL'da yo'q).
     inSnap
       ? prisma.clientCaseStatus.findMany({
           where: { source: 'CABINET', ...(fa.hasInactive ? { branchCode: { notIn: fa.inactiveCodes } } : {}) },
@@ -313,7 +315,8 @@ async function judgesReport(
 //   • Mijozlar = COUNT(DISTINCT pinfl) shu regionda ishi borlar.
 //   • MIBga    = ArizaCase EXEC (MIB_SUBMITTED/CLOSED) soni.
 //   • Jami qarz= SUM(ArizaCase.totalDebt) — firma «Jami qarz»i bilan bir manba (aniq mos keladi).
-//   • Sud      = ClientCaseStatus (CABINET), snapshotSIZ (cabinet oxirgi holat); DRAFT/CREATED chiqarilmaydi.
+//   • Sud      = ClientCaseStatus (CABINET); snapshot tanlansa — shu snapshotdan sud navbatiga qo'yilgan ishlar
+//                (snapshotPairFilter), aks holda ADOLAT hozirgi holati; DRAFT/CREATED chiqarilmaydi.
 async function regionBreakdown(snapshotId: number | undefined, fa: Awaited<ReturnType<typeof firmActivity>>, inSnap: SnapPairFilter | null = null): Promise<BossRegionRow[]> {
   const regionSnapId = snapshotId
     ?? (await prisma.snapshot.findFirst({ orderBy: { reportDate: 'desc' }, select: { id: true } }))?.id
@@ -388,13 +391,18 @@ async function regionBreakdown(snapshotId: number | undefined, fa: Awaited<Retur
 
 type SnapPairFilter = (branchCode: string | null, pinfl: string | null) => boolean;
 
-/** Tanlangan snapshot ishlarining (firma kodi × PINFL) juftliklari — sud (CABINET) yozuvlarini shu snapshotga
- *  bog'lash uchun (cabinet yozuvidagi snapshotId faqat eng oxirgisini ko'rsatadi). Snapshot berilmasa null →
- *  filtr yo'q, sud = ADOLAT hozirgi holati. Firma kodi bosh nollarsiz solishtiriladi ('06292' ≡ '6292'). */
+/** «Shu snapshotdan sudga chiqarilgan»: tanlangan snapshotning SUD NAVBATIGA qo'yilgan (queueItem bor) ishlari
+ *  — (firma kodi × PINFL) juftliklari; ADOLAT (CABINET) yozuvlari shu juftliklar bo'yicha kesiladi. Sabab:
+ *  cabinet yozuvidagi snapshotId faqat eng oxirgisini ko'rsatadi, ish bosqichi esa qoralama (suit) oqimida
+ *  COURT_* ga o'tmaydi, qoralama UUID'i ro'yxatdan o'tgach almashadi. Navbat — yagona ishonchli iz: yangi
+ *  snapshot (masalan 29.09) navbatga qo'yilmaguncha 0, oldingi partiyadagi ishlari o'z snapshotida qoladi.
+ *  Snapshot berilmasa null → filtr yo'q (ADOLAT hozirgi holati). */
 async function snapshotPairFilter(snapshotId: number | undefined, fa: Awaited<ReturnType<typeof firmActivity>>): Promise<SnapPairFilter | null> {
   if (!snapshotId) return null;
-  const code = (c: string) => c.trim().replace(/^0+/, '');
-  const cases = await prisma.arizaCase.findMany({ where: { snapshotId, pinfl: { not: null }, ...fa.caseWhere }, select: { pinfl: true, kod: true } });
-  const pairs = new Set(cases.filter((c) => c.kod && c.pinfl).map((c) => `${code(c.kod!)}|${c.pinfl}`));
-  return (branchCode, pinfl) => !!branchCode && !!pinfl && pairs.has(`${code(branchCode)}|${pinfl}`);
+  const cases = await prisma.arizaCase.findMany({
+    where: { snapshotId, pinfl: { not: null }, queueItem: { isNot: null }, ...fa.caseWhere },
+    select: { pinfl: true, kod: true },
+  });
+  const pairs = new Set(cases.filter((c) => c.kod && c.pinfl).map((c) => `${canonCode(c.kod)}|${c.pinfl}`));
+  return (branchCode, pinfl) => !!branchCode && !!pinfl && pairs.has(`${canonCode(branchCode)}|${pinfl}`);
 }
