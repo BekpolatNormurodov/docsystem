@@ -60,7 +60,7 @@ export async function loadTalabnomaRowsForScope({ snapshotId, firmId, stages, pi
     select: {
       pinfl: true, branchCode: true, clientName: true, postAddress: true, postAddressUz: true,
       regionName: true, ldId: true, dateToCr: true, summKr: true, totalDebt: true, raw: true,
-      debtPrincipal: true, debtTermInterest: true, debtOverduePrincipal: true, debtOverdueInterest: true,
+      debtOverduePrincipal: true, debtOverdueInterest: true,
     },
   })) as TalabnomaLoan[];
 

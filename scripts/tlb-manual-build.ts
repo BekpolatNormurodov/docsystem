@@ -137,8 +137,7 @@ async function main() {
           regionName: regionName(geo.regionId) || region,
           ldId: digits(r.ld_id), dateToCr: toDate(r.date_to_cr),
           summKr: Number(r.summ_kr) || 0, totalDebt: computeTotalDebt(r), raw: { distr_name: areaName(geo.areaId) || geo.district },
-          // Ariza «Jami qarzdorligi» qismlari → reyestrdagi «full_debt» (talabnoma-excel.ts).
-          debtPrincipal: Number(r.summ_ost_ze) || 0, debtTermInterest: Number(r.sumproc_eqv) || 0,
+          // Qarz qismlari → reyestrdagi «overdue_debt» (muddati o'tgan asosiy + foiz; talabnoma-excel.ts).
           debtOverduePrincipal: Number(r.summ_ostpr_ze) || 0, debtOverdueInterest: Number(r.sumnachpr_eqv) || 0,
         });
       }
@@ -169,7 +168,7 @@ async function main() {
     { header: 'Viloyat', key: 'reg', width: 22 }, { header: 'Tuman/Shahar', key: 'area', width: 22 },
     { header: 'Shartnoma raqami', key: 'cnum', width: 20 }, { header: 'Shartnoma sanasi', key: 'cdate', width: 14 },
     { header: 'Kredit summasi', key: 'loan', width: 16 }, { header: 'Jami qarzdorlik', key: 'debt', width: 16 },
-    { header: 'Umumiy qarzdorlik', key: 'umumiy', width: 18 },
+    { header: "Muddati o'tgan jami qarzdorlik", key: 'overdue', width: 20 },
     { header: 'Kun (roʻyxat)', key: 'days', width: 10 },
   ];
   for (const g of allOut) for (const r of g.rows) {
@@ -177,11 +176,11 @@ async function main() {
     ws.addRow({
       firm: g.firm, cid: r.contract_id, fio: r.receiver, pinfl: r.pinfl, addr: r.address, src: m?.addrSrc ?? '',
       reg: regionName(r.region) || `❌ ${r.region}`, area: areaName(r.area) || `❌ ${r.area}`,
-      cnum: r.contract_number, cdate: r.contract_date, loan: r.loan_amount, debt: r.total_debt, umumiy: r.full_debt, days: m?.days ?? '',
+      cnum: r.contract_number, cdate: r.contract_date, loan: r.loan_amount, debt: r.total_debt, overdue: r.overdue_debt ?? '', days: m?.days ?? '',
     });
   }
   ws.getRow(1).font = { bold: true };
-  ws.getColumn('pinfl').numFmt = '@'; ws.getColumn('loan').numFmt = '#,##0'; ws.getColumn('debt').numFmt = '#,##0'; ws.getColumn('umumiy').numFmt = '#,##0.00';
+  ws.getColumn('pinfl').numFmt = '@'; ws.getColumn('loan').numFmt = '#,##0'; ws.getColumn('debt').numFmt = '#,##0'; ws.getColumn('overdue').numFmt = '#,##0';
   ws.getColumn('cdate').numFmt = 'dd.mm.yyyy';
   ws.views = [{ state: 'frozen', ySplit: 1 }];
   ws.autoFilter = { from: 'A1', to: 'N1' };

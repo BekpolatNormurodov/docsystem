@@ -13,14 +13,14 @@ import { latinToCyrillic } from '@/core/uz-latin-to-cyrillic';
 // Machine header (row 1) — exact keys the hippo importer maps.
 export const TALABNOMA_COLUMNS = [
   'date', 'contract_id', 'address', 'receiver', 'contract_date', 'contract_number',
-  'loan_amount', 'loan_amount_words', 'total_debt', 'full_debt', 'total_debt_words', 'region', 'area',
+  'loan_amount', 'loan_amount_words', 'total_debt', 'overdue_debt', 'total_debt_words', 'region', 'area',
 ] as const;
 
 // Human labels (row 2) — copied from the reference file.
 const HUMAN_LABELS: Record<(typeof TALABNOMA_COLUMNS)[number], string> = {
   date: 'Hujjat sanasi', contract_id: 'Shartnoma ID', address: 'Manzil (Uy)', receiver: 'Qarzdor FISH',
   contract_date: 'Shartnoma sanasi', contract_number: 'Shartnoma raqami', loan_amount: 'Kredit miqdori',
-  loan_amount_words: "Kredit miqdori (so'zda)", total_debt: 'Jami qarzdorlik', full_debt: 'Umumiy qarzdorlik',
+  loan_amount_words: "Kredit miqdori (so'zda)", total_debt: 'Jami qarzdorlik', overdue_debt: "Muddati o'tgan jami qarzdorlik",
   total_debt_words: "Jami qarzdorlik (so'zda)", region: 'Viloyat (Region ID)', area: 'Tuman/Shahar (Area ID)',
 };
 
@@ -37,10 +37,7 @@ export interface TalabnomaLoan {
   summKr: unknown;
   totalDebt: unknown;
   raw: unknown;               // needs raw.distr_name for the area id
-  // The ariza «Jami qarzdorligi» parts (Loan.debt*). When present, «full_debt» is computed
-  // exactly like the ariza (core/ariza.ts); when absent (standalone module) it falls back to totalDebt.
-  debtPrincipal?: unknown;
-  debtTermInterest?: unknown;
+  // Overdue parts (Loan.debtOverdue*) → «overdue_debt» (muddati o'tgan jami qarzdorlik); empty without them.
   debtOverduePrincipal?: unknown;
   debtOverdueInterest?: unknown;
 }
@@ -58,7 +55,7 @@ export interface TalabnomaRow {
   loan_amount: number;
   loan_amount_words: string;
   total_debt: number;
-  full_debt: number; // = ariza «Jami qarzdorligi», tiyin aniqligida
+  overdue_debt: number | null; // muddati o'tgan asosiy qarz + muddati o'tgan foiz (butun so'm)
   total_debt_words: string;
   region: number;
   area: number;
@@ -81,13 +78,12 @@ export function buildTalabnomaRows(loans: TalabnomaLoan[], docDate: Date): Talab
     const g0 = group[0]!;
     const loanAmount = Math.round(group.reduce((s, l) => s + num(l.summKr), 0));
     const totalDebt = Math.round(group.reduce((s, l) => s + num(l.totalDebt), 0));
-    // «Umumiy qarzdorlik» — the ariza's «Jami qarzdorligi» (core/ariza.ts): the four parts, each summed and
-    // rounded to tiyin, then added. Without the parts, the same four-part sum via totalDebt.
-    const sum2 = (pick: (l: TalabnomaLoan) => unknown) => Math.round(group.reduce((s, l) => s + num(pick(l)), 0) * 100) / 100;
-    const hasParts = group.every((l) => l.debtPrincipal != null && l.debtTermInterest != null && l.debtOverduePrincipal != null && l.debtOverdueInterest != null);
-    const umumiy = hasParts
-      ? Math.round((sum2((l) => l.debtPrincipal) + sum2((l) => l.debtTermInterest) + sum2((l) => l.debtOverduePrincipal) + sum2((l) => l.debtOverdueInterest)) * 100) / 100
-      : sum2((l) => l.totalDebt);
+    // «Muddati o'tgan jami qarzdorlik» — overdue principal + overdue interest (the portfolio's
+    // «Просроченный основной долг» + «Просроченный %»), whole so'm like total_debt.
+    const hasOverdue = group.every((l) => l.debtOverduePrincipal != null && l.debtOverdueInterest != null);
+    const overdue = hasOverdue
+      ? Math.round(group.reduce((s, l) => s + num(l.debtOverduePrincipal) + num(l.debtOverdueInterest), 0))
+      : null;
     const distr = String((g0.raw as any)?.distr_name ?? '');
     const { regionId, areaId } = resolveHippoRegionArea(g0.regionName ?? '', distr);
     seq += 1;
@@ -104,7 +100,7 @@ export function buildTalabnomaRows(loans: TalabnomaLoan[], docDate: Date): Talab
       loan_amount: loanAmount,
       loan_amount_words: numberToUzWords(loanAmount),
       total_debt: totalDebt,
-      full_debt: umumiy,
+      overdue_debt: overdue,
       total_debt_words: numberToUzWords(totalDebt),
       region: regionId,
       area: areaId,
