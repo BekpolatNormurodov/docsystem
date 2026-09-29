@@ -30,6 +30,12 @@ const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ')
 const n = (x: number) => (x || 0).toLocaleString('ru-RU');
 const fmtInt = (s: string) => (s ? Number(s).toLocaleString('ru-RU') : '');
 const dt = (s: string) => new Date(s).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+// Mahalliy (brauzer) bugungi sana YYYY-MM-DD — toISOString() UTC bo'lgani uchun Toshkentda 00:00–05:00
+// oralig'ida kechagi sanani berardi.
+const localToday = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 async function jpost(url: string, body: unknown) {
   const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -281,7 +287,7 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
   const [busyFirm, setBusyFirm] = useState<string | null>(null);
   const [note, setNote] = useState('');
   // Hujjat sanasi — chiqarishdan oldin operator kiritadi (default: bugun). Barcha chiqarishlarga qo'llanadi.
-  const [docDate, setDocDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [docDate, setDocDate] = useState<string>(localToday);
   // Qarzdorlik filtri — DEFAULT O'CHIQ: hech qanday chegara qo'yilmaydi (barcha shaxslar kiradi).
   // Yoqilganda pastdagi summa (Umumiy ≥ / har firmadan ≥) qo'llanadi.
   const [filterOn, setFilterOn] = useState(false);
@@ -393,11 +399,30 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
       </div>
 
       {/* Hujjat sanasi — chiqarishdan oldin tanlanadi; barcha reyestr/xat/Excel/PDF shu bitta sana bilan. */}
-      <div className="card flex flex-wrap items-center gap-3 p-4">
-        <span className="text-sm font-semibold text-brand-600 dark:text-brand-400">📅 {t('Hujjat sanasi')}</span>
-        <input type="date" value={docDate} onChange={(e) => setDocDate(e.target.value)}
-          className="field-input w-auto px-3 py-1.5 text-sm tabular-nums" title={t('Talabnoma/xat sanasi — shu sana bilan chiqariladi')} />
-        <span className="text-xs text-muted">{t('Shu sana barcha xat va reyestrlarga qo‘yiladi (default: bugun).')}</span>
+      <div className="card flex flex-wrap items-center gap-x-4 gap-y-3 p-4">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-500/10 text-brand-600 dark:text-brand-400" aria-hidden>
+          <Ico.calendar size={20} />
+        </span>
+        <div className="min-w-[12rem] flex-1">
+          <label htmlFor="tf-doc-date" className="block text-sm font-semibold">{t('Hujjat sanasi')}</label>
+          <p className="mt-0.5 text-xs text-muted">{t('Tanlangan sana barcha xat va reyestrlarga qo‘yiladi.')}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            id="tf-doc-date"
+            type="date"
+            value={docDate}
+            onChange={(e) => setDocDate(e.target.value || localToday())}
+            className="field-input w-auto px-3 py-2 text-sm font-medium tabular-nums"
+          />
+          {docDate !== localToday() ? (
+            <button type="button" onClick={() => setDocDate(localToday())} className="btn-ghost h-9 px-3 text-xs" title={t('Bugungi sanaga qaytarish')}>
+              <Ico.undo size={14} /> {t('Bugun')}
+            </button>
+          ) : (
+            <span className="badge border-emerald-500/30 text-emerald-600 dark:text-emerald-300">{t('Bugun')}</span>
+          )}
+        </div>
       </div>
 
       {/* inline filter bar — always visible */}
