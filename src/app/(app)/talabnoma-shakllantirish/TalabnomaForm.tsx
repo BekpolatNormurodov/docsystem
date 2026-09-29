@@ -280,6 +280,8 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
   const [applying, setApplying] = useState(false);
   const [busyFirm, setBusyFirm] = useState<string | null>(null);
   const [note, setNote] = useState('');
+  // Hujjat sanasi — chiqarishdan oldin operator kiritadi (default: bugun). Barcha chiqarishlarga qo'llanadi.
+  const [docDate, setDocDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   // Qarzdorlik filtri — DEFAULT O'CHIQ: hech qanday chegara qo'yilmaydi (barcha shaxslar kiradi).
   // Yoqilganda pastdagi summa (Umumiy ≥ / har firmadan ≥) qo'llanadi.
   const [filterOn, setFilterOn] = useState(false);
@@ -346,7 +348,7 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
     setBusyFirm(firm.code + kind);
     try {
       const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/generate`, {
-        firmCode: firm.code, firmName: firm.name, kind, ...eff(opts), includeUnready: !firm.ready,
+        firmCode: firm.code, firmName: firm.name, kind, ...eff(opts), includeUnready: !firm.ready, docDate,
       });
       if (!ok) { setNote(json.error || `${t('Xatolik')} (${status})`); return; }
       if (kind === 'REYESTR') {
@@ -362,7 +364,7 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
   const doGenerateAll = async () => {
     setNote(''); setBusyFirm('__ALL__');
     try {
-      const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/generate`, { all: true, format: 'excel', ...eff(opts) });
+      const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/generate`, { all: true, format: 'excel', ...eff(opts), docDate });
       if (!ok) { setNote(json.error || `${t('Xatolik')} (${status})`); return; }
       window.location.href = `/api/talabnoma-form/${batch.id}/download/${json.runId}`;
       await onChanged();
@@ -373,7 +375,7 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
   const doGenerateAllZip = async () => {
     setNote(''); setBusyFirm('__ALLZIP__');
     try {
-      const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/generate`, { all: true, format: 'zip', ...eff(opts) });
+      const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/generate`, { all: true, format: 'zip', ...eff(opts), docDate });
       if (!ok) { setNote(json.error || `${t('Xatolik')} (${status})`); return; }
       setNote(t('ZIP tayyorlanmoqda (har firma alohida papka) — pastdagi «Amallar tarixi»dan yuklab olasiz.'));
       await onChanged();
@@ -445,7 +447,14 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
       {/* per-firm table */}
       <div className="card overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
-          <span className="text-sm font-semibold">{t('Firmalar bo‘yicha')}</span>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm font-semibold">{t('Firmalar bo‘yicha')}</span>
+            {/* Hujjat sanasi — chiqarishdan oldin kiritiladi; barcha reyestr/xat/PDF'larga qo'llanadi. */}
+            <label className="flex items-center gap-1.5 text-xs text-muted">
+              {t('Hujjat sanasi')}:
+              <input type="date" value={docDate} onChange={(e) => setDocDate(e.target.value)} className="field-input px-2 py-1 text-xs tabular-nums" title={t('Talabnoma/xat sanasi — shu sana bilan chiqariladi')} />
+            </label>
+          </div>
           {/* Nechta firma bo'lsa ham — hammasi bittada: Excel yoki PDF (firmalar ichida). */}
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-muted">{t('Barcha firmalar — hammasi bittada')}:</span>

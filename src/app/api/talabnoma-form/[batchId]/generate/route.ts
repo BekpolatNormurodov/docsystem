@@ -35,6 +35,10 @@ export async function POST(req: NextRequest, { params }: { params: { batchId: st
   const includeUnready = body?.includeUnready === true;
   const opts = { thresholdTotal, perFirmMin };
   const filtersAll = { thresholdTotal, perFirmMin, includeUnready: true };
+  // Hujjat sanasi — operator chiqarishda kiritadi (YYYY-MM-DD). Bo'sh/xato bo'lsa candidates ichidagi
+  // asl docDate ishlatiladi. Inline yo'llarda file.docDate'ni shu bilan almashtiramiz; fon jobларга params'да yuboramiz.
+  const docDate = typeof body?.docDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.docDate) ? body.docDate : undefined;
+  const applyDate = (f: { docDate?: string }) => { if (docDate) f.docDate = new Date(`${docDate}T00:00:00.000Z`).toISOString(); };
 
   // «Barcha firmalar — hammasi bittada»: Excel (bitta varaq) yoki PDF (bitta fayl, firmalar ichida).
   if (all) {
@@ -45,13 +49,14 @@ export async function POST(req: NextRequest, { params }: { params: { batchId: st
         data: { batchId: id, createdBy: user.username, kind: 'LETTERS', firmCode: '__ALL__', firmName: t('Barcha firmalar (ZIP)'), filters: filtersAll, status: 'PENDING' },
       });
       const job = await prisma.job.create({
-        data: { type: 'TALABNOMA_FORM', status: 'PENDING', params: { action: 'generate-all-zip', batchId: id, runId: run.id, filters: opts } },
+        data: { type: 'TALABNOMA_FORM', status: 'PENDING', params: { action: 'generate-all-zip', batchId: id, runId: run.id, filters: opts, docDate } },
       });
       enqueueJob(job.id);
       return NextResponse.json({ runId: run.id, jobId: job.id, kind: 'LETTERS' });
     }
     // Bitta Excel — tez, inline.
     const file = await readCandidates(batch.candidatesPath);
+    applyDate(file);
     const run = await prisma.talabnomaFormRun.create({
       data: { batchId: id, createdBy: user.username, kind: 'REYESTR', firmCode: '__ALL__', firmName: t('Barcha firmalar'), filters: filtersAll, status: 'RUNNING' },
     });
@@ -78,6 +83,7 @@ export async function POST(req: NextRequest, { params }: { params: { batchId: st
 
   if (kind === 'REYESTR') {
     const file = await readCandidates(batch.candidatesPath);
+    applyDate(file);
     const rows = buildRowsForFirm(file, firmCode, opts);
     if (!rows.length) return NextResponse.json({ error: t('Tanlangan filtr uchun qator yo‘q') }, { status: 422 });
     const run = await prisma.talabnomaFormRun.create({
@@ -100,7 +106,7 @@ export async function POST(req: NextRequest, { params }: { params: { batchId: st
     data: {
       type: 'TALABNOMA_FORM',
       status: 'PENDING',
-      params: { action: 'generate-letters', batchId: id, runId: run.id, firmCode, filters: opts },
+      params: { action: 'generate-letters', batchId: id, runId: run.id, firmCode, filters: opts, docDate },
     },
   });
   enqueueJob(job.id);

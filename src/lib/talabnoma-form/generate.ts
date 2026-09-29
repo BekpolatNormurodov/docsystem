@@ -16,6 +16,7 @@ import {
 } from '@/lib/hippo/talabnoma-excel';
 import { renderTalabnomaPdf, type TalabnomaFirm } from '@/lib/hippo/talabnoma-pdf';
 import { regionName, areaName } from '@/core/hippo-regions';
+import { directorByCode } from '@/lib/farmoyish-docx';
 import { canonCode, passesTotal } from './filter';
 import type { CandidatesFile, FilterOpts } from './types';
 
@@ -91,7 +92,7 @@ export async function firmLetterhead(firmCode: string): Promise<TalabnomaFirm | 
     select: { code: true, legalName: true, shortName: true, address: true, stir: true, bankAccount: true, mfo: true, phone: true },
   });
   const f = firms.find((x) => canonCode(x.code) === code);
-  return f ?? null;
+  return f ? { ...f, director: directorByCode(f.code) } : null;
 }
 
 export async function writeReyestr(rows: TalabnomaRow[], filePath: string): Promise<void> {
@@ -121,7 +122,7 @@ export async function writeAllFirmsReyestr(file: CandidatesFile, opts: FilterOpt
     { header: 'Shartnoma sanasi', key: 'cdate', width: 15 },
     { header: 'Kredit summasi', key: 'loan', width: 16 },
     { header: 'Jami qarzdorlik', key: 'debt', width: 18 },
-    { header: 'Umumiy qarzdorlik', key: 'umumiy', width: 18 },
+    { header: "Muddati o'tgan jami qarzdorlik", key: 'overdue', width: 20 },
     { header: 'Viloyat', key: 'region', width: 18 },
     { header: 'Tuman/Shahar', key: 'area', width: 20 },
   ];
@@ -134,7 +135,7 @@ export async function writeAllFirmsReyestr(file: CandidatesFile, opts: FilterOpt
       ws.addRow({
         firma, fish: r.receiver, pinfl: r.pinfl ?? '', address: r.address,
         cnum: r.contract_number, cdate: dmy(r.contract_date),
-        loan: r.loan_amount, debt: r.total_debt, umumiy: r.full_debt,
+        loan: r.loan_amount, debt: r.total_debt, overdue: r.overdue_debt ?? '',
         region: regionName(r.region), area: areaName(r.area),
       });
       count += 1;
@@ -144,7 +145,7 @@ export async function writeAllFirmsReyestr(file: CandidatesFile, opts: FilterOpt
   ws.getColumn('pinfl').numFmt = '@';
   ws.getColumn('loan').numFmt = '#,##0';
   ws.getColumn('debt').numFmt = '#,##0';
-  ws.getColumn('umumiy').numFmt = '#,##0.00';
+  ws.getColumn('overdue').numFmt = '#,##0';
   ws.autoFilter = { from: 'A1', to: `K${Math.max(1, ws.rowCount)}` };
   ws.views = [{ state: 'frozen', ySplit: 1 }];
   await wb.xlsx.writeFile(outPath);
@@ -165,7 +166,7 @@ export async function writeAllFirmsLettersZip(
   const firms = await prisma.firm.findMany({
     select: { code: true, legalName: true, shortName: true, address: true, stir: true, bankAccount: true, mfo: true, phone: true },
   });
-  const firmByCode = new Map(firms.map((f) => [canonCode(f.code), f as TalabnomaFirm & { code: string }]));
+  const firmByCode = new Map(firms.map((f) => [canonCode(f.code), { ...f, director: directorByCode(f.code) } as TalabnomaFirm & { code: string }]));
   const nameOf = (c: string) => firmByCode.get(c)?.shortName || firmByCode.get(c)?.legalName || c;
 
   // Firma bo'yicha guruhlar (bo'sh firmalar tashlanadi), firma nomi bo'yicha tartiblangan.

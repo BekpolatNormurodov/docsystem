@@ -22,9 +22,21 @@ const BANK_BY_MFO: Record<string, string> = { '01183': 'АО "ANORBANK"' };
 // These are firm officers (NOT the chamber signer in Settings) and aren't in the DB, so — like
 // FIRMS_SEED — they're seeded here from the firms' real farmoyish letterheads. A firm with no entry
 // prints blank fill-in lines rather than an invented name.
+// Firma bo'yicha ижрочи директор (imzo) — 2026-09-29 «Фуқарога жавоб хати» letterhead/imzolaridan.
+// executor faqat aniq bo'lganda; bo'sh bo'lsa farmoyish «____» ga tushadi (eski xatti-harakat).
 export const FARMOYISH_SIGNERS: Record<string, { director: string; executor: string }> = {
+  '12842': { director: 'А.А.Бойназаров', executor: '' }, // BRIGHT FUTURE FINANCING
   '06292': { director: 'Ё.А.Хасанов', executor: 'Л.Сурманов' }, // URBAN FINANCE SOLUTIONS
+  '55890': { director: 'Д.Мамадалиев', executor: '' }, // COMMUNITY MICROFINANCE
+  '14276': { director: 'Ф.Ф.Сувонов', executor: '' }, // FUNDFLOW
+  '31685': { director: 'А.Р.Бозоров', executor: '' }, // ZAYMLY
 };
+
+/** Firma kodi bo'yicha ижрочи директор F.I.Sh (talabnoma/farmoyish imzosi). Topilmasa null. */
+export function directorByCode(code?: string | null): string | null {
+  const c = (code ?? '').trim();
+  return FARMOYISH_SIGNERS[c]?.director || null;
+}
 
 // The firm's billing tuman (Cyrillic, e.g. "Учтепа тумани") → its inter-district court in the dative,
 // "Учтепа туманлараро судига", matching the real farmoyish. Only for a genuine "…тумани" district;

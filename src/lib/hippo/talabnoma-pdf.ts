@@ -48,6 +48,7 @@ export function talabnomaFields(row: TalabnomaRow): Record<string, string> {
 export interface TalabnomaFirm {
   legalName?: string | null; shortName?: string | null; address?: string | null;
   stir?: string | null; bankAccount?: string | null; mfo?: string | null; phone?: string | null;
+  director?: string | null; // ижрочи директор F.I.Sh (imzo) — firma bo'yicha
 }
 
 function firmFields(firm?: TalabnomaFirm | null): Record<string, string> {
@@ -60,6 +61,7 @@ function firmFields(firm?: TalabnomaFirm | null): Record<string, string> {
     firm_address: firm?.address ?? '',
     firm_bank: bank.join(' '),
     firm_contact: firm?.phone ? `Тел: ${firm.phone}` : '',
+    firm_director: firm?.director ?? '',
   };
 }
 
