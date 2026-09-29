@@ -85,10 +85,13 @@ export async function bossReport(snapshotId?: number): Promise<BossReportData> {
 
   // 3 ta og'ir so'rov parallel: konveyer summary, firma-jami qarzi, region kesimi. Ilgari
   // ular ketma-ket bajarilardi — endi bir vaqtda (~30-40% tez).
+  // Snapshot tanlangan bo'lsa — sud (CABINET) faqat SHU snapshot ishlarining (firma × PINFL) juftliklari
+  // bo'yicha. cabinet yozuvidagi snapshotId ishonchsiz (faqat eng oxirgisi) — ArizaCase orqali bog'lanadi.
+  const inSnap = await snapshotPairFilter(snapshotId, fa);
   const [summary, debtRows, regions] = await Promise.all([
     konveyerSummary(snapshotId),
     prisma.arizaCase.groupBy({ by: ['firmId'], where: scope, _sum: { totalDebt: true } }),
-    regionBreakdown(snapshotId, fa),
+    regionBreakdown(snapshotId, fa, inSnap),
   ]);
   const debtByFirm = new Map<number, number>();
   for (const d of debtRows) debtByFirm.set(d.firmId, Number(d._sum.totalDebt ?? 0));
@@ -116,13 +119,14 @@ export async function bossReport(snapshotId?: number): Promise<BossReportData> {
   const firmIdByCode = new Map(firmMeta.filter((f) => f.code).map((f) => [f.code!, f.id]));
   const inactiveCodeSet = new Set(fa.inactiveCodes);
   const sudGrouped = await prisma.clientCaseStatus.groupBy({
-    by: ['branchCode', 'status', 'statusLabel', 'caseResult', 'source'],
+    by: ['branchCode', 'pinfl', 'status', 'statusLabel', 'caseResult', 'source'],
     where: { source: 'CABINET' },
     _count: { _all: true },
   });
   const sudByFirm = new Map<number, BossSud>();
   for (const g of sudGrouped) {
     if (!g.branchCode || inactiveCodeSet.has(g.branchCode)) continue;
+    if (inSnap && !inSnap(g.branchCode, g.pinfl)) continue;
     const fid = firmIdByCode.get(g.branchCode);
     if (!fid) continue;
     const code = classifyStatus('CABINET', { status: g.status, statusLabel: g.statusLabel, caseResult: g.caseResult }).code;
@@ -174,7 +178,7 @@ export async function bossReport(snapshotId?: number): Promise<BossReportData> {
   // Umumiy «userlar» — firma yig'indisi EMAS (bir odam bir necha firmada): butun DISTINCT PINFL.
   totals.clients = totalClients;
 
-  const judges = await judgesReport(fa, firmMeta);
+  const judges = await judgesReport(fa, firmMeta, inSnap);
 
   return { snapshotId: snapshotId ?? null, firms, totals, regions, judges };
 }
@@ -185,6 +189,7 @@ export async function bossReport(snapshotId?: number): Promise<BossReportData> {
 async function judgesReport(
   fa: Awaited<ReturnType<typeof firmActivity>>,
   firmMeta: { id: number; code: string | null }[],
+  inSnap: SnapPairFilter | null = null,
 ): Promise<BossJudgesBlock> {
   const inactiveCodes = new Set(fa.inactiveCodes);
   const firmByCode = new Map<string, string>();
@@ -205,7 +210,7 @@ async function judgesReport(
   for (const c of courtNameRows) if (c.courtId && c.name) courtNameById.set(c.courtId, c.name);
 
   // withJudge va submittedTotal — bir marta groupBy (2 count parallel).
-  const [rawRows, submittedRow, withJudgeRow] = await Promise.all([
+  const [judgeRows, submittedRow, withJudgeRow, snapRows] = await Promise.all([
     prisma.clientCaseStatus.findMany({
       where: {
         source: 'CABINET',
@@ -230,7 +235,22 @@ async function judgesReport(
         ...(fa.hasInactive ? { branchCode: { notIn: fa.inactiveCodes } } : {}),
       },
     }),
+    // Snapshot filtri bo'lsa ikki count'ni shu yozuvlardan qayta hisoblaymiz (juftlik SQL'da yo'q).
+    inSnap
+      ? prisma.clientCaseStatus.findMany({
+          where: { source: 'CABINET', ...(fa.hasInactive ? { branchCode: { notIn: fa.inactiveCodes } } : {}) },
+          select: { branchCode: true, pinfl: true, status: true, judge: true },
+        })
+      : Promise.resolve([] as { branchCode: string | null; pinfl: string | null; status: string | null; judge: string | null }[]),
   ]);
+  const rawRows = inSnap ? judgeRows.filter((r) => inSnap(r.branchCode, r.pinfl)) : judgeRows;
+  let submittedTotal = submittedRow;
+  let withJudgeTotal = withJudgeRow;
+  if (inSnap) {
+    const rows = snapRows.filter((r) => inSnap(r.branchCode, r.pinfl));
+    submittedTotal = rows.filter((r) => r.status != null && r.status !== 'DRAFT' && r.status !== 'CREATED').length;
+    withJudgeTotal = rows.filter((r) => r.judge != null && r.judge !== '').length;
+  }
 
   const byJudge = new Map<string, {
     judge: string; courts: Set<string>; firms: Set<string>; pinfls: Set<string>;
@@ -278,8 +298,8 @@ async function judgesReport(
   const lastStamp = await prisma.setting.findUnique({ where: { key: 'court_detail_refreshed_at' }, select: { value: true } }).catch(() => null);
   return {
     rows,
-    withJudge: withJudgeRow,
-    submittedTotal: submittedRow,
+    withJudge: withJudgeTotal,
+    submittedTotal,
     lastSyncAt: lastStamp?.value ?? null,
     syncIntervalMin: 20,
     perFirmBatch: 40,
@@ -294,7 +314,7 @@ async function judgesReport(
 //   • MIBga    = ArizaCase EXEC (MIB_SUBMITTED/CLOSED) soni.
 //   • Jami qarz= SUM(ArizaCase.totalDebt) — firma «Jami qarz»i bilan bir manba (aniq mos keladi).
 //   • Sud      = ClientCaseStatus (CABINET), snapshotSIZ (cabinet oxirgi holat); DRAFT/CREATED chiqarilmaydi.
-async function regionBreakdown(snapshotId: number | undefined, fa: Awaited<ReturnType<typeof firmActivity>>): Promise<BossRegionRow[]> {
+async function regionBreakdown(snapshotId: number | undefined, fa: Awaited<ReturnType<typeof firmActivity>>, inSnap: SnapPairFilter | null = null): Promise<BossRegionRow[]> {
   const regionSnapId = snapshotId
     ?? (await prisma.snapshot.findFirst({ orderBy: { reportDate: 'desc' }, select: { id: true } }))?.id
     ?? 0;
@@ -304,10 +324,11 @@ async function regionBreakdown(snapshotId: number | undefined, fa: Awaited<Retur
   // qotib qolardi (snapshot almashtirib bo'lmasdi). Endi region FAQAT kerakli pinfl'lar uchun,
   // pinfl-indeks bilan (FORCE INDEX Loan_pinfl_snapshotId_idx) olinadi (~2s). ArizaCase/ClientCaseStatus
   // kichik va indeksli — yig'ish JS'da. acRows/ccsRows parallel; region so'rovi ular topgan PINFL'lar bo'yicha.
-  const [acRows, ccsRows] = await Promise.all([
+  const [acRows, ccsAll] = await Promise.all([
     prisma.arizaCase.findMany({ where: { snapshotId: regionSnapId, pinfl: { not: null }, ...fa.caseWhere }, select: { pinfl: true, stage: true, totalDebt: true, talabnomaAt: true } }),
-    prisma.clientCaseStatus.findMany({ where: { source: 'CABINET', pinfl: { not: null }, ...(fa.hasInactive ? { branchCode: { notIn: fa.inactiveCodes } } : {}) }, select: { pinfl: true, status: true, statusLabel: true, caseResult: true } }),
+    prisma.clientCaseStatus.findMany({ where: { source: 'CABINET', pinfl: { not: null }, ...(fa.hasInactive ? { branchCode: { notIn: fa.inactiveCodes } } : {}) }, select: { branchCode: true, pinfl: true, status: true, statusLabel: true, caseResult: true } }),
   ]);
+  const ccsRows = inSnap ? ccsAll.filter((c) => inSnap(c.branchCode, c.pinfl)) : ccsAll;
   // Region FAQAT kerakli PINFL'lar uchun. ILGARI: `l.pinfl IN (SELECT … UNION SELECT …)` subquery +
   // FORCE INDEX — MySQL buni DEPENDENT subquery qilib ~159k Loan qatoriga qayta bajarardi → ~46s va
   // Boshliq sahifasi (sana almashtirilganda) qotib qolardi. Endi kerakli PINFL'larni JS'da (allaqachon
@@ -363,4 +384,17 @@ async function regionBreakdown(snapshotId: number | undefined, fa: Awaited<Retur
     if ((a.region === 'Aniqlanmagan') !== (b.region === 'Aniqlanmagan')) return a.region === 'Aniqlanmagan' ? 1 : -1;
     return (b.mib + b.sudTotal) - (a.mib + a.sudTotal) || b.debt - a.debt || a.region.localeCompare(b.region);
   });
+}
+
+type SnapPairFilter = (branchCode: string | null, pinfl: string | null) => boolean;
+
+/** Tanlangan snapshot ishlarining (firma kodi × PINFL) juftliklari — sud (CABINET) yozuvlarini shu snapshotga
+ *  bog'lash uchun (cabinet yozuvidagi snapshotId faqat eng oxirgisini ko'rsatadi). Snapshot berilmasa null →
+ *  filtr yo'q, sud = ADOLAT hozirgi holati. Firma kodi bosh nollarsiz solishtiriladi ('06292' ≡ '6292'). */
+async function snapshotPairFilter(snapshotId: number | undefined, fa: Awaited<ReturnType<typeof firmActivity>>): Promise<SnapPairFilter | null> {
+  if (!snapshotId) return null;
+  const code = (c: string) => c.trim().replace(/^0+/, '');
+  const cases = await prisma.arizaCase.findMany({ where: { snapshotId, pinfl: { not: null }, ...fa.caseWhere }, select: { pinfl: true, kod: true } });
+  const pairs = new Set(cases.filter((c) => c.kod && c.pinfl).map((c) => `${code(c.kod!)}|${c.pinfl}`));
+  return (branchCode, pinfl) => !!branchCode && !!pinfl && pairs.has(`${code(branchCode)}|${pinfl}`);
 }
