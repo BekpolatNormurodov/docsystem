@@ -76,7 +76,7 @@ export async function requestJudgeSync(
   await prisma.setting.deleteMany({ where: { key: JUDGE_SYNC_STOP } });
 }
 
-interface PendingRow { id: number; branchCode: string; caseNumber: string; status: string }
+interface PendingRow { id: number; branchCode: string; caseNumber: string; status: string; realId: string | null }
 
 /**
  * Sudyasi yo'q, sudga tushgan (raqami «2-1004-…/…» ko'rinishida) va yaqinda tekshirilmagan ishlar.
@@ -85,7 +85,9 @@ interface PendingRow { id: number; branchCode: string; caseNumber: string; statu
 export async function judgePending(): Promise<PendingRow[]> {
   const since = new Date(Date.now() - JUDGE_RECHECK_DAYS * 86_400_000).toISOString();
   return prisma.$queryRaw<PendingRow[]>`
-    SELECT id, branchCode, caseNumber, status FROM ClientCaseStatus
+    SELECT id, branchCode, caseNumber, status,
+      JSON_UNQUOTE(JSON_EXTRACT(detail, '$.participants[0].participant.case_id')) AS realId
+    FROM ClientCaseStatus
     WHERE source = 'CABINET' AND (judge IS NULL OR judge = '')
       AND status NOT IN ('DRAFT', 'CREATED')
       AND caseNumber REGEXP '^[0-9]+-[0-9]+-[0-9]+/[0-9]+$'
@@ -117,6 +119,51 @@ async function stampChecked(id: number): Promise<void> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const STATUS_RANK: Record<string, number> = { DECIDED: 0, FINISHED: 0, IN_PROCESS: 1, PENDING: 1, ALLOCATE: 1, DECLINED: 2, REGISTER: 3 };
+const asArray = (j: any): any[] => (Array.isArray(j) ? j : j?.content ?? j?.data ?? []);
+
+/** Portal xatosi (sessiya eskirgan / server) — bunday javobni «sudya yo'q» deb qabul qilib bo'lmaydi. */
+class PortalError extends Error {}
+function assertPortalOk(r: { status: number }, what: string): void {
+  if (r.status === 401 || r.status === 403 || r.status >= 500) throw new PortalError(`${what}: HTTP ${r.status}`);
+}
+
+/** Detaldagi HAQIQIY case_id (histories/appealable shu id bilan ishlaydi; ro'yxatdagi case_id boshqacha). */
+function realCaseIdFromDetail(d: any): string | null {
+  for (const p of Array.isArray(d?.participants) ? d.participants : []) { const id = p?.participant?.case_id; if (id) return String(id); }
+  return null;
+}
+
+/**
+ * SUDYA — get-one-case-by-id'dagi `chairman` deyarli doim bo'sh (2026-09-29 tekshiruvi: sudyasi borlarda
+ * ham null). Haqiqiy manba (scripts/spiska-load-detail.ts bilan bir xil): (1) histories →
+ * case_responsible_judge_full_name + sud nomi; (2) zaxira: appealable-documents → JUDGE hujjati egasi.
+ */
+async function fetchJudge(session: CabinetSession, realId: string): Promise<{ judge: string | null; court: string | null }> {
+  let judge: string | null = null; let court: string | null = null;
+  const h = await cabinetFetch(session, `/api/cabinet/case/conflict-suit-view/histories/${realId}`);
+  assertPortalOk(h, 'histories');
+  const hi = asArray(h.json)[0];
+  judge = (hi?.case_responsible_judge_full_name || '').trim() || null;
+  court = hi?.case_court?.names?.uz ?? hi?.case_court?.names?.uz_cyr ?? null;
+  if (!judge) {
+    const a = await cabinetFetch(session, `/api/cabinet/case/appealable-documents/${realId}`);
+    assertPortalOk(a, 'appealable-documents');
+    const docs = asArray(a.json);
+    const jd = docs.find((d: any) => d?.document_group === 'JUDGE') ?? docs[0];
+    judge = (jd?.owner_name || '').trim() || null;
+  }
+  return { judge, court };
+}
+
+/** Sudya (topilsa) + sud nomi + «tekshirildi» belgisi. Mavjud sudya bo'sh qiymat bilan o'chirilmaydi. */
+async function saveJudge(id: number, judge: string | null, court: string | null): Promise<void> {
+  const now = new Date().toISOString();
+  if (judge) await prisma.clientCaseStatus.update({ where: { id }, data: { judge } });
+  if (court) {
+    await prisma.$executeRaw`
+      UPDATE ClientCaseStatus SET detail = JSON_SET(COALESCE(detail, JSON_OBJECT()), '$._checkedAt', ${now}, '$.courtNameUz', ${court}) WHERE id = ${id}`;
+  } else await stampChecked(id);
+}
 
 export async function runJudgeSync(opts: {
   firms: { branchCode: string; stir: string; name: string }[];
@@ -150,40 +197,54 @@ export async function runJudgeSync(opts: {
   pending.forEach((p, i) => { if (!firstIdx.has(p.branchCode)) firstIdx.set(p.branchCode, i); });
   const firms = opts.firms.filter((f) => firstIdx.has(f.branchCode)).sort((a, b) => firstIdx.get(a.branchCode)! - firstIdx.get(b.branchCode)!);
 
-  let consecutiveErr = 0;
   outer:
   for (const f of firms) {
     const mine = pending.filter((p) => p.branchCode === f.branchCode);
     await beat({ firm: f.name });
     let session: CabinetSession;
-    let idByNumber: Map<string, string>;
-    try {
-      session = await opts.sessionFor(f.stir);
-      idByNumber = new Map((await listCabinetCaseIds(session)).map((c) => [c.caseNumber, c.caseId]));
-      // Ro'yxat BO'SH — cabinet'ga ulanib bo'lmadi (egress/tunnel o'chgan, 2026-09-28). Bu holatda ishlarni
-      // «portalda yo'q» deb BELGILAMAYMIZ — aks holda sudyalar 3 kun tortilmay qolardi. Firma xato hisoblanadi.
-      if (idByNumber.size === 0) throw new Error('cabinet ro\'yxati bo\'sh — ulanish yo\'q');
-    } catch (e) {
-      opts.log(`[sudya] ${f.name}: sessiya/ro'yxat xatosi — ${(e as Error).message?.slice(0, 120)}`);
+    try { session = await opts.sessionFor(f.stir); }
+    catch (e) {
+      opts.log(`[sudya] ${f.name}: sessiya yo'q — ${(e as Error).message?.slice(0, 120)}`);
       await beat({ failed: st.failed + mine.length, done: st.done + mine.length });
       continue;
     }
+    // Ro'yxat (list case_id) FAQAT detali yo'q ishlar uchun kerak — detali borida haqiqiy case_id bazada.
+    let idByNumber: Map<string, string> | null = null;
+    if (mine.some((p) => !p.realId)) {
+      idByNumber = new Map((await listCabinetCaseIds(session)).map((c) => [c.caseNumber, c.caseId]));
+      // Bo'sh ro'yxat = ulanish/sessiya muammosi → detalsiz ishlarni BELGILAMAYMIZ (keyingi yurishda).
+      if (idByNumber.size === 0) { opts.log(`[sudya] ${f.name}: ro'yxat bo'sh — detalsiz ishlar keyingi yurishga qoldi`); idByNumber = null; }
+    }
+    let firmErr = 0;
     for (const p of mine) {
       if (await opts.shouldStop()) { st.stopped = true; break outer; }
-      const caseId = idByNumber.get(p.caseNumber);
-      if (!caseId) { await stampChecked(p.id); await beat({ done: st.done + 1 }); continue; } // portal ro'yxatida yo'q
       try {
-        const r = await cabinetFetch(session, `/api/cabinet/case/get-one-case-by-id/${caseId}`);
-        const applied = await applyCaseDetail(p.branchCode, p.caseNumber, r.json ?? {}, snap?.id ?? null);
-        if (!applied) await stampChecked(p.id);
-        consecutiveErr = 0;
-        await beat({ done: st.done + 1, found: st.found + (applied?.judge ? 1 : 0) });
+        let realId = p.realId;
+        if (!realId) {
+          if (!idByNumber) { await beat({ done: st.done + 1, failed: st.failed + 1 }); continue; } // ro'yxat yo'q — belgilamaymiz
+          const listId = idByNumber.get(p.caseNumber);
+          if (!listId) { await stampChecked(p.id); await beat({ done: st.done + 1 }); continue; } // portal ro'yxatida yo'q
+          const r = await cabinetFetch(session, `/api/cabinet/case/get-one-case-by-id/${listId}`);
+          assertPortalOk(r, 'detail');
+          await applyCaseDetail(p.branchCode, p.caseNumber, r.json ?? {}, snap?.id ?? null);
+          realId = realCaseIdFromDetail(r.json) ?? listId;
+        }
+        const { judge, court } = await fetchJudge(session, realId);
+        await saveJudge(p.id, judge, court);
+        firmErr = 0;
+        await beat({ done: st.done + 1, found: st.found + (judge ? 1 : 0) });
       } catch (e) {
-        // Tarmoq/portal xatosi — belgilamaymiz (keyinroq qayta urinadi). Ketma-ket ko'p xato = blok
-        // alomati: portalga bosim bermaslik uchun shu yurishni to'xtatamiz, worker keyinroq davom ettiradi.
-        consecutiveErr += 1;
+        // Portal/tarmoq xatosi — BELGILAMAYMIZ (keyinroq qayta urinadi). Firmada ketma-ket 5 xato =
+        // sessiya eskirgan yoki blok alomati: bu firmani qoldirib keyingisiga o'tamiz.
+        firmErr += 1;
         await beat({ done: st.done + 1, failed: st.failed + 1 });
-        if (consecutiveErr >= 8) { st.note = 'cabinet ketma-ket javob bermadi — keyinroq davom etadi'; opts.log(`[sudya] ${st.note}`); break outer; }
+        if (firmErr >= 5) {
+          const left = mine.length - mine.indexOf(p) - 1;
+          st.note = `${f.name}: cabinet ketma-ket javob bermadi (${(e as Error).message?.slice(0, 60)}) — keyinroq davom etadi`;
+          opts.log(`[sudya] ${st.note}`);
+          await beat({ done: st.done + left, failed: st.failed + left });
+          continue outer;
+        }
       }
       await sleep(DETAIL_FETCH_INTERVAL_MS);
     }

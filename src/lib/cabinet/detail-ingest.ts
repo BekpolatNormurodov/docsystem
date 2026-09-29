@@ -74,6 +74,8 @@ export async function applyCaseDetail(
     inPortfolio = !!loan;
     ourPinfl = loan?.pinfl ?? pinfl; // keep the real defendant pinfl even if not in portfolio
   }
+  // Detaldagi chairman ko'pincha bo'sh — haqiqiy sudya histories/appealable-documents'da
+  // (src/lib/cabinet/judge-sync.ts). Shuning uchun mavjud sudyani BO'SH qiymat bilan o'chirmaymiz.
   const judge = (d.chairman ?? d.responsible_judge ?? null) || null;
   await prisma.clientCaseStatus.updateMany({
     // `branchCode` SHART: sud ish raqami akkauntlar bo'ylab yagona emas, ya'ni
@@ -87,9 +89,9 @@ export async function applyCaseDetail(
       // portfolio — a raw cabinet pinfl not among our clients is UNMATCHED, not a match.
       matchedBy: pinfl ? (inPortfolio ? 'PINFL' : 'UNMATCHED') : undefined,
       defAddress: address, defPassport: passport,
-      judge,
+      ...(judge ? { judge } : {}),
       registryDt: toDate(d.registry_dt), hearingDate: toDate(d.hearing_date),
-      detail: { ...d, _checkedAt: new Date().toISOString() } as any,
+      detail: d as any,
     },
   });
   return { pinfl, judge };
