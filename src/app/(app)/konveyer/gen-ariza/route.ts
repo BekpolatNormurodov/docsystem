@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
 
   const ac = await prisma.arizaCase.findUnique({
     where: { id: caseId },
-    select: { pinfl: true, snapshotId: true, kod: true, clientName: true, meta: true },
+    select: { pinfl: true, snapshotId: true, kod: true, clientName: true, meta: true, court: { select: { nameUz: true } } },
   });
   if (!ac?.pinfl || !ac.snapshotId) return NextResponse.json({ error: t('Case maʼlumoti yoʻq') }, { status: 404 });
   // PAUZADAGI ish — ariza yasalmaydi (maʼlumot to'ldirilguncha; avval pauzadan chiqaring).
@@ -50,7 +50,10 @@ export async function GET(req: NextRequest) {
     stir: firm?.stir ?? null,
   };
   const reportDate = snapshot?.reportDate ?? new Date();
-  const courtName = firm ? (await firmPrimaryCourt(firm.id).catch(() => null))?.nameUz : undefined;
+  // Ish o'z sudiga biriktirilgan bo'lsa (courtId) — ariza o'sha sud nomiga (buildCasePacket bilan bir xil);
+  // aks holda firmaning asosiy sudi. Ilgari faqat firma sudi olinardi: ommaviy ZIP bir sudga,
+  // kartadagi yakka ariza boshqa sudga chiqardi (2026-09-30, COMMUNITY/ZAYMLY).
+  const courtName = ac.court?.nameUz ?? (firm ? (await firmPrimaryCourt(firm.id).catch(() => null))?.nameUz : undefined);
   let buffer: Awaited<ReturnType<typeof buildArizaDocx>>;
   try {
     const props = loansToAriza(groupLoans, arizaFirm, settings, reportDate, courtName);
