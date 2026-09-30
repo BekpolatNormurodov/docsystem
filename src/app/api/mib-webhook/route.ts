@@ -19,6 +19,7 @@ function stripDates(str: string): string {
   return str
     .replace(/\d{4}-\d{2}-\d{2}[T\s][\d:.]+\s*Z?/gi, ' ') // 2026-09-10T11:25:16.740Z
     .replace(/\d{4}-\d{2}-\d{2}/g, ' ')                    // 2026-09-10
+    .replace(/\d{1,2}\.\d{1,2}\.\d{4}/g, ' ')              // 30.09.2026 (forwarder test xabari)
     .replace(/\d{1,2}:\d{2}(:\d{2})?/g, ' ');              // 11:25:16
 }
 // Kalit so'z bo'lmasa — eng uzun raqam ketma-ketligi (OTP odatda 5-6 xona; «2026» kabi yil emas).

@@ -213,6 +213,13 @@ export async function runMibReportJob(jobId: number): Promise<void> {
   async function searchAndQueue(): Promise<boolean> {
     const client = await prisma.mibClient.findFirst({ where: { reportId, status: 'PENDING' }, orderBy: [{ attempts: 'asc' }, { id: 'asc' }] });
     if (!client) return false;
+    // Telefon raqami run davomida o'zgarishi mumkin (Sozlamalar). Har mijoz oldidan qayta o'qiymiz —
+    // aks holda run ESKI raqamga SMS so'rab, hamma ish «SMS kelmadi» bo'lib qolardi (2026-09-30).
+    const fresh = await getMibConfig().catch(() => null);
+    if (fresh && (fresh.phone !== cfg.phone || fresh.deepDetail !== cfg.deepDetail)) {
+      if (fresh.phone !== cfg.phone) log(`report ${reportId}: telefon raqami yangilandi — SMS endi …${fresh.phone.slice(-4)} raqamiga soʻraladi`);
+      cfg.phone = fresh.phone; cfg.deepDetail = fresh.deepDetail;
+    }
     const attemptNo = (client.attempts ?? 0) + 1;
     log(`report ${reportId}: PINFL ${client.pinfl} tekshirilmoqda…`);
     await prisma.mibClient.update({ where: { id: client.id }, data: { status: 'RUNNING', attempts: { increment: 1 } } });
