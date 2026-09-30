@@ -16,6 +16,7 @@ export interface CountableRow {
   submitted: boolean;
   draftReady?: boolean;
   queued?: boolean;
+  paused?: boolean;
   sendable: boolean;
 }
 
@@ -28,10 +29,12 @@ export interface ClientReadyCounts {
   exported: number;
   submitted: number;
   notready: number;
+  /** Pauzada (meta.pause) — boshqa tab'larga USTAMA: pauzadagi ish «Tayyor emas»da ham sanaladi. */
+  paused: number;
 }
 
 export const emptyClientCounts = (): ClientReadyCounts => ({
-  all: 0, sendable: 0, queued: 0, draftReady: 0, ready: 0, exported: 0, submitted: 0, notready: 0,
+  all: 0, sendable: 0, queued: 0, draftReady: 0, ready: 0, exported: 0, submitted: 0, notready: 0, paused: 0,
 });
 
 /**
@@ -52,6 +55,7 @@ export function tallyClientCounts(rows: CountableRow[]): ClientReadyCounts {
     if (r.submitted) c.submitted++;
     else if (r.exported) c.exported++;
     if (!r.ready) c.notready++;
+    if (r.paused) c.paused++;
   }
   return c;
 }

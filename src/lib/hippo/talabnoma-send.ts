@@ -133,7 +133,8 @@ export async function sendTalabnomaToHippo(opts: SendTalabnomaOpts): Promise<Sen
 
   let rows: TalabnomaRow[];
   try {
-    ({ rows } = await loadTalabnomaRowsForScope({ snapshotId: opts.snapshotId, firmId: opts.firmId }));
+    // Pauzadagi ishlar (meta.pause) xat.hippo'ga KETMAYDI — maʼlumot to'ldirilguncha.
+    ({ rows } = await loadTalabnomaRowsForScope({ snapshotId: opts.snapshotId, firmId: opts.firmId, excludePaused: true }));
   } catch (e) {
     return fail(mode, e instanceof Error ? e.message : 'Talabnoma yuklanmadi', { firmName });
   }

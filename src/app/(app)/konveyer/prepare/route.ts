@@ -3,6 +3,7 @@ import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { enqueueJob } from '@/lib/job-dispatch';
 import { firmCourtBudgets } from '@/lib/court-routing';
+import { notPausedWhere } from '@/lib/case-pause';
 import { getT } from '@/lib/i18n/server';
 import type { CaseStage } from '@prisma/client';
 
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest) {
   const stages = (sp.get('stages') || '').split(',').filter((s) => VALID_STAGES.has(s)) as CaseStage[];
   const arizaOnly = sp.get('arizaOnly') === '1';
   const ofertaOnly = sp.get('ofertaOnly') === '1';
-  const where = {
+  const scope = {
     ...(snapshotId ? { snapshotId } : {}),
     ...(firmId ? { firmId } : {}),
     ...(stages.length ? { stage: { in: stages } } : {}),
@@ -47,6 +48,11 @@ export async function GET(req: NextRequest) {
     // generatsiyaga ham kirmaydi, aks holda «1815 mijoz» deb ko'rsatib, aslida 0 ta chiqadi.
     ...(arizaOnly ? { totalDebt: { gt: 0 } } : {}),
   };
+  // PAUZADAGI ishlar (meta.pause) ariza/oferta/paketga chiqmaydi — sanoqqa ham kirmaydi; UI
+  // «N ta pauzada» deb alohida ko'rsatadi (qayerga yo'qolgani noma'lum qolmasin).
+  const notPaused = await notPausedWhere({ snapshotId, firmId });
+  const paused = notPaused.id ? await prisma.arizaCase.count({ where: { ...scope, id: { in: notPaused.id.notIn } } }) : 0;
+  const where = { ...scope, ...notPaused };
   const total = await prisma.arizaCase.count({ where });
   // «Ariza/Oferta yaratish»: allaqachon chiqarilganlar (arizaAt/ofertaAt != null) qayta chiqmaydi —
   // `remaining` = hali chiqmaganlar, `done` = tayyor bo'lganlar.
@@ -69,7 +75,7 @@ export async function GET(req: NextRequest) {
       cutoffMinutes: b.court.cutoffMinutes, remaining: b.remaining, open: b.window.open,
     }));
   }
-  return NextResponse.json({ total, remaining, done, activeJob, courts });
+  return NextResponse.json({ total, remaining, done, paused, activeJob, courts });
 }
 
 // POST { snapshotId?, firmId?, stages?, talabnomaPdf? } — «Tayyorlash»: start a
@@ -108,6 +114,8 @@ export async function POST(req: NextRequest) {
     // 0 qarz ariza bermaydi (debt gate), shuning uchun tanlashga ham kirmaydi (aks holda paket 0 chiqaradi).
     // «Qaytadan chiqarish» esa arizaAt shartini olib tashlaydi (chiqarilgan+qolgan — hammasini qamraydi).
     ...(arizaOnly ? { totalDebt: { gt: 0 }, ...(regenerate ? {} : { arizaAt: null }) } : {}),
+    // PAUZADAGI ishlar (meta.pause) tanlovga kirmaydi — ariza/paket ularga yasalmaydi.
+    ...(await notPausedWhere({ snapshotId, firmId })),
   };
   const scopeTotal = await prisma.arizaCase.count({ where });
   if (scopeTotal === 0) return NextResponse.json({ error: regenerate ? t('Qayta chiqarishga ariza yoʻq') : arizaOnly ? t('Yangi ariza yoʻq — hammasi tayyor') : t('Bu tanlovda case yoʻq') }, { status: 400 });

@@ -11,6 +11,7 @@ const ACTION_ICON: Record<string, keyof typeof Ico> = {
   STAGE_ADVANCE: 'redo',
   MIB: 'check',
   COURT_SUBMIT: 'building',
+  CASE_PAUSE: 'lock',
   TALABNOMA_SEND: 'files',
   TALABNOMA_GEN: 'files',
   ARIZA_GEN: 'pen',

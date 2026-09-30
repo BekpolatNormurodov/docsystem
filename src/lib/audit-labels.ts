@@ -14,6 +14,7 @@ export const ACTION_LABELS: Record<string, string> = {
   FARMOYISH: 'Farmoyish',
   PACKET_GEN: 'Paket yaratildi',
   COURT_SUBMIT: 'Sudga topshirildi',
+  CASE_PAUSE: 'Ish pauzasi',
   MIB: 'MIB ijro',
   IMPORT: 'Import',
   EXPORT: 'Eksport',
@@ -39,6 +40,7 @@ export const ACTION_CAT: Record<string, ActionCat> = {
   STAGE_ADVANCE: 'pipeline',
   MIB: 'pipeline',
   COURT_SUBMIT: 'pipeline',
+  CASE_PAUSE: 'pipeline',
   TALABNOMA_SEND: 'docs',
   TALABNOMA_GEN: 'docs',
   ARIZA_GEN: 'docs',
@@ -64,6 +66,6 @@ export const actionCat = (a: string): ActionCat => ACTION_CAT[a] ?? 'data';
 /** Actions offered in the Jurnal filter dropdown, in a sensible reading order. */
 export const FILTERABLE_ACTIONS: string[] = [
   'STAGE_ADVANCE', 'TALABNOMA_SEND', 'ARIZA_GEN', 'INVOICE_GEN', 'INVOICE_BATCH',
-  'PACKET_GEN', 'COURT_SUBMIT', 'MIB', 'IMPORT', 'SYNC', 'FIRM_EDIT',
+  'PACKET_GEN', 'COURT_SUBMIT', 'CASE_PAUSE', 'MIB', 'IMPORT', 'SYNC', 'FIRM_EDIT',
   'USER_CREATE', 'USER_UPDATE', 'USER_DELETE', 'LOGIN', 'LOGOUT', 'CONNECT',
 ];

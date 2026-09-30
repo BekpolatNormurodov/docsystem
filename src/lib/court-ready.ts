@@ -18,6 +18,7 @@ import { prisma } from './db';
 import { MAX_COURT_BATCH } from './court-batch';
 // Tab sonlari qoidasi — brauzer bilan YAGONA manba (court-counts.ts izohiga qarang).
 import { tallyClientCounts, emptyClientCounts, type ClientReadyCounts } from './court-counts';
+import { casePause } from './case-pause';
 import type { CaseStage } from '@prisma/client';
 import { STAGE_LABEL } from './konveyer';
 import { performLabel } from './hippo/mail-status';
@@ -76,7 +77,10 @@ export interface DocFlags {
    * kamaymadi» degan ma'noni berardi va u qayta-qayta bosishga urinardi.
    */
   queued: boolean;
-  sendable: boolean;  // «Tayyor» — ready && qoralama/navbat/sudda EMAS
+  /** PAUZADA (meta.pause) — operator sabab bilan to'xtatgan: hujjati to'liq bo'lsa ham «Tayyor» EMAS
+   *  (case-pause.ts). `ready` o'zgarmaydi — hujjatlar holati alohida ko'rinib turadi. */
+  paused: boolean;
+  sendable: boolean;  // «Tayyor» — ready && qoralama/navbat/sudda/pauzada EMAS
 }
 
 interface CaseRow {
@@ -171,8 +175,10 @@ function flagsFor(c: CaseRow, signedCaseIds: Set<number>, receiptCaseIds: Set<nu
   // USHLAB TURILGAN (meta.resendHold) — sud qaytargan ish, paket tuzatilguncha qayta tayyorlanmaydi
   // (2026-09-18: qaytishlar paket tuzilishidan — eski paket bilan qayta yuborilsa yana qaytadi).
   const held = metaHas(c.meta, 'resendHold');
-  const sendable = ready && !submitted && !draft && !draftReady && !queued && !held && !SENT_STAGES.has(c.stage);
-  return { talabnoma, scan, oferta, receipt, boji, bojiPaid, ready, exported, submitted, submittedExternal, draft, draftReady, queued, sendable };
+  // PAUZADA (meta.pause) — ma'lumot to'ldirilguncha hech qayerga ketmaydi (sabab qatorda ko'rinadi).
+  const paused = casePause(c.meta) !== null;
+  const sendable = ready && !submitted && !draft && !draftReady && !queued && !held && !paused && !SENT_STAGES.has(c.stage);
+  return { talabnoma, scan, oferta, receipt, boji, bojiPaid, ready, exported, submitted, submittedExternal, draft, draftReady, queued, paused, sendable };
 }
 
 /**
@@ -565,6 +571,11 @@ export interface ClientReadyRow {
   draftReady: boolean;
   /** Partiyaga olingan, hali sudga yetib bormagan — «Tayyor»dan chiqarilgan. */
   queued: boolean;
+  /** Pauzada (meta.pause) — «Tayyor»ga kirmaydi; sabab/vaqt/kim qatorda ko'rsatiladi. */
+  paused: boolean;
+  pauseReason: string | null;
+  pausedAt: string | null;
+  pausedBy: string | null;
   /** Ish qaysi sudga yo'naltirilgan (filtr uchun; tayinlanmagan bo'lsa null). */
   courtId: number | null;
   courtName: string | null;
@@ -629,11 +640,13 @@ export async function firmReadyClients(opts: {
   const rows: ClientReadyRow[] = [];
   for (const c of cases) {
     const fl = flagsFor(c as CaseRow, signedIds, receiptIds, ofertaPinfls, paidReceipts, queuedIds, portalCases);
+    const pz = casePause(c.meta);
     rows.push({
       caseId: c.id, clientName: c.clientName, pinfl: c.pinfl, stage: c.stage, stageLabel: STAGE_LABEL[c.stage],
       talabnoma: fl.talabnoma, talabnomaDelivered: !!(c.pinfl && deliveredPinfls.has(c.pinfl)),
       receipt: fl.receipt, scan: fl.scan, oferta: fl.oferta, boji: fl.boji,
       ready: fl.ready, exported: fl.exported, submitted: fl.submitted, submittedExternal: fl.submittedExternal, draft: fl.draft, draftReady: fl.draftReady, queued: fl.queued, sendable: fl.sendable,
+      paused: !!pz, pauseReason: pz?.reason || null, pausedAt: pz?.at || null, pausedBy: pz?.by ?? null,
       totalDebt: String(c.totalDebt),
       daysLeft: c.dueAt ? ((v: number) => (v < 0 ? Math.floor(v) : Math.ceil(v)))((c.dueAt.getTime() - now) / day) : null,
       receiptNumber: c.receiptNumber,
@@ -940,6 +953,9 @@ export interface CaseReadiness {
   ready: boolean;
   sendable: boolean;
   held: boolean;
+  /** Pauzada (meta.pause) — sabab bilan; `sendable` shu sabab false bo'lishi mumkin. */
+  paused: boolean;
+  pauseReason: string | null;
   queued: boolean;
   submitted: boolean;
   draftReady: boolean;
@@ -984,6 +1000,7 @@ export async function readinessByCaseIds(firmId: number, caseIds: number[]): Pro
     if (!fl.boji) missing.push('boji');
     out.set(c.id, {
       ready: fl.ready, sendable: fl.sendable, held: metaHas(c.meta, 'resendHold'), queued: fl.queued,
+      paused: fl.paused, pauseReason: casePause(c.meta)?.reason || null,
       submitted: fl.submitted, draftReady: fl.draftReady, bojiPaid: fl.bojiPaid,
       flags: { talabnoma: fl.talabnoma, scan: fl.scan, oferta: fl.oferta, receipt: fl.receipt, boji: fl.boji },
       missing,

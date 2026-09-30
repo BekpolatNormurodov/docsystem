@@ -1,0 +1,25 @@
+// Ish pauzasi (2026-09-30): «Qoralama» tabidagi mijoz kartasi (CasePausePanel), «Pauzada» tab/chip,
+// 3-tab to'sig'i, ariza yaratish sanog'i + API xabarlari (case-pause, gen-ariza, gen-packet).
+export const casePause: Record<string, string> = {
+  'Pauza sababi': 'Причина паузы',
+  'Pauzada — hech qayerga yuborilmaydi': 'На паузе — никуда не отправляется',
+  'Pauzadan chiqarish': 'Снять с паузы',
+  'Pauzaga qo‘yish': 'Поставить на паузу',
+  'Ishni sabab bilan to‘xtatish: ariza, qoralama, sudga yuborish va talabnomaga tushmaydi': 'Остановить дело с указанием причины: оно не попадёт в заявление, черновик, отправку в суд и требование',
+  'Pauzadagi ish ariza, qoralama, sudga yuborish va talabnomaga tushmaydi. Sabab ro‘yxatda ko‘rinadi.': 'Дело на паузе не попадает в заявление, черновик, отправку в суд и требование. Причина видна в списке.',
+  'Sabab (masalan: shartnoma maʼlumoti kutilmoqda)': 'Причина (например: ожидаются данные договора)',
+  'Maʼlumot kutilmoqda': 'Ожидаются данные',
+  'Boʻsh shartnoma: sana/summa yoʻq — maʼlumot kutilmoqda': 'Пустой договор: нет даты/суммы — ожидаются данные',
+  'Foiz stavkasi yoʻq — maʼlumot kutilmoqda': 'Нет процентной ставки — ожидаются данные',
+  'Toʻliq manzil kutilmoqda': 'Ожидается полный адрес',
+  'pauzada': 'на паузе',
+  'Pauzadagi ishlar (maʼlumot kutilmoqda) ariza yaratishga kirmaydi — pauzadan chiqarilgach qo‘shiladi': 'Дела на паузе (ожидаются данные) не входят в создание заявлений — будут добавлены после снятия с паузы',
+  'Ish sabab bilan pauzaga qo‘yilgan (maʼlumot kutilmoqda) — pauzadan chiqarilguncha hech qayerga yuborilmaydi. Pauza «Qoralama» tabida mijoz kartasidan boshqariladi.': 'Дело поставлено на паузу с указанием причины (ожидаются данные) — пока пауза не снята, оно никуда не отправляется. Паузой управляют в карточке клиента на вкладке «Черновик».',
+  'Ish pauzasi': 'Пауза дела',
+  // API
+  'pause (true/false) kerak': 'Нужен pause (true/false)',
+  'Pauza sababini yozing': 'Укажите причину паузы',
+  'Sabab juda uzun': 'Причина слишком длинная',
+  'Ish pauzada — ariza yaratilmaydi': 'Дело на паузе — заявление не создаётся',
+  'Ish pauzada — paket yaratilmaydi': 'Дело на паузе — пакет не создаётся',
+};

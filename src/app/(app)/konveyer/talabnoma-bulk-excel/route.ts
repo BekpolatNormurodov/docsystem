@@ -23,7 +23,8 @@ export async function POST(req: NextRequest) {
 
   let rows, firmShort, docDate, branchCode;
   try {
-    ({ rows, firmShort, docDate, branchCode } = await loadTalabnomaRowsForScope({ snapshotId, firmId }));
+    // Reyestr hippo'ga yuklanadi — pauzadagi ishlar (meta.pause) unga kirmaydi.
+    ({ rows, firmShort, docDate, branchCode } = await loadTalabnomaRowsForScope({ snapshotId, firmId, excludePaused: true }));
   } catch (e) {
     // The loader only throws by design for a missing firm/snapshot (a true 404). Anything else is an
     // infra/DB failure → 500 + a server log, not a misleading "not found" with no trace to diagnose.

@@ -96,7 +96,8 @@ export async function runJobById(jobId: number): Promise<void> {
     if (p.snapshotId != null && p.firmId != null) {
       await runTalabnomaJob(
         jobId,
-        { snapshotId: Number(p.snapshotId), firmId: Number(p.firmId), pinfl: p.pinfl as string | undefined },
+        // Ommaviy PDF'dan pauzadagilar chiqariladi; bitta ish (singleCase) — ko'rinish, cheklanmaydi.
+        { snapshotId: Number(p.snapshotId), firmId: Number(p.firmId), pinfl: p.pinfl as string | undefined, excludePaused: p.singleCase !== true },
         p.singleCase === true,
       );
     }

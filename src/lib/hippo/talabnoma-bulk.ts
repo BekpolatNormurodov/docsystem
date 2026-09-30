@@ -10,12 +10,16 @@ import type { CaseStage } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { buildTalabnomaRows, type TalabnomaLoan, type TalabnomaRow } from './talabnoma-excel';
 import type { TalabnomaFirm } from './talabnoma-pdf';
+import { notPausedWhere } from '@/lib/case-pause';
 
 export interface TalabnomaScope {
   snapshotId: number;
   firmId: number;
   stages?: CaseStage[];
   pinfl?: string;   // single-case gen-talabnoma — narrow the batch to ONE client
+  /** PAUZADAGI ishlarni (meta.pause) chiqarib tashlash — YUBORISH/reyestr oqimlari uchun (hippo,
+   *  reyestr Excel, ommaviy PDF). Statistika (board/summary) va bitta ish ko'rinishi uchun emas. */
+  excludePaused?: boolean;
 }
 
 export interface TalabnomaScopeResult {
@@ -31,7 +35,7 @@ export interface TalabnomaScopeResult {
  * Load the talabnoma rows for every case of ONE firm in ONE snapshot, in reyestr order.
  * @throws if the firm or snapshot is missing — the caller turns that into a 4xx.
  */
-export async function loadTalabnomaRowsForScope({ snapshotId, firmId, stages, pinfl }: TalabnomaScope): Promise<TalabnomaScopeResult> {
+export async function loadTalabnomaRowsForScope({ snapshotId, firmId, stages, pinfl, excludePaused }: TalabnomaScope): Promise<TalabnomaScopeResult> {
   const firm = await prisma.firm.findUnique({
     where: { id: firmId },
     select: { code: true, legalName: true, shortName: true, address: true, stir: true, bankAccount: true, mfo: true, phone: true },
@@ -44,7 +48,10 @@ export async function loadTalabnomaRowsForScope({ snapshotId, firmId, stages, pi
   // Distinct debtors of this firm in this snapshot (optionally narrowed by stage). Talabnoma is
   // the parallel track, so the step-page passes no stages — this covers the whole firm.
   const cases = await prisma.arizaCase.findMany({
-    where: { snapshotId, firmId, ...(stages && stages.length ? { stage: { in: stages } } : {}), ...(pinfl ? { pinfl } : {}) },
+    where: {
+      snapshotId, firmId, ...(stages && stages.length ? { stage: { in: stages } } : {}), ...(pinfl ? { pinfl } : {}),
+      ...(excludePaused ? await notPausedWhere({ snapshotId, firmId }) : {}),
+    },
     select: { pinfl: true },
     distinct: ['pinfl'],
   });

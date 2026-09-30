@@ -11,6 +11,7 @@ import { Dropdown } from './Dropdown';
 import { HeaderShell, type Tone } from './_shared/HeaderShell';
 import { FirmQueue, type FirmRow as FirmQueueRow } from './_shared/FirmQueue';
 import { CaseDocs } from './CaseDocs';
+import { CasePausePanel, type CasePauseInfo } from './CasePausePanel';
 import { KeyPicker } from './KeyPicker';
 // Partiya hajmi — yagona manba (server ham shu qiymat bilan cheklaydi).
 import { MAX_COURT_BATCH, MAX_ZIP_BATCH } from '@/lib/court-batch';
@@ -32,7 +33,7 @@ type Overall = CourtOverall;
 export interface CourtData { snapshotId?: number; readiness: { firms: FirmReadiness[]; overall: Overall } }
 type Data = CourtData;
 
-type ReadyFilter = 'all' | 'sendable' | 'queued' | 'draftReady' | 'ready' | 'exported' | 'submitted' | 'notready';
+type ReadyFilter = 'all' | 'sendable' | 'queued' | 'draftReady' | 'ready' | 'exported' | 'submitted' | 'notready' | 'paused';
 interface ClientRow {
   caseId: number; clientName: string | null; pinfl: string | null; stage: string; stageLabel: string;
   talabnoma: boolean; talabnomaDelivered: boolean; receipt: boolean; scan: boolean; oferta: boolean; boji: boolean;
@@ -40,8 +41,10 @@ interface ClientRow {
   receiptNumber: string | null;
   // Sud — «Batafsil» ichidagi filtr uchun (firma ishlari bir necha sudga bo'lingan bo'lishi mumkin).
   courtId: number | null; courtName: string | null; courtEnabled: boolean;
+  // Pauza (meta.pause) — sabab bilan to'xtatilgan: «Tayyor»ga kirmaydi, hech qayerga ketmaydi.
+  paused?: boolean; pauseReason?: string | null; pausedAt?: string | null; pausedBy?: string | null;
 }
-interface ClientCounts { all: number; sendable: number; queued: number; draftReady: number; ready: number; exported: number; submitted: number; notready: number }
+interface ClientCounts { all: number; sendable: number; queued: number; draftReady: number; ready: number; exported: number; submitted: number; notready: number; paused: number }
 interface ClientPage { rows: ClientRow[]; total: number; page: number; pageSize: number; pages: number; counts: ClientCounts; error?: string }
 
 // `asked` — operator nechta so'ragani (server topgani `total` dan kam bo'lishi mumkin).
@@ -437,13 +440,22 @@ const CLIENT_FILTERS: { key: ReadyFilter; label: string; icon: React.JSX.Element
   // yuboriladi. ATAYIN «Tayyor»dan keyin va «Sudda»dan oldin: ish tayyor bo'ldi, ammo hali sudda emas.
   { key: 'draftReady', label: 'Qoralama tayyor', icon: svg(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="m9 15 2 2 4-4" /></>), activeCls: 'bg-teal-500/15 text-teal-700 dark:text-teal-300', iconCls: 'text-teal-500' },
   { key: 'submitted', label: 'Sudda', icon: svg(<><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4Z" /></>), activeCls: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-300', iconCls: 'text-indigo-500' },
+  // «Pauzada» — operator sabab bilan to'xtatgan ishlar (maʼlumot kutilmoqda). Boshqa tab'larga USTAMA
+  // (pauzadagi ish «Tayyor emas»da ham ko'rinadi), faqat pauzadagi ish bo'lsa chiqadi.
+  { key: 'paused', label: 'Pauzada', icon: svg(<><circle cx="12" cy="12" r="9" /><path d="M10 9v6M14 9v6" /></>), activeCls: 'bg-amber-500/15 text-amber-700 dark:text-amber-300', iconCls: 'text-amber-500' },
   { key: 'all', label: 'Hammasi', icon: svg(<><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></>), activeCls: 'bg-slate-500/15 text-slate-700 dark:text-slate-300', iconCls: 'text-slate-500' },
 ];
 
 // Firma qatorida ko'rsatiladigan holat chiplari — «Hammasi» dan boshqa hammasi.
 // ALOHIDA konstanta: qator layouti (ustunlar soni) ham shu ro'yxatdan hisoblanadi, ya'ni
 // yangi holat qo'shilganda grid o'zi moslashadi va hech nima keyingi qatorga tushmaydi.
-const FIRM_STAT_CHIPS = CLIENT_FILTERS.filter((f) => f.key !== 'all');
+// «Pauzada» firma qatoriga chiqmaydi — u ustama holat va odatda 0 (har qatorda bekorga joy egallardi).
+const FIRM_STAT_CHIPS = CLIENT_FILTERS.filter((f) => f.key !== 'all' && f.key !== 'paused');
+
+/** Qator tanlangan tab'ga tushadimi — sud filtri chiplari va ro'yxat uchun YAGONA qoida. */
+const matchesFilter = (r: ClientRow, filter: ReadyFilter): boolean =>
+  filter === 'sendable' ? r.sendable : filter === 'queued' ? !!r.queued : filter === 'draftReady' ? !!r.draftReady : filter === 'ready' ? r.ready
+    : filter === 'submitted' ? !!r.submitted : filter === 'notready' ? !r.ready : filter === 'paused' ? !!r.paused : true;
 
 // Firma qatoridagi qisqa xulosa — tab'lar bilan bir xil ikon/rang (Tayyor emas · Tayyor · Qoralama · Yuborilgan),
 // «batafsil» yopiq paytda ko'rinadi. `all` chiqmaydi (u umumiy jami).
@@ -463,6 +475,10 @@ function statusChip(r: ClientRow, t: (s: string) => string) {
     }
     return <span className="rounded-md bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:text-indigo-300" title={t("Da'vo ADOLAT orqali sudga topshirilgan")}>{t('Sudda')}</span>;
   }
+  // «Pauza» — operator sabab bilan to'xtatgan: hujjati to'liq bo'lsa ham hech qayerga ketmaydi.
+  if (r.paused) {
+    return <span className="rounded-md bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:text-amber-200" title={`${t('Pauza sababi')}: ${r.pauseReason || '—'}`}>{t('Pauza')}</span>;
+  }
   // «Navbatda» — partiyaga olingan, sudga hali yetmagan. Busiz bunday ish «Tayyor» ko'rinardi
   // va operator uni ikkinchi marta yuborishga urinardi.
   if ((r as { queued?: boolean }).queued) {
@@ -473,9 +489,11 @@ function statusChip(r: ClientRow, t: (s: string) => string) {
   return <span className="rounded-md bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium text-rose-600 dark:text-rose-300">{t('Tayyor emas')}</span>;
 }
 
-const ClientRowCard = React.memo(function ClientRowCard({ r, firmId, selectable, checked, onCheck, onChanged, onUndo, undoing }: {
+const ClientRowCard = React.memo(function ClientRowCard({ r, firmId, selectable, checked, onCheck, onChanged, onUndo, undoing, onPauseChange }: {
   r: ClientRow; firmId: number; selectable: boolean; checked: boolean; onCheck: (id: number, v: boolean) => void; onChanged: () => void;
   onUndo?: (id: number) => void; undoing?: boolean;
+  /** Pauza o'zgardi (null = pauzadan chiqdi) — qator joyida yangilanadi. */
+  onPauseChange?: (id: number, pause: CasePauseInfo | null) => void;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -502,6 +520,10 @@ const ClientRowCard = React.memo(function ClientRowCard({ r, firmId, selectable,
             <span className="rounded bg-surface-2 px-1.5 py-0.5">{r.stageLabel}</span>
             <DueBadge d={r.daysLeft} />
           </div>
+          {/* Pauza sababi — qatorning o'zida (operator ochmasdan ko'radi, nega to'xtab turganini). */}
+          {r.paused && (
+            <div className="mt-0.5 truncate text-[11px] font-medium text-amber-700 dark:text-amber-300" title={r.pauseReason || ''}>⏸ {r.pauseReason || t('Pauzada')}</div>
+          )}
         </div>
         {/* Sud uchun 4 ta shart (talabnoma·check·skan·oferta), so'ng ajratilgan «boji» — ma'lumot uchun. */}
         <div className="flex shrink-0 items-center gap-1.5" title={t('Sud sharti (5 tasi ham MAJBURIY): Talabnoma · Check (kvitansiya) · Skan · Oferta · Boji (invoice raqami)')}>
@@ -560,6 +582,11 @@ const ClientRowCard = React.memo(function ClientRowCard({ r, firmId, selectable,
           </>
         }
       >
+        <CasePausePanel
+          caseId={r.caseId}
+          pause={r.paused ? { reason: r.pauseReason ?? '', at: r.pausedAt ?? null, by: r.pausedBy ?? null } : null}
+          onSaved={(p) => (onPauseChange ? onPauseChange(r.caseId, p) : onChanged())}
+        />
         <CaseDocs caseId={r.caseId} firmId={firmId} stage={r.stage} receiptNumber={r.receiptNumber} talabnomaSent={r.talabnoma} onChange={onChanged} courtFlags={{ talabnoma: r.talabnoma, scan: r.scan, oferta: r.oferta, receipt: r.receipt, boji: r.boji }} />
       </Modal>
     </div>
@@ -644,6 +671,14 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
     } catch { /* tarmoq xatosi — jim */ }
   }, [confirm, data, patchRow, onChanged]);
 
+  // Pauza o'zgardi — qator DARROV yangilanadi (sabab/chip/tab sonlari), so'ng server haqiqati qayta
+  // yuklanadi: pauzadan chiqqan ishning «Tayyor»ligini (sendable) faqat server aniq biladi.
+  const onPauseChange = useCallback((caseId: number, p: CasePauseInfo | null) => {
+    patchRow(caseId, { paused: !!p, pauseReason: p?.reason ?? null, pausedAt: p?.at ?? null, pausedBy: p?.by ?? null, ...(p ? { sendable: false } : {}) });
+    if (p) setSelected((s) => { if (!s.has(caseId)) return s; const n = new Set(s); n.delete(caseId); return n; });
+    refresh();
+  }, [patchRow, refresh]);
+
   // Yuborish tugagach (job DONE'ga o'tganda) — drill-down ro'yxatini QAYTA yuklaymiz: yuborilgan
   // mijozlar «Yuborilgan»ga o'tadi, tab sonlari (Tayyor/Yuborilgan) firma-summa bilan mos bo'ladi.
   // Aks holda ro'yxat eskirib qoladi (tab 53, firma 52 — nomuvofiqlik).
@@ -670,8 +705,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
   const courtOptions = React.useMemo(() => {
     const m = new Map<string, { id: number | null; name: string; enabled: boolean; count: number }>();
     for (const r of data?.rows ?? []) {
-      const okFilter = filter === 'sendable' ? r.sendable : filter === 'queued' ? !!r.queued : filter === 'draftReady' ? !!r.draftReady : filter === 'ready' ? r.ready : filter === 'submitted' ? !!r.submitted : filter === 'notready' ? !r.ready : true;
-      if (!okFilter) continue;
+      if (!matchesFilter(r, filter)) continue;
       const k = String(r.courtId ?? 'none');
       const it = m.get(k) ?? { id: r.courtId ?? null, name: r.courtName ?? t('Sud tayinlanmagan'), enabled: r.courtEnabled !== false, count: 0 };
       it.count++;
@@ -692,13 +726,13 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
   // «Tayyor»ga qaytaramiz (aks holda hech qanday tab faol bo'lmagan bo'sh ekran qoladi).
   useEffect(() => {
     if (filter === 'queued' && counts && counts.queued === 0) setFilter('sendable');
+    if (filter === 'paused' && counts && counts.paused === 0) setFilter('sendable');
   }, [filter, counts]);
 
   const filtered = React.useMemo(() => {
     const src = data?.rows ?? [];
     return src.filter((r) => {
-      const okFilter = filter === 'sendable' ? r.sendable : filter === 'queued' ? !!r.queued : filter === 'draftReady' ? !!r.draftReady : filter === 'ready' ? r.ready : filter === 'submitted' ? !!r.submitted : filter === 'notready' ? !r.ready : true;
-      if (!okFilter) return false;
+      if (!matchesFilter(r, filter)) return false;
       if (courtFilter !== 'all' && (r.courtId ?? null) !== courtFilter) return false;
       // Puzzy: ismga ~70% (fuzzy.ts), PINFL — aniq.
       return matchesFuzzy({ name: r.clientName, pinfl: r.pinfl }, debouncedQ);
@@ -729,7 +763,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
       {/* filter chips with live counts */}
       <div className="mb-2 flex flex-wrap gap-1">
         {/* «Navbatda» tab'i faqat navbatda ish bo'lsa — bo'sh tab bosilsa quruq ro'yxat chiqadi. */}
-        {CLIENT_FILTERS.filter((f) => f.key !== 'queued' || (counts?.queued ?? 0) > 0).map((f) => {
+        {CLIENT_FILTERS.filter((f) => (f.key !== 'queued' || (counts?.queued ?? 0) > 0) && (f.key !== 'paused' || (counts?.paused ?? 0) > 0)).map((f) => {
           const active = filter === f.key;
           const cnt = counts ? counts[f.key] : undefined;
           return (
@@ -845,7 +879,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
               )}
               <div className="space-y-1.5">
                 {rows.map((r) => (
-                  <ClientRowCard key={r.caseId} r={r} firmId={firmId} selectable={filter === 'sendable'} checked={selected.has(r.caseId)} onCheck={toggle} onChanged={refresh} onUndo={undo} />
+                  <ClientRowCard key={r.caseId} r={r} firmId={firmId} selectable={filter === 'sendable'} checked={selected.has(r.caseId)} onCheck={toggle} onChanged={refresh} onUndo={undo} onPauseChange={onPauseChange} />
                 ))}
               </div>
               {pages > 1 && (

@@ -21,6 +21,7 @@ import { allocateFirmCases, consumeCourtSend } from './court-routing';
 import { isQueuePaused, isFirmPaused } from './cabinet/pacer';
 import { MAX_COURT_BATCH } from './court-batch';
 import { paidReceiptSet, unpaidQueueReason, UNDELIVERED_MARK, hasDeliveryProof } from './court-ready';
+import { isPaused } from './case-pause';
 
 /** Blokdan keyingi kutish jadvali (daqiqa). Oxirgisi keyin ham takrorlanaveradi.
  *  2026-09-14: max 120→10 daqiqaga qisqartirildi — ADOLAT o'chib qolganда navbat soatlab
@@ -170,6 +171,10 @@ export async function createResumeJob(firmId: number, limit = MAX_COURT_BATCH, o
         // Aks holda (boji to'langan bo'lgani uchun) har tick'da tiriltirilib, partiya uni yana SKIPPED
         // qilardi — «ALLAQACHON» bilan bo'lgan cheksiz sikl.
         if (x.lastError?.includes(UNDELIVERED_MARK) && !hasDeliveryProof(x.case?.meta)) continue;
+        // PAUZADAGI ish (meta.pause) tiriltirilmaydi — aks holda boji to'langani uchun har tick'da
+        // qaytib, partiya uni yana SKIPPED qilardi (xuddi «ALLAQACHON» sikli). Pauzadan chiqarilgach
+        // bu shart o'z-o'zidan tushadi va ish odatdagidek qaytadi.
+        if (isPaused(x.case?.meta)) continue;
         if (x.case?.receiptNumber && paid.has(x.case.receiptNumber)) revived.push({ caseId: x.caseId });
       }
     }

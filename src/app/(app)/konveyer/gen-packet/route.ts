@@ -7,6 +7,7 @@ import { enqueueJob } from '@/lib/job-dispatch';
 import { awaitJob } from '@/lib/await-job';
 import { audit, AuditAction } from '@/lib/audit';
 import { getT } from '@/lib/i18n/server';
+import { casePause } from '@/lib/case-pause';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -43,8 +44,11 @@ export async function GET(req: NextRequest) {
   const caseId = Number(req.nextUrl.searchParams.get('caseId'));
   if (!Number.isInteger(caseId) || caseId <= 0) return NextResponse.json({ error: t('caseId kerak') }, { status: 400 });
 
-  const ac = await prisma.arizaCase.findUnique({ where: { id: caseId }, select: { snapshotId: true, clientName: true } });
+  const ac = await prisma.arizaCase.findUnique({ where: { id: caseId }, select: { snapshotId: true, clientName: true, meta: true } });
   if (!ac?.snapshotId) return NextResponse.json({ error: t('Case yoki portfel maʼlumoti yoʻq') }, { status: 404 });
+  // PAUZADAGI ish — sud paketi yasalmaydi (runPacketJob ham o'tkazib yuboradi — bo'sh ZIP o'rniga aniq sabab).
+  const pz = casePause(ac.meta);
+  if (pz) return NextResponse.json({ error: `${t('Ish pauzada — paket yaratilmaydi')}: ${pz.reason}` }, { status: 409 });
 
   const job = await prisma.job.create({
     data: { type: 'PACKET', status: 'PENDING', snapshotId: ac.snapshotId, total: 1, params: { caseIds: [caseId], talabnomaPdf: true } },

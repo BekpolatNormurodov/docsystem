@@ -17,6 +17,7 @@ import { resolveClaimantId } from './cabinet/claimant';
 import { releaseCourtSend } from './court-routing';
 import { paidReceiptSet, unpaidQueueReason, deliveryRequiredFirmIds, hasDeliveryProof, undeliveredQueueReason } from './court-ready';
 import { isSendInFlight } from './court-send-suits';
+import { casePause } from './case-pause';
 import { noteQueueBlocked, resetQueueBackoff } from './court-auto-resume';
 import { resolveCabinetCourtGuid, regionForCourt } from '../../cabinet-api-skeleton/constants';
 import type { SourceCaseData } from '../../cabinet-api-skeleton/builder';
@@ -615,7 +616,20 @@ export async function runCourtSubmitJob(jobId: number, opts: CourtSubmitJobOpts)
       });
       console.log(`[Job ${jobId}] ${heldIds.length} ta qaytgan ish ushlab turilibdi (paket tuzatilguncha) — o'tkazib yuborildi.`);
     }
-    const heldSet = new Set(heldIds);
+    // PAUZADAGI (meta.pause) ishlar ham xuddi shunday: navbatga pauzadan OLDIN tushgan bo'lsa ham
+    // qoralamaga chiqmaydi — SKIPPED + operator yozgan sabab (case-pause.ts).
+    const pausedRows = heldRows
+      .filter((r) => !heldIds.includes(r.id))
+      .map((r) => ({ id: r.id, pz: casePause(r.meta) }))
+      .filter((r) => r.pz !== null);
+    for (const r of pausedRows) {
+      await prisma.courtQueueItem.updateMany({
+        where: { caseId: r.id, state: { in: ['PENDING', 'RUNNING'] } },
+        data: { state: 'SKIPPED', step: null, finishedAt: new Date(), lastError: `Pauzada: ${r.pz!.reason || 'sabab yozilmagan'}` },
+      });
+    }
+    if (pausedRows.length) console.log(`[Job ${jobId}] ${pausedRows.length} ta ish pauzada — o'tkazib yuborildi.`);
+    const heldSet = new Set([...heldIds, ...pausedRows.map((r) => r.id)]);
 
     let targetCases = await prisma.arizaCase.findMany({
       where: { id: { in: pendingIds.filter((id) => !heldSet.has(id)) } },

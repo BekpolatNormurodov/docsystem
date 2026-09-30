@@ -7,6 +7,7 @@ import { firmPrimaryCourt } from '@/lib/court-routing';
 import { buildArizaDocx } from '@/lib/ariza-docx';
 import { audit, AuditAction } from '@/lib/audit';
 import { getT } from '@/lib/i18n/server';
+import { casePause } from '@/lib/case-pause';
 
 export const runtime = 'nodejs';
 
@@ -22,9 +23,12 @@ export async function GET(req: NextRequest) {
 
   const ac = await prisma.arizaCase.findUnique({
     where: { id: caseId },
-    select: { pinfl: true, snapshotId: true, kod: true, clientName: true },
+    select: { pinfl: true, snapshotId: true, kod: true, clientName: true, meta: true },
   });
   if (!ac?.pinfl || !ac.snapshotId) return NextResponse.json({ error: t('Case maʼlumoti yoʻq') }, { status: 404 });
+  // PAUZADAGI ish — ariza yasalmaydi (maʼlumot to'ldirilguncha; avval pauzadan chiqaring).
+  const pz = casePause(ac.meta);
+  if (pz) return NextResponse.json({ error: `${t('Ish pauzada — ariza yaratilmaydi')}: ${pz.reason}` }, { status: 409 });
 
   const [firm, snapshot, settings, groupLoans] = await Promise.all([
     ac.kod ? prisma.firm.findUnique({ where: { code: ac.kod } }) : null,

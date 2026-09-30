@@ -31,7 +31,7 @@ import { matchesFuzzy } from '@/lib/fuzzy';
 
 // ── kontrakt turlari (GET/POST /konveyer/sud-send) ────────────────────────────
 type SendBlocker =
-  | 'NO_CASE_ID' | 'SUBMITTED' | 'HELD' | 'BOJI_UNPAID' | 'NO_DELIVERY'
+  | 'NO_CASE_ID' | 'SUBMITTED' | 'HELD' | 'PAUSED' | 'BOJI_UNPAID' | 'NO_DELIVERY'
   | 'OLD_PACKAGE' | 'PORTAL_NOT_CREATED' | 'QUEUED' | 'SENDING' | 'CHECK';
 type SendState = 'SENDING' | 'SENT' | 'FAILED' | 'CHECK';
 interface SendGateFirm { firmId: number; firmName: string; paused: boolean; attestedAt: string | null; attestFresh: boolean }
@@ -41,6 +41,7 @@ interface SendRow {
   courtName: string | null; cabinetCaseId: string; suitReadyAt: string; portalStatus: string | null; portalCheckedAt: string | null;
   bojiPaid: boolean; delivered: boolean; blockers: SendBlocker[]; eligible: boolean;
   send: { state: SendState; at: string; error?: string } | null; totalDebt: number | null;
+  pauseReason?: string | null;
 }
 interface ActiveJob { id: number; firmId: number; kind: 'send' | 'draft' | 'real'; progress: number; total: number }
 interface SendData {
@@ -107,11 +108,12 @@ async function getJson<T = unknown>(url: string, init: RequestInit | undefined, 
 
 // ── to'siq kodlari → odam tilida (yorliq + tooltip) ──────────────────────────
 // Tartib = ahamiyat: avval «umuman yuborilmaydi», keyin «tuzatsa bo'ladi», oxirida vaqtinchalik.
-const BLOCKER_ORDER: SendBlocker[] = ['SUBMITTED', 'CHECK', 'SENDING', 'QUEUED', 'PORTAL_NOT_CREATED', 'OLD_PACKAGE', 'BOJI_UNPAID', 'NO_DELIVERY', 'HELD', 'NO_CASE_ID'];
+const BLOCKER_ORDER: SendBlocker[] = ['SUBMITTED', 'CHECK', 'SENDING', 'QUEUED', 'PORTAL_NOT_CREATED', 'OLD_PACKAGE', 'PAUSED', 'BOJI_UNPAID', 'NO_DELIVERY', 'HELD', 'NO_CASE_ID'];
 const BLOCKER_INFO: Record<SendBlocker, { label: string; hint: string; tone: Tone }> = {
   NO_CASE_ID: { label: 'ADOLAT ID yo‘q', hint: 'Ishda ADOLAT ish raqami saqlanmagan — qaysi da‘voni yuborish noma‘lum. Qoralamani qaytadan tayyorlang.', tone: 'rose' },
   SUBMITTED: { label: 'Sudga yuborilgan', hint: 'Bu odamga shu firma nomidan da‘vo allaqachon berilgan (tizim yoki yurist; ko‘rilayotgan yoki hal bo‘lgan) — ikkinchi da‘vo yuborilmaydi.', tone: 'indigo' },
   HELD: { label: 'Ushlab turilgan', hint: 'Sud qaytargan va paket tuzatilguncha ushlab turilgan — «Qaytganlar» tabida boshqariladi.', tone: 'slate' },
+  PAUSED: { label: 'Pauzada', hint: 'Ish sabab bilan pauzaga qo‘yilgan (maʼlumot kutilmoqda) — pauzadan chiqarilguncha hech qayerga yuborilmaydi. Pauza «Qoralama» tabida mijoz kartasidan boshqariladi.', tone: 'amber' },
   BOJI_UNPAID: { label: 'Boji to‘lanmagan', hint: 'Davlat boji invoysi hali to‘lanmagan. Buxgalteriya to‘lagach ish o‘zi yuborishga tayyor bo‘ladi.', tone: 'amber' },
   NO_DELIVERY: { label: 'Talabnoma yetkazilmagan', hint: 'Talabnoma qarzdorga yetkazilgani isbotlanmagan (pochta dalili yo‘q) — sudya aynan shu sababdan qaytaradi.', tone: 'amber' },
   OLD_PACKAGE: { label: 'Eski paket', hint: 'Qoralama 2026-09-18 dagi paket tuzatishlaridan oldin saqlangan (oferta/grafik/check nuqsonli). Saqlangan da‘vo hujjatlarini o‘zgartirib bo‘lmaydi — qoralamani qaytadan tayyorlang.', tone: 'rose' },
@@ -1114,7 +1116,7 @@ function SendRowItem({ r, showFirm, canSelect, checked, atCap, noFirm, onToggle,
         {/* Oldingi urinish FAILED bo'lsa ham server uni yana yaroqli deb bilsa — qayta yuborsa bo'ladi. */}
         {r.eligible && shown.length === 0 && r.send?.state !== 'SENDING' && <Chip tone="emerald" dot>{t('Yuborishga tayyor')}</Chip>}
         {shown.map((b) => (
-          <Chip key={b} tone={BLOCKER_INFO[b]?.tone ?? 'slate'} tip={BLOCKER_INFO[b] ? t(BLOCKER_INFO[b].hint) : b}>
+          <Chip key={b} tone={BLOCKER_INFO[b]?.tone ?? 'slate'} tip={b === 'PAUSED' && r.pauseReason ? `${t('Pauza sababi')}: ${r.pauseReason}` : BLOCKER_INFO[b] ? t(BLOCKER_INFO[b].hint) : b}>
             {BLOCKER_INFO[b] ? t(BLOCKER_INFO[b].label) : b}
           </Chip>
         ))}

@@ -39,15 +39,16 @@ import { noteQueueBlocked, resetQueueBackoff } from './court-auto-resume';
 import { CabinetApiClient, CabinetRequestError } from '../../cabinet-api-skeleton/client';
 import { CABINET_ENDPOINTS, resolveCabinetCourtGuid } from '../../cabinet-api-skeleton/constants';
 import type { TFn } from './i18n/core';
+import { isPaused, casePause } from './case-pause';
 
 // ── Kontrakt turlari (SUD_TABS_SPEC.md «Tab 3 backend») ─────────────────────────────────────────
 
 export type SendBlocker =
-  | 'NO_CASE_ID' | 'SUBMITTED' | 'HELD' | 'BOJI_UNPAID' | 'NO_DELIVERY'
+  | 'NO_CASE_ID' | 'SUBMITTED' | 'HELD' | 'PAUSED' | 'BOJI_UNPAID' | 'NO_DELIVERY'
   | 'OLD_PACKAGE' | 'PORTAL_NOT_CREATED' | 'QUEUED' | 'SENDING' | 'CHECK';
 
 export const SEND_BLOCKERS: SendBlocker[] = [
-  'NO_CASE_ID', 'SUBMITTED', 'HELD', 'BOJI_UNPAID', 'NO_DELIVERY',
+  'NO_CASE_ID', 'SUBMITTED', 'HELD', 'PAUSED', 'BOJI_UNPAID', 'NO_DELIVERY',
   'OLD_PACKAGE', 'PORTAL_NOT_CREATED', 'QUEUED', 'SENDING', 'CHECK',
 ];
 
@@ -76,6 +77,8 @@ export interface SendRow {
   courtName: string | null; cabinetCaseId: string; suitReadyAt: string; portalStatus: string | null; portalCheckedAt: string | null;
   bojiPaid: boolean; delivered: boolean; blockers: SendBlocker[]; eligible: boolean;
   send: { state: CourtSendState; at: string; error?: string } | null; totalDebt: number | null;
+  /** PAUSED bo'lsa — operator yozgan sabab (meta.pause.reason). */
+  pauseReason: string | null;
 }
 
 export interface SendCounts { total: number; eligible: number; byBlocker: Record<SendBlocker, number> }
@@ -266,6 +269,8 @@ function evaluate(c: CaseRow, ctx: EligCtx): { blockers: SendBlocker[]; bojiPaid
     || (c.pinfl && c.firm?.code && ctx.courtActive.has(`${c.firm.code}|${c.pinfl}`))
   ) blockers.push('SUBMITTED');
   if (m.resendHold != null) blockers.push('HELD');
+  // PAUZADA (meta.pause) — operator sabab bilan to'xtatgan; sabab qatorda (pauseReason) ko'rinadi.
+  if (isPaused(c.meta)) blockers.push('PAUSED');
   if (!bojiPaid) blockers.push('BOJI_UNPAID');
   if (ctx.deliveryRequired.has(c.firmId) && !delivered) blockers.push('NO_DELIVERY');
   const readyAt = Date.parse(String(m.suitReadyAt ?? ''));
@@ -339,6 +344,7 @@ export async function listSendableSuits(opts: { firmId?: number; snapshotId?: nu
       bojiPaid: ev.bojiPaid, delivered: ev.delivered, blockers: ev.blockers, eligible: ev.blockers.length === 0,
       send: send ? { state: send.state, at: send.at, ...(send.error ? { error: send.error } : {}) } : null,
       totalDebt: c.totalDebt != null ? Number(c.totalDebt) : null,
+      pauseReason: casePause(c.meta)?.reason || null,
     };
   });
   rows.sort((a, b) => Number(b.eligible) - Number(a.eligible) || a.firmName.localeCompare(b.firmName) || b.suitReadyAt.localeCompare(a.suitReadyAt));

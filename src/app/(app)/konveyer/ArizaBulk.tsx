@@ -30,6 +30,7 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
   const [count, setCount] = useState<number | null>(null); // hali ariza chiqmaganlar (generatsiya shularga)
   const [totalAll, setTotalAll] = useState<number | null>(null); // umumiy mijozlar
   const [doneCount, setDoneCount] = useState(0); // allaqachon arizasi chiqqanlar
+  const [pausedCount, setPausedCount] = useState(0); // pauzadagi ishlar — ariza yaratishga kirmaydi
   const [courts, setCourts] = useState<CourtOpt[]>([]);
   const [courtNums, setCourtNums] = useState<Record<number, string>>({}); // ko'p sudli firma: har sudga son
   const [countBusy, setCountBusy] = useState(false);
@@ -65,6 +66,7 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
       if (d && typeof d.remaining === 'number') setCount(d.remaining); else if (d && typeof d.total === 'number') setCount(d.total);
       if (d && typeof d.total === 'number') setTotalAll(d.total);
       if (d && typeof d.done === 'number') setDoneCount(d.done);
+      setPausedCount(d && typeof d.paused === 'number' ? d.paused : 0);
       if (d && Array.isArray(d.courts)) setCourts(d.courts);
       // Reload'da davom etayotgan generatsiyaga qayta ulanamiz (progress yo'qolmaydi).
       if (d?.activeJob && jobId == null) { setJobId(d.activeJob.id); setJob({ status: 'RUNNING', progress: d.activeJob.progress ?? 0, total: d.activeJob.total ?? 0 }); }
@@ -83,7 +85,7 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
     } catch { /* best-effort */ }
   }, [firmId, snapshotId]);
 
-  useEffect(() => { setJobId(null); setJob(null); setErr(null); setCount(null); setTotalAll(null); setDoneCount(0); }, [firmId, snapshotId]);
+  useEffect(() => { setJobId(null); setJob(null); setErr(null); setCount(null); setTotalAll(null); setDoneCount(0); setPausedCount(0); }, [firmId, snapshotId]);
   useEffect(() => { loadCount(); }, [loadCount]);
   useEffect(() => { loadHistory(); }, [loadHistory]);
   // Refresh the history the moment a generation finishes, so the new ZIP appears.
@@ -218,6 +220,7 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
               <>
                 {n(totalAll ?? 0)} {t('mijoz')}
                 {doneCount > 0 && <span className="ml-1 font-normal text-emerald-600 dark:text-emerald-400">· {n(count ?? 0)} {t('qoldi')}</span>}
+                {pausedCount > 0 && <span className="ml-1 font-normal text-amber-600 dark:text-amber-400" title={t('Pauzadagi ishlar (maʼlumot kutilmoqda) ariza yaratishga kirmaydi — pauzadan chiqarilgach qo‘shiladi')}>· {n(pausedCount)} {t('pauzada')}</span>}
               </>
             )}
           </span>

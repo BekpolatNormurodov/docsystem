@@ -12,6 +12,7 @@ import { loansToAriza, type ArizaFirm } from '@/core/ariza';
 import { firmPrimaryCourt } from './court-routing';
 import { buildLoanWhere, type LoanFilters } from '@/core/loan-filters';
 import { firmActivity } from './active-firms';
+import { pausedPairs } from './case-pause';
 
 const EXPORTS_DIR = path.join(process.cwd(), 'exports');
 const PAGE_SIZE = 500;
@@ -64,6 +65,10 @@ export async function runExportJob(jobId: number, filters: ExportFilters): Promi
       allowedPinfls = new Set(groups.map((g) => g.pinfl).filter((p): p is string => !!p));
     }
 
+    // PAUZADAGI ishlar (meta.pause) — ularning (PINFL × firma) arizasi eksportga KIRMAYDI.
+    const paused = await pausedPairs(filters.snapshotId);
+    let pausedSkipped = 0;
+
     const firmRows = await prisma.firm.findMany();
     const firmsByCode = new Map(firmRows.map((f) => [f.code, f]));
     // firmId → asosiy sud nomi (lazy cache; bulk eksportda firmalar kam).
@@ -101,6 +106,7 @@ export async function runExportJob(jobId: number, filters: ExportFilters): Promi
     const flush = async () => {
       if (group.length === 0) return;
       const g0 = group[0]!;
+      if (g0.pinfl && paused.has(`${g0.pinfl}|${g0.branchCode ?? ''}`)) { pausedSkipped += 1; group = []; return; }
       const firmRow = g0.branchCode ? firmsByCode.get(g0.branchCode) : undefined;
       const firm: ArizaFirm = {
         shortName: firmRow?.shortName ?? g0.branchCode ?? '',
@@ -159,7 +165,10 @@ export async function runExportJob(jobId: number, filters: ExportFilters): Promi
 
     await prisma.job.updateMany({
       where: { id: jobId },
-      data: { status: 'DONE', progress: processed, total: processed, resultPath: `exports/${jobId}.zip` },
+      data: {
+        status: 'DONE', progress: processed, total: processed, resultPath: `exports/${jobId}.zip`,
+        message: pausedSkipped > 0 ? `${pausedSkipped} ta ish pauzada — eksport qilinmadi` : null,
+      },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

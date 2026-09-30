@@ -14,6 +14,7 @@ import type { CaseStage } from '@prisma/client';
 import { prisma } from './db';
 import { buildCasePacket, buildCaseOfertas, markPacketGenerated, firmLibraryFiles } from './konveyer-packet';
 import { markCasesExported } from './court-ready';
+import { withoutPaused, notPausedWhere } from './case-pause';
 import { renderOfertaPdf } from './oferta-pdf';
 import { firmPrimaryCourt } from './court-routing';
 import { loadTalabnomaRowsForScope, type TalabnomaScope } from './hippo/talabnoma-bulk';
@@ -132,6 +133,11 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
       });
       caseIds = rows.map((r) => r.id);
     }
+    // PAUZADAGI ishlar (meta.pause) sud paketiga/arizaga KIRMAYDI — qamrovdan ham, aniq ro'yxatdan
+    // ham (route'lar ularni oldindan chiqaradi; bu — oraliqda pauzaga qo'yilganlar uchun himoya).
+    const pz = await withoutPaused(caseIds);
+    caseIds = pz.ids;
+    const pausedSkipped = pz.paused.length;
     // «Belgilangan son» — build only the first N of the scope (ordered by id for a stable slice).
     if (opts.limit && opts.limit > 0 && opts.limit < caseIds.length) caseIds = caseIds.slice(0, opts.limit);
 
@@ -315,7 +321,10 @@ export async function runPacketJob(jobId: number, opts: PacketJobOpts): Promise<
             progress: writtenCount,
             total: expected,
             resultPath: `exports/${jobId}.zip`,
-            message: lost > 0 ? `${writtenCount} ta tayyor, ${lost} tasi chiqmadi (qayta urinib ko'ring)` : null,
+            message: [
+              lost > 0 ? `${writtenCount} ta tayyor, ${lost} tasi chiqmadi (qayta urinib ko'ring)` : null,
+              pausedSkipped > 0 ? `${pausedSkipped} ta ish pauzada — chiqarilmadi` : null,
+            ].filter(Boolean).join(' · ') || null,
           },
     });
   } catch (err) {
@@ -594,6 +603,9 @@ export async function runOfertaJob(jobId: number, opts: OfertaJobOpts): Promise<
           ...(opts.snapshotId ? { snapshotId: opts.snapshotId } : {}),
           ...(opts.firmId ? { firmId: opts.firmId } : {}),
           ...(opts.stages && opts.stages.length ? { stage: { in: opts.stages } } : {}),
+          // Ommaviy oferta ZIP'i sud paketi uchun chop etiladi — pauzadagi ishlar kirmaydi.
+          // (Bitta ish uchun aniq ro'yxat — ko'rib chiqish — cheklanmaydi.)
+          ...(await notPausedWhere({ snapshotId: opts.snapshotId, firmId: opts.firmId })),
         },
         select: { id: true },
         orderBy: { id: 'asc' },
