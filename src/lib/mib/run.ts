@@ -66,7 +66,9 @@ export async function reconcileZombieClients(reportId: number): Promise<number> 
     await prisma.mibCase.updateMany({ where: { clientId: c.id, archivedAt: null }, data: { archivedAt: new Date() } });
     await prisma.mibClient.update({ where: { id: c.id }, data: { status: 'PENDING', error: null, checkedAt: null } });
   }
-  if (stuck.length) await prisma.mibReport.update({ where: { id: reportId }, data: { autoRun: false, runJobId: null } }).catch(() => {});
+  // autoRun'ga TEGMAYMIZ: jarayon (deploy/restart) o'lgan bo'lsa ham foydalanuvchi run'ni to'xtatmagan —
+  // resume-on-view (GET /api/mib/[id]) uni o'zi davom ettirsin. Ilgari bu yerda autoRun=false qilinardi
+  // va har web deploy'dan keyin run «pauza» bo'lib qolardi (2026-09-30).
   return stuck.length;
 }
 

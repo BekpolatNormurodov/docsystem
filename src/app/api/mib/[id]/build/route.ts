@@ -24,6 +24,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const dateFrom = (String(body?.dateFrom ?? '').trim() || null) as string | null; // YYYY-MM-DD
   const dateTo = (String(body?.dateTo ?? '').trim() || null) as string | null;
 
+  // Qayta qurish tekshirilgan natijalarni O'CHIRADI (mijozlar qayta yaratiladi, ishlar cascade bilan
+  // ketadi). 2026-09-30: run «pauza»dek ko'ringanda qayta qurildi — 35 mijozning 205 ish natijasi
+  // yo'qoldi. Tekshirilgan mijoz bo'lsa — faqat aniq tasdiq (force) bilan.
+  const checked = await prisma.mibClient.count({
+    where: { reportId: id, checkedAt: { not: null }, OR: [{ holat: { not: MANUAL_HOLAT } }, { holat: null }] },
+  });
+  if (checked > 0 && body?.force !== true) {
+    return NextResponse.json({
+      error: t('Bu hisobotda tekshirilgan mijozlar bor — qayta qurish ularning natijasini o‘chiradi.'),
+      needConfirm: true, checked,
+    }, { status: 409 });
+  }
+
   const parsed = await parseHisobot(report.sourcePath);
   // «Holat» filtri qo'llanmasi: bo'sh (null) → hammasi. Aks holda uch bosqichli mos kelish —
   // (1) exact, (2) normalize (kichik + probel/tinish/qavs tozalash), (3) substring. Excel qatorда

@@ -38,6 +38,11 @@ export function Modal({
   const t = useT();
   const panel = useRef<HTMLDivElement>(null);
   const restoreTo = useRef<HTMLElement | null>(null);
+  // onClose odatda inline funksiya — ota har render'da yangisini beradi. Uni effekt bog'liqligiga
+  // qo'ysak, ota qayta render bo'lganda (masalan, MIB run paytida har 4 s polling) effekt tozalanib
+  // fokusni ochuvchi tugmaga QAYTARARDI — maydonga yozayotgan kursor yo'qolardi (2026-09-30).
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   // createPortal needs a real document; the server render has none.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -52,7 +57,7 @@ export function Modal({
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== 'Tab' || !panel.current) return;
@@ -90,7 +95,7 @@ export function Modal({
       // Send focus back where it came from, so closing does not dump the user at the page top.
       restoreTo.current?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open || !mounted) return null;
 

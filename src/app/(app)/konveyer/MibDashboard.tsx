@@ -11,7 +11,7 @@
 // Kesim/region mantig'i src/lib/mib/breakdown.ts dan (server Excel bilan bir xil).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Ico, Spinner, DateField } from '@/ui';
+import { Ico, Spinner, DateField, useConfirm } from '@/ui';
 import { type ClientRow } from '../mib-hisoboti/MibClientDetail';
 import { ClientDetailFull } from '../mib-hisoboti/ClientDetailFull';
 import { MibLogPanel } from '../mib-hisoboti/MibLogPanel';
@@ -92,6 +92,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
 }) {
   const t = useT();
   const router = useRouter();
+  const confirm = useConfirm();
   const [report, setReport] = useState<Report | null>(null);
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -197,7 +198,18 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   // controls
   const build = async () => {
     setBusy('build'); setNote('');
-    const { ok, json } = await jpost(`/api/mib/${reportId}/build`, { statusFilter: statusFilter || null, dateFrom: dateFrom || null, dateTo: dateTo || null });
+    const body = { statusFilter: statusFilter || null, dateFrom: dateFrom || null, dateTo: dateTo || null };
+    let { ok, json } = await jpost(`/api/mib/${reportId}/build`, body);
+    // Tekshirilgan natijalar bor — o'chishini aniq aytib tasdiq so'raymiz (tasodifiy bosish ma'lumotni o'chirmasin).
+    if (!ok && json?.needConfirm) {
+      const yes = await confirm({
+        title: t('Roʻyxatni qayta qurish'),
+        description: `${n(json.checked)} ${t('ta mijoz allaqachon tekshirilgan. Qayta qursangiz ularning ijro ishlari va detallari OʻCHADI va qaytadan tortiladi. Davom etilsinmi?')}`,
+        confirmLabel: t('Ha, qayta qurish'), danger: true,
+      });
+      if (!yes) { setBusy(''); return; }
+      ({ ok, json } = await jpost(`/api/mib/${reportId}/build`, { ...body, force: true }));
+    }
     if (!ok) setNote(json.error || t('Xatolik')); else { await load(); await onChanged?.(); }
     setBusy('');
   };
