@@ -59,6 +59,10 @@ export interface TalabnomaRow {
   total_debt_words: string;
   region: number;
   area: number;
+  // Xatdagi summa turi (talabnoma-shakllantirish): 'overdue' → total_debt = muddati o'tgan qism, matn
+  // «муддати ўтган қарзингиз…»; 'total' → jami qarz. Berilmasa — eski umumiy matn (boshqa oqimlar).
+  amount_kind?: 'total' | 'overdue';
+  full_debt?: number; // 'overdue' variantda asl jami qarz (ko'rik Excel'i uchun; hippo reyestriga chiqmaydi)
 }
 
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };

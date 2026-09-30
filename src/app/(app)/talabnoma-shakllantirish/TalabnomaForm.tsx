@@ -289,6 +289,8 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
   const [note, setNote] = useState('');
   // Hujjat sanasi — chiqarishdan oldin operator kiritadi (default: bugun). Barcha chiqarishlarga qo'llanadi.
   const [docDate, setDocDate] = useState<string>(localToday);
+  // Xatdagi «қарзингиз тўлови … сўм» summasi: jami qarz (default) yoki faqat muddati o'tgan qism.
+  const [amount, setAmount] = useState<'total' | 'overdue'>('total');
   // Qarzdorlik filtri — DEFAULT O'CHIQ: hech qanday chegara qo'yilmaydi (barcha shaxslar kiradi).
   // Yoqilganda pastdagi summa (Umumiy ≥ / har firmadan ≥) qo'llanadi.
   const [filterOn, setFilterOn] = useState(false);
@@ -355,9 +357,9 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
     setBusyFirm(firm.code + kind);
     try {
       const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/generate`, {
-        firmCode: firm.code, firmName: firm.name, kind, ...eff(opts), includeUnready: !firm.ready, docDate,
+        firmCode: firm.code, firmName: firm.name, kind, ...eff(opts), includeUnready: !firm.ready, docDate, amount,
       });
-      if (!ok) { setNote(json.error || `${t('Xatolik')} (${status})`); return; }
+      if (!ok) { setNote(json.error || `${t('Xatolik')} (${status})`); if (json.reparsing) await onChanged(); return; }
       if (kind === 'REYESTR') {
         window.location.href = `/api/talabnoma-form/${batch.id}/download/${json.runId}`;
       } else {
@@ -371,8 +373,8 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
   const doGenerateAll = async () => {
     setNote(''); setBusyFirm('__ALL__');
     try {
-      const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/generate`, { all: true, format: 'excel', ...eff(opts), docDate });
-      if (!ok) { setNote(json.error || `${t('Xatolik')} (${status})`); return; }
+      const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/generate`, { all: true, format: 'excel', ...eff(opts), docDate, amount });
+      if (!ok) { setNote(json.error || `${t('Xatolik')} (${status})`); if (json.reparsing) await onChanged(); return; }
       window.location.href = `/api/talabnoma-form/${batch.id}/download/${json.runId}`;
       await onChanged();
     } finally { setBusyFirm(null); }
@@ -382,8 +384,8 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
   const doGenerateAllZip = async () => {
     setNote(''); setBusyFirm('__ALLZIP__');
     try {
-      const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/generate`, { all: true, format: 'zip', ...eff(opts), docDate });
-      if (!ok) { setNote(json.error || `${t('Xatolik')} (${status})`); return; }
+      const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/generate`, { all: true, format: 'zip', ...eff(opts), docDate, amount });
+      if (!ok) { setNote(json.error || `${t('Xatolik')} (${status})`); if (json.reparsing) await onChanged(); return; }
       setNote(t('ZIP tayyorlanmoqda (har firma alohida papka) — pastdagi «Amallar tarixi»dan yuklab olasiz.'));
       await onChanged();
     } finally { setBusyFirm(null); }
@@ -399,7 +401,8 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
         <StatCard label={t('Tayyor emas')} value={n(result?.unreadyPersonCount ?? 0)} bad />
       </div>
 
-      {/* Hujjat sanasi — chiqarishdan oldin tanlanadi; barcha reyestr/xat/Excel/PDF shu bitta sana bilan. */}
+      {/* Chiqarish sozlamalari — hujjat sanasi + xatdagi summa turi; barcha reyestr/xat/Excel/PDF'ga qo'llanadi. */}
+      <div className="grid gap-3 lg:grid-cols-2">
       <div className="card flex flex-wrap items-center gap-x-4 gap-y-3 p-4">
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-500/10 text-brand-600 dark:text-brand-400" aria-hidden>
           <Ico.calendar size={20} />
@@ -428,6 +431,39 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
             <span className="badge border-emerald-500/30 text-emerald-600 dark:text-emerald-300">{t('Bugun')}</span>
           )}
         </div>
+      </div>
+
+      {/* Xatdagi summa — 2 variant: jami qarz yoki faqat muddati o'tgan (muddati o'tgani 0 bo'lganga xat ketmaydi). */}
+      <div className="card flex flex-wrap items-center gap-x-4 gap-y-3 p-4">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-500/10 text-brand-600 dark:text-brand-400" aria-hidden>
+          <Ico.receipt size={20} />
+        </span>
+        <div className="min-w-[12rem] flex-1">
+          <span id="tf-amount-label" className="block text-sm font-semibold">{t('Xatdagi summa')}</span>
+          <p className="mt-0.5 text-xs text-muted">
+            {amount === 'overdue'
+              ? t('Faqat muddati o‘tgan qarz va foizi. Muddati o‘tgani yo‘q qarzdorga xat chiqmaydi.')
+              : t('Kredit bo‘yicha jami qarz (asosiy qarz + foizlar).')}
+          </p>
+        </div>
+        <div role="radiogroup" aria-labelledby="tf-amount-label" className="inline-flex rounded-xl border border-line bg-surface-2 p-1">
+          {([['total', t('Jami qarz')], ['overdue', t('Muddati o‘tgan')]] as const).map(([v, label]) => (
+            <button
+              key={v}
+              type="button"
+              role="radio"
+              aria-checked={amount === v}
+              onClick={() => setAmount(v)}
+              className={cx(
+                'h-9 rounded-lg px-3.5 text-sm font-medium transition-colors active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50',
+                amount === v ? 'bg-surface text-brand-600 shadow-sm dark:text-brand-300' : 'text-muted hover:text-fg',
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
       </div>
 
       {/* inline filter bar — always visible */}

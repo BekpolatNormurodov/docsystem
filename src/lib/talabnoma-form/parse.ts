@@ -14,6 +14,10 @@ import { canonCode, DEFAULT_THRESHOLD, evaluate } from './filter';
 import { streamXlsxRowsViaUnzipper } from './xlsx-stream';
 import type { CandidatePerson, CandidatesFile } from './types';
 
+/** candidates.json formati. 2 = raqam katakchalari (t="n") to'g'ri o'qiladi (shartnoma sanasi/raqami) +
+ *  har kredit uchun muddati o'tgan qism saqlanadi. Pastrog'i chiqarishdan oldin qayta tahlil qilinadi. */
+export const CANDIDATES_VERSION = 2;
+
 /** Prefer the FULLEST address seen for a person (portfolio rows vary: some carry the full street,
  *  some collapse to «X tumani»). Longest non-empty wins. */
 function fullest(...candidates: (string | null | undefined)[]): string | null {
@@ -79,6 +83,7 @@ export async function parseTalabnomaForm(
       branch: loan.branchCode, clientName: loan.clientName, ldId: loan.ldId,
       dateToCr: loan.dateToCr ? loan.dateToCr.toISOString() : null,
       summKr: loan.summKr, totalDebt: loan.totalDebt,
+      overduePrincipal: loan.debtOverduePrincipal, overdueInterest: loan.debtOverdueInterest,
       postAddress: loan.postAddress, postAddressUz: loan.postAddressUz,
       regionName: loan.regionName, distrName,
     });
@@ -146,7 +151,7 @@ export async function parseTalabnomaForm(
   const firmNameByCode = await firmNamesByCode(firmCodes);
 
   const people = [...byPinfl.values()];
-  const file: CandidatesFile = { docDate: docDate.toISOString(), firmNameByCode, people };
+  const file: CandidatesFile = { version: CANDIDATES_VERSION, docDate: docDate.toISOString(), firmNameByCode, people };
 
   const ev = evaluate(file, { thresholdTotal: DEFAULT_THRESHOLD, perFirmMin: 0 });
   const summary: ParseSummary = {

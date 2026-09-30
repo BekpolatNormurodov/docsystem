@@ -80,7 +80,13 @@ function parseSheet(
         if (curCol >= 0) {
           let val: unknown;
           if (curType === 's') val = shared[Number(cellText)] ?? '';
-          else if (curType === '') val = cellText === '' ? null : Number(cellText); // raqam/sana-serial → number (toDate hal qiladi)
+          // Raqam/sana-serial → number (toDate hal qiladi). Tur yozilmagan YOKI aniq t="n" (openpyxl/davlat
+          // eksportlari hamma raqamga t="n" yozadi) — ikkalasi ham raqam; aks holda sana «46205.0» matn bo'lib
+          // qolib, shartnoma sanasi bo'sh, raqami «1007.0» chiqardi.
+          else if (curType === '' || curType === 'n') {
+            const n = Number(cellText);
+            val = cellText === '' ? null : Number.isFinite(n) ? n : cellText;
+          }
           else val = cellText; // inlineStr/str/b/d/e → matn
           values[curCol] = val;
         }

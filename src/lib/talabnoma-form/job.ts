@@ -5,7 +5,7 @@
 import fs from 'node:fs/promises';
 import { prisma } from '@/lib/db';
 import { parseTalabnomaForm, writeCandidates, readCandidates } from './parse';
-import { buildRowsForFirm, firmLetterhead, writeLettersZip, writeAllFirmsLettersZip } from './generate';
+import { applyRunOptions, buildRowsForFirm, firmLetterhead, writeLettersZip, writeAllFirmsLettersZip } from './generate';
 import { candidatesJsonPath, batchDir, lettersZipPath, allLettersZipPath } from './store';
 import type { FilterOpts } from './types';
 
@@ -66,7 +66,7 @@ export async function runTalabnomaFormJob(jobId: number): Promise<void> {
       const batch = await prisma.talabnomaFormBatch.findUnique({ where: { id: batchId }, select: { candidatesPath: true } });
       if (!batch?.candidatesPath) throw new Error('Candidates topilmadi — batch tayyor emas');
       const file = await readCandidates(batch.candidatesPath);
-      applyDocDate(file, p.docDate); // operator kiritgan hujjat sanasi (bo'lsa)
+      applyRunOptions(file, p); // operator tanlovi: hujjat sanasi + xatdagi summa turi
       const rows = buildRowsForFirm(file, firmCode, opts);
       if (!rows.length) throw new Error('Tanlangan filtr uchun qator yo‘q');
       // total ni oldindan yozamiz — UI «X / Y ta yasalmoqda» ni ko'rsata olsin (personCount = tayyor bo'lgani).
@@ -102,7 +102,7 @@ export async function runTalabnomaFormJob(jobId: number): Promise<void> {
       const batch = await prisma.talabnomaFormBatch.findUnique({ where: { id: batchId }, select: { candidatesPath: true } });
       if (!batch?.candidatesPath) throw new Error('Candidates topilmadi — batch tayyor emas');
       const file = await readCandidates(batch.candidatesPath);
-      applyDocDate(file, p.docDate); // operator kiritgan hujjat sanasi (bo'lsa)
+      applyRunOptions(file, p); // operator tanlovi: hujjat sanasi + xatdagi summa turi
       const out = allLettersZipPath(batchId, runId);
       await fs.mkdir(batchDir(batchId), { recursive: true });
       const total = await writeAllFirmsLettersZip(file, opts, out, async (made, tot) => {
@@ -122,11 +122,6 @@ export async function runTalabnomaFormJob(jobId: number): Promise<void> {
     }
     return;
   }
-}
-
-// Operator kiritgan hujjat sanasi (YYYY-MM-DD) — candidates ichidagi docDate'ni almashtiradi (bo'lsa).
-function applyDocDate(file: { docDate?: string }, raw: unknown): void {
-  if (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw)) file.docDate = new Date(`${raw}T00:00:00.000Z`).toISOString();
 }
 
 function normalizeOpts(v: unknown): FilterOpts {

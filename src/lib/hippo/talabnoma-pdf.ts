@@ -24,6 +24,13 @@ const template = () => {
 const dmy = (d: Date | null): string =>
   d ? `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}` : '';
 
+// «Шу сабабли ҳозирда тўланиши лозим бўлган … {{total_debt}} сўмни ташкил қилади» — summa turiga mos ibora.
+const DEBT_PHRASE: Record<'total' | 'overdue' | 'legacy', string> = {
+  total: 'кредит бўйича жами қарзингиз тўлови',
+  overdue: 'кредит бўйича муддати ўтган қарзингиз ва унга ҳисобланган фоиз тўлови',
+  legacy: 'кредит жами муддати ўтган қарзингиз ва унга ҳисобланган фоиз тўлови',
+};
+
 // Build the {{token}} -> value map for one row. region/area become Cyrillic
 // NAMES in the letter (the Excel carries the numeric IDs; the PDF is human).
 export function talabnomaFields(row: TalabnomaRow): Record<string, string> {
@@ -38,6 +45,7 @@ export function talabnomaFields(row: TalabnomaRow): Record<string, string> {
     loan_amount_words: row.loan_amount_words,
     total_debt: new Intl.NumberFormat('ru-RU').format(row.total_debt),
     total_debt_words: row.total_debt_words,
+    debt_phrase: DEBT_PHRASE[row.amount_kind ?? 'legacy'],
     region: regionName(row.region),
     area: areaName(row.area),
   };

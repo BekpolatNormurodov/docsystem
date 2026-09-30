@@ -4,7 +4,7 @@ import { requireAccess } from '@/lib/auth';
 import { getT } from '@/lib/i18n/server';
 import { enqueueJob } from '@/lib/job-dispatch';
 import { readCandidates } from '@/lib/talabnoma-form/parse';
-import { buildRowsForFirm, writeReyestr, writeAllFirmsReyestr } from '@/lib/talabnoma-form/generate';
+import { applyRunOptions, buildRowsForFirm, isStaleCandidates, parseAmountMode, writeReyestr, writeAllFirmsReyestr } from '@/lib/talabnoma-form/generate';
 import { isReadyFirm, DEFAULT_THRESHOLD } from '@/lib/talabnoma-form/filter';
 import { reyestrXlsxPath } from '@/lib/talabnoma-form/store';
 
@@ -35,10 +35,27 @@ export async function POST(req: NextRequest, { params }: { params: { batchId: st
   const includeUnready = body?.includeUnready === true;
   const opts = { thresholdTotal, perFirmMin };
   const filtersAll = { thresholdTotal, perFirmMin, includeUnready: true };
-  // Hujjat sanasi — operator chiqarishda kiritadi (YYYY-MM-DD). Bo'sh/xato bo'lsa candidates ichidagi
-  // asl docDate ishlatiladi. Inline yo'llarda file.docDate'ni shu bilan almashtiramiz; fon jobларга params'да yuboramiz.
+  // Operator tanlovi: hujjat sanasi (YYYY-MM-DD; bo'sh/xato → candidates'dagi asl sana) va xatdagi summa
+  // turi (amount: 'total' jami | 'overdue' faqat muddati o'tgan). Inline yo'llarda applyRunOptions,
+  // fon job'larga params'da — ikkalasi bir xil qoida (generate.applyRunOptions).
   const docDate = typeof body?.docDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.docDate) ? body.docDate : undefined;
-  const applyDate = (f: { docDate?: string }) => { if (docDate) f.docDate = new Date(`${docDate}T00:00:00.000Z`).toISOString(); };
+  const amount = parseAmountMode(body?.amount);
+  const runOpts = { docDate, amount };
+  // Tarix/yuklab olingan fayl nomida variant ko'rinsin («… · muddati o'tgan»); jami — belgisiz.
+  const variantTag = amount === 'overdue' ? ` · ${t('muddati o‘tgan')}` : '';
+
+  // Eski parser bilan tahlil qilingan (shartnoma sanasi bo'sh, muddati o'tgan summa yo'q) → yuklangan
+  // fayllardan avtomatik qayta tahlil; UI PARSING holatini kuzatadi, tugagach operator qayta bosadi.
+  const candidates = await readCandidates(batch.candidatesPath);
+  if (isStaleCandidates(candidates)) {
+    await prisma.talabnomaFormBatch.update({ where: { id }, data: { status: 'PARSING', processedRows: 0, totalRows: 0, message: null } });
+    const job = await prisma.job.create({ data: { type: 'TALABNOMA_FORM', status: 'PENDING', total: 1, params: { action: 'parse', batchId: id } } });
+    enqueueJob(job.id);
+    return NextResponse.json(
+      { reparsing: true, error: t('Tahlil yangilanmoqda (shartnoma sanasi va muddati o‘tgan summa uchun) — tugagach qayta bosing.') },
+      { status: 409 },
+    );
+  }
 
   // «Barcha firmalar — hammasi bittada»: Excel (bitta varaq) yoki PDF (bitta fayl, firmalar ichida).
   if (all) {
@@ -46,19 +63,19 @@ export async function POST(req: NextRequest, { params }: { params: { batchId: st
     if (format === 'zip') {
       // Firma bo'yicha ZIP (har firma alohida papka) — chromium og'ir, fon jarayoni; Tarixdan yuklanadi.
       const run = await prisma.talabnomaFormRun.create({
-        data: { batchId: id, createdBy: user.username, kind: 'LETTERS', firmCode: '__ALL__', firmName: t('Barcha firmalar (ZIP)'), filters: filtersAll, status: 'PENDING' },
+        data: { batchId: id, createdBy: user.username, kind: 'LETTERS', firmCode: '__ALL__', firmName: t('Barcha firmalar (ZIP)') + variantTag, filters: { ...filtersAll, amount }, status: 'PENDING' },
       });
       const job = await prisma.job.create({
-        data: { type: 'TALABNOMA_FORM', status: 'PENDING', params: { action: 'generate-all-zip', batchId: id, runId: run.id, filters: opts, docDate } },
+        data: { type: 'TALABNOMA_FORM', status: 'PENDING', params: { action: 'generate-all-zip', batchId: id, runId: run.id, filters: opts, ...runOpts } },
       });
       enqueueJob(job.id);
       return NextResponse.json({ runId: run.id, jobId: job.id, kind: 'LETTERS' });
     }
     // Bitta Excel — tez, inline.
-    const file = await readCandidates(batch.candidatesPath);
-    applyDate(file);
+    const file = candidates;
+    applyRunOptions(file, runOpts);
     const run = await prisma.talabnomaFormRun.create({
-      data: { batchId: id, createdBy: user.username, kind: 'REYESTR', firmCode: '__ALL__', firmName: t('Barcha firmalar'), filters: filtersAll, status: 'RUNNING' },
+      data: { batchId: id, createdBy: user.username, kind: 'REYESTR', firmCode: '__ALL__', firmName: t('Barcha firmalar') + variantTag, filters: { ...filtersAll, amount }, status: 'RUNNING' },
     });
     const outPath = reyestrXlsxPath(id, run.id);
     const count = await writeAllFirmsReyestr(file, opts, outPath);
@@ -78,12 +95,12 @@ export async function POST(req: NextRequest, { params }: { params: { batchId: st
     );
   }
 
-  const firmName = String(body?.firmName ?? '') || firmCode;
-  const filters = { thresholdTotal, perFirmMin, includeUnready };
+  const firmName = (String(body?.firmName ?? '') || firmCode) + variantTag;
+  const filters = { thresholdTotal, perFirmMin, includeUnready, amount };
 
   if (kind === 'REYESTR') {
-    const file = await readCandidates(batch.candidatesPath);
-    applyDate(file);
+    const file = candidates;
+    applyRunOptions(file, runOpts);
     const rows = buildRowsForFirm(file, firmCode, opts);
     if (!rows.length) return NextResponse.json({ error: t('Tanlangan filtr uchun qator yo‘q') }, { status: 422 });
     const run = await prisma.talabnomaFormRun.create({
@@ -106,7 +123,7 @@ export async function POST(req: NextRequest, { params }: { params: { batchId: st
     data: {
       type: 'TALABNOMA_FORM',
       status: 'PENDING',
-      params: { action: 'generate-letters', batchId: id, runId: run.id, firmCode, filters: opts, docDate },
+      params: { action: 'generate-letters', batchId: id, runId: run.id, firmCode, filters: opts, ...runOpts },
     },
   });
   enqueueJob(job.id);

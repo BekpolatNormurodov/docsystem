@@ -17,8 +17,10 @@ import {
 import { renderTalabnomaPdf, type TalabnomaFirm } from '@/lib/hippo/talabnoma-pdf';
 import { regionName, areaName } from '@/core/hippo-regions';
 import { directorByCode } from '@/lib/farmoyish-docx';
+import { numberToUzWords } from '@/core/uz-number-words';
 import { canonCode, passesTotal } from './filter';
-import type { CandidatesFile, FilterOpts } from './types';
+import { CANDIDATES_VERSION } from './parse';
+import type { AmountMode, CandidatesFile, FilterOpts } from './types';
 
 const safeName = (s: string) => s.replace(/[^\wА-Яа-яЎўҚқҒғҲҳ]+/g, '_').slice(0, 40) || 'x';
 
@@ -57,6 +59,9 @@ export function buildLoansForFirm(file: CandidatesFile, firmCode: string, opts: 
           dateToCr: l.dateToCr ? new Date(l.dateToCr) : null,
           summKr: l.summKr ?? 0,
           totalDebt: l.totalDebt,
+          // Muddati o'tgan qism → row.overdue_debt («faqat muddati o'tgan» varianti shu summani yozadi).
+          debtOverduePrincipal: l.overduePrincipal,
+          debtOverdueInterest: l.overdueInterest,
           raw: { distr_name: l.distrName ?? p.district ?? '' },
         });
       }
@@ -82,8 +87,34 @@ export function buildLoansForFirm(file: CandidatesFile, firmCode: string, opts: 
 
 export function buildRowsForFirm(file: CandidatesFile, firmCode: string, opts: FilterOpts): TalabnomaRow[] {
   const docDate = file.docDate ? new Date(file.docDate) : new Date();
-  return buildTalabnomaRows(buildLoansForFirm(file, firmCode, opts), docDate);
+  const rows = buildTalabnomaRows(buildLoansForFirm(file, firmCode, opts), docDate);
+  if (file.amountMode !== 'overdue') return rows.map((r) => ({ ...r, amount_kind: 'total' as const }));
+  // «Faqat muddati o'tgan»: xatdagi summa = muddati o'tgan qism. Muddati o'tgani yo'q (0) qarzdorga
+  // talabnoma ketmaydi; qolganlar ketma-ket qayta raqamlanadi (hujjat № «DDMMYYYY/n» bo'shliqsiz).
+  return rows
+    .filter((r) => (r.overdue_debt ?? 0) > 0)
+    .map((r, i) => ({
+      ...r,
+      contract_id: r.contract_id.replace(/\/\d+$/, `/${i + 1}`),
+      full_debt: r.total_debt,
+      total_debt: r.overdue_debt!,
+      total_debt_words: numberToUzWords(r.overdue_debt!),
+      amount_kind: 'overdue' as const,
+    }));
 }
+
+/** Eski parser bilan yozilgan tahlil (sana/muddati o'tgan summa yo'q) — chiqarishdan oldin qayta tahlil kerak. */
+export const isStaleCandidates = (file: CandidatesFile) => (file.version ?? 1) < CANDIDATES_VERSION;
+
+/** Operator tanlovlari (hujjat sanasi YYYY-MM-DD, summa turi) — route va fon job uchun bitta qoida. */
+export function applyRunOptions(file: CandidatesFile, raw: { docDate?: unknown; amount?: unknown }): void {
+  if (typeof raw.docDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.docDate)) {
+    file.docDate = new Date(`${raw.docDate}T00:00:00.000Z`).toISOString();
+  }
+  file.amountMode = parseAmountMode(raw.amount);
+}
+
+export const parseAmountMode = (v: unknown): AmountMode => (v === 'overdue' ? 'overdue' : 'total');
 
 /** Firm letterhead from the DB Firm row (matched by canonical code). */
 export async function firmLetterhead(firmCode: string): Promise<TalabnomaFirm | null> {
@@ -123,6 +154,7 @@ export async function writeAllFirmsReyestr(file: CandidatesFile, opts: FilterOpt
     { header: 'Kredit summasi', key: 'loan', width: 16 },
     { header: 'Jami qarzdorlik', key: 'debt', width: 18 },
     { header: "Muddati o'tgan jami qarzdorlik", key: 'overdue', width: 20 },
+    { header: 'Xatdagi summa', key: 'letter', width: 18 },
     { header: 'Viloyat', key: 'region', width: 18 },
     { header: 'Tuman/Shahar', key: 'area', width: 20 },
   ];
@@ -135,7 +167,7 @@ export async function writeAllFirmsReyestr(file: CandidatesFile, opts: FilterOpt
       ws.addRow({
         firma, fish: r.receiver, pinfl: r.pinfl ?? '', address: r.address,
         cnum: r.contract_number, cdate: dmy(r.contract_date),
-        loan: r.loan_amount, debt: r.total_debt, overdue: r.overdue_debt ?? '',
+        loan: r.loan_amount, debt: r.full_debt ?? r.total_debt, overdue: r.overdue_debt ?? '', letter: r.total_debt,
         region: regionName(r.region), area: areaName(r.area),
       });
       count += 1;
@@ -146,7 +178,8 @@ export async function writeAllFirmsReyestr(file: CandidatesFile, opts: FilterOpt
   ws.getColumn('loan').numFmt = '#,##0';
   ws.getColumn('debt').numFmt = '#,##0';
   ws.getColumn('overdue').numFmt = '#,##0';
-  ws.autoFilter = { from: 'A1', to: `K${Math.max(1, ws.rowCount)}` };
+  ws.getColumn('letter').numFmt = '#,##0';
+  ws.autoFilter = { from: 'A1', to: `L${Math.max(1, ws.rowCount)}` };
   ws.views = [{ state: 'frozen', ySplit: 1 }];
   await wb.xlsx.writeFile(outPath);
   return count;

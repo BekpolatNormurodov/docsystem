@@ -9,6 +9,10 @@ export interface CandidateLoan {
   dateToCr: string | null; // ISO date (contract date)
   summKr: number | null; // loan amount
   totalDebt: number; // full debt (for the letter's «Jami qarzdorlik»)
+  // Muddati o'tgan qism (portfel summ_ostpr_ze + sumnachpr_eqv) — «faqat muddati o'tgan» variant uchun.
+  // Eski (v1) candidates.json'da yo'q → undefined.
+  overduePrincipal?: number | null;
+  overdueInterest?: number | null;
   postAddress: string | null;
   postAddressUz: string | null;
   regionName: string | null;
@@ -29,8 +33,15 @@ export interface CandidatePerson {
   loans: CandidateLoan[]; // portfolio loans (may be empty if no portfolio match)
 }
 
+/** Xatdagi «қарзингиз тўлови … сўм» summasi: jami qarz yoki faqat muddati o'tgan qism. */
+export type AmountMode = 'total' | 'overdue';
+
 export interface CandidatesFile {
+  // Tahlil formati versiyasi — CANDIDATES_VERSION dan past bo'lsa (eski parser: sana yo'q, muddati o'tgan
+  // summa yo'q) chiqarishdan oldin avtomatik qayta tahlil qilinadi.
+  version?: number;
   docDate: string; // ISO — the talabnoma document date (upload day)
+  amountMode?: AmountMode; // chiqarishda operator tanlaydi (saqlanmaydi) — default 'total'
   firmNameByCode: Record<string, string>; // Лист3 code → firm name
   people: CandidatePerson[];
 }
