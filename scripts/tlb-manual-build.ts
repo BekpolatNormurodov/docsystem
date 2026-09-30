@@ -109,6 +109,8 @@ interface Flag { firm: string; pinfl: string; fio: string; issue: string }
 interface Meta { addrSrc: string; days: number | null; geo: string }
 const flags: Flag[] = [];
 const summary: Record<string, unknown>[] = [];
+// Ariza uchun: talabnomadagi manzilning LOTIN varianti (firma kodi|PINFL) — ariza manzili xat bilan bir xil bo'lsin.
+const arizaAddr: Record<string, string> = {};
 const allOut: { firm: string; rows: TalabnomaRow[]; meta: Map<string, Meta> }[] = [];
 
 async function main() {
@@ -126,6 +128,7 @@ async function main() {
       const region = a?.region || s(p.viloyat);
       const geo = resolveGeo(region, [a?.distr ?? '', s(mine[0].distr_name), s(p.tuman)]);
       const addrUz = polishAddress(normalizeAddress(region, geo.district, a?.post ?? null), geo.regionId);
+      arizaAddr[`${firm.code}|${p.pinfl}`] = addrUz;
       meta.set(p.pinfl, { addrSrc: a ? `${a.src}${a.sameFirm ? '' : ' (boshqa firma)'}` : 'YOʻQ', days: p.days, geo: geo.areaConfidence });
       if (!a) flags.push({ firm: firm.name, pinfl: p.pinfl, fio: p.fio, issue: 'Koʻcha/uy manzili topilmadi — faqat viloyat/tuman' });
       if (geo.areaConfidence === 'fuzzy') flags.push({ firm: firm.name, pinfl: p.pinfl, fio: p.fio, issue: `Tuman taxminiy moslandi: «${geo.district}» → «${areaName(geo.areaId)}»` });
@@ -199,6 +202,7 @@ async function main() {
   await wb.xlsx.writeFile(path.join(outDir, '_HAMMASI_korik.xlsx'));
 
   fs.writeFileSync(path.join(outDir, '_summary.json'), JSON.stringify({ summary, flags }, null, 1));
+  fs.writeFileSync(path.join(outDir, 'ariza_addr_uz.json'), JSON.stringify(arizaAddr));
   console.table(summary);
   const issueCounts = flags.reduce<Record<string, number>>((m, f) => { const k = `${f.firm}: ${f.issue.replace(/[:(«].*$/, '').trim()}`; m[k] = (m[k] ?? 0) + 1; return m; }, {});
   console.log(issueCounts);
