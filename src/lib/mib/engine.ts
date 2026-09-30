@@ -335,6 +335,16 @@ export class MibEngine {
         const step16Html = await step16Res.text();
         const verifyFormMatch = step16Html.match(/<form[^>]*id="verify_form"[^>]*action="([^"]*)"/i)
           || step16Html.match(/<form[^>]*action="([^"]*)"[^>]*id="verify_form"/i);
+        // mib.uz SMS yubora olmasa (limit, raqam, xizmat) xabarni shu sahifada ko'rsatadi. Ilgari bu
+        // tekshirilmas edi — SMS «so'raldi» deb yozilib, kod kelmasa sababi ko'rinmasdi (2026-09-30).
+        const feedback = [...step16Html.matchAll(/feedbackPanel(?:ERROR|WARNING|INFO)?[^>]*>\s*<span[^>]*>([^<]{3,300})</gi)]
+          .map((m) => m[1]!.replace(/\s+/g, ' ').trim()).filter(Boolean);
+        if (feedback.length) this.log(`PINFL ${pinfl} · ish ${workNumber}: mib.uz xabari — «${feedback.join(' | ').slice(0, 300)}»`);
+        if (!verifyFormMatch) {
+          const txt = step16Html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')
+            .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          this.log(`PINFL ${pinfl} · ish ${workNumber}: SMS tasdiqlash formasi YO'Q (HTTP ${step16Res.status}) — sahifa: «${txt.slice(0, 260)}»`);
+        }
         const rawVerifyAction = verifyFormMatch ? verifyFormMatch[1]! : '';
         const verifyFormAction = new URL(rawVerifyAction, step16Url).href;
         return { success: true, step16Url, verifyFormAction };
