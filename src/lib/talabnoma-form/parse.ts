@@ -15,8 +15,9 @@ import { streamXlsxRowsViaUnzipper } from './xlsx-stream';
 import type { CandidatePerson, CandidatesFile } from './types';
 
 /** candidates.json formati. 2 = raqam katakchalari (t="n") to'g'ri o'qiladi (shartnoma sanasi/raqami) +
- *  har kredit uchun muddati o'tgan qism saqlanadi. Pastrog'i chiqarishdan oldin qayta tahlil qilinadi. */
-export const CANDIDATES_VERSION = 2;
+ *  har kredit uchun muddati o'tgan qism saqlanadi. 3 = kredit hisob raqami (reyestrdagi «Unikalka»).
+ *  Pastrog'i chiqarishdan oldin qayta tahlil qilinadi. */
+export const CANDIDATES_VERSION = 3;
 
 /** Prefer the FULLEST address seen for a person (portfolio rows vary: some carry the full street,
  *  some collapse to «X tumani»). Longest non-empty wins. */
@@ -86,6 +87,7 @@ export async function parseTalabnomaForm(
       overduePrincipal: loan.debtOverduePrincipal, overdueInterest: loan.debtOverdueInterest,
       postAddress: loan.postAddress, postAddressUz: loan.postAddressUz,
       regionName: loan.regionName, distrName,
+      account: String((loan.raw as any)?.account ?? (loan.raw as any)?.acc_over ?? '').trim() || null,
     });
     // Identity / amounts — all from portfel.
     person.fio = person.fio ?? loan.clientName;

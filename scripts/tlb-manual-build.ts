@@ -139,7 +139,7 @@ async function main() {
           // buildTalabnomaRows region/area'ni shu ikkisidan qayta hisoblaydi — aniqlangan juftlikni beramiz.
           regionName: regionName(geo.regionId) || region,
           ldId: digits(r.ld_id), dateToCr: toDate(r.date_to_cr),
-          summKr: Number(r.summ_kr) || 0, totalDebt: computeTotalDebt(r), raw: { distr_name: areaName(geo.areaId) || geo.district },
+          summKr: Number(r.summ_kr) || 0, totalDebt: computeTotalDebt(r), raw: { distr_name: areaName(geo.areaId) || geo.district, account: r.account ?? null, acc_over: r.acc_over ?? null },
           // Qarz qismlari → reyestrdagi «overdue_debt» (muddati o'tgan asosiy + foiz; talabnoma-excel.ts).
           debtOverduePrincipal: Number(r.summ_ostpr_ze) || 0, debtOverdueInterest: Number(r.sumnachpr_eqv) || 0,
         });

@@ -17,6 +17,8 @@ export interface CandidateLoan {
   postAddressUz: string | null;
   regionName: string | null;
   distrName: string | null; // raw distr_name → hippo area id
+  /** Kredit hisob raqami (raw account / acc_over) → reyestrdagi «Unikalka». v3 dan; eskisida undefined. */
+  account?: string | null;
 }
 
 /** One debtor aggregated from Лист1, with per-firm overdue (Лист2) + portfolio loans. */

@@ -62,7 +62,7 @@ export function buildLoansForFirm(file: CandidatesFile, firmCode: string, opts: 
           // Muddati o'tgan qism → row.overdue_debt («faqat muddati o'tgan» varianti shu summani yozadi).
           debtOverduePrincipal: l.overduePrincipal,
           debtOverdueInterest: l.overdueInterest,
-          raw: { distr_name: l.distrName ?? p.district ?? '' },
+          raw: { distr_name: l.distrName ?? p.district ?? '', account: l.account ?? null },
         });
       }
     } else {
@@ -148,6 +148,7 @@ export async function writeAllFirmsReyestr(file: CandidatesFile, opts: FilterOpt
     { header: 'Firma', key: 'firma', width: 26 },
     { header: 'Qarzdor FISH', key: 'fish', width: 34 },
     { header: 'PINFL', key: 'pinfl', width: 16 },
+    { header: 'Unikalka', key: 'ucode', width: 12 },
     { header: 'Manzil', key: 'address', width: 40 },
     { header: 'Shartnoma raqami', key: 'cnum', width: 18 },
     { header: 'Shartnoma sanasi', key: 'cdate', width: 15 },
@@ -165,7 +166,7 @@ export async function writeAllFirmsReyestr(file: CandidatesFile, opts: FilterOpt
     const firma = nameByCode.get(code) ?? code;
     for (const r of rows) {
       ws.addRow({
-        firma, fish: r.receiver, pinfl: r.pinfl ?? '', address: r.address,
+        firma, fish: r.receiver, pinfl: r.pinfl ?? '', ucode: r.unique_code ?? '', address: r.address,
         cnum: r.contract_number, cdate: dmy(r.contract_date),
         loan: r.loan_amount, debt: r.full_debt ?? r.total_debt, overdue: r.overdue_debt ?? '', letter: r.total_debt,
         region: regionName(r.region), area: areaName(r.area),

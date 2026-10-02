@@ -52,7 +52,7 @@ export async function POST(req: NextRequest, { params }: { params: { batchId: st
     const job = await prisma.job.create({ data: { type: 'TALABNOMA_FORM', status: 'PENDING', total: 1, params: { action: 'parse', batchId: id } } });
     enqueueJob(job.id);
     return NextResponse.json(
-      { reparsing: true, error: t('Tahlil yangilanmoqda (shartnoma sanasi va muddati o‘tgan summa uchun) — tugagach qayta bosing.') },
+      { reparsing: true, error: t('Tahlil yangilanmoqda (yangi maydonlar: shartnoma sanasi, muddati o‘tgan summa, Unikalka) — tugagach qayta bosing.') },
       { status: 409 },
     );
   }

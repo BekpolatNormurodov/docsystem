@@ -11,9 +11,13 @@ import { resolveHippoRegionArea } from '@/core/hippo-regions';
 import { latinToCyrillic } from '@/core/uz-latin-to-cyrillic';
 
 // Machine header (row 1) — exact keys the hippo importer maps.
+// `pinfl` + `unique_code` — OXIRIDA (hippo ustunlari joyidan siljimaydi): har qatorda PINFL va mijozning
+// shu firmadagi UNIKAL KODI bo'lishi shart (operator so'rovi, 2026-10-02) — reyestrni portfel/boshqa
+// ro'yxatlar bilan solishtirish uchun. Hippo API (talabnomaRowsToMails) bu ustunlarni o'qimaydi.
 export const TALABNOMA_COLUMNS = [
   'date', 'contract_id', 'address', 'receiver', 'contract_date', 'contract_number',
   'loan_amount', 'loan_amount_words', 'total_debt', 'overdue_debt', 'total_debt_words', 'region', 'area',
+  'pinfl', 'unique_code',
 ] as const;
 
 // Human labels (row 2) — copied from the reference file.
@@ -22,7 +26,24 @@ const HUMAN_LABELS: Record<(typeof TALABNOMA_COLUMNS)[number], string> = {
   contract_date: 'Shartnoma sanasi', contract_number: 'Shartnoma raqami', loan_amount: 'Kredit miqdori',
   loan_amount_words: "Kredit miqdori (so'zda)", total_debt: 'Jami qarzdorlik', overdue_debt: "Muddati o'tgan jami qarzdorlik",
   total_debt_words: "Jami qarzdorlik (so'zda)", region: 'Viloyat (Region ID)', area: 'Tuman/Shahar (Area ID)',
+  pinfl: 'PINFL', unique_code: 'Unikalka',
 };
+
+/**
+ * Mijozning FIRMA ICHIDAGI unikal kodi («Unikalka») — kredit hisob raqamining 10–17-xonalari.
+ * Hisob raqami 20 xona: balans 5 + valyuta 3 + kalit 1 + MIJOZ KODI 8 + kredit tartib raqami 3
+ * (14801000460158130001 → 60158130). Bir mijozning shu firmadagi hamma kreditida bir xil, boshqa
+ * firmada esa boshqa (2026-10-02, 25.09 portfel: har firmada PINFL soni = kod soni).
+ * `account` bo'lmasa — `acc_over` (muddati o'tgan hisob, xuddi shu tuzilma).
+ */
+export function clientUniqueCode(raw: unknown): string | null {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  for (const k of ['account', 'acc_over']) {
+    const a = String(r[k] ?? '').replace(/\D/g, '');
+    if (a.length === 20) return a.slice(9, 17);
+  }
+  return null;
+}
 
 // The Loan fields the talabnoma reads.
 export interface TalabnomaLoan {
@@ -36,16 +57,18 @@ export interface TalabnomaLoan {
   dateToCr: Date | null;
   summKr: unknown;
   totalDebt: unknown;
-  raw: unknown;               // needs raw.distr_name for the area id
+  raw: unknown;               // raw.distr_name → area id; raw.account (yoki acc_over) → unique_code
   // Overdue parts (Loan.debtOverdue*) → «overdue_debt» (muddati o'tgan jami qarzdorlik); empty without them.
   debtOverduePrincipal?: unknown;
   debtOverdueInterest?: unknown;
 }
 
 export interface TalabnomaRow {
-  // pinfl is carried for our own overview/statistika (never emitted into the hippo reyestr —
-  // talabnomaWorkbook/talabnomaRowsToMails only read the fixed TALABNOMA_COLUMNS, so this is ignored there).
+  // pinfl — reyestr Excel'ining oxirgi ustunlaridan biri (TALABNOMA_COLUMNS) + hippo external oqimida
+  // PinflOrInn (talabnomaRowsToMails). Statistika/iz ham shundan.
   pinfl: string | null;
+  /** Mijozning shu firmadagi unikal kodi (clientUniqueCode); kreditlarda turlicha bo'lsa «-» bilan. */
+  unique_code?: string | null;
   date: Date;
   contract_id: string;
   address: string;
@@ -89,6 +112,7 @@ export function buildTalabnomaRows(loans: TalabnomaLoan[], docDate: Date): Talab
       ? Math.round(group.reduce((s, l) => s + num(l.debtOverduePrincipal) + num(l.debtOverdueInterest), 0))
       : null;
     const distr = String((g0.raw as any)?.distr_name ?? '');
+    const codes = [...new Set(group.map((l) => clientUniqueCode(l.raw)).filter((c): c is string => !!c))];
     const { regionId, areaId } = resolveHippoRegionArea(g0.regionName ?? '', distr);
     seq += 1;
     rows.push({
@@ -108,6 +132,7 @@ export function buildTalabnomaRows(loans: TalabnomaLoan[], docDate: Date): Talab
       total_debt_words: numberToUzWords(totalDebt),
       region: regionId,
       area: areaId,
+      unique_code: codes.length ? codes.join('-') : null,
     });
     group = [];
   };

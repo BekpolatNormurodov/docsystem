@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildTalabnomaRows, type TalabnomaLoan } from './talabnoma-excel';
+import { buildTalabnomaRows, clientUniqueCode, TALABNOMA_COLUMNS, type TalabnomaLoan } from './talabnoma-excel';
 
 const base: TalabnomaLoan = {
   pinfl: '30510913370024', branchCode: '12842', clientName: 'MATYAKUPOV BABUR',
@@ -42,6 +42,26 @@ describe('buildTalabnomaRows', () => {
   it('overdue_debt is empty (null) when the source has no overdue breakdown', () => {
     const rows = buildTalabnomaRows([base], docDate);
     expect(rows[0].overdue_debt).toBeNull();
+  });
+
+  it('unique_code = mijoz kodi hisob raqamining 10–17-xonalaridan (har firma ichida bitta)', () => {
+    const rows = buildTalabnomaRows([
+      { ...base, raw: { distr_name: 'ЧИЛОНЗОР ТУМАНИ', account: '14801000460158130001' } },
+      { ...base, ldId: '222', raw: { distr_name: 'ЧИЛОНЗОР ТУМАНИ', account: '14801000660158130002' } },
+    ], docDate);
+    expect(rows[0].unique_code).toBe('60158130');
+    expect(rows[0].pinfl).toBe('30510913370024');
+  });
+
+  it('unique_code: account yo\'q bo\'lsa acc_over, hech biri bo\'lmasa null', () => {
+    expect(clientUniqueCode({ acc_over: '12405000860158130001' })).toBe('60158130');
+    expect(clientUniqueCode({ account: 'б/н' })).toBeNull();
+    expect(buildTalabnomaRows([base], docDate)[0].unique_code).toBeNull();
+  });
+
+  it('reyestr ustunlari oxirida PINFL va Unikalka (hippo ustunlari joyidan siljimaydi)', () => {
+    expect(TALABNOMA_COLUMNS.slice(-2)).toEqual(['pinfl', 'unique_code']);
+    expect(TALABNOMA_COLUMNS.indexOf('area')).toBe(12);
   });
 
   it('prefers the cleaned Uzbek address, transliterated to Cyrillic', () => {
