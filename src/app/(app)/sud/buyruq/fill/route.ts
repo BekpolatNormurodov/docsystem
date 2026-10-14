@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { requireAccess } from '@/lib/auth';
 import { fillBuyruqTemplate, fillBuyruqPerFirmZip } from '@/lib/sud-buyruq';
+
+// Tepadagi sanadan tanlangan snapshot (konv_s cookie). Lib uni tekshiradi — yo'q bo'lsa eng so'nggisi.
+const selectedSnapshot = (): number | undefined => {
+  const v = cookies().get('konv_s')?.value;
+  return v && /^\d+$/.test(v) ? Number(v) : undefined;
+};
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -20,10 +27,11 @@ export async function POST(req: NextRequest) {
   const buf = Buffer.from(await file.arrayBuffer());
   const origName = (form?.get('name') ? String(form.get('name')) : (file as any).name || 'Buyruq') as string;
   const base = origName.replace(/\.xlsx$/i, '');
+  const snapshotId = selectedSnapshot();
 
   // Firma tanlanmagan → per-firma ZIP.
   if (!codes || codes.length === 0) {
-    const { buffer, perFirm } = await fillBuyruqPerFirmZip(buf);
+    const { buffer, perFirm } = await fillBuyruqPerFirmZip(buf, undefined, snapshotId);
     const total = perFirm.reduce((s, x) => s + x.total, 0);
     const filled = perFirm.reduce((s, x) => s + x.filled, 0);
     const unmatched = perFirm.reduce((s, x) => s + x.unmatched, 0);
@@ -42,7 +50,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Bitta firma → yagona .xlsx.
-  const { buffer, total, filled, unmatched } = await fillBuyruqTemplate(buf, { branchCodes: codes });
+  const { buffer, total, filled, unmatched } = await fillBuyruqTemplate(buf, { branchCodes: codes, snapshotId });
   const outName = `${base} — to'ldirilgan.xlsx`;
   return new NextResponse(new Uint8Array(buffer), {
     headers: {

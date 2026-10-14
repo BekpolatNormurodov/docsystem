@@ -51,7 +51,18 @@ interface IdxRow {
 // so'rovi 2026-09-22: arizadagi «Jami qarzdorligi» (masalan 17,521,972.98) — bu principal + 3 ta
 // qismning yig'indisi. Bank Excel'ida shu qiymat `totalDebt` ustunida saqlanadi. Har kredit ldId
 // bo'yicha unik olamiz — dublikat snapshot loans jamlanmaydi.
-async function firmIndex(branchCode: string): Promise<FirmIdx> {
+// Qaysi portfel (snapshot) bo'yicha to'ldiramiz: foydalanuvchi tepadagi sanadan TANLAGAN snapshot
+// (konv_s cookie → route uzatadi). Berilmasa / topilmasa — eng so'nggisi (eski xatti-harakat).
+// Ilgari bu yerda DOIM eng so'nggi snapshot olinardi — tanlangan sana e'tiborsiz qolardi.
+export async function resolveBuyruqSnapshot(snapshotId?: number | null): Promise<{ id: number; reportDate: Date } | null> {
+  if (snapshotId && Number.isInteger(snapshotId) && snapshotId > 0) {
+    const s = await prisma.snapshot.findUnique({ where: { id: snapshotId }, select: { id: true, reportDate: true } });
+    if (s) return s;
+  }
+  return prisma.snapshot.findFirst({ orderBy: { reportDate: 'desc' }, select: { id: true, reportDate: true } });
+}
+
+async function firmIndex(branchCode: string, snapshotId: number | null): Promise<FirmIdx> {
   // MUHIM: kredit ID (ldId) bo'yicha unik olamiz. Bir kredit har portfel yuklaganда YANGI
   // snapshotда qayta yoziladi (eski snapshot loans qoladi) — filtrsiz bir kredit har snapshot
   // uchun 1 marta chiqib jamlanardi (2026-09-22 audit: XUSHMURODOV 98M → 198M). `distinct:['ldId']`
@@ -64,9 +75,10 @@ async function firmIndex(branchCode: string): Promise<FirmIdx> {
   // arizadagi «Jami qarzdorligi» chiqadi. `distinct` ishlatilmaydi — u qismlarni tashlab
   // kredit jami-qarzini qismlab beradi (2026-09-22 audit: XUSHMURODOV 144M o'rniga to'liq
   // jami-qarz kerak).
-  const snap = await prisma.snapshot.findFirst({ orderBy: { reportDate: 'desc' }, select: { id: true } });
+  // Aynan BITTA snapshot (tanlangani) — bir kredit bir necha snapshotda jamlanib ketmasin.
+  if (snapshotId == null) return { byPinfl: new Map(), byName: new Map() };
   const loans = await prisma.loan.findMany({
-    where: { branchCode, ...(snap ? { snapshotId: snap.id } : {}) },
+    where: { branchCode, snapshotId },
     select: {
       clientName: true, pinfl: true, passportSn: true, postAddressUz: true, postAddress: true,
       // Jami qarzdorlik uchun 4 qism (arizadagi 4 qatorga to'liq mos). totalDebt bank o'zi hisoblab
@@ -98,7 +110,7 @@ async function firmIndex(branchCode: string): Promise<FirmIdx> {
 const dfmt = (d: Date | null): string =>
   d ? `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()} йил` : '';
 
-export interface BuyruqOpts { branchCodes: string[]; statuses: string[] }
+export interface BuyruqOpts { branchCodes: string[]; statuses: string[]; snapshotId?: number | null }
 
 // Ustun sarlavhalari (kiril/lotin variantlar) → 1-asoslangan ustun indeksi.
 const HEADER_ALIASES: Record<string, string[]> = {
@@ -126,13 +138,15 @@ function findCol(header: (string | null)[], key: keyof typeof HEADER_ALIASES): n
   return 0;
 }
 
-export interface FillTemplateResult { buffer: Buffer; total: number; filled: number; unmatched: number }
+export interface FillTemplateResult { buffer: Buffer; total: number; filled: number; unmatched: number; snapshotId: number | null }
 
 // Foydalanuvchi bergan Excel (Буйрук уч намуна ...) ni o'qib, Javobgar ustunidagi ismlar bo'yicha
 // tanlangan firma(lar) portfelidan asosiy qarz + manzil + pasport + PINFL ni to'ldirib qaytaradi.
 // «Da'vo summasi» = asosiy qarz; «davlat boji» = ROUND(Da'vo summasi * 4%, 0) formula bilan yoziladi
 // (agar shablon formula bo'lsa saqlanadi). Boshqa ustunlar va format saqlanib qoladi.
-export async function fillBuyruqTemplate(input: Buffer, opts: { branchCodes?: string[]; birthAsText?: boolean } = {}): Promise<FillTemplateResult> {
+export async function fillBuyruqTemplate(input: Buffer, opts: { branchCodes?: string[]; birthAsText?: boolean; snapshotId?: number | null; resolved?: boolean } = {}): Promise<FillTemplateResult> {
+  // `resolved` — chaqiruvchi (per-firma ZIP) snapshotni allaqachon aniqlagan; qayta so'ramaymiz.
+  const snapId = opts.resolved ? (opts.snapshotId ?? null) : ((await resolveBuyruqSnapshot(opts.snapshotId))?.id ?? null);
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength) as ArrayBuffer);
   const ws = wb.worksheets[0];
@@ -162,7 +176,7 @@ export async function fillBuyruqTemplate(input: Buffer, opts: { branchCodes?: st
   const codes = opts.branchCodes?.length ? opts.branchCodes : [...BUYRUQ_DEFAULT_FIRMS];
   const merged = new Map<string, IdxRow>();
   for (const code of codes) {
-    const idx = await firmIndex(code);
+    const idx = await firmIndex(code, snapId);
     for (const [k, v] of idx.byName) {
       const cur = merged.get(k);
       if (!cur) merged.set(k, { ...v });
@@ -216,7 +230,7 @@ export async function fillBuyruqTemplate(input: Buffer, opts: { branchCodes?: st
   if (cBirth) ws.getColumn(cBirth).numFmt = '@';
 
   const buffer = Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer);
-  return { buffer, total, filled, unmatched };
+  return { buffer, total, filled, unmatched, snapshotId: snapId };
 }
 
 // Tanlangan firma(lar) va holat(lar) bo'yicha buyruq Excel'ini quradi. Har firma — bir varaq.
@@ -227,6 +241,7 @@ export async function buildBuyruqExcel(opts: BuyruqOpts): Promise<{ buffer: Buff
   wb.creator = 'Yurist Tizimi';
   const firms = await prisma.firm.findMany({ where: { code: { in: opts.branchCodes } }, select: { code: true, shortName: true }, orderBy: { id: 'asc' } });
   const counts: Record<string, number> = {};
+  const snapId = (await resolveBuyruqSnapshot(opts.snapshotId))?.id ?? null;
 
   for (const f of firms) {
     const cases = await prisma.clientCaseStatus.findMany({
@@ -234,7 +249,7 @@ export async function buildBuyruqExcel(opts: BuyruqOpts): Promise<{ buffer: Buff
       select: { clientName: true, pinfl: true, caseNumber: true, status: true, defAddress: true, defPassport: true, registryDt: true },
       orderBy: { clientName: 'asc' },
     });
-    const idx = await firmIndex(f.code);
+    const idx = await firmIndex(f.code, snapId);
     const safe = (f.shortName || f.code).slice(0, 28).replace(/[\\/?*[\]:]/g, '');
     const ws = wb.addWorksheet(safe || f.code);
     ws.columns = [
@@ -283,8 +298,9 @@ export interface PerFirmZipResult {
 // alohida ishlaydi: mos ismlar shu firma portfelidan to'ldiriladi. Har firma uchun alohida
 // .xlsx yaratamiz va ZIP qilamiz. «Sanitized» firma nomi ustki faylni fayl tizimi belgilaridan
 // himoyalash uchun. branchCodes berilmasa BUYRUQ_DEFAULT_FIRMS (4 ta asosiy) ishlaydi.
-export async function fillBuyruqPerFirmZip(input: Buffer, branchCodes?: string[]): Promise<PerFirmZipResult> {
+export async function fillBuyruqPerFirmZip(input: Buffer, branchCodes?: string[], snapshotId?: number | null): Promise<PerFirmZipResult> {
   const codes = branchCodes?.length ? branchCodes : [...BUYRUQ_DEFAULT_FIRMS];
+  const snapId = (await resolveBuyruqSnapshot(snapshotId))?.id ?? null; // hamma firma — bir xil portfel
   const firms = await prisma.firm.findMany({
     where: { code: { in: codes } },
     select: { code: true, shortName: true },
@@ -293,7 +309,7 @@ export async function fillBuyruqPerFirmZip(input: Buffer, branchCodes?: string[]
   const perFirm: PerFirmZipResult['perFirm'] = [];
   const files: { name: string; buf: Buffer }[] = [];
   for (const f of firms) {
-    const res = await fillBuyruqTemplate(input, { branchCodes: [f.code] });
+    const res = await fillBuyruqTemplate(input, { branchCodes: [f.code], snapshotId: snapId, resolved: true });
     perFirm.push({ code: f.code, shortName: f.shortName, total: res.total, filled: res.filled, unmatched: res.unmatched });
     // Fayl nomida qonuniy belgilarni saqlaymiz; ZIP standarti (IBM437/CP437) em-dash'ni buzadi,
     // shuning uchun oddiy ASCII tire — va Windows/Mac fayl tizimi cheklovlari.

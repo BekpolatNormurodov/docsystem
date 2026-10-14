@@ -115,4 +115,7 @@ export const common: Record<string, string> = {
   'JAMI': 'ИТОГО',
   'Qayta': 'Повторить',
   'Yuklab boʻlmadi': 'Не удалось загрузить',
+  // Sud buyrug'i — qaysi portfel ishlatiladi
+  'Portfel (qarz/manzil shu sanadan olinadi)': 'Портфель (долг/адрес берутся на эту дату)',
+  'eng soʻnggisi emas': 'не последний',
 };

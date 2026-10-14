@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { requireAccess } from '@/lib/auth';
 import { buildBuyruqExcel } from '@/lib/sud-buyruq';
 
@@ -20,7 +21,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'firm va status tanlanishi shart' }, { status: 400 });
   }
 
-  const { buffer } = await buildBuyruqExcel({ branchCodes: firms, statuses });
+  // Portfel — tepadagi sanadan tanlangan snapshot (konv_s); yo'q bo'lsa eng so'nggisi.
+  const v = sp.get('s') ?? cookies().get('konv_s')?.value;
+  const snapshotId = v && /^\d+$/.test(v) ? Number(v) : undefined;
+  const { buffer } = await buildBuyruqExcel({ branchCodes: firms, statuses, snapshotId });
   const name = `Sud buyruq (${new Date().toISOString().slice(0, 10)}).xlsx`;
   return new NextResponse(new Uint8Array(buffer), {
     headers: {
