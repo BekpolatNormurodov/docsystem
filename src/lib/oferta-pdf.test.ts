@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ofertaFields } from './oferta-pdf';
+import { ofertaFields, ofertaCourtClause } from './oferta-pdf';
 
 const D = (s: string) => new Date(s + 'T00:00:00Z');
 const loan = { ldId: '16455', summKr: 2_000_000, rate: 54, dateToCr: D('2026-04-13'), dateClose: D('2032-04-05') };
@@ -67,5 +67,14 @@ describe('ofertaFields — per-loan oferta values', () => {
   it('falls back to a 12-month term when a date is missing (no crash)', () => {
     const f = ofertaFields({ ...loan, dateClose: null }, firm, 'X', 'p', 0);
     expect(f.loan_term).toBe('12');
+  });
+});
+
+describe('ofertaCourtClause — 10.1.а bandidagi sud (ishning sudi)', () => {
+  it('har uchala sudni nomlaydi, noma\'lumda neytral', () => {
+    expect(ofertaCourtClause('Fuqarolik ishlari boʻyicha Uchtepa tumanlararo sudiga')).toBe('ФИБ Учтепа туманлараро судига');
+    expect(ofertaCourtClause('Fuqarolik ishlari boʻyicha Yuqorichirchiq tumanlararo sudiga')).toBe('ФИБ Юкоричирчик туманлараро судига');
+    expect(ofertaCourtClause('Fuqarolik ishlari boʻyicha Shayxontohur tumanlararo sudiga')).toBe('ФИБ Шайхонтоҳур туманлараро судига');
+    expect(ofertaCourtClause(null)).toBe('тегишли туманлараро судига');
   });
 });

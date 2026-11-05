@@ -59,15 +59,17 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
  * Ilgari shablonda ikkala sud ham («ФИБ Юкоричирчик … ёки … Учтепа …») qattiq yozilgan va
  * til «рус тилида» edi. Endi ariza qaysi sudga bo'lsa, oferta ham o'sha SUDNI nomlaydi:
  * Yuqorichirchiq → «ФИБ Юкоричирчик туманлараро судига», Uchtepa → «ФИБ Учтепа туманлараро
- * судига». Manba — `Court.nameUz` (lotin, masalan «…Yuqorichirchiq tumanlararo sudiga»).
+ * судига», Shayxontohur (2026-11-06, billing 527) → «ФИБ Шайхонтоҳур туманлараро судига».
+ * Manba — `Court.nameUz` (lotin, masalan «…Yuqorichirchiq tumanlararo sudiga»).
  *
- * Faqat ikki sud ishlatiladi; noma'lum bo'lsa ish sudsiz qolmasin uchun neytral «тегишли
- * туманлараро судига» ga tushadi (amalda deyarli bo'lmaydi — sudga yuborishda sud tayin).
+ * Noma'lum sud bo'lsa ish sudsiz qolmasin uchun neytral «тегишли туманлараро судига» ga tushadi —
+ * YANGI sud qo'shilganda shu yerga ham qo'shing (aks holda oferta sudni nomlamaydi).
  */
 export function ofertaCourtClause(courtNameUz?: string | null): string {
   const s = (courtNameUz || '').toLowerCase();
   if (/yuqorichirchiq|юқоричирчиқ|юкоричирчик/.test(s)) return 'ФИБ Юкоричирчик туманлараро судига';
   if (/uchtepa|учтепа/.test(s)) return 'ФИБ Учтепа туманлараро судига';
+  if (/shayxontohur|шайхонтоҳур|шайхонтохур|шайхантахур/.test(s)) return 'ФИБ Шайхонтоҳур туманлараро судига';
   return 'тегишли туманлараро судига';
 }
 
