@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildFirmAddress, buildRestPayload } from './invoice-rest';
+import { buildFirmAddress, buildRestPayload, billingRequestBody } from './invoice-rest';
 import type { Firm } from '@prisma/client';
 
 const baseFirm = {
@@ -51,5 +51,16 @@ describe('buildRestPayload', () => {
   it('amount majburiy — berilgan summa aynan qo‘llanadi (default yo‘q)', () => {
     expect(buildRestPayload(baseFirm, { amount: 20600 }).amount).toBe(20600);
     expect(buildRestPayload(baseFirm, { amount: 41200 }).amount).toBe(41200);
+  });
+});
+
+describe('billingRequestBody — billing.sud.uz summani TIYINDA oladi', () => {
+  it('22 000 soʻm → 2 200 000 tiyin; tizimdagi payload soʻmda qoladi', () => {
+    const p = buildRestPayload(baseFirm, { amount: 22000, courtId: '527' });
+    const body = billingRequestBody('tok', p);
+    expect(body.amount).toBe(2_200_000);
+    expect(body.captchaToken).toBe('tok');
+    expect(body.courtId).toBe('527');
+    expect(p.amount).toBe(22000);
   });
 });

@@ -160,11 +160,19 @@ export async function getCaptchaToken(): Promise<string> {
 // -------------------------------------------------------------
 // BOSQICH 2: Kvitansiya yaratish
 // -------------------------------------------------------------
+// billing.sud.uz `amount`ni TIYINDA qabul qiladi (2026-11-07 aniqlandi: bir xil `amount: 22000` sentyabrda
+// «22 000,00 сўм», noyabrda «220,00 сўм» kvitansiya berdi). Tizim ichida summa doim SO'MDA (payload.amount,
+// InvoiceRecord.amount, farmoyish) — faqat billing'ga ketayotgan so'rov tanasida ×100.
+export const BILLING_AMOUNT_MULTIPLIER = 100;
+export function billingRequestBody(token: string, payload: RestPayload): Record<string, unknown> {
+  return { ...payload, amount: Math.round(payload.amount * BILLING_AMOUNT_MULTIPLIER), captchaToken: token };
+}
+
 export async function createInvoiceRest(token: string, payload: RestPayload): Promise<string> {
   const res = await fetchWithRetry(INVOICE_API, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/plain, */*' },
-    body: JSON.stringify({ ...payload, captchaToken: token }),
+    body: JSON.stringify(billingRequestBody(token, payload)),
   });
   const data = await safeJson(res);
   if (!(res.status === 201 || res.ok)) throw new Error(`create ${res.status}: ${JSON.stringify(data).slice(0, 200)}`);
