@@ -31,7 +31,7 @@ export interface MibParseResult {
 
 // PINFL sinonimlari — 5+ xil (uzb/rus, katta/kichik farqi norm bilan hal, qavsli variantlar findCol
 // substring fallback bilan hal). «Ж.Ш.Ш.И.Р» — davlat guvohnomasi shakli, «ID / IDN» — eng qisqa.
-const PINFL_NAMES = ['PINFL', 'PNFL', 'ПИНФЛ', 'ПНФЛ', 'ЖШШИР', 'JSHSHIR', 'ЖШШР', 'IDN'];
+const PINFL_NAMES = ['PINFL', 'PNFL', 'ПИНФЛ', 'ПНФЛ', 'ЖШШИР', 'JSHSHIR', 'JShShIR', 'ЖШШР', 'IDN', 'Shaxsiy raqam', 'Шахсий рақам', 'Персональный номер', 'Личный номер'];
 // F.I.O sinonimlari — HISOBOT'да «Javobgar» (mijoz nomi) ham ishlatiladi; Qarzdor/Aybdor/Fuqaro
 // variantlari ham. Debtor/Ф.И.О — chet el/rasmiy.
 const FIO_NAMES = ['F.I.SH.', 'FISH', 'F.I.O', 'F.I.O.', 'ФИО', 'F I SH', 'FIO', 'Javobgar', 'Жавобгар', 'Qarzdor', 'Қарздор', 'Aybdor', 'Айбдор', 'Fuqaro', 'Фуқаро', 'Ismi sharif', 'Ismisharif', 'Debtor', 'Должник'];
@@ -116,7 +116,8 @@ function readRow(ws: ExcelJS.Worksheet, rowNo: number, maxCols: number): (string
   return out;
 }
 
-interface SheetHeader { ws: ExcelJS.Worksheet; headerRow: number; header: (string | null)[]; hasAddr: boolean }
+// pinflCol/fioCol — sarlavha nomidan emas, MAZMUNDAN topilganda (guessByContent) aniq ustun (1-based).
+interface SheetHeader { ws: ExcelJS.Worksheet; headerRow: number; header: (string | null)[]; hasAddr: boolean; pinflCol?: number; fioCol?: number }
 
 /** In a worksheet, find the header row (1..25) that has BOTH a PINFL and an FIO column. */
 function detectHeader(ws: ExcelJS.Worksheet): SheetHeader | null {
@@ -131,6 +132,53 @@ function detectHeader(ws: ExcelJS.Worksheet): SheetHeader | null {
   return null;
 }
 
+const isPinflLike = (v: string | null): boolean => {
+  if (!v) return false;
+  const d = v.replace(/\D/g, '');
+  return d.length === 14 && /^[1-6]/.test(d);
+};
+const isNameLike = (v: string | null): boolean =>
+  !!v && /^[\p{L}ʻʼ'`‘’.\- ]{5,}$/u.test(v) && v.trim().split(/\s+/).length >= 2;
+
+/**
+ * Sarlavha nomi tanilmasa (masalan PINFL ustuni «Mijoz kodi» yoki umuman sarlavhasiz) — ustunni
+ * MAZMUNIDAN topamiz: qiymatlarining ko'pi 14 xonali PINFL bo'lgan ustun. F.I.O — nomidan, bo'lmasa
+ * «Ism Familiya» ko'rinishidagi qiymatlar eng ko'p ustun (yo'q bo'lsa F.I.O bo'sh qoladi).
+ * Faqat hech bir varaq sarlavha bo'yicha topilmaganda ishlatiladi — aks holda «Анкета» kabi
+ * ataylab o'tkazib yuboriladigan varaqlar qaytib kirib qolardi.
+ */
+function guessByContent(ws: ExcelJS.Worksheet): SheetHeader | null {
+  const maxCols = Math.min(40, Math.max(1, ws.columnCount || 1));
+  const scan = Math.min(200, ws.rowCount || 0);
+  const grid: (string | null)[][] = [];
+  for (let r = 1; r <= scan; r++) grid.push(readRow(ws, r, maxCols));
+  let best = { col: 0, hits: 0, first: 0 };
+  for (let c = 0; c < maxCols; c++) {
+    let hits = 0, filled = 0, first = 0;
+    grid.forEach((row, i) => {
+      const v = row[c] ?? null;
+      if (!v) return;
+      filled += 1;
+      if (isPinflLike(v)) { hits += 1; if (!first) first = i + 1; }
+    });
+    if (hits >= 3 && hits >= filled * 0.5 && hits > best.hits) best = { col: c + 1, hits, first };
+  }
+  if (!best.col) return null;
+  const headerRow = best.first - 1; // 0 → sarlavhasiz varaq
+  const header = headerRow > 0 ? readRow(ws, headerRow, maxCols) : new Array<string | null>(maxCols).fill(null);
+  let fioCol = findCol(header, FIO_NAMES);
+  if (!fioCol) {
+    let top = 0;
+    for (let c = 0; c < maxCols; c++) {
+      if (c + 1 === best.col) continue;
+      const n = grid.slice(best.first - 1).filter((row) => isNameLike(row[c] ?? null)).length;
+      if (n > top) { top = n; fioCol = c + 1; }
+    }
+    if (top < 3) fioCol = 0;
+  }
+  return { ws, headerRow, header, hasAddr: !!findCol(header, ADDR_NAMES), pinflCol: best.col, fioCol };
+}
+
 export async function parseHisobot(filePath: string): Promise<MibParseResult> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(filePath);
@@ -140,6 +188,8 @@ export async function parseHisobot(filePath: string): Promise<MibParseResult> {
   // 1) Har varaqда sarlavha (PINFL + ФИО) qatorini top. Topilmaganlar (Анкета — ФИО yo'q, yig'indi
   //    varaqlar) tashlanadi.
   let sheets = wb.worksheets.map(detectHeader).filter(Boolean) as SheetHeader[];
+  // Sarlavha tanilmadi → PINFL ustunini mazmundan topamiz (aks holda butun fayl jimgina 0 bo'lardi).
+  if (!sheets.length) sheets = wb.worksheets.map(guessByContent).filter(Boolean) as SheetHeader[];
   if (!sheets.length) return empty;
   // 2) Bir nechta varaq mos kelsa VA ba'zilarida «Манзил» bo'lsa — faqat batafsillari (muddati bo'yicha
   //    buketlar: 90+/60-90/30-60). Bu «ПНФЛ» birlashtirilgan varag'ini chiqarib, aniq 2716 beradi.
@@ -152,9 +202,9 @@ export async function parseHisobot(filePath: string): Promise<MibParseResult> {
   let minDate: string | null = null;
   let maxDate: string | null = null;
 
-  for (const { ws, headerRow, header } of sheets) {
-    const cPinfl = findCol(header, PINFL_NAMES);
-    const cFio = findCol(header, FIO_NAMES);
+  for (const { ws, headerRow, header, pinflCol, fioCol } of sheets) {
+    const cPinfl = pinflCol || findCol(header, PINFL_NAMES);
+    const cFio = fioCol ?? findCol(header, FIO_NAMES);
     const cPhone = findCol(header, PHONE_NAMES);
     const cFirm = findCol(header, FIRM_NAMES);
     const cIsh = findCol(header, ISH_NAMES);
