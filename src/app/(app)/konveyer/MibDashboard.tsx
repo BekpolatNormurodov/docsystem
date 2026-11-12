@@ -15,7 +15,8 @@ import { Ico, Spinner, DateField, useConfirm } from '@/ui';
 import { type ClientRow } from '../mib-hisoboti/MibClientDetail';
 import { ClientDetailFull } from '../mib-hisoboti/ClientDetailFull';
 import { MibLogPanel } from '../mib-hisoboti/MibLogPanel';
-import { regionOf, groupBreakdown, parseMoney, clean, shortFirm, normalizeBank, UNKNOWN, OTHER_FIRM, type Dim } from '@/lib/mib/breakdown';
+import { regionOf, groupBreakdown, parseMoney, clean, shortFirm, normalizeBank, isPostalFee, UNKNOWN, OTHER_FIRM, type Dim } from '@/lib/mib/breakdown';
+import { MIB_COMPANIES } from '@/lib/mib/companies';
 import { useT } from '@/lib/i18n/client';
 import { RecheckModal, type RecheckInfo } from '../mib-hisoboti/RecheckModal';
 
@@ -73,7 +74,11 @@ const TABS: { key: Tab; label: string }[] = [
 ];
 const PAGE_SIZES = [25, 50, 100];
 type Own = 'all' | 'ours' | 'others'; // Hammasi / Bizga tegishli / Bizga tegishli emas
-const emptyFilters = { q: '', region: '', dept: '', judge: '', bank: '', firm: '', own: 'all' as Own };
+// Ish turi: qarz ijrolari (default) / pochta xarajati (20 600 / 22 000 so'm) / hammasi.
+type Kind = 'debt' | 'postal' | 'all';
+const emptyFilters = { q: '', region: '', dept: '', judge: '', bank: '', firm: '', own: 'all' as Own, kind: 'debt' as Kind };
+// Firma filtri — doim BIZNING barcha firmalarimiz (ishi bo'lmasa ham, 0 bilan).
+const OUR_FIRMS = MIB_COMPANIES.map((c) => shortFirm(c.name));
 type Filters = typeof emptyFilters;
 // Kesim tabi → uni filtrlaydigan maydon (kesim qatorini bosganda).
 const FILTER_KEY: Record<Dim, 'region' | 'dept' | 'judge' | 'bank' | 'firm'> = { region: 'region', hudud: 'dept', sudya: 'judge', bank: 'bank', firma: 'firm' };
@@ -130,11 +135,25 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
     return () => clearInterval(t);
   }, [report?.autoRun, load]);
 
-  const enriched = useMemo(() => clients.map(enrich), [clients]);
+  // Pochta xarajati ijrolari qarz ijrolaridan AJRATILADI — ish turi filtri barcha kesim/summalarga
+  // case darajasida qo'llanadi. Ishsiz (toza) mijozlar faqat «Qarz»/«Hammasi»da qoladi.
+  const postal = useMemo(() => {
+    let cases = 0, ours = 0, debt = 0; const cl = new Set<number>();
+    for (const c of clients) for (const k of c.cases) if (isPostalFee(k)) { cases += 1; cl.add(c.id); debt += parseMoney(k.remainingDebt); if (k.isTargetFirm) ours += 1; }
+    return { cases, ours, clients: cl.size, debt };
+  }, [clients]);
+  const kindClients = useMemo(() => {
+    if (filters.kind === 'all') return clients;
+    const want = filters.kind === 'postal';
+    return clients
+      .map((c) => ({ ...c, cases: c.cases.filter((k) => isPostalFee(k) === want) }))
+      .filter((c, i) => c.cases.length > 0 || (!want && clients[i]!.cases.length === 0));
+  }, [clients, filters.kind]);
+  const enriched = useMemo(() => kindClients.map(enrich), [kindClients]);
 
   const opts = useMemo(() => {
     const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
-    const R = new Map<string, number>(), D = new Map<string, number>(), J = new Map<string, number>(), B = new Map<string, number>(), F = new Map<string, number>();
+    const R = new Map<string, number>(), D = new Map<string, number>(), J = new Map<string, number>(), B = new Map<string, number>(), F = new Map<string, number>(OUR_FIRMS.map((f) => [f, 0]));
     for (const c of enriched) {
       if (c.region2) bump(R, c.region2);
       for (const d of c.depts) bump(D, d);
@@ -185,7 +204,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   const pageClamped = Math.min(page, totalPages);
   const pageRows = filtered.slice((pageClamped - 1) * pageSize, pageClamped * pageSize);
 
-  const anyFilter = !!(filters.q || filters.region || filters.dept || filters.judge || filters.bank || filters.firm || filters.own !== 'all');
+  const anyFilter = !!(filters.q || filters.region || filters.dept || filters.judge || filters.bank || filters.firm || filters.own !== 'all' || filters.kind !== 'debt');
   const setF = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
   const jumpFilter = (dim: Dim, label: string) => {
     const key = FILTER_KEY[dim];
@@ -363,7 +382,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
       {/* ── KPI: MIBda jami / bizniki / summalar ─────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi big icon={<Ico.layer size={18} />} label={t('MIBda jami ijro ishlari')} value={n(totalCases)} hint={`${n(stats?.withCases ?? 0)} ${t('mijozda topildi')}`} />
-        <Kpi big accent icon={<Ico.shield size={18} />} label={t('Bizga tegishli (8 MMT)')} value={n(oursCases)} hint={totalCases ? `${t('jamining')} ${Math.round((oursCases / totalCases) * 100)}%` : '—'} />
+        <Kpi big accent icon={<Ico.shield size={18} />} label={`${t('Bizga tegishli')} (${OUR_FIRMS.length} MMT)`} value={n(oursCases)} hint={totalCases ? `${t('jamining')} ${Math.round((oursCases / totalCases) * 100)}% · ${t('shundan pochta xarajati')} ${n(postal.ours)}` : '—'} />
         <Kpi icon={<Ico.users size={18} />} label={t('Boshqa kreditorlar')} value={n(Math.max(0, totalCases - oursCases))} hint={t('davlat boji / bank / boshqa')} />
         <Kpi icon={<Ico.check size={18} />} label={t('Tekshirildi')} value={`${n(checked)} / ${n(report.total)}`} hint={`${n(stats?.status.PENDING ?? 0)} ${t('navbatda')} · ${n(stats?.status.FAILED ?? 0)} ${t('xato')}`} />
         <Kpi wide label={t('Qoldiq qarz — jami (soʻm)')} value={som(stats?.totalRemainingDebt ?? 0)} icon={<Ico.receipt size={18} />} />
@@ -395,6 +414,17 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
                 <button key={v} onClick={() => setF({ own: v })}
                   className={cx('rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors', filters.own === v ? 'bg-brand-500 text-white shadow-sm' : 'text-muted hover:text-fg')}>
                   {t(lbl)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="shrink-0">
+            <span className="field-label">{t('Ish turi')}</span>
+            <div className="flex h-[42px] items-center gap-0.5 rounded-xl border border-line p-0.5">
+              {([['debt', 'Qarz ijrolari', totalCases - postal.cases], ['postal', 'Pochta xarajati', postal.cases], ['all', 'Hammasi', totalCases]] as [Kind, string, number][]).map(([v, lbl, cnt]) => (
+                <button key={v} onClick={() => setF({ kind: v })} title={v === 'postal' ? t('20 600 / 22 000 soʻmlik pochta xarajati ijrolari') : undefined}
+                  className={cx('rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors', filters.kind === v ? 'bg-brand-500 text-white shadow-sm' : 'text-muted hover:text-fg')}>
+                  {t(lbl)} <span className="tabular-nums opacity-70">{n(cnt)}</span>
                 </button>
               ))}
             </div>

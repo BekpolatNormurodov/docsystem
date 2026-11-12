@@ -26,6 +26,13 @@ export const parseMoney = (s: string | null | undefined): number => {
   const v = Number(String(s).replace(/[^\d.,-]/g, '').replace(/\s+/g, '').replace(',', '.'));
   return Number.isFinite(v) ? v : 0;
 };
+/** Pochta xarajati ijrosi — sud qarori bo'yicha undiriladigan 20 600 / 22 000 so'mlik pochta harajati.
+ *  Haqiqiy qarz ijrolari (eng kichigi ~1 mln) bilan aralashmasin — alohida sanaladi (2026-11-12). */
+export const POSTAL_MAX = 50_000;
+export function isPostalFee(k: { totalAmount?: string | null; mainDebt?: string | null }): boolean {
+  const amt = parseMoney(k.totalAmount) || parseMoney(k.mainDebt);
+  return amt > 0 && amt <= POSTAL_MAX;
+}
 export const clean = (s: string | null | undefined): string => (s && s !== 'Nomaʼlum' ? s.trim() : '');
 export const shortFirm = (s: string): string => s.replace(/ MIKROMOLIYA.*$/i, '').replace(/["«»]/g, '').trim();
 
