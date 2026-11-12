@@ -76,7 +76,7 @@ export const REGION_TOKENS: [RegExp, string][] = [
 // tuman o'zaklariga «\b» qo'yilmaydi, o'zak yetarlicha farqlovchi (kerak bo'lsa «\s*тум»/«шаҳ» bilan).
 export const DISTRICT_TOKENS: [RegExp, string][] = [
   // Andijon
-  [/асака|балиқчи|жалақудуқ|избоскан|марҳамат|олтинкўл|пахтаобод|хўжаобод|шаҳрихон|қўрғонтепа|улуғнор|хонобод/i, 'Andijon'],
+  [/асака|балиқчи|булоқбоши|мархамат|жалақудуқ|избоскан|марҳамат|олтинкўл|пахтаобод|хўжаобод|шаҳрихон|қўрғонтепа|улуғнор|хонобод/i, 'Andijon'],
   // Fargʻona
   [/қўқон|марғилон|фурқат|қувасой|қува\s|учкўприк|учкуприк|данғара|риштон|ўзбекистон\s*тум|олтиариқ|қўштепа|бешариқ|бувайда|боғдод|тошлоқ|сўх|ёз[ъ]?ёвон|қувадарё/i, 'Fargʻona'],
   // Namangan
@@ -96,13 +96,13 @@ export const DISTRICT_TOKENS: [RegExp, string][] = [
   // Navoiy
   [/зарафшон|қизилтепа|навбаҳор|учқудуқ|кармана|конимех|нурота|томди|хатирчи|ғозғон|ғозгон/i, 'Navoiy'],
   // Jizzax
-  [/пахтакор|арнасой|бахмал|дўстлик|зарбдор|зафаробод|мирзачўл|форими|ғаллаорол|шароф\s*рашидов|янгиобод|уста\s*ирисов|зомин|балиқли/i, 'Jizzax'],
+  [/пахтакор|арнасой|бахмал|дўстлик|зарбдор|зафаробод|мирзачўл|форими|ғаллаорол|галлаорол|шароф\s*рашидов|ш\.?\s*рашидов|фориш|янгиобод|уста\s*ирисов|зомин|балиқли/i, 'Jizzax'],
   // Toshkent viloyati (tumanlar)
-  [/бўстонлиқ|оҳангарон|ўртачирчиқ|оққўрғон|чирчиқ|чиноз|бўка\s*тум|ангрен|бекобод|зангиота|қибрай|қуйичирчиқ|паркент|пискент|янгийўл|нурафшон|олмалиқ|тошкент\s*тум/i, 'Toshkent viloyati'],
+  [/бўстонлиқ|оҳангарон|ўртачирчиқ|оққўрғон|чирчиқ|чиноз|бўка\s*тум|ангрен|бекобод|зангиота|қибрай|қуйичирчиқ|паркент|пискент|янгийўл|янгийул|нурафшон|олмалиқ|тошкент\s*тум/i, 'Toshkent viloyati'],
   // Toshkent shahri (tumanlar) — Янгиҳаёт yangi tuman
-  [/сергели|юнусобод|чилонзор|олмазор|мирзо\s*улуғбек|миробод|яккасарой|яшнобод|бектемир|шайхонтоҳур|сирғали|янгиҳаёт|янгихаёт/i, 'Toshkent shahri'],
+  [/сергели|юнусобод|чилонзор|олмазор|мирзо\s*улуғбек|м\.?\s*улуғбек|улуғбек\s*тум|миробод|яккасарой|яшнобод|бектемир|шайхонтоҳур|сирғали|янгиҳаёт|янгихаёт/i, 'Toshkent shahri'],
   // Qoraqalpogʻiston
-  [/амударё|хўжайли|тўрткўл|кегейли|беруний|қонликўл|қораўзак|мойноқ|тахтакўпир|чимбой|шуман[ао]й|элликқалъа|бўзатоў|бўстон\s*тум|қўнғирот|нукус/i, 'Qoraqalpogʻiston'],
+  [/амударё|хўжайли|тўрткўл|кегейли|беруний|қонликўл|қораўзак|мойноқ|тахтакўпир|чимбой|шуман[ао]й|элликқалъа|бўзатоў|бўзатов|мўйноқ|муйноқ|бўстон\s*тум|қўнғирот|нукус/i, 'Qoraqalpogʻiston'],
 ];
 
 export function regionFromText(t: string): string | null {
@@ -125,7 +125,9 @@ export const UNKNOWN = 'Aniqlanmagan';
 export const OTHER_FIRM = 'Boshqa kreditorlar';
 export function rowKey(c: BClient, k: BCase, dim: Dim): string {
   if (dim === 'firma') return k.firmName ? shortFirm(k.firmName) : OTHER_FIRM;
-  if (dim === 'region') return regionOf(c) ?? UNKNOWN;
+  // Region — ISHNING O'Z ijro bo'limidan (executorDept). Ilgari mijozning BIRINCHI ishi regioni hamma
+  // ishlariga yozilardi → boshqa viloyatdagi ijrolar ham o'sha regionga tushardi (2026-11-12).
+  if (dim === 'region') return regionFromText(k.executorDept ?? '') ?? regionOf(c) ?? UNKNOWN;
   if (dim === 'hudud') return clean(k.executorDept) || UNKNOWN;
   if (dim === 'sudya') return clean(k.judge) || UNKNOWN;
   return normalizeBank(k.bankName) || UNKNOWN;
