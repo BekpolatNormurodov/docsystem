@@ -261,4 +261,8 @@ export const routes: Record<string, string> = {
   "Bu sana uchun import boshqa jarayonda ketyapti. Qayta urinib koʻring.": "Импорт на эту дату выполняется в другом процессе. Попробуйте ещё раз.",
   "matn boʻlishi kerak": "должно быть текстом",
   "Tahlil yangilanmoqda (yangi maydonlar: shartnoma sanasi, muddati o‘tgan summa, Unikalka) — tugagach qayta bosing.": "Анализ обновляется (новые поля: дата договора, просроченная сумма, уникальный код) — после завершения нажмите снова.",
+  "loanIds kerak": "Нужен loanIds",
+  "Juda koʻp shartnoma": "Слишком много договоров",
+  "Shartnoma topilmadi": "Договор не найден",
+  "Shartnomalar bitta mijozniki boʻlishi kerak": "Договоры должны принадлежать одному клиенту",
 };

@@ -1710,4 +1710,10 @@ export const app: Record<string, string> = {
   "Oferta yoʻq": "Нет оферты",
   "Boji yoʻq": "Нет госпошлины",
   "Tayyor ishlar bor, lekin davlat boji to'lanmagan — sudga real yuborish uchun boji to'langan bo'lishi kerak. Qoralama uchun boji shart emas («Qoralama tayyorlash» belgisini yoqing).": "Готовые дела есть, но госпошлина не оплачена — для реальной отправки в суд пошлина должна быть оплачена. Для черновика пошлина не обязательна (включите «Подготовить черновик»).",
+  "PDF yuklab olish": "Скачать PDF",
+  "Firma ofertalari": "Оферты фирмы",
+  "shu firmadagi barcha ofertalar bitta ZIP": "все оферты этой фирмы одним ZIP",
+  "Hamma ofertalar": "Все оферты",
+  "Mijozning barcha ofertalarini yuklab olish": "Скачать все оферты клиента",
+  "Har shartnomaga alohida PDF — pastda «PDF», yoki hammasi bitta ZIP": "Отдельный PDF на каждый договор — кнопка «PDF» ниже, или все одним ZIP",
 };

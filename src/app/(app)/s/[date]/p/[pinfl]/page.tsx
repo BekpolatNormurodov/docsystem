@@ -9,6 +9,7 @@ import { PageHeader, StatCard } from '@/ui';
 import { getT } from '@/lib/i18n/server';
 import { ArizaPreview } from './ArizaPreview';
 import { OfertaPreview } from './OfertaPreview';
+import { OfertaDownload } from './OfertaDownload';
 import { PersonFilters } from './PersonFilters';
 
 export const dynamic = 'force-dynamic';
@@ -96,6 +97,8 @@ export default async function PersonPage({
   });
   const first = allLoans[0]!;
   const isExcluded = allLoans.some((l) => l.excluded);
+  // Ofertasi bor shartnomalar (kredit summasi > 0 — worker ham shularni chiqaradi), firma bo'yicha tartibda.
+  const ofertaLoanIds = loans.filter((l) => Number(l.summKr) > 0 && l.branchCode && firmByCode.has(l.branchCode)).map((l) => l.id);
   const grandTotal = loans.reduce((sum, l) => sum + Number(l.totalDebt), 0);
 
   // Group loans by firm, preserving each firm's first appearance order.
@@ -195,6 +198,23 @@ export default async function PersonPage({
         </dl>
       </div>
 
+      {/* Hamma ofertalar — mijozning (filtrdagi) barcha shartnomalari bitta ZIP: firma papkalari, har PDF
+          «Oferta <shartnoma> — <F.I.Sh>.pdf». */}
+      {ofertaLoanIds.length > 0 && (
+        <div className="card mb-4 flex flex-wrap items-center justify-between gap-3 p-4">
+          <div>
+            <div className="text-sm font-semibold">{t('Ofertalar')}</div>
+            <div className="mt-0.5 text-xs text-muted">{t('Har shartnomaga alohida PDF — pastda «PDF», yoki hammasi bitta ZIP')}</div>
+          </div>
+          <OfertaDownload
+            primary
+            loanIds={ofertaLoanIds}
+            label={ofertaLoanIds.length > 1 ? `${t('Hamma ofertalar')} (${ofertaLoanIds.length}) — ZIP` : `${t('Oferta')} — PDF`}
+            title={t('Mijozning barcha ofertalarini yuklab olish')}
+          />
+        </div>
+      )}
+
       {loans.length === 0 && (
         <div className="card mb-4 p-5 text-sm text-muted">{t('Shartnoma raqami boʻyicha kredit topilmadi.')}</div>
       )}
@@ -261,9 +281,19 @@ export default async function PersonPage({
 
                     {/* Oferta — har shartnomaga alohida (chromiumsiz HTML «view»). */}
                     <div className="mt-3 space-y-1.5">
+                      {firmLoans.filter((l) => Number(l.summKr) > 0).length > 1 && (
+                        <div className="flex justify-end">
+                          <OfertaDownload
+                            loanIds={firmLoans.filter((l) => Number(l.summKr) > 0).map((l) => l.id)}
+                            label={`${t('Firma ofertalari')} (${firmLoans.filter((l) => Number(l.summKr) > 0).length}) — ZIP`}
+                            title={`${firm.shortName || firm.code} — ${t('shu firmadagi barcha ofertalar bitta ZIP')}`}
+                          />
+                        </div>
+                      )}
                       {firmLoans.map((loan) => (
                         <OfertaPreview
                           key={loan.id}
+                          loanId={Number(loan.summKr) > 0 ? loan.id : undefined}
                           label={loan.ldId || `#${loan.id}`}
                           html={fillOferta(loan as never, firm as never, loan.clientName, loan.pinfl, 0, courtNameByFirm.get(firm.id))}
                         />
