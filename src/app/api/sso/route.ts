@@ -9,6 +9,8 @@ import { parseSteps, landingHref } from '@/lib/access';
 import { ROLE_SERVICE_COOKIE, resolveSsoAdmin, safeNext, ssoEnabled, verifyRoleServiceToken, type SsoDb } from '@/lib/role-service';
 
 export const runtime = 'nodejs';
+// Har so'rovda bajariladi: aks holda Next build paytida (ROLE_SERVICE_JWT_SECRET yo'q) natijani qotirib qo'yadi.
+export const dynamic = 'force-dynamic';
 
 // SSO kirish: role-service'ning `mko_session` cookie'sini tekshiradi, mos Admin qatorini topadi/yaratadi va
 // odatdagi docsystem_session cookie'sini beradi. Muvaffaqiyatsiz bo'lsa /login?sso=failed (qaytib /api/sso ga emas).
