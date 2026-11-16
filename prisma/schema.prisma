@@ -17,6 +17,8 @@ model Admin {
   id           Int        @id @default(autoincrement())
   username     String     @unique
   passwordHash String
+  // role-service (markaziy login) foydalanuvchi ID'si (token `sub`). SSO orqali birinchi kirishda bog'lanadi.
+  roleServiceId String?   @unique
   role         String     @default("ADMIN") // ADMIN | YURIST
   fullName     String?
   steps        Json? // YURIST only: array of allowed step keys
