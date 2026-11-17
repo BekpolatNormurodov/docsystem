@@ -19,6 +19,18 @@ async function mint(over: { secret?: string; iss?: string; typ?: string; exp?: s
     .sign(key(over.secret));
 }
 
+describe('JWT_SECRET / JWT_ISSUER nomlari', () => {
+  const named = { JWT_SECRET: SECRET, JWT_ISSUER: 'role-service' };
+  it('yoqadi va token tekshiriladi', async () => {
+    expect(ssoEnabled(named)).toBe(true);
+    expect(await verifyRoleServiceToken(await mint(), named)).toMatchObject({ sub: 'ckuser1' });
+  });
+  it('boshqa issuer rad etiladi', async () => expect(await verifyRoleServiceToken(await mint(), { ...named, JWT_ISSUER: 'other' })).toBeNull());
+  it('eski nom ustun', async () => {
+    expect(await verifyRoleServiceToken(await mint(), { JWT_SECRET: 'x'.repeat(40), ROLE_SERVICE_JWT_SECRET: SECRET })).not.toBeNull();
+  });
+});
+
 describe('verifyRoleServiceToken', () => {
   it('valid token', async () => {
     const c = await verifyRoleServiceToken(await mint(), env);
