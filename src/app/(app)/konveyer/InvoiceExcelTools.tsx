@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico, Modal, Select } from '@/ui';
 import { useT } from '@/lib/i18n/client';
@@ -61,7 +62,7 @@ export function InvoiceExcelTools({ snapshotId, firmId, firms, count, onChanged,
     if (snapshotId) fd.append('s', String(snapshotId));
     if (impEffFirm) fd.append('firmId', String(impEffFirm));
     fd.append('mode', apply ? 'apply' : 'preview');
-    const res = await fetch('/konveyer/invoice-batch/import', { method: 'POST', body: fd });
+    const res = await fetch(`${BASE_PATH}/konveyer/invoice-batch/import`, { method: 'POST', body: fd });
     const d = await res.json();
     if (!res.ok) throw new Error(d?.error ?? t('Import xatosi'));
     return d as ImportResult;
@@ -96,7 +97,7 @@ export function InvoiceExcelTools({ snapshotId, firmId, firms, count, onChanged,
       if (snapshotId) fd.append('s', String(snapshotId));
       if (impEffFirm) fd.append('firmId', String(impEffFirm));
       fd.append('mode', 'notfound-xlsx');
-      const res = await fetch('/konveyer/invoice-batch/import', { method: 'POST', body: fd });
+      const res = await fetch(`${BASE_PATH}/konveyer/invoice-batch/import`, { method: 'POST', body: fd });
       if (!res.ok) throw new Error(t('Yuklab boʻlmadi'));
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -137,7 +138,7 @@ export function InvoiceExcelTools({ snapshotId, firmId, firms, count, onChanged,
     setExpLoading(true);
     const p = new URLSearchParams({ type: 'invoice', made: expFilter, page: '1', snapshotId: String(snapshotId) });
     if (expEffFirm) p.set('firmId', String(expEffFirm));
-    try { const res = await fetch(`/konveyer/generated?${p.toString()}`); const d = res.ok ? await res.json() : null; setExpCount(typeof d?.total === 'number' ? d.total : null); }
+    try { const res = await fetch(`${BASE_PATH}/konveyer/generated?${p.toString()}`); const d = res.ok ? await res.json() : null; setExpCount(typeof d?.total === 'number' ? d.total : null); }
     catch { setExpCount(null); }
     finally { setExpLoading(false); }
   }, [snapshotId, expEffFirm, expFilter]);
@@ -228,7 +229,7 @@ export function InvoiceExcelTools({ snapshotId, firmId, firms, count, onChanged,
               <li><b>Квитанция рақами</b> — {t('biriktiriladigan kvitansiya')} <span className="text-rose-500">{t('(majburiy)')}</span></li>
               <li><i>Почта харажати</i>, <i>{t('Holat')}</i> — {t('ixtiyoriy')}</li>
             </ul>
-            <a href="/konveyer/invoice-batch/import" className="mt-1.5 inline-flex items-center gap-1 font-medium text-brand-600 hover:underline dark:text-brand-400">
+            <a href={`${BASE_PATH}/konveyer/invoice-batch/import`} className="mt-1.5 inline-flex items-center gap-1 font-medium text-brand-600 hover:underline dark:text-brand-400">
               <Ico.download size={12} /> {t('Namuna Excel yuklab olish')}
             </a>
           </div>

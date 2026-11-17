@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Ico, Spinner, useConfirm, Modal } from '@/ui';
@@ -36,7 +37,7 @@ export function MibReport() {
   const [aggregate, setAggregate] = useState(true); // kirganda default «Umumiy»
 
   const refresh = useCallback(async () => {
-    const j = await jget('/api/mib');
+    const j = await jget(`${BASE_PATH}/api/mib`);
     setReports(j.reports ?? []);
     setLoading(false);
   }, []);
@@ -58,9 +59,9 @@ export function MibReport() {
   const del = async (r: ListReport) => {
     const ok = await confirm({ title: t('Hisobotni o‘chirish'), description: `«${r.label || r.sourceFileName}» ${t('va uning barcha natijalari o‘chiriladi. Davom etilsinmi?')}`, confirmLabel: t('O‘chirish'), danger: true });
     if (!ok) return;
-    const res = await jpost(`/api/mib/${r.id}`);
+    const res = await jpost(`${BASE_PATH}/api/mib/${r.id}`);
     if (res.status === 409) { alert(t('Avtomator ishlayapti — avval STOP bosing')); return; }
-    await fetch(`/api/mib/${r.id}`, { method: 'DELETE' });
+    await fetch(`${BASE_PATH}/api/mib/${r.id}`, { method: 'DELETE' });
     if (selId === r.id) setSelId(null);
     await refresh();
   };
@@ -120,7 +121,7 @@ function TekshirishCard({ onUploaded }: { onUploaded: (id: number) => void }) {
     const p = pinfl.replace(/\D/g, '');
     if (p.length !== 14) { setPMsg({ ok: false, text: t('PINFL 14 ta raqamdan iborat boʻlishi kerak') }); return; }
     setPBusy(true); setPMsg(null);
-    const { ok, json } = await jpost('/api/mib/check-pinfl', { pinfl: p });
+    const { ok, json } = await jpost(`${BASE_PATH}/api/mib/check-pinfl`, { pinfl: p });
     setPBusy(false);
     if (!ok) { setPMsg({ ok: false, text: json.error || t('Xatolik') }); return; }
     if (json.reused) {
@@ -132,7 +133,7 @@ function TekshirishCard({ onUploaded }: { onUploaded: (id: number) => void }) {
   };
   const doForce = async () => {
     if (!reusedInfo) return;
-    const { json } = await jpost('/api/mib/check-pinfl', { pinfl: reusedInfo.pinfl, force: true });
+    const { json } = await jpost(`${BASE_PATH}/api/mib/check-pinfl`, { pinfl: reusedInfo.pinfl, force: true });
     setReusedInfo(null);
     router.push(`/mib-hisoboti/mijoz/${json.clientId || reusedInfo.clientId}`);
   };
@@ -148,7 +149,7 @@ function TekshirishCard({ onUploaded }: { onUploaded: (id: number) => void }) {
     setUErr(''); setUBusy(true);
     try {
       const fd = new FormData(); fd.append('file', file); if (label.trim()) fd.append('label', label.trim());
-      const res = await fetch('/api/mib/upload', { method: 'POST', body: fd });
+      const res = await fetch(`${BASE_PATH}/api/mib/upload`, { method: 'POST', body: fd });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) { setUErr(j.error || t('Xatolik')); return; }
       setFile(null); setLabel(''); onUploaded(j.reportId);
@@ -227,7 +228,7 @@ function ConfigCard() {
   const [copied, setCopied] = useState(false);
 
   const load = useCallback(async () => {
-    const j = await jget('/api/mib/config') as MibConfig;
+    const j = await jget(`${BASE_PATH}/api/mib/config`) as MibConfig;
     setCfg(j); setPhone9(toNational(j.phone || '')); setIntervalS(String(j.intervalSec || 60));
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -235,7 +236,7 @@ function ConfigCard() {
   const save = async () => {
     const full = phone9.length === 9 ? `998${phone9}` : '';
     // Interval kamida 60s — bundan tez urish MIB tomonidan bloklanadi.
-    const { json } = await jpost('/api/mib/config', { phone: full, intervalSec: Math.max(60, Number(interval) || 60) });
+    const { json } = await jpost(`${BASE_PATH}/api/mib/config`, { phone: full, intervalSec: Math.max(60, Number(interval) || 60) });
     setCfg((c) => c ? { ...c, ...json } : c);
     if (json?.intervalSec) setIntervalS(String(json.intervalSec));
     setSaved(true); setTimeout(() => setSaved(false), 1500);
@@ -244,13 +245,13 @@ function ConfigCard() {
   const toggleDeep = async () => {
     const next = !(cfg?.deepDetail ?? true);
     setCfg((c) => c ? { ...c, deepDetail: next } : c); // darhol ko'rinsin
-    const { json } = await jpost('/api/mib/config', { deepDetail: next });
+    const { json } = await jpost(`${BASE_PATH}/api/mib/config`, { deepDetail: next });
     setCfg((c) => c ? { ...c, ...json } : c);
   };
 
   // Kutayotgan raqamni test SMS'siz, qo'lда ishlaydigan qilib qo'yish.
   const activatePending = async () => {
-    const { json } = await jpost('/api/mib/config', { activatePending: true });
+    const { json } = await jpost(`${BASE_PATH}/api/mib/config`, { activatePending: true });
     setCfg((c) => c ? { ...c, ...json } : c);
     setPhone9(toNational(json?.phone || ''));
   };
@@ -260,12 +261,12 @@ function ConfigCard() {
   const [testCode, setTestCode] = useState('');
   const testSms = async () => {
     setTestState('waiting'); setTestCode('');
-    const start = await jpost('/api/mib/test-sms');
+    const start = await jpost(`${BASE_PATH}/api/mib/test-sms`);
     const baseline = Number(start.json?.baselineId) || 0;
     const deadline = Date.now() + 90_000;
     const tick = async () => {
       if (Date.now() > deadline) { setTestState('timeout'); return; }
-      const r = await jget(`/api/mib/test-sms?after=${baseline}`);
+      const r = await jget(`${BASE_PATH}/api/mib/test-sms?after=${baseline}`);
       if (r?.code) {
         setTestCode(String(r.code));
         setTestState('ok');

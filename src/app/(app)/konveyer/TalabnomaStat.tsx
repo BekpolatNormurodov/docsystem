@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useRef, useState } from 'react';
 import { useT } from '@/lib/i18n/client';
 
@@ -17,7 +18,7 @@ export function TalabnomaStat({ snapshotId }: { snapshotId?: number }) {
     inFlight.current = true;
     setBusy(true); setErr(null);
     try {
-      const res = await fetch('/konveyer/talabnoma-overview-excel', {
+      const res = await fetch(`${BASE_PATH}/konveyer/talabnoma-overview-excel`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ snapshotId }),
       });

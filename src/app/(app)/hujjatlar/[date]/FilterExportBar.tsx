@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { DocumentDownload, TickCircle, SearchNormal1 } from 'iconsax-react';
@@ -97,7 +98,7 @@ export function FilterExportBar({
   function poll(id: number) {
     const timer = setInterval(async () => {
       try {
-        const res = await fetch(`/api/export/${id}`);
+        const res = await fetch(`${BASE_PATH}/api/export/${id}`);
         if (!res.ok) return;
         const job: JobStatus = await res.json();
         setProgress(job.progress);
@@ -126,7 +127,7 @@ export function FilterExportBar({
     setJobId(null);
     try {
       const branches = allChecked ? undefined : [...checked];
-      const res = await fetch('/api/export', {
+      const res = await fetch(`${BASE_PATH}/api/export`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ date, branches, q: q.trim() || undefined, minDebt: minDebt ? Number(minDebt) : undefined, onlyExcluded }),
@@ -298,7 +299,7 @@ export function FilterExportBar({
               <span className="font-medium text-accent-700 dark:text-accent-400">
                 {t('Tayyor')} — {progress.toLocaleString('ru-RU')} {t('ta ariza. «Tayyor exportlar» roʻyxatiga saqlandi.')}
               </span>
-              <a href={`/api/export/${jobId}/download`} className="btn-primary py-1.5 text-xs">
+              <a href={`${BASE_PATH}/api/export/${jobId}/download`} className="btn-primary py-1.5 text-xs">
                 <DocumentDownload size={14} /> {t('ZIP yuklab olish')}
               </a>
             </>
@@ -314,7 +315,7 @@ export function FilterExportBar({
         description={t('Tanlangan filtr boʻyicha har bir shartnoma uchun .docx ariza yaratiladi.')}
         footer={
           phase === 'done' && jobId !== null ? (
-            <a href={`/api/export/${jobId}/download`} className="btn-primary">
+            <a href={`${BASE_PATH}/api/export/${jobId}/download`} className="btn-primary">
               <DocumentDownload size={16} /> {t('ZIP yuklab olish')}
             </a>
           ) : phase === 'idle' || phase === 'failed' ? (

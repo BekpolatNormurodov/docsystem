@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico } from '@/ui';
 import { GeneratedList } from './GeneratedList';
@@ -60,7 +61,7 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
     const params = new URLSearchParams({ snapshotId: String(snapshotId), arizaOnly: '1' });
     if (firmId != null) params.set('firmId', String(firmId));
     try {
-      const res = await fetch(`/konveyer/prepare?${params.toString()}`);
+      const res = await fetch(`${BASE_PATH}/konveyer/prepare?${params.toString()}`);
       const d = res.ok ? await res.json() : null;
       if (my !== countReqRef.current) return; // a newer firm/snapshot superseded this response
       if (d && typeof d.remaining === 'number') setCount(d.remaining); else if (d && typeof d.total === 'number') setCount(d.total);
@@ -79,7 +80,7 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
     const params = new URLSearchParams({ snapshotId: String(snapshotId) });
     if (firmId != null) params.set('firmId', String(firmId));
     try {
-      const res = await fetch(`/konveyer/ariza-history?${params.toString()}`);
+      const res = await fetch(`${BASE_PATH}/konveyer/ariza-history?${params.toString()}`);
       const d = res.ok ? await res.json() : null;
       if (d && Array.isArray(d.items)) setHistory(d.items);
     } catch { /* best-effort */ }
@@ -97,7 +98,7 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
     let alive = true;
     const tick = async () => {
       try {
-        const res = await fetch(`/api/jobs/${jobId}`);
+        const res = await fetch(`${BASE_PATH}/api/jobs/${jobId}`);
         if (!res.ok || !alive) return;
         const s: JobState = await res.json();
         if (!alive) return;
@@ -153,7 +154,7 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
         : courts.length === 1
           ? [{ courtId: courts[0].id, count: batchN }]
           : [];
-      const res = await fetch('/konveyer/prepare', {
+      const res = await fetch(`${BASE_PATH}/konveyer/prepare`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ snapshotId, firmId, arizaOnly: true, ...(all && !multiCourt ? {} : { limit: parsed }), ...(courtCounts.length ? { courtCounts } : {}) }),
       });
@@ -175,7 +176,7 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
     inFlight.current = true;
     setStarting(true); setErr(null); setJob(null); setJobId(null);
     try {
-      const res = await fetch('/konveyer/prepare', {
+      const res = await fetch(`${BASE_PATH}/konveyer/prepare`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ snapshotId, firmId: fid, arizaOnly: true, regenerate: true }),
       });
@@ -188,7 +189,7 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
       const stale = history.filter((x) => x.size === 0 && x.firmId === fid).map((x) => x.id);
       if (stale.length) {
         setHistory((h) => h.filter((x) => !stale.includes(x.id)));
-        for (const id of stale) fetch(`/api/export/${id}`, { method: 'DELETE' }).catch(() => {});
+        for (const id of stale) fetch(`${BASE_PATH}/api/export/${id}`, { method: 'DELETE' }).catch(() => {});
       }
     } catch (e) { setErr(e instanceof Error ? e.message : t('Tarmoq xatosi')); }
     finally { setStarting(false); inFlight.current = false; }
@@ -197,7 +198,7 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
   const del = async (id: number) => {
     setDelId(id);
     try {
-      const res = await fetch(`/api/export/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${BASE_PATH}/api/export/${id}`, { method: 'DELETE' });
       if (res.ok) setHistory((h) => h.filter((x) => x.id !== id));
     } catch { /* keep the row on a transient error */ }
     finally { setDelId(null); }
@@ -237,7 +238,7 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
           </span>
         ) : done ? (
           <a
-            href={`/api/export/${jobId}/download`}
+            href={`${BASE_PATH}/api/export/${jobId}/download`}
             className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-700 outline-none transition-colors hover:bg-emerald-500/15 focus-visible:ring-2 focus-visible:ring-emerald-500/40 dark:text-emerald-300"
           >
             <Ico.download size={14} />
@@ -332,7 +333,7 @@ export function ArizaBulk({ firmId, firmName, snapshotId, scopeLabel }: {
                     </button>
                   ) : (
                     <a
-                      href={`/api/export/${h.id}/download`}
+                      href={`${BASE_PATH}/api/export/${h.id}/download`}
                       className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[11px] font-medium text-brand-600 transition-colors hover:bg-brand-500/10 dark:text-brand-400"
                     >
                       <Ico.download size={12} /> {t('Yuklab olish')}

@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useT } from '@/lib/i18n/client';
 
@@ -40,7 +41,7 @@ export function PalataScanPanel() {
 
   const loadSummary = useCallback(async () => {
     try {
-      const res = await fetch('/konveyer/palata-scan', { cache: 'no-store' });
+      const res = await fetch(`${BASE_PATH}/konveyer/palata-scan`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`${t('Server xatosi')} (${res.status})`);
       setS(await res.json());
     } catch (e) { setErr(e instanceof Error ? e.message : t('Yuklab boʻlmadi')); }
@@ -52,9 +53,9 @@ export function PalataScanPanel() {
   const poll = useCallback(async () => {
     try {
       const [a, b, q] = await Promise.all([
-        fetch('/konveyer/palata-ocr', { cache: 'no-store' }).then((r) => r.json()).catch(() => ({})),
-        fetch('/konveyer/palata-attach', { cache: 'no-store' }).then((r) => r.json()).catch(() => ({})),
-        fetch('/konveyer/palata-ocr/queue', { cache: 'no-store' }).then((r) => r.json()).catch(() => ({ items: [] })),
+        fetch(`${BASE_PATH}/konveyer/palata-ocr`, { cache: 'no-store' }).then((r) => r.json()).catch(() => ({})),
+        fetch(`${BASE_PATH}/konveyer/palata-attach`, { cache: 'no-store' }).then((r) => r.json()).catch(() => ({})),
+        fetch(`${BASE_PATH}/konveyer/palata-ocr/queue`, { cache: 'no-store' }).then((r) => r.json()).catch(() => ({ items: [] })),
       ]);
       setQueue(Array.isArray(q?.items) ? q.items : []);
       const jobs: OcrJob[] = [a?.job, b?.job].filter(Boolean);
@@ -155,7 +156,7 @@ export function PalataScanPanel() {
   const saveToDb = async () => {
     setSaving(true); setErr(null); setConfirmSave(false);
     try {
-      const res = await fetch('/konveyer/palata-attach', {
+      const res = await fetch(`${BASE_PATH}/konveyer/palata-attach`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ replace: update }), // «Mavjudlarni yangilash» (default ON)
@@ -175,7 +176,7 @@ export function PalataScanPanel() {
   const doResort = async (firm: string) => {
     setResorting(true); setErr(null); setResortAsk(null);
     try {
-      const res = await fetch('/konveyer/palata-resort', {
+      const res = await fetch(`${BASE_PATH}/konveyer/palata-resort`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ firm }),
       });
@@ -196,7 +197,7 @@ export function PalataScanPanel() {
   // «Bekor qilish» — ishlab turgan OCR jarayonini to'xtatadi (server bo'lak orasida uzadi).
   const cancelOcr = async () => {
     setCancelling(true);
-    try { await fetch('/konveyer/palata-ocr', { method: 'DELETE' }); poll(); }
+    try { await fetch(`${BASE_PATH}/konveyer/palata-ocr`, { method: 'DELETE' }); poll(); }
     catch { /* keyingi poll holatni ko'rsatadi */ }
     finally { setCancelling(false); }
   };
@@ -204,7 +205,7 @@ export function PalataScanPanel() {
   // Navbatdagi (hali o'qilmagan) bitta faylni o'chirish.
   const removeQueued = async (file: string) => {
     setQueue((qs) => qs.filter((x) => x.file !== file)); // optimistik
-    try { await fetch(`/konveyer/palata-ocr/queue?file=${encodeURIComponent(file)}`, { method: 'DELETE' }); }
+    try { await fetch(`${BASE_PATH}/konveyer/palata-ocr/queue?file=${encodeURIComponent(file)}`, { method: 'DELETE' }); }
     catch { /* keyingi poll haqiqiy holatni beradi */ }
     finally { poll(); }
   };
@@ -497,7 +498,7 @@ export function PalataScanPanel() {
                   <svg className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
                   {open ? t('Roʻyxatni yopish') : `${t('Har birini koʻrish')} (${n(s.total)} ${t('ariza')})`}
                 </button>
-                <a href="/konveyer/palata-scan-xlsx" className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[11px] font-medium text-emerald-700 hover:border-emerald-500/40 hover:bg-emerald-500/[0.06] dark:text-emerald-400" title={t('Butun roʻyxatni Excel qilib yuklab olish')}>
+                <a href={`${BASE_PATH}/konveyer/palata-scan-xlsx`} className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[11px] font-medium text-emerald-700 hover:border-emerald-500/40 hover:bg-emerald-500/[0.06] dark:text-emerald-400" title={t('Butun roʻyxatni Excel qilib yuklab olish')}>
                   <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" /></svg>
                   Excel
                 </a>
@@ -557,7 +558,7 @@ export function PalataScanPanel() {
                             </td>
                             <td className="px-2.5 py-1.5 text-center">
                               {a.hasScan ? (
-                                <a href={`/konveyer/palata-scan-pdf?pinfl=${encodeURIComponent(a.pinfl)}`} title={t('Imzolangan skanni PDF yuklab olish')} className="inline-flex text-violet-600 hover:text-violet-700 dark:text-violet-400">
+                                <a href={`${BASE_PATH}/konveyer/palata-scan-pdf?pinfl=${encodeURIComponent(a.pinfl)}`} title={t('Imzolangan skanni PDF yuklab olish')} className="inline-flex text-violet-600 hover:text-violet-700 dark:text-violet-400">
                                   <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" /></svg>
                                 </a>
                               ) : <span className="text-muted">—</span>}

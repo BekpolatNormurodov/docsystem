@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Select, TextField } from '@/ui';
@@ -32,7 +33,7 @@ export function InvoiceCreateForm({ firms, bojiAmount }: { firms: FirmLite[]; bo
   function poll(id: string) {
     if (timer.current) clearInterval(timer.current);
     timer.current = setInterval(async () => {
-      const res = await fetch(`/api/invoices/batch/${id}`);
+      const res = await fetch(`${BASE_PATH}/api/invoices/batch/${id}`);
       if (res.status === 404) { // paket topilmadi — eskirgan holatni tozalaymiz
         if (timer.current) clearInterval(timer.current);
         localStorage.removeItem(LS_KEY); setBusy(false); setProgress(null); setBatchId(null);
@@ -56,7 +57,7 @@ export function InvoiceCreateForm({ firms, bojiAmount }: { firms: FirmLite[]; bo
     const saved = typeof window !== 'undefined' ? localStorage.getItem(LS_KEY) : null;
     if (saved) {
       (async () => {
-        const res = await fetch(`/api/invoices/batch/${saved}`);
+        const res = await fetch(`${BASE_PATH}/api/invoices/batch/${saved}`);
         if (!alive) return;
         if (!res.ok) { localStorage.removeItem(LS_KEY); return; }
         const data: Progress = await res.json();
@@ -76,7 +77,7 @@ export function InvoiceCreateForm({ firms, bojiAmount }: { firms: FirmLite[]; bo
     setBusy(true); setError(null); setProgress(null); setBatchId(null);
     localStorage.removeItem(LS_KEY);
     try {
-      const res = await fetch('/api/invoices/start', {
+      const res = await fetch(`${BASE_PATH}/api/invoices/start`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ firmId: Number(firmId), count: Number(count) }),
       });
@@ -135,7 +136,7 @@ export function InvoiceCreateForm({ firms, bojiAmount }: { firms: FirmLite[]; bo
           </div>
 
           {terminal && batchId && progress.ok > 0 && (
-            <a href={`/api/invoices/batch/${batchId}/zip`}
+            <a href={`${BASE_PATH}/api/invoices/batch/${batchId}/zip`}
               className="btn-primary flex w-full justify-center py-2.5">
               ⬇ {t('ZIP yuklab olish')} ({progress.ok} PDF + Excel {t('hisobot')})
             </a>

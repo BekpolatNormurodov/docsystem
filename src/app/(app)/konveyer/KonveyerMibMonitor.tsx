@@ -4,6 +4,7 @@
 // chiqqanlar" (MIB bosqichi) uchun MODAL ichida to'liq mib.uz operator paneli ochiladi: bir tugma
 // bilan konveyerdan PINFL'lar urug'lanadi, so'ng «Ochish» — filtrlanadigan (region / hudud / bank /
 // firma), summalar va sahifalash bilan MibDashboard. Standalone «MIB hisoboti» moduliga tegmaydi.
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Ico, Spinner, Modal } from '@/ui';
 import { MibDashboard } from './MibDashboard';
@@ -21,7 +22,7 @@ export function KonveyerMibMonitor({ snapshotId }: { snapshotId?: number }) {
 
   const qs = snapshotId ? `?s=${snapshotId}` : '';
   const loadScope = useCallback(async () => {
-    const r = await fetch(`/konveyer/mib/report${qs}`, { cache: 'no-store' });
+    const r = await fetch(`${BASE_PATH}/konveyer/mib/report${qs}`, { cache: 'no-store' });
     const j = await r.json().catch(() => null);
     setScope(j);
   }, [qs]);
@@ -31,7 +32,7 @@ export function KonveyerMibMonitor({ snapshotId }: { snapshotId?: number }) {
   const seed = useCallback(async (): Promise<void> => {
     setBusy(true);
     try {
-      const r = await fetch('/konveyer/mib/report', {
+      const r = await fetch(`${BASE_PATH}/konveyer/mib/report`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ snapshotId }),
       });
       const j = await r.json().catch(() => null);

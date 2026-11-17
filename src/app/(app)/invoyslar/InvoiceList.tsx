@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import { DocumentDownload } from 'iconsax-react';
 import { useT } from '@/lib/i18n/client';
 
@@ -35,7 +36,7 @@ export function InvoiceList({ rows }: { rows: InvoiceRow[] }) {
               <td className="px-4 py-2 text-xs text-muted">{r.createdLabel}</td>
               <td className="px-4 py-2 text-right">
                 {r.hasPdf ? (
-                  <a href={`/api/invoices/${r.id}/download`} className="btn-primary px-3 py-1.5 text-xs">
+                  <a href={`${BASE_PATH}/api/invoices/${r.id}/download`} className="btn-primary px-3 py-1.5 text-xs">
                     <DocumentDownload size={14} /> PDF
                   </a>
                 ) : <span className="text-xs text-muted">{t('PDF yoʻq')}</span>}

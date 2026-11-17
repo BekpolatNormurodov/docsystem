@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useT } from '@/lib/i18n/client';
@@ -25,7 +26,7 @@ function Row({ firmId, t }: { firmId: number; t: Transition }) {
     setBusy(true);
     setErr(null);
     try {
-      const res = await fetch('/api/konveyer/advance', {
+      const res = await fetch(`${BASE_PATH}/api/konveyer/advance`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ firmId, from: t.from, to: t.to, count }),

@@ -5,6 +5,7 @@
 // «Ketmoqda» (bitta strip HeaderShell.running ichida) · «Navbatda» (qayta qoralama navbati) ·
 // «Sudda» (yuborilgan) · «To'siq» (blocker). Har firma qatorida yagona amal — «Qayta qoralama».
 // Sudga BU YERDAN HECH NARSA yubormaydi: tayyorlangan ishlar «Sudga o'tkazish» tabiga o'tadi.
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { matchesFuzzy } from '@/lib/fuzzy';
 import { Ico, Modal, Skeleton, useConfirm } from '@/ui';
@@ -119,7 +120,7 @@ function AjrimPanel({ caseNumber, registryDecline }: { caseNumber: string; regis
   useEffect(() => {
     let alive = true;
     setLoading(true); setErr(null); setData(null);
-    fetch(`/konveyer/court-return-ajrim?caseNumber=${encodeURIComponent(caseNumber)}`)
+    fetch(`${BASE_PATH}/konveyer/court-return-ajrim?caseNumber=${encodeURIComponent(caseNumber)}`)
       .then(async (res) => {
         const d = await res.json().catch(() => ({}));
         if (!alive) return;
@@ -142,7 +143,7 @@ function AjrimPanel({ caseNumber, registryDecline }: { caseNumber: string; regis
         {data.outgoingDate && <span>{dmy(data.outgoingDate)}</span>}
       </div>
       {data.available ? (
-        <a href={`/konveyer/court-return-ajrim/download?caseNumber=${encodeURIComponent(caseNumber)}`} target="_blank" rel="noreferrer"
+        <a href={`${BASE_PATH}/konveyer/court-return-ajrim/download?caseNumber=${encodeURIComponent(caseNumber)}`} target="_blank" rel="noreferrer"
           className="inline-flex items-center gap-1.5 rounded-lg border border-brand-500/40 bg-brand-500/10 px-2.5 py-1.5 text-[12px] font-semibold text-brand-700 outline-none transition-colors hover:bg-brand-500/15 focus-visible:ring-2 focus-visible:ring-brand-500/30 dark:text-brand-300">
           <Ico.download size={14} /> {t('Ajrimni ochish (PDF)')}
         </a>

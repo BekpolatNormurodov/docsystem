@@ -99,6 +99,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # "/yurist" when served at <domain>/yurist behind a path-routing proxy; empty = domain root.
+        NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
     image: docsystem-web:latest
     <<: [*app-env, *cabinet-proxy-host]
     volumes: *app-volumes
@@ -124,7 +127,7 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:5200/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:5200'+(process.env.NEXT_PUBLIC_BASE_PATH||'')+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 15s
       timeout: 10s
       retries: 5

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'node:crypto';
+import { BASE_PATH, withBase } from '@/lib/base-path';
 import { prisma } from '@/lib/db';
 import { hashPassword } from '@/core/password';
 import { createSession } from '@/core/session';
@@ -15,7 +16,7 @@ export const dynamic = 'force-dynamic';
 // SSO kirish: role-service'ning `mko_session` cookie'sini tekshiradi, mos Admin qatorini topadi/yaratadi va
 // odatdagi docsystem_session cookie'sini beradi. Muvaffaqiyatsiz bo'lsa /login?sso=failed (qaytib /api/sso ga emas).
 // Relativ Location — proksi ortidagi ichki host bilan chalkashmaslik uchun (logout route'dagi kabi).
-const go = (path: string) => new NextResponse(null, { status: 303, headers: { Location: path } });
+const go = (path: string) => new NextResponse(null, { status: 303, headers: { Location: withBase(path) } });
 
 export async function GET(req: NextRequest) {
   if (!ssoEnabled()) return go('/login');
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest) {
   res.cookies.set('docsystem_session', token, {
     httpOnly: true,
     sameSite: 'lax',
-    path: '/',
+    path: BASE_PATH || '/',
     maxAge: 60 * 60 * 24,
     domain: process.env.COOKIE_DOMAIN || undefined,
     secure: process.env.COOKIE_SECURE === '1',

@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Skeleton, Select } from '@/ui';
@@ -42,7 +43,7 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
 
   const downloadZip = (rid: string) => {
     const a = document.createElement('a');
-    a.href = `/api/invoices/batch/${rid}/zip`;
+    a.href = `${BASE_PATH}/api/invoices/batch/${rid}/zip`;
     document.body.appendChild(a); a.click(); a.remove();
   };
   useEffect(() => { setCount((c) => Math.min(c, cap) || cap); }, [court.eligible]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -50,7 +51,7 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
   const poll = (restBatchId: string) => {
     if (timer.current) clearInterval(timer.current);
     timer.current = setInterval(async () => {
-      const res = await fetch(`/api/invoices/batch/${restBatchId}`);
+      const res = await fetch(`${BASE_PATH}/api/invoices/batch/${restBatchId}`);
       if (!res.ok) return;
       const p: RowProg = await res.json();
       setProg(p);
@@ -80,7 +81,7 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
       (async () => {
         let saved: { r: string; i: number | null };
         try { saved = JSON.parse(raw); } catch { localStorage.removeItem(LS_KEY); return; }
-        const res = await fetch(`/api/invoices/batch/${saved.r}`);
+        const res = await fetch(`${BASE_PATH}/api/invoices/batch/${saved.r}`);
         if (!alive) return;
         if (!res.ok) { localStorage.removeItem(LS_KEY); return; }
         const p: RowProg = await res.json();
@@ -106,7 +107,7 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
     localStorage.removeItem(LS_KEY);
     setBusy(true); setCanceling(false); setMsg(null); setProg(null); setBatchId(null); setRestId(null);
     try {
-      const res = await fetch('/konveyer/invoice-batch', {
+      const res = await fetch(`${BASE_PATH}/konveyer/invoice-batch`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ firmId, count, s: snapshotId, courtId: court.courtId || undefined }),
       });
@@ -124,7 +125,7 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
   const cancel = async () => {
     if (!restId || canceling) return;
     setCanceling(true);
-    try { await fetch(`/api/invoices/batch/${restId}`, { method: 'DELETE' }); } catch { /* poll still finalizes */ }
+    try { await fetch(`${BASE_PATH}/api/invoices/batch/${restId}`, { method: 'DELETE' }); } catch { /* poll still finalizes */ }
   };
 
   return (
@@ -191,13 +192,13 @@ function CourtInvoiceRow({ firmId, court, snapshotId, amount, onDone }: { firmId
           <div role="status" className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-emerald-600 dark:text-emerald-400">
             <span>{msg}</span>
             {restId && (
-              <a href={`/api/invoices/batch/${restId}/zip`} className="inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 font-medium text-emerald-700 hover:border-emerald-500/50 dark:text-emerald-300">
+              <a href={`${BASE_PATH}/api/invoices/batch/${restId}/zip`} className="inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 font-medium text-emerald-700 hover:border-emerald-500/50 dark:text-emerald-300">
                 <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 3v12" /><path d="m8 11 4 4 4-4" /></svg>
                 PDF (ZIP)
               </a>
             )}
-            {batchId && <a href={`/konveyer/farmoyish?batchId=${batchId}`} className="rounded border border-line px-1.5 py-0.5 font-medium text-brand-600 hover:border-brand-500/40 dark:text-brand-400">{t('Farmoyish')}</a>}
-            {batchId && <a href={`/konveyer/farmoyish?batchId=${batchId}&format=xlsx`} className="rounded border border-line px-1.5 py-0.5 font-medium text-emerald-600 hover:border-emerald-500/40 dark:text-emerald-400">Excel</a>}
+            {batchId && <a href={`${BASE_PATH}/konveyer/farmoyish?batchId=${batchId}`} className="rounded border border-line px-1.5 py-0.5 font-medium text-brand-600 hover:border-brand-500/40 dark:text-brand-400">{t('Farmoyish')}</a>}
+            {batchId && <a href={`${BASE_PATH}/konveyer/farmoyish?batchId=${batchId}&format=xlsx`} className="rounded border border-line px-1.5 py-0.5 font-medium text-emerald-600 hover:border-emerald-500/40 dark:text-emerald-400">Excel</a>}
           </div>
         ) : (
           <div role="alert" className="mt-1.5 flex items-start gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/5 px-2.5 py-1.5 text-[11px] font-medium text-rose-600 dark:text-rose-300">
@@ -263,7 +264,7 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
       const qs = new URLSearchParams();
       if (snapshotId) qs.set('s', String(snapshotId));
       if (firmId) qs.set('firmId', String(firmId));
-      const res = await fetch(`/konveyer/invoice-batch${qs.toString() ? `?${qs}` : ''}`);
+      const res = await fetch(`${BASE_PATH}/konveyer/invoice-batch${qs.toString() ? `?${qs}` : ''}`);
       if (!res.ok) throw new Error(`${t('Server xatosi')} (${res.status})`);
       const data = await res.json();
       if (myReq !== reqRef.current) return;
@@ -360,11 +361,11 @@ export function BuxgalterPanel({ snapshotId, firmId }: { snapshotId?: number; fi
                         </td>
                         <td className="px-3 py-2 text-right">
                           <div className="inline-flex items-center gap-1">
-                            <a href={`/konveyer/farmoyish?batchId=${b.id}`} className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-line px-2 py-0.5 text-xs font-medium text-brand-600 hover:border-brand-500/40 dark:text-brand-400" title={t('Farmoyish (Word)')}>
+                            <a href={`${BASE_PATH}/konveyer/farmoyish?batchId=${b.id}`} className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-line px-2 py-0.5 text-xs font-medium text-brand-600 hover:border-brand-500/40 dark:text-brand-400" title={t('Farmoyish (Word)')}>
                               <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 3v12" /><path d="m8 11 4 4 4-4" /></svg>
                               Word
                             </a>
-                            <a href={`/konveyer/farmoyish?batchId=${b.id}&format=xlsx`} className="whitespace-nowrap rounded-md border border-line px-2 py-0.5 text-xs font-medium text-emerald-600 hover:border-emerald-500/40 dark:text-emerald-400" title={t('Farmoyish (Excel)')}>Excel</a>
+                            <a href={`${BASE_PATH}/konveyer/farmoyish?batchId=${b.id}&format=xlsx`} className="whitespace-nowrap rounded-md border border-line px-2 py-0.5 text-xs font-medium text-emerald-600 hover:border-emerald-500/40 dark:text-emerald-400" title={t('Farmoyish (Excel)')}>Excel</a>
                           </div>
                         </td>
                       </tr>

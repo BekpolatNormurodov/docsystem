@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useEffect, useState } from 'react';
 import { useT } from '@/lib/i18n/client';
 
@@ -17,7 +18,7 @@ export function BojiSettings() {
   const load = async () => {
     setLoading(true); setErr(null);
     try {
-      const res = await fetch('/settings/boji', { cache: 'no-store' });
+      const res = await fetch(`${BASE_PATH}/settings/boji`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`${t('Server xatosi')} (${res.status})`);
       const d = await res.json();
       setAmount(d.amount ?? 22000);
@@ -30,7 +31,7 @@ export function BojiSettings() {
   const save = async () => {
     setSaving(true); setMsg(null); setErr(null);
     try {
-      const res = await fetch('/settings/boji', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount }) });
+      const res = await fetch(`${BASE_PATH}/settings/boji`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d?.error || t('Saqlanmadi'));
       setAmount(d.amount ?? amount);

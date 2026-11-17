@@ -47,6 +47,12 @@ RUN npm ci --include=dev
 COPY prisma ./prisma
 RUN npx prisma generate
 
+# The path prefix the app is served under ("/yurist" on mko-crm.uz/yurist; empty at a domain root). Next's
+# basePath and the client bundles read it at BUILD time (src/lib/base-path.ts); it stays set at runtime for
+# the HEALTHCHECK in docker-compose.yml.
+ARG NEXT_PUBLIC_BASE_PATH=""
+ENV NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH}
+
 COPY . .
 RUN npm run build
 

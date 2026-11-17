@@ -1,5 +1,6 @@
 'use client';
 
+import { withBase } from '@/lib/base-path';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ExcelButton } from '@/ui';
@@ -186,7 +187,7 @@ export function SudTabs({ firms, selectedId, initialData, initialTab, initialFir
     if (selectedId) qs.set('s', String(selectedId));
     // Sessiya tugagan bo'lsa login HTML keladi — json() yiqiladi, son «—» bo'lib qoladi (jim).
     const getCount = (url: string, pick: (d: any) => unknown, set: (v: number | null) => void) =>
-      fetch(url, { cache: 'no-store' })
+      fetch(withBase(url), { cache: 'no-store' })
         .then((r) => (r.ok && (r.headers.get('content-type') ?? '').includes('application/json') ? r.json() : null))
         .then((d) => { if (my !== countsReq.current) return; const v = d ? pick(d) : null; set(typeof v === 'number' ? v : null); })
         .catch(() => { /* son ixtiyoriy — xato bo'lsa ko'rsatilmaydi */ });

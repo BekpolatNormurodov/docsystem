@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useConfirm, Ico } from '@/ui';
 import { useT } from '@/lib/i18n/client';
@@ -50,7 +51,7 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
     if (!firmId) return;
     setDlBusy(registryId); setDlErr(null);
     try {
-      const res = await fetch(`/konveyer/hippo/receipts?firmId=${firmId}&registryId=${registryId}`);
+      const res = await fetch(`${BASE_PATH}/konveyer/hippo/receipts?firmId=${firmId}&registryId=${registryId}`);
       if (!res.ok) { let e = t('Yuklab bo‘lmadi'); try { e = (await res.json()).error || e; } catch {} throw new Error(e); }
       const blob = await res.blob();
       const cd = res.headers.get('Content-Disposition') || '';
@@ -69,7 +70,7 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
     if (!firmId) return;
     setDlLettersBusy(registryId); setDlErr(null);
     try {
-      const res = await fetch(`/konveyer/hippo/letters?firmId=${firmId}&registryId=${registryId}`);
+      const res = await fetch(`${BASE_PATH}/konveyer/hippo/letters?firmId=${firmId}&registryId=${registryId}`);
       if (!res.ok) { let e = t('Yuklab bo‘lmadi'); try { e = (await res.json()).error || e; } catch {} throw new Error(e); }
       const blob = await res.blob();
       const cd = res.headers.get('Content-Disposition') || '';
@@ -94,7 +95,7 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
     if (!ok) return;
     setCancelBusy(registryId); setDlErr(null);
     try {
-      const res = await fetch('/konveyer/hippo/cancel', {
+      const res = await fetch(`${BASE_PATH}/konveyer/hippo/cancel`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ firmId, registryId }),
       });
@@ -109,14 +110,14 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
     const my = ++reqId.current; // ignore responses if a newer firm was selected
     // 1) Instant: the DB-cached snapshot (no hippo call). Fills the panel in a few ms.
     try {
-      const res = await fetch(`/konveyer/hippo/status${firmId ? `?firmId=${firmId}` : ''}`);
+      const res = await fetch(`${BASE_PATH}/konveyer/hippo/status${firmId ? `?firmId=${firmId}` : ''}`);
       if (my !== reqId.current) return;
       if (res.ok) { const d = await res.json(); if (d && !d.empty) setData(d); }
     } catch { /* cache miss — the live refresh below fills it */ }
     // 2) Live refresh from xat.hippo → recomputes, re-writes the cache, updates the view.
     setLoading(true); setErr(null);
     try {
-      const res = await fetch(`/konveyer/hippo/status?refresh=1${firmId ? `&firmId=${firmId}` : ''}`, { cache: 'no-store' });
+      const res = await fetch(`${BASE_PATH}/konveyer/hippo/status?refresh=1${firmId ? `&firmId=${firmId}` : ''}`, { cache: 'no-store' });
       if (my !== reqId.current) return;
       if (!res.ok) throw new Error(`${t('Server xatosi')} (${res.status})`);
       setData(await res.json());
@@ -139,7 +140,7 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
     if (!firmId || syncBusy) return;
     setSyncBusy(true); setDlErr(null); setSyncMsg(null);
     try {
-      const res = await fetch('/konveyer/hippo/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ firmId }) });
+      const res = await fetch(`${BASE_PATH}/konveyer/hippo/sync`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ firmId }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d?.ok) throw new Error(d?.error || t('Sinxronlab boʻlmadi'));
       setSyncMsg(`${n(d.matched ?? 0)} / ${n(d.totalMails ?? 0)} ${t('ta hippodan olindi — dedupe yangilandi')}`);
@@ -153,7 +154,7 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
   const loadReceiptSum = useCallback(async () => {
     if (!firmId) { setReceiptSum(null); return; }
     try {
-      const d = await fetch(`/konveyer/hippo/attach-receipts?firmId=${firmId}`, { cache: 'no-store' }).then((r) => r.json());
+      const d = await fetch(`${BASE_PATH}/konveyer/hippo/attach-receipts?firmId=${firmId}`, { cache: 'no-store' }).then((r) => r.json());
       setReceiptSum(d?.summary ?? null);
     } catch { /* jim */ }
   }, [firmId]);
@@ -165,7 +166,7 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
   const attachPoll = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollAttach = useCallback(async () => {
     try {
-      const d = await fetch('/konveyer/hippo/attach-receipts', { cache: 'no-store' }).then((r) => r.json());
+      const d = await fetch(`${BASE_PATH}/konveyer/hippo/attach-receipts`, { cache: 'no-store' }).then((r) => r.json());
       const j = d?.job;
       if (!j) { setAttachBusy(false); return; }
       const live = j.status === 'RUNNING' || j.status === 'PENDING';
@@ -181,7 +182,7 @@ export function HippoStatusPanel({ firmId }: { firmId?: number }) {
     if (!firmId || attachBusy) return;
     setAttachBusy(true); setDlErr(null); setSyncMsg(t('Cheklar biriktirilyapti…'));
     try {
-      const res = await fetch('/konveyer/hippo/attach-receipts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ firmId }) });
+      const res = await fetch(`${BASE_PATH}/konveyer/hippo/attach-receipts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ firmId }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d?.error || t('Biriktirib boʻlmadi'));
       pollAttach();

@@ -3,6 +3,7 @@
 // MIB avtomator logini WEB'da jonli ko'rsatadi (/api/mib/logs quyrug'ini poll qiladi). `q` berilsa
 // (masalan mijoz PINFL'i) — faqat o'sha bo'yicha loglar. Tekshiruv nima qilayotganini (SMS so'raldi,
 // kod keldi/kelmadi, xato...) shu yerda ko'rinadi.
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico } from '@/ui';
 import { useT } from '@/lib/i18n/client';
@@ -18,7 +19,7 @@ export function MibLogPanel({ q, title = 'Avtomator logi', defaultOpen = true }:
   const box = useRef<HTMLDivElement>(null);
 
   const poll = useCallback(async () => {
-    const url = `/api/mib/logs?after=${lastId.current}${q ? `&q=${encodeURIComponent(q)}` : ''}`;
+    const url = `${BASE_PATH}/api/mib/logs?after=${lastId.current}${q ? `&q=${encodeURIComponent(q)}` : ''}`;
     const j = await fetch(url, { cache: 'no-store' }).then((r) => r.json()).catch(() => null);
     if (!j || typeof j.lastId !== 'number') return;
     // Server restart bo'lsa (deploy) seq 0 dan boshlanadi — kursor orqaga ketsa qaytadan o'qiymiz.

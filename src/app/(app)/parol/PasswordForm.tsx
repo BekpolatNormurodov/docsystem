@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useState } from 'react';
 import { Ico } from '@/ui/icons';
 import { useT } from '@/lib/i18n/client';
@@ -42,7 +43,7 @@ export function PasswordForm({ username, fullName, roleLabel }: { username: stri
     if (next !== confirm) { setErr(t('Yangi parol tasdiqlash bilan mos emas')); return; }
     setBusy(true);
     try {
-      const res = await fetch('/api/users/password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ current, next }) });
+      const res = await fetch(`${BASE_PATH}/api/users/password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ current, next }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d?.error || t('Saqlanmadi'));
       setMsg(t('Parol o‘zgartirildi ✓'));

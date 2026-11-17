@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import { useState } from 'react';
 import { useT } from '@/lib/i18n/client';
 
@@ -17,7 +18,7 @@ export function OfertaDownload({ loanIds, label, primary = false, title }: { loa
     if (busy || !loanIds.length) return;
     setBusy(true); setErr(null);
     try {
-      const res = await fetch(`/konveyer/oferta-loans?loanIds=${loanIds.join(',')}`);
+      const res = await fetch(`${BASE_PATH}/konveyer/oferta-loans?loanIds=${loanIds.join(',')}`);
       if (!res.ok) {
         const d = await res.json().catch(() => null);
         throw new Error(d?.error || t('Yuklab boʻlmadi'));

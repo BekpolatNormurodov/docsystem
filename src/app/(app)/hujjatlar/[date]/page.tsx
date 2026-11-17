@@ -1,3 +1,4 @@
+import { BASE_PATH } from '@/lib/base-path';
 import fs from 'node:fs';
 import path from 'node:path';
 import Link from 'next/link';
@@ -228,7 +229,7 @@ export default async function HujjatlarDatePage({
               return meta.present ? (
                 <a
                   key={k}
-                  href={`/api/snapshots/${snapshot.id}/xlsx/${k}`}
+                  href={`${BASE_PATH}/api/snapshots/${snapshot.id}/xlsx/${k}`}
                   download
                   className="flex items-center justify-between gap-3 rounded-lg border border-line bg-surface-2 px-3 py-2.5 transition hover:border-brand-500/50 hover:bg-surface-3"
                 >

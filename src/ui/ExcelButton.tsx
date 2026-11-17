@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { Ico } from './icons';
 import { Spinner } from './Spinner';
 import { useT } from '@/lib/i18n/client';
+import { withBase } from '@/lib/base-path';
 
 export function ExcelButton({ href, label, title, className }: { href: string; label: string; title?: string; className?: string }) {
   const t = useT();
@@ -19,7 +20,7 @@ export function ExcelButton({ href, label, title, className }: { href: string; l
       // `redirect: 'error'` — server auth guard (requireAccess) redirect qilsa fetch
       // login/landing HTMLi'ni ergashib olib, uni «export.xlsx» sifatida saqlab qo'yardi
       // (ochib bo'lmaydigan fayl). Endi redirect'ni error qilamiz.
-      const res = await fetch(href, { cache: 'no-store', redirect: 'error' });
+      const res = await fetch(withBase(href), { cache: 'no-store', redirect: 'error' });
       if (!res.ok) throw new Error(`http_${res.status}`);
       // Content-Type xlsx bo'lmasa (masalan HTML: guard'ga bog'liq 200 lekin sahifa), fayl ochilmaydi.
       const ct = (res.headers.get('Content-Type') || '').toLowerCase();

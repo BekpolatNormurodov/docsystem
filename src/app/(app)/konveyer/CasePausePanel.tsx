@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useState } from 'react';
 import { useT } from '@/lib/i18n/client';
 
@@ -47,7 +48,7 @@ export function CasePausePanel({ caseId, pause, onSaved }: {
     if (next && !text) { setErr(t('Pauza sababini yozing')); return; }
     setBusy(true); setErr(null);
     try {
-      const res = await fetch('/konveyer/case-pause', {
+      const res = await fetch(`${BASE_PATH}/konveyer/case-pause`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ caseIds: [caseId], pause: next, ...(next ? { reason: text } : {}) }),
       });

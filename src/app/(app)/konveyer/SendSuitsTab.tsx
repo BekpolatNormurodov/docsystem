@@ -18,6 +18,7 @@
 //   • 3 qadam ko'rsatmasi va 8-modda huquqiy xavfi — <details> «Batafsil»ga yig'ildi.
 // Backend: GET/POST /konveyer/sud-send (SEND-BE), kontrakt SUD_TABS_SPEC.md dagi kabi.
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Modal, Skeleton, useConfirm } from '@/ui';
@@ -280,7 +281,7 @@ export function SendSuitsTab({ snapshotId, firmId, firms, active = true }: { sna
     let fails = 0;
     const tick = async () => {
       try {
-        const s = await getJson<{ status: string; progress: number; total: number; message?: string | null }>(`/api/jobs/${id}`, { cache: 'no-store' }, t);
+        const s = await getJson<{ status: string; progress: number; total: number; message?: string | null }>(`${BASE_PATH}/api/jobs/${id}`, { cache: 'no-store' }, t);
         fails = 0;
         setJob((j) => (j && j.id === id ? { ...j, status: s.status, progress: s.progress ?? j.progress, total: s.total || j.total, message: s.message ?? j.message, pollError: undefined } : j));
         if (TERMINAL.has(s.status)) {
@@ -481,7 +482,7 @@ export function SendSuitsTab({ snapshotId, firmId, firms, active = true }: { sna
     if (!ok) return;
     setPauseBusy(true); setPauseErr(null);
     try {
-      await getJson('/konveyer/court-queue/pause', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: nextPaused }) }, t);
+      await getJson(`${BASE_PATH}/konveyer/court-queue/pause`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: nextPaused }) }, t);
       await load();
     } catch (e) {
       setPauseErr(e instanceof Error ? e.message : t('Xatolik'));
@@ -551,7 +552,7 @@ export function SendSuitsTab({ snapshotId, firmId, firms, active = true }: { sna
     setPosting(true); postingRef.current = true; setPostErr(null); setPostDetails([]);
     try {
       // getJson EMAS: 400/409 javobining tanasida `rejected`/`excluded` ham bor — uni yo'qotmaymiz.
-      const res = await fetch('/konveyer/sud-send', {
+      const res = await fetch(`${BASE_PATH}/konveyer/sud-send`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ firmId: pending.firmId, caseIds: pending.caseIds }),
       });
@@ -590,7 +591,7 @@ export function SendSuitsTab({ snapshotId, firmId, firms, active = true }: { sna
       danger: true,
     });
     if (!ok) return;
-    try { await fetch(`/api/jobs/${job.id}`, { method: 'POST' }); } catch { /* poller baribir ko'radi */ }
+    try { await fetch(`${BASE_PATH}/api/jobs/${job.id}`, { method: 'POST' }); } catch { /* poller baribir ko'radi */ }
     setJob((j) => (j ? { ...j, message: t('To‘xtatish so‘raldi — joriy ish tugagach to‘xtaydi') } : j));
   };
 

@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useT } from '@/lib/i18n/client';
 
@@ -49,7 +50,7 @@ export function CourtsAdmin() {
   const load = useCallback(async () => {
     setErr(null);
     try {
-      const res = await fetch('/settings/courts', { cache: 'no-store' });
+      const res = await fetch(`${BASE_PATH}/settings/courts`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`${t('Server xatosi')} (${res.status})`);
       apply(await res.json());
     } catch (e) { setCourts([]); setErr(e instanceof Error ? e.message : t('Yuklab boʻlmadi')); }
@@ -67,7 +68,7 @@ export function CourtsAdmin() {
     if (!draft.nameUz.trim() || !draft.shortName.trim() || !draft.billingCourtId.trim()) { setErr(t('Nomi, qisqa nom va «Sud id» majburiy')); return; }
     setBusy(true); setErr(null);
     try {
-      const res = await fetch('/settings/courts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save', ...draft }) });
+      const res = await fetch(`${BASE_PATH}/settings/courts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save', ...draft }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d?.error || t('Saqlanmadi'));
       apply(d); cancel(); flash(`${t('Saqlandi')} ✓`);
@@ -226,7 +227,7 @@ function CourtPicker({ onPick }: { onPick: (v: { billingCourtId: string; courtTy
   const load = async () => {
     if (items || err) return;
     try {
-      const r = await fetch('/api/court-catalog');
+      const r = await fetch(`${BASE_PATH}/api/court-catalog`);
       const d = await r.json();
       if (!r.ok) throw new Error(d?.error || t('Katalog olinmadi'));
       setItems(Array.isArray(d.items) ? d.items : []);

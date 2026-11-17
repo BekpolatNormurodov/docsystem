@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { matchesFuzzy } from '@/lib/fuzzy';
 import { Ico } from '@/ui';
@@ -37,7 +38,7 @@ const ReturnCard = React.memo(function ReturnCard({ r }: { r: Row }) {
     if (!open || fetched.current || !r.caseNumber) return;
     fetched.current = true;
     setAjrimLoading(true); setAjrimErr(null);
-    fetch(`/konveyer/court-return-ajrim?caseNumber=${encodeURIComponent(r.caseNumber)}`)
+    fetch(`${BASE_PATH}/konveyer/court-return-ajrim?caseNumber=${encodeURIComponent(r.caseNumber)}`)
       .then(async (res) => {
         const d = await res.json().catch(() => ({}));
         if (!res.ok) { setAjrimErr({ msg: d?.error || t('Ajrim olinmadi'), needAuth: !!d?.needAuth }); return; }
@@ -90,7 +91,7 @@ const ReturnCard = React.memo(function ReturnCard({ r }: { r: Row }) {
                 </div>
                 {ajrim.available ? (
                   <a
-                    href={`/konveyer/court-return-ajrim/download?caseNumber=${encodeURIComponent(r.caseNumber ?? '')}`}
+                    href={`${BASE_PATH}/konveyer/court-return-ajrim/download?caseNumber=${encodeURIComponent(r.caseNumber ?? '')}`}
                     target="_blank" rel="noreferrer"
                     className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-brand-500/40 bg-brand-500/10 px-2.5 py-1.5 text-[12px] font-semibold text-brand-700 outline-none transition-colors hover:bg-brand-500/15 focus-visible:ring-2 focus-visible:ring-brand-500/30 dark:text-brand-300"
                   >
@@ -168,7 +169,7 @@ export function CabinetReturns({ snapshotId, firmId }: { snapshotId?: number; fi
       const p = new URLSearchParams();
       if (snapshotId != null) p.set('s', String(snapshotId));
       if (firmId != null) p.set('firmId', String(firmId));
-      const res = await fetch(`/konveyer/court-returns?${p.toString()}`);
+      const res = await fetch(`${BASE_PATH}/konveyer/court-returns?${p.toString()}`);
       if (my !== reqRef.current) return;
       if (!res.ok) throw new Error(`${t('Server xatosi')} (${res.status})`);
       setData(await res.json());
@@ -183,7 +184,7 @@ export function CabinetReturns({ snapshotId, firmId }: { snapshotId?: number; fi
       const p = new URLSearchParams();
       if (snapshotId != null) p.set('s', String(snapshotId));
       if (firmId != null) p.set('firmId', String(firmId));
-      const res = await fetch(`/konveyer/court-returns-excel?${p.toString()}`);
+      const res = await fetch(`${BASE_PATH}/konveyer/court-returns-excel?${p.toString()}`);
       if (!res.ok) return;
       const blob = await res.blob();
       const a = document.createElement('a');

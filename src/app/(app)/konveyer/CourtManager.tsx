@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH, withBase } from '@/lib/base-path';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { matchesFuzzy } from '@/lib/fuzzy';
 import { Modal, useConfirm } from '@/ui';
@@ -205,7 +206,7 @@ function ExportControl({ job, sendable, onStart, batchActive }: {
     // a «Yana» button so batches of >100 aren't stuck after the first ZIP.
     return (
       <div className="flex flex-col items-end gap-1">
-        <a href={`/api/export/${job.jobId}/download`} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-700 outline-none transition-colors hover:bg-emerald-500/15 focus-visible:ring-2 focus-visible:ring-emerald-500/40 dark:text-emerald-300">
+        <a href={`${BASE_PATH}/api/export/${job.jobId}/download`} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-700 outline-none transition-colors hover:bg-emerald-500/15 focus-visible:ring-2 focus-visible:ring-emerald-500/40 dark:text-emerald-300">
           <IcoDown /> {job.total} {t('ta ZIP — yuklab olish')}
         </a>
         {sendable > 0 && (
@@ -338,7 +339,7 @@ function ZipControl({ job, sendable, onStart, onCancel }: { job?: JobState; send
     return (
       <div className="flex shrink-0 items-center gap-1">
         <a
-          href={`/api/export/${job.jobId}/download`}
+          href={`${BASE_PATH}/api/export/${job.jobId}/download`}
           title={label} aria-label={label}
           className={`${ZIP_BTN} border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 focus-visible:ring-emerald-500/40 dark:text-emerald-300`}
         >
@@ -627,7 +628,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
     const qs = new URLSearchParams({ firmId: String(firmId) });
     if (snapshotId) qs.set('s', String(snapshotId));
     try {
-      const d = await getJson(`/konveyer/court-ready/clients?${qs.toString()}`, { cache: 'no-store' }, t);
+      const d = await getJson(`${BASE_PATH}/konveyer/court-ready/clients?${qs.toString()}`, { cache: 'no-store' }, t);
       if (my !== reqRef.current) return;
       setData(d); loadedOnce.current = true;
     } catch (e) {
@@ -660,7 +661,7 @@ function ClientDrilldown({ firmId, snapshotId, job, startExport, onChanged, batc
     });
     if (!ok) return;
     try {
-      const res = await fetch('/konveyer/court-undo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ caseIds: [caseId] }) });
+      const res = await fetch(`${BASE_PATH}/konveyer/court-undo`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ caseIds: [caseId] }) });
       if (!res.ok) return;
       // OPTIMISTIK: faqat o'sha qator «Tayyor»ga qaytadi — butun ro'yxat qayta yuklanmaydi (flash yo'q).
       const row = data?.rows.find((r) => r.caseId === caseId);
@@ -976,7 +977,7 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
     setCancelBusy(true);
     setErr(null);
     try {
-      const r = await fetch('/konveyer/court-queue/cancel', {
+      const r = await fetch(`${BASE_PATH}/konveyer/court-queue/cancel`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ firmId }),
       });
@@ -1014,7 +1015,7 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
     setRetryBusy(true);
     setErr(null);
     try {
-      const r = await fetch('/konveyer/court-queue/resume', {
+      const r = await fetch(`${BASE_PATH}/konveyer/court-queue/resume`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ firmId, retryFailed: true }),
       });
@@ -1031,7 +1032,7 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
     if (firmPaused === null || pauseBusy) return;
     setPauseBusy(true);
     try {
-      const r = await fetch('/konveyer/court-queue/pause', {
+      const r = await fetch(`${BASE_PATH}/konveyer/court-queue/pause`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paused: !firmPaused, firmId }),
       });
@@ -1041,7 +1042,7 @@ function QueuePanel({ firmId, live, onChanged }: { firmId: number; live: boolean
 
   const load = useCallback(async () => {
     try {
-      setData(await getJson(`/konveyer/court-queue?firmId=${firmId}`, undefined, t));
+      setData(await getJson(`${BASE_PATH}/konveyer/court-queue?firmId=${firmId}`, undefined, t));
       setErr(null);
     } catch (e) {
       // Avval bu jimgina yutilardi — sessiya tugaganda panel eski raqamlarni ko'rsatib
@@ -1559,7 +1560,7 @@ function useDraftAuto(active: boolean) {
   const [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
     try {
-      const r = await fetch('/konveyer/court-draft-auto', { cache: 'no-store' });
+      const r = await fetch(`${BASE_PATH}/konveyer/court-draft-auto`, { cache: 'no-store' });
       if (!r.ok) return;
       setData(await r.json());
     } catch { /* tarmoq — keyingi pollда qayta o'qiladi */ }
@@ -1575,7 +1576,7 @@ function useDraftAuto(active: boolean) {
     if (!data || busy) return;
     setBusy(true);
     try {
-      const r = await fetch('/konveyer/court-draft-auto', {
+      const r = await fetch(`${BASE_PATH}/konveyer/court-draft-auto`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ on: !data.on }),
       });
@@ -1588,7 +1589,7 @@ function useDraftAuto(active: boolean) {
     // Optimistik ko'rsatamiz — server javobini kutmasdan.
     setData((p) => (p ? { ...p, firms: p.firms.map((f) => (f.firmId === firmId ? { ...f, paused } : f)) } : p));
     try {
-      await fetch('/konveyer/court-queue/pause', {
+      await fetch(`${BASE_PATH}/konveyer/court-queue/pause`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paused, firmId }),
       });
@@ -1635,7 +1636,7 @@ export function CourtManager({ firms, selectedId, initialData, initialFirmId, on
   // holati bazada (CourtQueueItem), shuning uchun navbat SHUNDAN tiklanadi.
   const [pendingQ, setPendingQ] = useState<{ firmId: number; firmName: string; stir: string | null; pending: number; running: number; done: number; failed: number; skipped: number; job?: { jobId: number; status: string; progress: number; total: number; queuePos: number; message?: string | null } | null }[]>([]);
   const loadPending = useCallback(() => {
-    fetch('/konveyer/court-queue/pending')
+    fetch(`${BASE_PATH}/konveyer/court-queue/pending`)
       .then((r) => r.json())
       .then((d) => setPendingQ(Array.isArray(d?.firms) ? d.firms : []))
       .catch(() => { /* tarmoq xatosi — keyingi tsiklda qayta o'qiladi */ });
@@ -1669,7 +1670,7 @@ export function CourtManager({ firms, selectedId, initialData, initialFirmId, on
     if (firmId) qs.set('firmId', String(firmId));
     if (selectedId) qs.set('s', String(selectedId));
     try {
-      const d = await getJson(`/konveyer/court-ready?${qs.toString()}`, { cache: 'no-store' }, t);
+      const d = await getJson(`${BASE_PATH}/konveyer/court-ready?${qs.toString()}`, { cache: 'no-store' }, t);
       if (my !== reqRef.current) return null;
       setData(d); setLastLoaded(new Date()); loadedOnce.current = true;
       return d as Data;
@@ -1731,7 +1732,7 @@ export function CourtManager({ firms, selectedId, initialData, initialFirmId, on
     let period = FAST_MS;
     const tick = async () => {
       try {
-        const s = await getJson(`/api/jobs/${jobId}`, undefined, t);
+        const s = await getJson(`${BASE_PATH}/api/jobs/${jobId}`, undefined, t);
         const wasFailing = pollFails >= WARN_AFTER;
         pollFails = 0;
         if (period !== FAST_MS) { period = FAST_MS; schedule(); }
@@ -1769,7 +1770,7 @@ export function CourtManager({ firms, selectedId, initialData, initialFirmId, on
     // bosardi, holbuki qilishi kerak bo'lgan yagona ish — qaytadan kirish (2026-09-08).
     // Sabab getJson() dagi bilan BIR XIL usulda aniqlanadi (content-type + redirect).
     let failMsg = t('Tarmoq xatosi');
-    fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    fetch(withBase(endpoint), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       .then((r) => {
         const ct = r.headers.get('content-type') ?? '';
         if (!ct.includes('application/json')) {
@@ -1823,7 +1824,7 @@ export function CourtManager({ firms, selectedId, initialData, initialFirmId, on
     let alive = true;
     (async () => {
       try {
-        const d = await getJson('/api/jobs?type=PACKET&limit=30', undefined, t);
+        const d = await getJson(`${BASE_PATH}/api/jobs?type=PACKET&limit=30`, undefined, t);
         // `jobs` — API'ning HAQIQIY maydoni (route.ts: `NextResponse.json({ jobs: rows })`).
         // Bu yerda `d.rows` o'qilardi, ya'ni ro'yxat HAR DOIM bo'sh chiqib, tiklash kodi
         // hech qachon ishlamagan: F5 bosilsa ketayotgan ZIP kartasi butunlay yo'qolardi.
@@ -1847,7 +1848,7 @@ export function CourtManager({ firms, selectedId, initialData, initialFirmId, on
 
   // ZIP'ni to'xtatish. Server yarim tayyor arxivni o'chiradi va job CANCELED bo'ladi.
   const cancelJob = useCallback(async (key: string, jobId: number) => {
-    try { await fetch(`/api/jobs/${jobId}`, { method: 'POST' }); } catch { /* poll baribir ko'radi */ }
+    try { await fetch(`${BASE_PATH}/api/jobs/${jobId}`, { method: 'POST' }); } catch { /* poll baribir ko'radi */ }
     setJobs((j) => (j[key] ? { ...j, [key]: { ...j[key], message: 'Bekor qilinmoqda…' } } : j));
   }, []);
 
@@ -1917,7 +1918,7 @@ export function CourtManager({ firms, selectedId, initialData, initialFirmId, on
     let alive = true;
     const qs = new URLSearchParams({ firmId: String(countAsk.firmId) });
     if (snapshotId) qs.set('s', String(snapshotId));
-    fetch(`/konveyer/court-ready/courts?${qs.toString()}`, { cache: 'no-store' })
+    fetch(`${BASE_PATH}/konveyer/court-ready/courts?${qs.toString()}`, { cache: 'no-store' })
       .then((r) => r.json())
       .then((d) => { if (alive && d && Array.isArray(d.courts)) setCourtBreak({ firmId: countAsk.firmId, courts: d.courts, total: d.total ?? 0 }); })
       .catch(() => {});
@@ -2168,10 +2169,10 @@ export function CourtManager({ firms, selectedId, initialData, initialFirmId, on
         <Modal open onClose={() => setXlsOpen(false)} title={t('Excel eksportlari')} size="md">
           <div className="divide-y divide-line rounded-lg border border-line overflow-hidden">
             {[
-              { href: `/konveyer/court-stats-excel${selectedId ? `?s=${selectedId}` : ''}`, title: t('Firma statistikasi'), hint: t('Har firma: jami · tayyor · sudda · yetishmayotgan hujjatlar') },
-              { href: `/konveyer/cases-excel${selectedId ? `?s=${selectedId}` : ''}${firmId ? `${selectedId ? '&' : '?'}firmId=${firmId}` : ''}`, title: t('Mijozlar ro‘yxati'), hint: t('F.I.O · PINFL · firma · qarzdorlik · boji · muddat') },
-              { href: `/konveyer/court-returns-excel${selectedId ? `?s=${selectedId}` : ''}${firmId ? `${selectedId ? '&' : '?'}firmId=${firmId}` : ''}`, title: t('Suddan qaytganlar'), hint: t('Qayta yuborish uchun ishlash ro‘yxati') },
-              { href: `/konveyer/unpaid-receipts-excel${firmId ? `?firmId=${firmId}` : ''}`, title: t('To‘lanmagan kvitansiyalar'), hint: t('Buxgalteriya uchun: to‘lov kutayotgan ishlar · raqam · summa') },
+              { href: `${BASE_PATH}/konveyer/court-stats-excel${selectedId ? `?s=${selectedId}` : ''}`, title: t('Firma statistikasi'), hint: t('Har firma: jami · tayyor · sudda · yetishmayotgan hujjatlar') },
+              { href: `${BASE_PATH}/konveyer/cases-excel${selectedId ? `?s=${selectedId}` : ''}${firmId ? `${selectedId ? '&' : '?'}firmId=${firmId}` : ''}`, title: t('Mijozlar ro‘yxati'), hint: t('F.I.O · PINFL · firma · qarzdorlik · boji · muddat') },
+              { href: `${BASE_PATH}/konveyer/court-returns-excel${selectedId ? `?s=${selectedId}` : ''}${firmId ? `${selectedId ? '&' : '?'}firmId=${firmId}` : ''}`, title: t('Suddan qaytganlar'), hint: t('Qayta yuborish uchun ishlash ro‘yxati') },
+              { href: `${BASE_PATH}/konveyer/unpaid-receipts-excel${firmId ? `?firmId=${firmId}` : ''}`, title: t('To‘lanmagan kvitansiyalar'), hint: t('Buxgalteriya uchun: to‘lov kutayotgan ishlar · raqam · summa') },
             ].map((x) => (
               <a key={x.href} href={x.href} onClick={() => setXlsOpen(false)}
                 className="block px-3 py-2 text-left outline-none transition-colors hover:bg-surface-2 focus-visible:bg-surface-2">

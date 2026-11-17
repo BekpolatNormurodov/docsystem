@@ -4,6 +4,7 @@
 // uning HAR firmadagi ahvolini (qaysi bosqich/step + sud holati) bitta joyda ko'rsatadi.
 // Mijozlar bo'limi VA Hisobot (/boss) bo'limida — ikkalasida ham ishlaydi.
 // Ma'lumot: mavjud GET /konveyer/cases (konveyerPersons) — PINFL bo'yicha firmalararo birlashtirilgan.
+import { BASE_PATH } from '@/lib/base-path';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { courtBadge } from '@/lib/court-result';
@@ -82,7 +83,7 @@ export function ClientStatusSearch({ linkDate, snapshotId, placeholder, classNam
     const myReq = ++reqRef.current;
     setLoading(true);
     const ctrl = new AbortController();
-    fetch(`/konveyer/cases?q=${encodeURIComponent(debouncedQ)}&pageSize=8${snapshotId ? `&s=${snapshotId}` : ''}`, { signal: ctrl.signal })
+    fetch(`${BASE_PATH}/konveyer/cases?q=${encodeURIComponent(debouncedQ)}&pageSize=8${snapshotId ? `&s=${snapshotId}` : ''}`, { signal: ctrl.signal })
       .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
       .then((data) => {
         if (myReq !== reqRef.current) return;

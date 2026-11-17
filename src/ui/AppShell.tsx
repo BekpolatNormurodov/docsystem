@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useEffect, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
@@ -95,7 +96,7 @@ export function AppShell({
   appName,
   nav,
   user,
-  logoutAction = '/api/auth/logout',
+  logoutAction = `${BASE_PATH}/api/auth/logout`,
   panel,
   stepperExtra,
   headerExtra,

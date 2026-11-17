@@ -3,6 +3,7 @@
 // «Qo'shimcha hujjatlar» — Talabnoma ro'yxati / Sud hujjati (IXTIYORIY). Portfel importidagi
 // AYNAN o'sha dropzone uslubi bilan: bo'sh — dashed dropzone (bosib/tashlab yuklash), yuklangan —
 // ext-badge + fayl nomi + hajmi (bosib yuklab olish) + almashtirish/o'chirish. Ochilib-yopiladigan emas.
+import { BASE_PATH } from '@/lib/base-path';
 import React from 'react';
 import type { AppDocFile, AppDocKey } from '@/lib/app-docs';
 import { useT } from '@/lib/i18n/client';
@@ -49,7 +50,7 @@ function DocZone({ k, label, accent, file }: { k: AppDocKey; label: string; acce
           <span className={cx('grid h-11 w-11 shrink-0 place-items-center rounded-lg text-[10px] font-bold uppercase', a.badge)}>
             {extOf(file.label)}
           </span>
-          <a href={`/api/app-docs?download=${k}`} title={t('Yuklab olish')} className="min-w-0 flex-1">
+          <a href={`${BASE_PATH}/api/app-docs?download=${k}`} title={t('Yuklab olish')} className="min-w-0 flex-1">
             <span className="block truncate text-sm font-medium text-brand-600 hover:underline dark:text-brand-400">{file.label}</span>
             <span className="block text-xs text-muted">{fmtSize(file.size)} · {t('yuklab olish')}</span>
           </a>

@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Ico } from '@/ui/icons';
@@ -152,7 +153,7 @@ function UserForm({ mode, initial, existingUsernames = [], onDone, onCancel }: {
       } else if (password) {
         payload.password = password;
       }
-      const res = await fetch(mode === 'add' ? '/api/users' : `/api/users/${initial!.id}`, {
+      const res = await fetch(mode === 'add' ? `${BASE_PATH}/api/users` : `${BASE_PATH}/api/users/${initial!.id}`, {
         method: mode === 'add' ? 'POST' : 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -330,7 +331,7 @@ export function UsersManager({ users, meId }: { users: UserRow[]; meId: number }
     setBusyId(u.id);
     setErr(null);
     try {
-      const res = await fetch(`/api/users/${u.id}`, init);
+      const res = await fetch(`${BASE_PATH}/api/users/${u.id}`, init);
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d?.error || t('Xatolik'));
       refresh();

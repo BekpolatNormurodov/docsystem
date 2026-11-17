@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '@/lib/i18n/client';
 
@@ -198,7 +199,7 @@ export function MibPanel({ snapshotId, firmId }: { snapshotId?: number; firmId?:
       const qs = new URLSearchParams();
       if (snapshotId) qs.set('s', String(snapshotId));
       if (firmId) qs.set('firmId', String(firmId));
-      const res = await fetch(`/konveyer/mib/pull${qs.toString() ? `?${qs}` : ''}`, { cache: 'no-store' });
+      const res = await fetch(`${BASE_PATH}/konveyer/mib/pull${qs.toString() ? `?${qs}` : ''}`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`${t('Server xatosi')} (${res.status})`);
       const d: PullData = await res.json();
       if (my !== reqRef.current) return;

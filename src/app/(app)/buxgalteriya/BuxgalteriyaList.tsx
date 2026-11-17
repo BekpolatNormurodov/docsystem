@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import { useEffect, useState } from 'react';
 import { matchesFuzzy } from '@/lib/fuzzy';
 import { useRouter } from 'next/navigation';
@@ -35,7 +36,7 @@ function FirmCard({ firm, query, forceOpen }: { firm: BxFirm; query: string; for
     if (row.locked) return;
     setBusy(row.caseId);
     try {
-      const res = await fetch('/buxgalteriya/mark', {
+      const res = await fetch(`${BASE_PATH}/buxgalteriya/mark`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ caseId: row.caseId, paid: !row.paid }),
       });
@@ -57,8 +58,8 @@ function FirmCard({ firm, query, forceOpen }: { firm: BxFirm; query: string; for
         </div>
         <div className="flex items-center gap-3">
           <span className="whitespace-nowrap text-xs font-bold tabular-nums text-brand-700 dark:text-brand-300">{n(sum)} {t('so‘m')}</span>
-          <a href={`/buxgalteriya/farmoyish?firmId=${firm.firmId}`} onClick={(e) => e.stopPropagation()} className="hidden rounded-md border border-line px-2 py-1 text-[11px] font-medium text-sky-700 hover:border-sky-500/40 dark:text-sky-300 sm:inline-flex" title={t('Farmoyish (Word)')}>Word</a>
-          <a href={`/buxgalteriya/excel?firmId=${firm.firmId}`} onClick={(e) => e.stopPropagation()} className="hidden rounded-md border border-line px-2 py-1 text-[11px] font-medium text-emerald-700 hover:border-emerald-500/40 dark:text-emerald-300 sm:inline-flex" title="Excel">Excel</a>
+          <a href={`${BASE_PATH}/buxgalteriya/farmoyish?firmId=${firm.firmId}`} onClick={(e) => e.stopPropagation()} className="hidden rounded-md border border-line px-2 py-1 text-[11px] font-medium text-sky-700 hover:border-sky-500/40 dark:text-sky-300 sm:inline-flex" title={t('Farmoyish (Word)')}>Word</a>
+          <a href={`${BASE_PATH}/buxgalteriya/excel?firmId=${firm.firmId}`} onClick={(e) => e.stopPropagation()} className="hidden rounded-md border border-line px-2 py-1 text-[11px] font-medium text-emerald-700 hover:border-emerald-500/40 dark:text-emerald-300 sm:inline-flex" title="Excel">Excel</a>
           <svg className={`h-4 w-4 shrink-0 text-muted transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m9 6 6 6-6 6" /></svg>
         </div>
       </button>

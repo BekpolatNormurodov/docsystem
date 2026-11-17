@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico } from '@/ui';
 import { Dropdown } from './Dropdown';
@@ -46,7 +47,7 @@ export function OfertaBulk({ firms, snapshotId }: { firms: Firm[]; snapshotId?: 
     const params = new URLSearchParams({ snapshotId: String(snapshotId), ofertaOnly: '1' });
     if (firmId != null) params.set('firmId', String(firmId));
     try {
-      const res = await fetch(`/konveyer/prepare?${params.toString()}`);
+      const res = await fetch(`${BASE_PATH}/konveyer/prepare?${params.toString()}`);
       const d = res.ok ? await res.json() : null;
       if (d && typeof d.remaining === 'number') setCount(d.remaining); else if (d && typeof d.total === 'number') setCount(d.total);
       if (d && typeof d.total === 'number') setTotalAll(d.total);
@@ -65,7 +66,7 @@ export function OfertaBulk({ firms, snapshotId }: { firms: Firm[]; snapshotId?: 
     let alive = true;
     const tick = async () => {
       try {
-        const res = await fetch(`/api/jobs/${jobId}`);
+        const res = await fetch(`${BASE_PATH}/api/jobs/${jobId}`);
         if (!res.ok || !alive) return;
         const s: JobState = await res.json();
         if (!alive) return;
@@ -97,7 +98,7 @@ export function OfertaBulk({ firms, snapshotId }: { firms: Firm[]; snapshotId?: 
   const cancel = async () => {
     if (jobId == null || canceling) return;
     setCanceling(true);
-    try { await fetch(`/api/jobs/${jobId}`, { method: 'POST' }); }
+    try { await fetch(`${BASE_PATH}/api/jobs/${jobId}`, { method: 'POST' }); }
     catch { setCanceling(false); }
   };
 
@@ -106,7 +107,7 @@ export function OfertaBulk({ firms, snapshotId }: { firms: Firm[]; snapshotId?: 
     inFlight.current = true;
     setStarting(true); setErr(null); setJob(null); setJobId(null); setCanceling(false);
     try {
-      const res = await fetch('/konveyer/prepare-oferta', {
+      const res = await fetch(`${BASE_PATH}/konveyer/prepare-oferta`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ snapshotId, firmId, ...(all ? {} : { limit: parsed }) }),
       });
@@ -200,7 +201,7 @@ export function OfertaBulk({ firms, snapshotId }: { firms: Firm[]; snapshotId?: 
           </div>
         ) : done ? (
           <div className="flex flex-wrap items-center gap-2">
-            <a href={`/api/export/${jobId}/download`}
+            <a href={`${BASE_PATH}/api/export/${jobId}/download`}
               className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-700 outline-none transition-colors hover:bg-emerald-500/15 focus-visible:ring-2 focus-visible:ring-emerald-500/40 dark:text-emerald-300">
               <Ico.download size={14} /> {job?.message || `${n(job?.total ?? 0)} ${t('tayyor')}`} — {t('yuklab olish')}
             </a>

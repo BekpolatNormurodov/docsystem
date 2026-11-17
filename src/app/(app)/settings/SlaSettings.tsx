@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useEffect, useState } from 'react';
 import { useT } from '@/lib/i18n/client';
 
@@ -18,7 +19,7 @@ export function SlaSettings() {
   const load = async () => {
     setLoading(true); setErr(null);
     try {
-      const res = await fetch('/settings/sla', { cache: 'no-store' });
+      const res = await fetch(`${BASE_PATH}/settings/sla`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`${t('Server xatosi')} (${res.status})`);
       const d = await res.json();
       setEditable(d.editable ?? []);
@@ -32,7 +33,7 @@ export function SlaSettings() {
   const save = async () => {
     setSaving(true); setMsg(null); setErr(null);
     try {
-      const res = await fetch('/settings/sla', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sla: config }) });
+      const res = await fetch(`${BASE_PATH}/settings/sla`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sla: config }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d?.error || t('Saqlanmadi'));
       setConfig(d.config ?? config);

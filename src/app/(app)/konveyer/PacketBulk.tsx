@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useEffect, useRef, useState } from 'react';
 import { useT } from '@/lib/i18n/client';
 
@@ -31,7 +32,7 @@ export function PacketBulk({ firmId, snapshotId, stages, scopeLabel }: {
     let alive = true;
     const tick = async () => {
       try {
-        const res = await fetch(`/api/jobs/${jobId}`);
+        const res = await fetch(`${BASE_PATH}/api/jobs/${jobId}`);
         if (!res.ok || !alive) return;
         const s: JobState = await res.json();
         if (!alive) return;
@@ -52,7 +53,7 @@ export function PacketBulk({ firmId, snapshotId, stages, scopeLabel }: {
     inFlight.current = true;
     setStarting(true); setErr(null); setJob(null); setJobId(null);
     try {
-      const res = await fetch('/konveyer/prepare', {
+      const res = await fetch(`${BASE_PATH}/konveyer/prepare`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ snapshotId, firmId, stages, talabnomaPdf: withPdf }),
       });
@@ -92,7 +93,7 @@ export function PacketBulk({ firmId, snapshotId, stages, scopeLabel }: {
         </button>
       ) : (
         <a
-          href={`/api/export/${jobId}/download`}
+          href={`${BASE_PATH}/api/export/${jobId}/download`}
           className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-700 outline-none transition-colors hover:bg-emerald-500/15 focus-visible:ring-2 focus-visible:ring-emerald-500/40 dark:text-emerald-300"
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 3v12" /><path d="m8 11 4 4 4-4" /></svg>

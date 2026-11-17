@@ -4,6 +4,7 @@
 // firma×holat jadvali. Ma'lumot: GET /konveyer/talabnoma-board (snapshot bo'yicha, nofaol
 // firma chiqmaydi). Sahifa tez ochilishi uchun mount'dan keyin yuklanadi (skeleton bilan),
 // «hippo:refresh» hodisasida (yuborish/bekor) qayta yangilanadi.
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useT } from '@/lib/i18n/client';
 
@@ -38,7 +39,7 @@ export function TalabnomaBoard({ snapshotId }: { snapshotId?: number }) {
     if (snapshotId == null) { setLoading(false); return; }
     setLoading(true); setErr(null);
     try {
-      const res = await fetch(`/konveyer/talabnoma-board?snapshotId=${snapshotId}`, { cache: 'no-store' });
+      const res = await fetch(`${BASE_PATH}/konveyer/talabnoma-board?snapshotId=${snapshotId}`, { cache: 'no-store' });
       if (!res.ok) { let e = t('Yuklab boʻlmadi'); try { e = (await res.json()).error || e; } catch {} throw new Error(e); }
       setData(await res.json());
     } catch (e) { setErr(e instanceof Error ? e.message : t('Yuklab boʻlmadi')); }

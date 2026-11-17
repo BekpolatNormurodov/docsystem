@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH, withBase } from '@/lib/base-path';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from '@/ui';
 import { useT } from '@/lib/i18n/client';
@@ -54,7 +55,7 @@ function loadBrowserClient(): Promise<void> {
       return;
     }
     const s = document.createElement('script');
-    s.src = '/e-imzo/eimzo-browser.js';
+    s.src = withBase('/e-imzo/eimzo-browser.js');
     s.async = true;
     s.dataset.eimzoBrowser = '1';
     s.onload = done;
@@ -151,7 +152,7 @@ export function KeyPicker({
     // show the error instead of spinning. (Cached keys, if any, stay on screen.)
     const timer = setTimeout(() => ctrl.abort(), 25_000);
     try {
-      const res = await fetch('/konveyer/keys?refresh=1', { cache: 'no-store', signal: ctrl.signal });
+      const res = await fetch(`${BASE_PATH}/konveyer/keys?refresh=1`, { cache: 'no-store', signal: ctrl.signal });
       const d = await res.json().catch(() => ({}));
       const list: EimzoKey[] = d.keys ?? [];
       if (!res.ok && !list.length) throw new Error(d?.error || `${t('Server xatosi')} (${res.status})`);
@@ -194,7 +195,7 @@ export function KeyPicker({
   const loadKeys = useCallback(async () => {
     setPhase('loading'); setErr(null); setSyncErr(null);
     try {
-      const res = await fetch('/konveyer/keys', { cache: 'no-store' }); // cached, instant
+      const res = await fetch(`${BASE_PATH}/konveyer/keys`, { cache: 'no-store' }); // cached, instant
       const d = await res.json().catch(() => ({}));
       if (d.clientMode) { setClientMode(true); await loadKeysClient(); return; }
       const list: EimzoKey[] = d.keys ?? [];
@@ -233,7 +234,7 @@ export function KeyPicker({
           pkcs7 = await eb.sign(chosen, HIPPO_SIGN_DATA, 'yes');
         } else {
           // cabinet needs a SERVER-minted, cookie-bound challenge first, detached='no'.
-          const chRes = await fetch('/konveyer/connect/challenge', {
+          const chRes = await fetch(`${BASE_PATH}/konveyer/connect/challenge`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ firmId: firm.firmId, provider }),
           });
@@ -242,7 +243,7 @@ export function KeyPicker({
           challengeId = chD.challengeId;
           pkcs7 = await eb.sign(chosen, chD.challenge, 'no');
         }
-        const res = await fetch(endpoint, {
+        const res = await fetch(withBase(endpoint), {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ firmId: firm.firmId, provider, pkcs7, challengeId, cert }),
         });
@@ -250,7 +251,7 @@ export function KeyPicker({
         if (!res.ok || d?.ok === false) throw new Error(d?.error || `${t('Ulanmadi')} (${res.status})`);
       } else {
         // SERVER MODE (unchanged): the server signs via its local E-IMZO.
-        const res = await fetch(endpoint, {
+        const res = await fetch(withBase(endpoint), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ firmId: firm.firmId, provider, key: chosen }),

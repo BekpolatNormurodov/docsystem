@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico } from '@/ui';
 import { useT } from '@/lib/i18n/client';
@@ -76,7 +77,7 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
     const my = ++sumReqRef.current;
     setSumBusy(true);
     try {
-      const res = await fetch(`/konveyer/talabnoma-summary?snapshotId=${snapshotId}&firmId=${firmId}`);
+      const res = await fetch(`${BASE_PATH}/konveyer/talabnoma-summary?snapshotId=${snapshotId}&firmId=${firmId}`);
       const d = res.ok ? await res.json() : null;
       if (my !== sumReqRef.current) return; // a newer firm/snapshot superseded this response
       if (d && typeof d.count === 'number') {
@@ -102,7 +103,7 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
     let alive = true;
     const tick = async () => {
       try {
-        const res = await fetch(`/api/jobs/${jobId}`);
+        const res = await fetch(`${BASE_PATH}/api/jobs/${jobId}`);
         if (!res.ok || !alive) return;
         const s: JobState = await res.json();
         if (!alive) return;
@@ -132,7 +133,7 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
     xlsInFlight.current = true;
     setXlsBusy(true); setXlsErr(null);
     try {
-      const res = await fetch('/konveyer/talabnoma-bulk-excel', {
+      const res = await fetch(`${BASE_PATH}/konveyer/talabnoma-bulk-excel`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ snapshotId, firmId, ...(limit ? { limit } : {}) }),
       });
@@ -148,7 +149,7 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
     sendInFlight.current = true;
     setSendBusy(true); setSendErr(null); setSendMsg(null);
     try {
-      const res = await fetch('/konveyer/hippo/send', {
+      const res = await fetch(`${BASE_PATH}/konveyer/hippo/send`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ snapshotId, firmId, mode: real ? 'send' : 'draft', ...(real ? { confirm: true } : {}), ...(limit ? { limit } : {}) }),
       });
@@ -191,7 +192,7 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
     inFlight.current = true;
     setStarting(true); setErr(null); setJob(null); setJobId(null);
     try {
-      const res = await fetch('/konveyer/talabnoma-bulk-pdf', {
+      const res = await fetch(`${BASE_PATH}/konveyer/talabnoma-bulk-pdf`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ snapshotId, firmId }),
       });
@@ -295,7 +296,7 @@ export function TalabnomaBulk({ firmId, firmName, snapshotId, scopeLabel, firms 
             ) : (
               <>
                 <a
-                  href={`/api/export/${jobId}/download`}
+                  href={`${BASE_PATH}/api/export/${jobId}/download`}
                   className={cx(
                     'inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2',
                     short

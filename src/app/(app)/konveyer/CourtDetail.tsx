@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useEffect, useRef, useState } from 'react';
 import { courtBadge } from '@/lib/court-result';
 import { useT } from '@/lib/i18n/client';
@@ -76,7 +77,7 @@ export function CourtDetail({ caseId }: { caseId: number }) {
   useEffect(() => {
     const my = ++reqRef.current;
     setLoading(true); setErr(null);
-    fetch(`/konveyer/court-case?caseId=${caseId}`)
+    fetch(`${BASE_PATH}/konveyer/court-case?caseId=${caseId}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('yuklanmadi'))))
       .then((d) => { if (my === reqRef.current) setData(d); })
       .catch(() => { if (my === reqRef.current) setErr(t('Sud maʼlumotini yuklab boʻlmadi')); })
@@ -87,7 +88,7 @@ export function CourtDetail({ caseId }: { caseId: number }) {
   useEffect(() => {
     const my = ++docReq.current;
     setDocsLoading(true); setDocs(null);
-    fetch(`/konveyer/court-docs?caseId=${caseId}`)
+    fetch(`${BASE_PATH}/konveyer/court-docs?caseId=${caseId}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (my === docReq.current && d?.found) setDocs({ ajrimlar: d.ajrimlar ?? [], docs: d.docs ?? [] }); })
       .catch(() => { /* best-effort — the detail still renders */ })

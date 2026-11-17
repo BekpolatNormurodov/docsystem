@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useRef, useState } from 'react';
 import { Ico } from '@/ui';
 import { useT } from '@/lib/i18n/client';
@@ -24,7 +25,7 @@ export function ClientsExcel({ firmId, snapshotId, stages = [], talabnoma = fals
       if (snapshotId != null) params.set('s', String(snapshotId));
       if (stages.length) params.set('stages', stages.join(','));
       if (talabnoma) params.set('talabnoma', '1');
-      const res = await fetch(`/konveyer/cases-excel?${params.toString()}`);
+      const res = await fetch(`${BASE_PATH}/konveyer/cases-excel?${params.toString()}`);
       if (!res.ok) { let e = t('Excel yaratilmadi'); try { e = (await res.json()).error || e; } catch {} throw new Error(e); }
       const blob = await res.blob();
       const cd = res.headers.get('Content-Disposition') || '';

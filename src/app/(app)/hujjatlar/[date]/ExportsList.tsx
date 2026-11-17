@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { DocumentDownload, Trash, Box1, ArrowDown2 } from 'iconsax-react';
@@ -31,7 +32,7 @@ export function ExportsList({ items }: { items: ReadyExport[] }) {
     if (!pendingDelete) return;
     setBusy(true);
     try {
-      await fetch(`/api/export/${pendingDelete.id}`, { method: 'DELETE' });
+      await fetch(`${BASE_PATH}/api/export/${pendingDelete.id}`, { method: 'DELETE' });
       setPendingDelete(null);
       router.refresh();
     } finally {
@@ -70,7 +71,7 @@ export function ExportsList({ items }: { items: ReadyExport[] }) {
               </span>
               <span className="ml-auto text-[11px] text-muted">{e.createdLabel}</span>
               <a
-                href={`/api/export/${e.id}/download`}
+                href={`${BASE_PATH}/api/export/${e.id}/download`}
                 className="btn-primary shrink-0 px-3 py-1.5 text-xs"
               >
                 <DocumentDownload size={14} /> {t('Yuklab olish')}

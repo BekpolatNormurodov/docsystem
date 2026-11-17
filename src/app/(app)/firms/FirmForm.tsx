@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Firm, FirmDocKind } from '@prisma/client';
@@ -45,7 +46,7 @@ export function FirmRow({ firm }: { firm: Firm }) {
   async function toggleActive() {
     setBusy(true);
     try {
-      const res = await fetch(`/api/firms/${firm.id}`, {
+      const res = await fetch(`${BASE_PATH}/api/firms/${firm.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ active: !active }),
@@ -130,7 +131,7 @@ function FirmForm({ firm, onClose }: { firm: Firm; onClose: () => void }) {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`/api/firms/${firm.id}`, {
+      const res = await fetch(`${BASE_PATH}/api/firms/${firm.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(fields),
@@ -225,7 +226,7 @@ function FirmDocs({ firmId }: { firmId: number }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch(`/konveyer/firm-doc?firmId=${firmId}`, { cache: 'no-store' });
+      const r = await fetch(`${BASE_PATH}/konveyer/firm-doc?firmId=${firmId}`, { cache: 'no-store' });
       const d = await r.json();
       const map: Record<string, { id: number; label: string | null }> = {};
       for (const x of (d.docs ?? []) as { id: number; kind: string; label: string | null }[]) map[x.kind] = { id: x.id, label: x.label };
@@ -242,7 +243,7 @@ function FirmDocs({ firmId }: { firmId: number }) {
       fd.append('firmId', String(firmId));
       fd.append('kind', kind);
       fd.append('file', file);
-      const r = await fetch('/konveyer/firm-doc', { method: 'POST', body: fd });
+      const r = await fetch(`${BASE_PATH}/konveyer/firm-doc`, { method: 'POST', body: fd });
       if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j?.error || t('Yuklab boʻlmadi')); }
       await load();
     } catch (e) { setErr(e instanceof Error ? e.message : t('Xato')); }
@@ -252,7 +253,7 @@ function FirmDocs({ firmId }: { firmId: number }) {
   async function remove(kind: string, id: number) {
     setBusy(kind); setErr(null);
     try {
-      const r = await fetch(`/konveyer/firm-doc?id=${id}`, { method: 'DELETE' });
+      const r = await fetch(`${BASE_PATH}/konveyer/firm-doc?id=${id}`, { method: 'DELETE' });
       if (!r.ok) throw new Error();
       await load();
     } catch { setErr(t('Oʻchirib boʻlmadi')); }
@@ -276,7 +277,7 @@ function FirmDocs({ firmId }: { firmId: number }) {
                 <span className="text-xs text-muted">…</span>
               ) : doc ? (
                 <>
-                  <a href={`/konveyer/firm-doc?download=${doc.id}`} className="min-w-0 flex-1 truncate text-[12px] text-brand-600 hover:underline dark:text-brand-400" title={doc.label ?? t(label)}>
+                  <a href={`${BASE_PATH}/konveyer/firm-doc?download=${doc.id}`} className="min-w-0 flex-1 truncate text-[12px] text-brand-600 hover:underline dark:text-brand-400" title={doc.label ?? t(label)}>
                     {doc.label ?? t(label)}
                   </a>
                   <button type="button" disabled={isBusy} onClick={() => inputs.current[kind]?.click()} className="btn-ghost px-2 py-1 text-[11px]">{t('Almashtirish')}</button>

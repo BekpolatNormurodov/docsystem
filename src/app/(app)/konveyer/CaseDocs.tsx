@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH, withBase } from '@/lib/base-path';
 import React, { useEffect, useRef, useState } from 'react';
 import { useT } from '@/lib/i18n/client';
 
@@ -49,7 +50,7 @@ const FIRM_KINDS = ['GUVOHNOMA', 'ISHONCHNOMA', 'SHARTNOMA'];
 // spinner while the server generates (a plain <a download> can't).
 async function downloadFrom(url: string, t: (s: string) => string, init?: RequestInit): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await fetch(url, init);
+    const res = await fetch(withBase(url), init);
     if (!res.ok) { let e = t('Xatolik'); try { e = (await res.json()).error || e; } catch {} return { ok: false, error: e }; }
     const blob = await res.blob();
     const cd = res.headers.get('Content-Disposition') || '';
@@ -168,7 +169,7 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, 
   // in-flight fetch for a previous caseId/firmId can't write this row's state.
   const load = async (token = reqRef.current) => {
     try {
-      const res = await fetch(`/konveyer/upload?caseId=${caseId}`);
+      const res = await fetch(`${BASE_PATH}/konveyer/upload?caseId=${caseId}`);
       if (!res.ok) throw new Error('load');
       const data = await res.json();
       if (token !== reqRef.current) return;
@@ -181,7 +182,7 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, 
   };
   const loadFirmLib = async (token = reqRef.current) => {
     try {
-      const res = await fetch(`/konveyer/firm-doc?firmId=${firmId}`);
+      const res = await fetch(`${BASE_PATH}/konveyer/firm-doc?firmId=${firmId}`);
       const data = await res.json();
       if (token !== reqRef.current) return;
       setFirmLib(data.docs ?? []);
@@ -208,10 +209,10 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, 
       let res: Response;
       if (isFirm) {
         fd.set('firmId', String(firmId)); fd.set('kind', kind);
-        res = await fetch('/konveyer/firm-doc', { method: 'POST', body: fd });
+        res = await fetch(`${BASE_PATH}/konveyer/firm-doc`, { method: 'POST', body: fd });
       } else {
         fd.set('caseId', String(caseId)); fd.set('kind', kind);
-        res = await fetch('/konveyer/upload', { method: 'POST', body: fd });
+        res = await fetch(`${BASE_PATH}/konveyer/upload`, { method: 'POST', body: fd });
       }
       if (!res.ok) throw new Error('upload');
       if (isFirm) await loadFirmLib(); else await load();
@@ -227,7 +228,7 @@ export function CaseDocs({ caseId, firmId, stage, receiptNumber, talabnomaSent, 
   const del = async (id: number, kind: string) => {
     setRowErr(null);
     try {
-      const res = await fetch(`/konveyer/upload?id=${id}`, { method: 'DELETE' });
+      const res = await fetch(`${BASE_PATH}/konveyer/upload?id=${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('del');
       setDocs((d) => d.filter((x) => x.id !== id));
       onChange?.();

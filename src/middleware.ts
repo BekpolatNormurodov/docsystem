@@ -17,11 +17,18 @@ export function middleware(req: NextRequest) {
   const isSso = req.nextUrl.pathname === '/api/sso';
   if (!token && !isLogin && !isAuthApi && !isHealth && !isMibWebhook && !isSso) {
     if ((process.env.ROLE_SERVICE_JWT_SECRET?.trim() || process.env.JWT_SECRET?.trim()) && req.cookies.get('mko_session')?.value) {
-      const url = new URL('/api/sso', req.url);
+      // nextUrl.clone() keeps the basePath (/yurist); `new URL('/api/sso', req.url)` would drop it.
+      // `next` stays WITHOUT the base path (nextUrl.pathname has none) — /api/sso adds it back when it redirects.
+      const url = req.nextUrl.clone();
+      url.pathname = '/api/sso';
+      url.search = '';
       url.searchParams.set('next', req.nextUrl.pathname + req.nextUrl.search);
       return NextResponse.redirect(url);
     }
-    return NextResponse.redirect(new URL('/login', req.url));
+    const login = req.nextUrl.clone();
+    login.pathname = '/login';
+    login.search = '';
+    return NextResponse.redirect(login);
   }
   return NextResponse.next();
 }

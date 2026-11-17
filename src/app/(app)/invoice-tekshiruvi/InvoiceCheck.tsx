@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico, Spinner, Modal, Select, DateField, useConfirm } from '@/ui';
 import { useT } from '@/lib/i18n/client';
@@ -148,7 +149,7 @@ function SingleCheckCard({ onSaved }: { onSaved: () => void }) {
     if (!n) return;
     setLoading(true);
     setErr(null);
-    const { ok, json } = await jpost('/api/billing-check/single', { invoice: n });
+    const { ok, json } = await jpost(`${BASE_PATH}/api/billing-check/single`, { invoice: n });
     setLoading(false);
     if (!ok) { setErr(json?.error || t('Xato')); return; }
     setInv(json.invoice);
@@ -294,7 +295,7 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
     const params = filterParams();
     params.set('page', String(page));
     params.set('size', String(size));
-    const res = await fetch(`/api/billing-check?${params.toString()}`, { cache: 'no-store' });
+    const res = await fetch(`${BASE_PATH}/api/billing-check?${params.toString()}`, { cache: 'no-store' });
     if (!res.ok) { setErr(t('Ro‘yxatni yuklab bo‘lmadi')); setLoading(false); return; }
     const j = await res.json().catch(() => null);
     if (!j) { setErr(t('Ro‘yxatni yuklab bo‘lmadi')); setLoading(false); return; }
@@ -314,7 +315,7 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
   // Yig'ish holatini kuzatish: ketayotganda tez-tez, bo'sh turganda siyrak (avtomatik
   // yangilanish worker'da bo'lgani uchun uni ham shu yerdan ushlab olamiz).
   const pollSync = useCallback(async () => {
-    const res = await fetch('/api/billing-check/sync', { cache: 'no-store' });
+    const res = await fetch(`${BASE_PATH}/api/billing-check/sync`, { cache: 'no-store' });
     if (!res.ok) return;
     const j = await res.json().catch(() => null);
     if (!j) return;
@@ -351,7 +352,7 @@ function CacheCard({ tick, onChanged }: { tick: number; onChanged: () => void })
   const startSync = useCallback(async (all = false) => {
     if (!all && !activeFirm) return;
     setErr(null);
-    const { ok, json } = await jpost('/api/billing-check/sync', {
+    const { ok, json } = await jpost(`${BASE_PATH}/api/billing-check/sync`, {
       ...(all ? { all: true } : { firm: activeFirm!.branchCode }),
       ...(syncLimit ? { limit: syncLimit } : {}),
     });
@@ -723,7 +724,7 @@ function ExportModal({
     setLoading(true);
     const p = params();
     p.set('size', '1');
-    fetch(`/api/billing-check?${p.toString()}`, { cache: 'no-store' })
+    fetch(`${BASE_PATH}/api/billing-check?${p.toString()}`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         if (cancelled || !j) return;
@@ -737,7 +738,7 @@ function ExportModal({
   const activePreset = DATE_PRESETS.find((p) => { const [a, b] = p.range(); return a === from && b === to; })?.label;
 
   const download = () => {
-    window.location.href = `/api/billing-check/excel?${params().toString()}`;
+    window.location.href = `${BASE_PATH}/api/billing-check/excel?${params().toString()}`;
     onClose();
   };
 
@@ -877,7 +878,7 @@ function OwnAmountsModal({
 
   const save = async () => {
     setSaving(true);
-    const { ok, json } = await jpost('/api/billing-check/own-amounts', { amounts: sel });
+    const { ok, json } = await jpost(`${BASE_PATH}/api/billing-check/own-amounts`, { amounts: sel });
     setSaving(false);
     if (ok) { onSaved(json.ownAmounts ?? sel); onClose(); }
   };
@@ -1033,7 +1034,7 @@ function HistoryCard({ tick }: { tick: number }) {
   const [open, setOpen] = useState(false);
 
   const refresh = useCallback(async () => {
-    const res = await fetch('/api/billing-check/history', { cache: 'no-store' });
+    const res = await fetch(`${BASE_PATH}/api/billing-check/history`, { cache: 'no-store' });
     const j = await res.json().catch(() => ({ queries: [] }));
     setRows(j.queries ?? []);
     setLoading(false);
@@ -1048,7 +1049,7 @@ function HistoryCard({ tick }: { tick: number }) {
       confirmLabel: t('O‘chirish'), danger: true,
     });
     if (!ok) return;
-    await fetch(`/api/billing-check/query/${r.id}`, { method: 'DELETE' });
+    await fetch(`${BASE_PATH}/api/billing-check/query/${r.id}`, { method: 'DELETE' });
     await refresh();
   };
 

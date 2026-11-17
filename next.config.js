@@ -1,5 +1,10 @@
 /** @type {import('next').NextConfig} */
+// NEXT_PUBLIC_BASE_PATH ('/yurist'): the app lives under a path of a shared domain (mko-crm.uz/yurist) and the
+// front proxy keeps the prefix. Build-time (inlined in the client too, see src/lib/base-path.ts). Unset = root.
+const basePath = (process.env.NEXT_PUBLIC_BASE_PATH || '').trim().replace(/\/+$/, '');
+
 const nextConfig = {
+  ...(basePath ? { basePath } : {}),
   experimental: {
     // `iconsax-react` is a huge barrel: a named import of ~28 icons otherwise drags the WHOLE package
     // (thousands of modules) into every route's dev compile — the main cause of 15–20s "Compiling…".

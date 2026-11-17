@@ -3,6 +3,7 @@
 // Boshliq (director) hisoboti — Firma × bosqich matritsasi. Har qatorda bitta firma; ustunlarda
 // 4 bosqich: Talabnoma · Sanoat palatasi · Sudga chiqarilgan (4 ADOLAT statusi) · MIBga. Pastda JAMI.
 // Snapshot filtri — sidebardagi umumiy sana (konv_s). Excel — /boss/excel.
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useContext, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Ico, ExcelButton, Skeleton } from '@/ui';
@@ -407,7 +408,7 @@ function JudgeSyncPanel({ judges }: { judges: BossReportData['judges'] }) {
     let dead = false;
     const poll = async () => {
       try {
-        const r = await fetch('/api/cabinet/detail-sync-now', { cache: 'no-store' });
+        const r = await fetch(`${BASE_PATH}/api/cabinet/detail-sync-now`, { cache: 'no-store' });
         if (!r.ok) return;
         const d = await r.json();
         if (!dead) setLive(toState(d));
@@ -421,11 +422,11 @@ function JudgeSyncPanel({ judges }: { judges: BossReportData['judges'] }) {
   async function call(action: 'start' | 'stop' | 'restart') {
     setBusy(true); setErr('');
     try {
-      const r = await fetch('/api/cabinet/detail-sync-now', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) });
+      const r = await fetch(`${BASE_PATH}/api/cabinet/detail-sync-now`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) });
       const d = await r.json();
       if (!r.ok) throw new Error(d?.error || String(r.status));
       // Darhol holatni yangilaymiz (poll'ni kutmasdan).
-      const g = await fetch('/api/cabinet/detail-sync-now', { cache: 'no-store' }).then((x) => x.json()).catch(() => null);
+      const g = await fetch(`${BASE_PATH}/api/cabinet/detail-sync-now`, { cache: 'no-store' }).then((x) => x.json()).catch(() => null);
       if (g) setLive(toState(g));
     } catch (e) {
       setErr((e as Error).message);

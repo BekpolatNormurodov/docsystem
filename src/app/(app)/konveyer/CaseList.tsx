@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Skeleton, Ico, Modal } from '@/ui';
 import { CaseDocs } from './CaseDocs';
@@ -233,7 +234,7 @@ export function CaseList({ firmId, snapshotId, stages, talabnoma, phaseLabel }: 
     if (talabnoma) qs.set('talabnoma', '1');
     if (debouncedQ) qs.set('q', debouncedQ);
     try {
-      const res = await fetch(`/konveyer/cases?${qs.toString()}`);
+      const res = await fetch(`${BASE_PATH}/konveyer/cases?${qs.toString()}`);
       if (!res.ok) throw new Error(`${t('Server xatosi')} (${res.status})`);
       const data = await res.json();
       if (myReq !== reqRef.current) return; // a newer request superseded this one

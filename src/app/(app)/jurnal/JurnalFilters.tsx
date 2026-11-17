@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FILTERABLE_ACTIONS, actionLabel } from '@/lib/audit-labels';
@@ -80,7 +81,7 @@ export function JurnalFilters({ action, q, from, to, showUser = true }: { action
       )}
 
       <a
-        href={`/jurnal/export${exportParams ? `?${exportParams}` : ''}`}
+        href={`${BASE_PATH}/jurnal/export${exportParams ? `?${exportParams}` : ''}`}
         className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-2 text-sm font-medium text-muted transition-colors hover:border-brand-500/40 hover:text-fg"
         title={t('Filtrlangan jurnalni Excelga yuklab olish')}
       >

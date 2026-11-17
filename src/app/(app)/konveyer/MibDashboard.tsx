@@ -9,6 +9,7 @@
 //   • Mijozni bosish — ALOHIDA ICHKI SAHIFA (orqaga tugmasi bilan), tor modal emas: ijro ishlari
 //     keng va o'qilishi oson ko'rinadi + o'sha mijozning Excel'i.
 // Kesim/region mantig'i src/lib/mib/breakdown.ts dan (server Excel bilan bir xil).
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Ico, Spinner, DateField, useConfirm } from '@/ui';
@@ -121,7 +122,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   const [reusedInfo, setReusedInfo] = useState<(RecheckInfo & { clientId: number }) | null>(null);
 
   const load = useCallback(async () => {
-    const j = await jget(aggregate ? '/api/mib/all' : `/api/mib/${reportId}`);
+    const j = await jget(aggregate ? `${BASE_PATH}/api/mib/all` : `${BASE_PATH}/api/mib/${reportId}`);
     setReport(j.report ?? null); setClients(j.clients ?? []); setStats(j.stats ?? null);
     setHolatValues(j.holatValues ?? []);
     setSentRange(j.sentDateRange ?? { min: null, max: null });
@@ -218,7 +219,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   const build = async () => {
     setBusy('build'); setNote('');
     const body = { statusFilter: statusFilter || null, dateFrom: dateFrom || null, dateTo: dateTo || null };
-    let { ok, json } = await jpost(`/api/mib/${reportId}/build`, body);
+    let { ok, json } = await jpost(`${BASE_PATH}/api/mib/${reportId}/build`, body);
     // Tekshirilgan natijalar bor — o'chishini aniq aytib tasdiq so'raymiz (tasodifiy bosish ma'lumotni o'chirmasin).
     if (!ok && json?.needConfirm) {
       const yes = await confirm({
@@ -227,26 +228,26 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
         confirmLabel: t('Ha, qayta qurish'), danger: true,
       });
       if (!yes) { setBusy(''); return; }
-      ({ ok, json } = await jpost(`/api/mib/${reportId}/build`, { ...body, force: true }));
+      ({ ok, json } = await jpost(`${BASE_PATH}/api/mib/${reportId}/build`, { ...body, force: true }));
     }
     if (!ok) setNote(json.error || t('Xatolik')); else { await load(); await onChanged?.(); }
     setBusy('');
   };
   const go = async () => {
     setBusy('go'); setNote('');
-    const { ok, json } = await jpost(`/api/mib/${reportId}/run`);
+    const { ok, json } = await jpost(`${BASE_PATH}/api/mib/${reportId}/run`);
     if (!ok) { setNote(json.error || t('Xatolik')); setBusy(''); return; }
     if (!json.phoneConfigured) setNote(t('Diqqat: telefon raqami sozlanmagan — chuqur detal (SMS) olinmaydi, faqat ijro ishlari roʻyxati.'));
     await load(); await onChanged?.(); setBusy('');
   };
-  const stop = async () => { setBusy('stop'); await jpost(`/api/mib/${reportId}/stop`); await load(); await onChanged?.(); setBusy(''); };
+  const stop = async () => { setBusy('stop'); await jpost(`${BASE_PATH}/api/mib/${reportId}/stop`); await load(); await onChanged?.(); setBusy(''); };
   const doReseed = async () => { setBusy('reseed'); await reseed?.(); await load(); await onChanged?.(); setBusy(''); };
   const addPinfl = async (e: React.FormEvent) => {
     e.preventDefault();
     const p = pinfl.replace(/\D/g, '');
     if (p.length !== 14) { setAddMsg({ ok: false, text: t('PINFL 14 ta raqam boʻlishi kerak') }); return; }
     setBusy('add'); setAddMsg(null);
-    const doPost = (force: boolean) => jpost(`/api/mib/${reportId}/add-pinfl`, { pinfl: p, force });
+    const doPost = (force: boolean) => jpost(`${BASE_PATH}/api/mib/${reportId}/add-pinfl`, { pinfl: p, force });
     const { ok, json } = await doPost(false);
     setBusy('');
     if (!ok) { setAddMsg({ ok: false, text: json.error || t('Xatolik') }); return; }
@@ -262,7 +263,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   const doForceReused = async () => {
     if (!reusedInfo) return;
     setBusy('add');
-    const { ok, json } = await jpost(`/api/mib/${reportId}/add-pinfl`, { pinfl: reusedInfo.pinfl, force: true });
+    const { ok, json } = await jpost(`${BASE_PATH}/api/mib/${reportId}/add-pinfl`, { pinfl: reusedInfo.pinfl, force: true });
     setBusy(''); setReusedInfo(null);
     if (!ok) { setAddMsg({ ok: false, text: json.error || t('Xatolik') }); return; }
     setPinfl(''); setAddMsg({ ok: true, text: json.running ? `${reusedInfo.pinfl} ${t('qoʻshildi — tekshirilmoqda…')}` : `${reusedInfo.pinfl} ${t('qoʻshildi (navbatda)')}` });
@@ -281,7 +282,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   // ── Ichki ko'rinish (konveyer modal): mijoz detali ─────────────────────────
   if (detailId != null) return <ClientDetailFull reportId={reportId} clientId={detailId} onBack={() => setDetailId(null)} />;
 
-  const excelHref = tab === 'mijozlar' ? `/api/mib/${reportId}/excel` : `/api/mib/${reportId}/excel?tab=${tab}`;
+  const excelHref = tab === 'mijozlar' ? `${BASE_PATH}/api/mib/${reportId}/excel` : `${BASE_PATH}/api/mib/${reportId}/excel?tab=${tab}`;
 
   return (
     <div className="space-y-4">
@@ -449,7 +450,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
             <div className="mr-1 flex shrink-0 items-center gap-1">
               {/* «To'liq Excel» — DOIM hamma varaq (Mijozlar + Ishlar + Ijrochilar + Firma/Region/Hudud/Bank).
                   «Faqat shu kesim» — kesim tablarда qulaylik uchun bitta varaq. */}
-              <a className="btn-ghost text-xs" href={`/api/mib/${reportId}/excel`}><Ico.download size={14} /> {t('Toʻliq Excel')}</a>
+              <a className="btn-ghost text-xs" href={`${BASE_PATH}/api/mib/${reportId}/excel`}><Ico.download size={14} /> {t('Toʻliq Excel')}</a>
               {tab !== 'mijozlar' && <a className="btn-ghost text-xs" href={excelHref}>{t('Faqat shu kesim')}</a>}
             </div>
           )}

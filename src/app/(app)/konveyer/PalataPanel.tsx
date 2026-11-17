@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useT } from '@/lib/i18n/client';
 
@@ -28,7 +29,7 @@ export function PalataPanel() {
   const load = useCallback(async () => {
     setErr(null);
     try {
-      const res = await fetch('/konveyer/palata-upload');
+      const res = await fetch(`${BASE_PATH}/konveyer/palata-upload`);
       if (!res.ok) throw new Error(`${t('Server xatosi')} (${res.status})`);
       const data = await res.json();
       setFiles(data.files ?? []);
@@ -45,7 +46,7 @@ export function PalataPanel() {
     setSearching(true);
     const t = setTimeout(async () => {
       try {
-        const res = await fetch(`/konveyer/cases?pageSize=8${q ? `&q=${encodeURIComponent(q)}` : ''}`);
+        const res = await fetch(`${BASE_PATH}/konveyer/cases?pageSize=8${q ? `&q=${encodeURIComponent(q)}` : ''}`);
         const data = await res.json();
         const flat: PickCase[] = (data.persons ?? []).flatMap((p: any) =>
           (p.cases ?? []).map((c: any) => ({ caseId: c.caseId, clientName: p.clientName, firmName: c.firmName, stageLabel: c.stageLabel })));
@@ -60,7 +61,7 @@ export function PalataPanel() {
     if (!assign) return;
     setAssigningId(caseId); setErr(null);
     try {
-      const res = await fetch('/konveyer/palata-assign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file: assign, caseId }) });
+      const res = await fetch(`${BASE_PATH}/konveyer/palata-assign`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file: assign, caseId }) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d?.error ?? t('Biriktirib bo‘lmadi')); }
       setAssign(null); setQ(''); setResults([]);
       await load();
@@ -76,7 +77,7 @@ export function PalataPanel() {
     try {
       const fd = new FormData();
       Array.from(list).forEach((f) => fd.append('files', f));
-      const res = await fetch('/konveyer/palata-upload', { method: 'POST', body: fd });
+      const res = await fetch(`${BASE_PATH}/konveyer/palata-upload`, { method: 'POST', body: fd });
       if (!res.ok) throw new Error(t('Yuklab bo‘lmadi'));
       await load();
     } catch (e2) {
@@ -89,7 +90,7 @@ export function PalataPanel() {
 
   const del = async (name: string) => {
     try {
-      const res = await fetch(`/konveyer/palata-upload?name=${encodeURIComponent(name)}`, { method: 'DELETE' });
+      const res = await fetch(`${BASE_PATH}/konveyer/palata-upload?name=${encodeURIComponent(name)}`, { method: 'DELETE' });
       if (!res.ok) throw new Error(t('O‘chirib bo‘lmadi'));
       setFiles((f) => f.filter((x) => x.name !== name));
     } catch (e) { setErr(e instanceof Error ? e.message : t('O‘chirib bo‘lmadi')); }

@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Trash } from 'iconsax-react';
@@ -44,7 +45,7 @@ export function ImportHistory({ rows }: { rows: HistoryRow[] }) {
     const r = confirm;
     setDeleting(r.id);
     try {
-      await fetch(`/api/snapshots/${r.id}`, { method: 'DELETE' });
+      await fetch(`${BASE_PATH}/api/snapshots/${r.id}`, { method: 'DELETE' });
       setConfirm(null);
       router.refresh();
     } finally {

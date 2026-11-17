@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico, Spinner, useConfirm } from '@/ui';
 import { DatePicker } from '@/ui/DatePicker';
@@ -52,7 +53,7 @@ export function TalabnomaForm() {
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    const res = await fetch('/api/talabnoma-form', { cache: 'no-store' });
+    const res = await fetch(`${BASE_PATH}/api/talabnoma-form`, { cache: 'no-store' });
     const j = await res.json().catch(() => ({ batches: [] }));
     setBatches(j.batches ?? []);
     setLoading(false);
@@ -77,7 +78,7 @@ export function TalabnomaForm() {
       confirmLabel: t('O‘chirish'), danger: true,
     });
     if (!ok) return;
-    await fetch(`/api/talabnoma-form/${b.id}`, { method: 'DELETE' });
+    await fetch(`${BASE_PATH}/api/talabnoma-form/${b.id}`, { method: 'DELETE' });
     if (selId === b.id) setSelId(null);
     await refresh();
   };
@@ -134,7 +135,7 @@ function UploadCard({ onDone }: { onDone: (batchId: number) => void }) {
       // XHR — fetch upload progressni bermaydi; katta портфель uchun «manabuncha yuklandi» ko'rsatamiz.
       const j = await new Promise<{ ok: boolean; batchId?: number; error?: string }>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', '/api/talabnoma-form/upload');
+        xhr.open('POST', `${BASE_PATH}/api/talabnoma-form/upload`);
         xhr.upload.onprogress = (e) => { if (e.lengthComputable) setPct(Math.round((e.loaded / e.total) * 100)); };
         xhr.onload = () => {
           let body: any = {}; try { body = JSON.parse(xhr.responseText || '{}'); } catch {}
@@ -299,7 +300,7 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
 
   const runPreview = useCallback(async (o: { thresholdTotal: number; perFirmMin: number }) => {
     setApplying(true);
-    const { ok, json } = await jpost(`/api/talabnoma-form/${batch.id}/preview`, o);
+    const { ok, json } = await jpost(`${BASE_PATH}/api/talabnoma-form/${batch.id}/preview`, o);
     if (ok) setResult(json.result);
     setApplying(false);
   }, [batch.id]);
@@ -321,7 +322,7 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
           <span className="flex items-center gap-2 text-sm font-medium"><Spinner size={16} /> {t('Excel‘lar tahlil qilinmoqda…')}</span>
           <button
             className="btn-ghost px-2.5 py-1.5 text-xs"
-            onClick={async () => { await fetch(`/api/talabnoma-form/${batch.id}/reparse`, { method: 'POST' }); await onChanged(); }}
+            onClick={async () => { await fetch(`${BASE_PATH}/api/talabnoma-form/${batch.id}/reparse`, { method: 'POST' }); await onChanged(); }}
             title={t('Agar to‘xtab qolsa, tahlilni qayta boshlaydi')}
           >
             <Ico.refresh size={14} /> {t('Qayta urinish')}
@@ -356,12 +357,12 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
     }
     setBusyFirm(firm.code + kind);
     try {
-      const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/generate`, {
+      const { ok, status, json } = await jpost(`${BASE_PATH}/api/talabnoma-form/${batch.id}/generate`, {
         firmCode: firm.code, firmName: firm.name, kind, ...eff(opts), includeUnready: !firm.ready, docDate, amount,
       });
       if (!ok) { setNote(json.error || `${t('Xatolik')} (${status})`); if (json.reparsing) await onChanged(); return; }
       if (kind === 'REYESTR') {
-        window.location.href = `/api/talabnoma-form/${batch.id}/download/${json.runId}`;
+        window.location.href = `${BASE_PATH}/api/talabnoma-form/${batch.id}/download/${json.runId}`;
       } else {
         setNote(`${t('Xatlar tayyorlanmoqda')} (${n(json.rowCount ?? firm.personCount)} ${t('ta')}) — ${t('Tarixdan yuklab olasiz.')}`);
       }
@@ -373,9 +374,9 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
   const doGenerateAll = async () => {
     setNote(''); setBusyFirm('__ALL__');
     try {
-      const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/generate`, { all: true, format: 'excel', ...eff(opts), docDate, amount });
+      const { ok, status, json } = await jpost(`${BASE_PATH}/api/talabnoma-form/${batch.id}/generate`, { all: true, format: 'excel', ...eff(opts), docDate, amount });
       if (!ok) { setNote(json.error || `${t('Xatolik')} (${status})`); if (json.reparsing) await onChanged(); return; }
-      window.location.href = `/api/talabnoma-form/${batch.id}/download/${json.runId}`;
+      window.location.href = `${BASE_PATH}/api/talabnoma-form/${batch.id}/download/${json.runId}`;
       await onChanged();
     } finally { setBusyFirm(null); }
   };
@@ -384,7 +385,7 @@ function BatchPanel({ batch, confirm, onChanged }: { batch: Batch; confirm: Retu
   const doGenerateAllZip = async () => {
     setNote(''); setBusyFirm('__ALLZIP__');
     try {
-      const { ok, status, json } = await jpost(`/api/talabnoma-form/${batch.id}/generate`, { all: true, format: 'zip', ...eff(opts), docDate, amount });
+      const { ok, status, json } = await jpost(`${BASE_PATH}/api/talabnoma-form/${batch.id}/generate`, { all: true, format: 'zip', ...eff(opts), docDate, amount });
       if (!ok) { setNote(json.error || `${t('Xatolik')} (${status})`); if (json.reparsing) await onChanged(); return; }
       setNote(t('ZIP tayyorlanmoqda (har firma alohida papka) — pastdagi «Amallar tarixi»dan yuklab olasiz.'));
       await onChanged();
@@ -618,7 +619,7 @@ function RunsTable({ batch }: { batch: Batch }) {
                 <td className="px-4 py-2.5 text-right text-xs text-muted">{dt(r.createdAt)}</td>
                 <td className="px-4 py-2.5 text-right">
                   {r.status === 'DONE' && r.resultPath ? (
-                    <a className="btn-ghost px-2.5 py-1.5 text-xs" href={`/api/talabnoma-form/${batch.id}/download/${r.id}`}>
+                    <a className="btn-ghost px-2.5 py-1.5 text-xs" href={`${BASE_PATH}/api/talabnoma-form/${batch.id}/download/${r.id}`}>
                       <Ico.download size={14} /> {t('Yuklab olish')}
                     </a>
                   ) : r.kind === 'HIPPO' && r.status === 'DONE' ? (

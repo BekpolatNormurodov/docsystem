@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico, Select } from '@/ui';
 import { useT } from '@/lib/i18n/client';
@@ -62,7 +63,7 @@ export function GeneratedList({ type, snapshotId, firmId, firms, count }: { type
     if (query.trim()) p.set('q', query.trim());
     if (isInvoice) { p.set('made', fltRef.current); if (fltPaidRef.current !== 'all') p.set('paid', fltPaidRef.current); }
     try {
-      const res = await fetch(`/konveyer/generated?${p.toString()}`);
+      const res = await fetch(`${BASE_PATH}/konveyer/generated?${p.toString()}`);
       const d = res.ok ? await res.json() : null;
       if (my !== reqRef.current) return;
       setItems(Array.isArray(d?.items) ? d.items : []);
@@ -148,7 +149,7 @@ export function GeneratedList({ type, snapshotId, firmId, firms, count }: { type
               className="w-full bg-transparent text-xs outline-none placeholder:text-muted" />
             {loading && <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent text-muted" />}
             {/* Umumiy Excel skachat — hozirgi filtr (qidiruv/firma) bo'yicha butun ro'yxat. */}
-            <a href={`/konveyer/generated/excel?${params({})}`}
+            <a href={`${BASE_PATH}/konveyer/generated/excel?${params({})}`}
               className="inline-flex shrink-0 items-center gap-1 rounded-md border border-line px-2 py-1 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-500/10 dark:text-emerald-400"
               title={t("Butun ro'yxatni Excel qilib yuklab olish")}>
               <Ico.sheet size={12} /> Excel

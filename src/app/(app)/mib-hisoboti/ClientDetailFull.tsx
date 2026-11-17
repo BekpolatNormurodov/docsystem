@@ -4,6 +4,7 @@
 // modalining ichki ko'rinishi ikkalasi ham shuni ishlatadi. O'zi /api/mib/client/[cid] dan o'qiydi va
 // tekshiruv ketayotganda (PENDING/RUNNING) jonli yangilanadi — shuning uchun bitta PINFL qo'shib,
 // uning sahifasida natija to'lishini kuzatish mumkin.
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Ico, Spinner } from '@/ui';
@@ -33,7 +34,7 @@ export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { rep
 
   const load = useCallback(async () => {
     const qs = showArchived ? '?archived=1' : '';
-    const r = await fetch(`/api/mib/client/${clientId}${qs}`, { cache: 'no-store' });
+    const r = await fetch(`${BASE_PATH}/api/mib/client/${clientId}${qs}`, { cache: 'no-store' });
     if (r.status === 404) { setMissing(true); setLoading(false); return; }
     const j = await r.json().catch(() => null);
     setClient(j?.client ?? null); setRunning(!!j?.running);
@@ -55,7 +56,7 @@ export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { rep
   const doRecheck = async () => {
     if (!client) return;
     setRechecking(true);
-    await fetch(`/api/mib/${reportId}/add-pinfl`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pinfl: client.pinfl, force: true }) }).catch(() => {});
+    await fetch(`${BASE_PATH}/api/mib/${reportId}/add-pinfl`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pinfl: client.pinfl, force: true }) }).catch(() => {});
     setRecheckOpen(false);
     await load();
     setRechecking(false);
@@ -99,7 +100,7 @@ export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { rep
           <button className="btn-ghost text-xs" disabled={rechecking || active} onClick={openRecheck}>
             {rechecking ? <Spinner size={14} /> : <Ico.refresh size={14} />} {t('Qayta tekshirish')}
           </button>
-          <a className="btn-ghost text-xs" href={`/api/mib/${reportId}/excel?client=${client.id}`}><Ico.download size={14} /> {t('Shu mijoz — Excel')}</a>
+          <a className="btn-ghost text-xs" href={`${BASE_PATH}/api/mib/${reportId}/excel?client=${client.id}`}><Ico.download size={14} /> {t('Shu mijoz — Excel')}</a>
         </div>
       </div>
 

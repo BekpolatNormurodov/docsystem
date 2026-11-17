@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Ico } from '@/ui';
 import { useT } from '@/lib/i18n/client';
@@ -80,7 +81,7 @@ export function JobHistory({ limit = 200, perPage = 20 }: { limit?: number; perP
   const load = useCallback(async () => {
     const my = ++reqRef.current;
     try {
-      const res = await fetch(`/api/jobs?limit=${limit}`, { cache: 'no-store' });
+      const res = await fetch(`${BASE_PATH}/api/jobs?limit=${limit}`, { cache: 'no-store' });
       if (my !== reqRef.current) return;
       if (!res.ok) throw new Error(`${t('Server xatosi')} (${res.status})`);
       const d = await res.json();
@@ -149,7 +150,7 @@ export function JobHistory({ limit = 200, perPage = 20 }: { limit?: number; perP
                       <td className="px-3 py-2"><span className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium ${st.tone}`}>{t(st.label)}</span></td>
                       <td className="px-3 py-2 text-right">
                         {r.status === 'DONE' && r.hasResult
-                          ? <a href={`/api/export/${r.id}/download`} className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-brand-600 hover:border-brand-500/40 dark:text-brand-400"><Ico.download size={13} /> {t('Yuklab olish')}</a>
+                          ? <a href={`${BASE_PATH}/api/export/${r.id}/download`} className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-brand-600 hover:border-brand-500/40 dark:text-brand-400"><Ico.download size={13} /> {t('Yuklab olish')}</a>
                           : r.status === 'FAILED' && r.message
                             ? <span className="text-[11px] text-rose-500" title={r.message}>{t('xato')}</span>
                             : null}

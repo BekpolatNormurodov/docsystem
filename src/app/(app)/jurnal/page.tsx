@@ -1,3 +1,4 @@
+import { BASE_PATH } from '@/lib/base-path';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { PageHeader, EmptyState, Pagination } from '@/ui';
@@ -74,8 +75,8 @@ export default async function JurnalPage({ searchParams }: { searchParams: { act
       />
       {isAdmin && (
         <div className="mb-4 inline-flex rounded-xl border border-line bg-surface p-1">
-          <a href="/jurnal" className={tab === 'amaliyotlar' ? TAB_ON : TAB_OFF}>{t('Amaliyotlar')}</a>
-          <a href="/jurnal?tab=tarix" className={tab === 'tarix' ? TAB_ON : TAB_OFF}>{t('Partiyalar tarixi')}</a>
+          <a href={`${BASE_PATH}/jurnal`} className={tab === 'amaliyotlar' ? TAB_ON : TAB_OFF}>{t('Amaliyotlar')}</a>
+          <a href={`${BASE_PATH}/jurnal?tab=tarix`} className={tab === 'tarix' ? TAB_ON : TAB_OFF}>{t('Partiyalar tarixi')}</a>
         </div>
       )}
     </>

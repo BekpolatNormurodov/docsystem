@@ -1,3 +1,4 @@
+import { BASE_PATH } from '@/lib/base-path';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/db';
 import { getSettings } from '@/lib/settings';
@@ -70,10 +71,10 @@ export default async function PersonPage({
   for (const cs of cases) {
     const list = docsByFirm.get(cs.firmId) ?? [];
     for (const inv of cs.invoiceRecords) {
-      list.push({ href: `/api/invoices/${inv.id}/download`, label: `${t('Kvitansiya')} ${inv.invoiceNo}` });
+      list.push({ href: `${BASE_PATH}/api/invoices/${inv.id}/download`, label: `${t('Kvitansiya')} ${inv.invoiceNo}` });
     }
     for (const d of cs.documents) {
-      list.push({ href: `/api/case-doc/${d.id}`, label: DOC_KIND_LABEL[d.kind] ?? d.fileName });
+      list.push({ href: `${BASE_PATH}/api/case-doc/${d.id}`, label: DOC_KIND_LABEL[d.kind] ?? d.fileName });
     }
     if (list.length) docsByFirm.set(cs.firmId, list);
   }
@@ -259,7 +260,7 @@ export default async function PersonPage({
                       const formed = docsByFirm.get(firm.id) ?? [];
                       return (
                         <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
-                          <a href={`/api/ariza/${firmLoans[0]!.id}`} className="btn-primary text-xs">
+                          <a href={`${BASE_PATH}/api/ariza/${firmLoans[0]!.id}`} className="btn-primary text-xs">
                             .docx — {t('birlashtirilgan ariza')}
                           </a>
                           {formed.map((d, i) => (

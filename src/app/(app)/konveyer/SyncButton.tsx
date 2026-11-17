@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Ico } from '@/ui';
@@ -17,7 +18,7 @@ export function SyncButton() {
     setBusy(true);
     setMsg(null);
     try {
-      const res = await fetch('/api/konveyer/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const res = await fetch(`${BASE_PATH}/api/konveyer/sync`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? t('Xato'));
       setMsg(data.created > 0 ? `${data.created.toLocaleString('ru-RU')} ${t("yangi mijoz qo'shildi")}` : t('Yangilandi — hammasi joyida'));

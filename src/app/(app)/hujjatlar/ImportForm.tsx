@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useRef, useState } from 'react';
 import Link from 'next/link';
 import { DateField, Ico } from '@/ui';
@@ -162,7 +163,7 @@ export function ImportForm({ children }: { children?: React.ReactNode }) {
     setPhase('idle');
 
     try {
-      const res = await fetch('/api/import/peek', {
+      const res = await fetch(`${BASE_PATH}/api/import/peek`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename: f.name }),
@@ -182,7 +183,7 @@ export function ImportForm({ children }: { children?: React.ReactNode }) {
   function poll(jobId: number) {
     const timer = setInterval(async () => {
       try {
-        const res = await fetch(`/api/jobs/${jobId}`);
+        const res = await fetch(`${BASE_PATH}/api/jobs/${jobId}`);
         if (!res.ok) return;
         const job: JobStatus = await res.json();
         setProgress(job.progress);
@@ -219,7 +220,7 @@ export function ImportForm({ children }: { children?: React.ReactNode }) {
       form.append('file', file);
       if (excludeFile) form.append('exclude', excludeFile); // sud ro'yxati — ixtiyoriy
       form.append('date', date);
-      const res = await fetch('/api/import', { method: 'POST', body: form });
+      const res = await fetch(`${BASE_PATH}/api/import`, { method: 'POST', body: form });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setError(body.error ?? t('Yuklashda xatolik'));

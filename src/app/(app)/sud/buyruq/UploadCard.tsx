@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useCallback, useRef, useState } from 'react';
 import { Ico, Spinner, Select } from '@/ui';
 import { useT } from '@/lib/i18n/client';
@@ -42,7 +43,7 @@ export default function UploadCard({ firms }: { firms: Firm[] }) {
       const fd = new FormData();
       fd.append('file', file);
       if (firm) fd.append('firm', firm);
-      const r = await fetch('/sud/buyruq/fill', { method: 'POST', body: fd });
+      const r = await fetch(`${BASE_PATH}/sud/buyruq/fill`, { method: 'POST', body: fd });
       if (!r.ok) {
         const j = await r.json().catch(() => null);
         throw new Error(j?.error || `HTTP ${r.status}`);

@@ -1,5 +1,6 @@
 'use client';
 
+import { BASE_PATH } from '@/lib/base-path';
 import React, { useEffect, useState, useCallback } from 'react';
 import { Modal } from '@/ui';
 import { KeyPicker } from './KeyPicker';
@@ -84,7 +85,7 @@ export function ConnectionStatus({ inline = false }: { inline?: boolean }) {
     if (health) setHealthBusy(true);
     setErr(null);
     try {
-      const res = await fetch(`/konveyer/connections${health ? '?health=1' : ''}`, { cache: 'no-store' });
+      const res = await fetch(`${BASE_PATH}/konveyer/connections${health ? '?health=1' : ''}`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`${t('Server xatosi')} (${res.status})`);
       const data = await res.json();
       setRows(data.firms ?? []);
