@@ -8,8 +8,11 @@ export const ROLE_SERVICE_REFRESH_COOKIE = 'mko_session_refresh';
 
 type Env = Record<string, string | undefined>;
 
-export const ssoEnabled = (env: Env = process.env) => !!env.ROLE_SERVICE_JWT_SECRET?.trim();
-const issuerOf = (env: Env) => env.ROLE_SERVICE_ISSUER?.trim() || 'role-service';
+// JWT_SECRET / JWT_ISSUER — role-service'dagi bilan bir xil nomlar; eski ROLE_SERVICE_JWT_SECRET / ROLE_SERVICE_ISSUER ham
+// ishlaydi va ikkalasi berilsa shular ustun.
+export const jwtSecretOf = (env: Env = process.env) => env.ROLE_SERVICE_JWT_SECRET?.trim() || env.JWT_SECRET?.trim() || '';
+export const ssoEnabled = (env: Env = process.env) => !!jwtSecretOf(env);
+const issuerOf = (env: Env) => env.ROLE_SERVICE_ISSUER?.trim() || env.JWT_ISSUER?.trim() || 'role-service';
 
 export type YuristGrant = 'ADMIN' | 'YURIST';
 export interface RoleServiceClaims {
@@ -21,7 +24,7 @@ export interface RoleServiceClaims {
 
 /** Access tokenni tekshiradi: faqat HS256, imzo, muddat, issuer, typ='access'. Yaroqsiz bo'lsa null (hech qachon throw qilmaydi). */
 export async function verifyRoleServiceToken(token: string | undefined | null, env: Env = process.env): Promise<RoleServiceClaims | null> {
-  const secret = env.ROLE_SERVICE_JWT_SECRET?.trim();
+  const secret = jwtSecretOf(env);
   if (!secret || !token) return null;
   try {
     const { payload } = await jwtVerify(token, new TextEncoder().encode(secret), { algorithms: ['HS256'], issuer: issuerOf(env) });
