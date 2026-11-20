@@ -6,6 +6,7 @@
 import unzipper from 'unzipper';
 import { SaxesParser } from 'saxes';
 import type { Readable } from 'node:stream';
+import { HEADER_SCAN_ROWS } from './portfolio-header';
 
 // «A1» / «BC12» → 0-asosli ustun indeksi (A=0). Faqat harf qismi olinadi.
 function colIndex(ref: string): number {
@@ -55,6 +56,7 @@ function parseSheet(
     const parser = new SaxesParser();
     let headerDecided: boolean | null = null; // null=hali, true=bizniki, false=decoy
     let stopped = false;
+    let headerTries = 0;
     let values: unknown[] = [];
     let curCol = -1, curType = '', cellText = '', capture = false, inRow = false;
     const stop = (result: boolean) => {
@@ -96,8 +98,9 @@ function parseSheet(
       if (tag.name === 'row') {
         inRow = false;
         if (headerDecided === null) {
-          headerDecided = onFirstRow(values);
-          if (!headerDecided) { stop(false); return; } // decoy varaq — o'tkazamiz
+          // Sarlavha tepasida nom/bo'sh qator bo'lishi mumkin — dastlabki bir necha qatordan qidiramiz.
+          if (onFirstRow(values)) headerDecided = true;
+          else if ((headerTries += 1) >= HEADER_SCAN_ROWS) { stop(false); return; } // decoy varaq — o'tkazamiz
         } else if (headerDecided) {
           onRow(values);
         }

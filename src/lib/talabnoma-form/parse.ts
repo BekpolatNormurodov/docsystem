@@ -12,6 +12,7 @@ import { mapRowToLoan } from '@/core/portfolio';
 import { parseExclusionPinfls } from '@/lib/parse-exclusion';
 import { canonCode, DEFAULT_THRESHOLD, evaluate } from './filter';
 import { streamXlsxRowsViaUnzipper } from './xlsx-stream';
+import { HEADER_SCAN_ROWS, headerSample, normalizePortfolioHeader } from './portfolio-header';
 import type { CandidatePerson, CandidatesFile } from './types';
 
 /** candidates.json formati. 2 = raqam katakchalari (t="n") to'g'ri o'qiladi (shartnoma sanasi/raqami) +
@@ -101,9 +102,12 @@ export async function parseTalabnomaForm(
     matched.add(loan.pinfl);
   };
   // Header row → normalized string[] if it carries a «pinfl» column, else null (decoy sheet).
+  //  Yozuv/registr/bo'sh joyga chidamli; topilmasa — xato matni uchun ko'rilgan ustunlar eslab qolinadi.
+  let seenHeader: string[] = [];
   const asHeader = (values: unknown[]): string[] | null => {
-    const h = values.map((v) => (v === null || v === undefined ? '' : String(v)));
-    return h.includes('pinfl') ? h : null;
+    const h = normalizePortfolioHeader(values);
+    if (!h && seenHeader.length === 0) seenHeader = headerSample(values);
+    return h;
   };
 
   // 2) Портфель — STREAM (xotira-cheklangan). Ba'zi generatorlar (openpyxl / davlat eksportlari)
@@ -115,12 +119,17 @@ export async function parseTalabnomaForm(
     for await (const worksheet of reader) {
       if (foundWorksheet) break; // only the first pinfl-bearing sheet
       let header: string[] | null = null;
+      let scanned = 0;
       for await (const r of worksheet) {
         const raw = r.values as unknown[];
         const values = Array.isArray(raw) ? raw.slice(1) : [];
         if (header === null) {
           header = asHeader(values);
-          if (!header) break; // decoy sheet — skip the rest of it
+          if (!header) {
+            scanned += 1;
+            if (scanned >= HEADER_SCAN_ROWS) break; // decoy sheet — skip the rest of it
+            continue; // sarlavha tepasida nom/bo'sh qator bo'lishi mumkin
+          }
           foundWorksheet = true;
           continue;
         }
@@ -134,19 +143,24 @@ export async function parseTalabnomaForm(
     // o'lchamda XOTIRA-CHEKLANGAN o'qiydi (readFile 124MB'da 8GB+ heap yeb portlaydi; bu esa yo'q).
     console.warn('[talabnoma-form] portfel exceljs-stream uzildi, unzipper-stream zaxirasiga oʻtildi —', streamErr instanceof Error ? streamErr.message : streamErr);
     seed(); matched.clear(); firmCodes.clear(); streamed = 0; // stream davomida yigʻilgani bekor — toza boshlaymiz
+    seenHeader = [];
     let found = false;
+    let fbHeader: string[] | null = null; // normallashtirilgan sarlavha (xom emas)
     try {
       found = await streamXlsxRowsViaUnzipper(portfolioPath, {
-        isHeaderRow: (h) => h.includes('pinfl'),
+        isHeaderRow: (h) => { fbHeader = asHeader(h); return fbHeader !== null; },
         onRow: (header, values) => {
-          processRow(header, values);
+          processRow(fbHeader ?? header, values);
           if (onProgress && streamed % 2000 === 0) void onProgress(streamed); // fire-and-forget: SAX sinxron
         },
       });
     } catch (readErr) {
       throw new Error(`Portfel faylini oʻqib boʻlmadi (fayl buzuq yoki .xlsx emas): ${readErr instanceof Error ? readErr.message : String(readErr)}`);
     }
-    if (!found) throw new Error('Portfel faylida «pinfl» ustunli varaq topilmadi — notoʻgʻri fayl yuklangan boʻlishi mumkin');
+    if (!found) {
+      const seen = seenHeader.length ? ` Faylda topilgan ustunlar: ${seenHeader.join(', ')}.` : '';
+      throw new Error(`Portfel faylida «pinfl» ustunli varaq topilmadi — notoʻgʻri fayl yuklangan boʻlishi mumkin.${seen}`);
+    }
   }
 
   // 3) Firm names from the DB (code → shortName/legalName), so the summary UI shows real names.
