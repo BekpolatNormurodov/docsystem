@@ -12,7 +12,8 @@ import { Ico, Modal, Spinner } from '@/ui';
 import { useT } from '@/lib/i18n/client';
 
 interface Line { id: number; ts: number; msg: string }
-interface SimStat { id: string; label: string; phone: string; tagged: boolean; requested: number; ok: number; miss: number; inflight: number; lastReqAt?: number; lastOkAt?: number; benchedUntil?: number }
+interface Waiting { pinfl: string; work: string; at: number; until: number; tries: number }
+interface SimStat { id: string; label: string; phone: string; tagged: boolean; requested: number; ok: number; miss: number; inflight: number; lastReqAt?: number; lastOkAt?: number; benchedUntil?: number; timeoutMs?: number; waiting?: Waiting[] }
 interface Monitor {
   active: boolean;
   run: { startedAt: number; since: number; perSim: boolean; window: number; sims: SimStat[] } | null;
@@ -26,6 +27,7 @@ type Kind = 'all' | 'sms' | 'ok' | 'err';
 
 const cx = (...c: (string | false | undefined | null)[]) => c.filter(Boolean).join(' ');
 const n = (x: number) => (x || 0).toLocaleString('ru-RU');
+const fmtDur = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
 const hhmmss = (ms: number) => new Date(ms).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 // SIM ranglari — ro'yxatdagi tartib bo'yicha (kartadagi va logdagi belgi bir xil rangda).
 const SIM_TONE = [
@@ -94,9 +96,11 @@ export function MibMonitorModal({ reportId, open, onClose, title }: { reportId: 
   useEffect(() => { if (!open) return; lastId.current = 0; setLines([]); void poll(); }, [open, poll]);
   useEffect(() => {
     if (!open || paused) return;
-    const h = setInterval(() => { void poll(); tick((x) => x + 1); }, 2000);
+    const h = setInterval(() => { void poll(); }, 2000);
     return () => clearInterval(h);
   }, [open, paused, poll]);
+  // Taymerlar har soniyada (SMS kutish vaqti, «… oldin»).
+  useEffect(() => { if (!open) return; const h = setInterval(() => tick((x) => x + 1), 1000); return () => clearInterval(h); }, [open]);
 
   // SIM ro'yxati: ishlayotganlar (+ run statistikasi) — tartib va rang bir xil qolsin.
   const simRows = useMemo(() => {
@@ -105,7 +109,9 @@ export function MibMonitorModal({ reportId, open, onClose, title }: { reportId: 
     const stats = new Map<string, Partial<SimStat>>(mon?.run
       ? mon.run.sims.map((s) => [s.id, s])
       : Object.entries(mon?.saved?.sims ?? {}).map(([id, v]) => [id, v]));
-    return cfg.filter((s) => s.state === 'on' || stats.has(s.id)).map((s, i) => {
+    // Telefondagi slot tartibida (1-slot chapda); slot noma'lumlar oxirida.
+    const ordered = [...cfg].sort((a, b) => (a.slot ?? 9) - (b.slot ?? 9));
+    return ordered.filter((s) => s.state === 'on' || stats.has(s.id)).map((s, i) => {
       const st = stats.get(s.id);
       const recv = (mon?.received ?? []).filter((r) => r.key === s.id || (s.slot != null && r.key === `slot:${s.slot}`));
       return {
@@ -179,7 +185,7 @@ export function MibMonitorModal({ reportId, open, onClose, title }: { reportId: 
   const onCount = simRows.filter((s) => s.state === 'on').length;
 
   return (
-    <Modal open={open} onClose={onClose} size="2xl" title={title || t('Jonli monitor')} description={t('Avtomator holati, SIM kartalar va shu hisobot loglari — har 2 soniyada yangilanadi')}>
+    <Modal open={open} onClose={onClose} size="2xl" title={title || t('Jonli monitor')} description={t('Avtomator holati, telefon va SIM kartalar, shu hisobot loglari — jonli')}>
       <div className="space-y-4">
         {/* ── Holat qatori ─────────────────────────────────────────── */}
         <div className={cx('flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border px-4 py-3',
@@ -240,58 +246,112 @@ export function MibMonitorModal({ reportId, open, onClose, title }: { reportId: 
           </div>
         )}
 
-        {/* ── SIM kartalar ─────────────────────────────────────────── */}
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {simRows.length === 0 && <div className="rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm text-muted sm:col-span-2 xl:col-span-3">{t('SIM ulanmagan — Sozlamalardan qoʻshing.')}</div>}
-          {simRows.map((s) => {
-            const st = s.st;
-            const done = (st?.ok ?? 0) + (st?.miss ?? 0);
-            const pct = done ? Math.round(((st?.ok ?? 0) / done) * 100) : null;
-            const benched = !!st?.benchedUntil && st.benchedUntil > Date.now();
-            const fresh = st?.lastOkAt && Date.now() - st.lastOkAt < 3 * 60_000;
-            const health = s.state !== 'on' ? 'off' : benched ? 'bench' : fresh ? 'ok' : st?.requested ? 'slow' : 'idle';
-            return (
-              <div key={s.id} className={cx('rounded-xl border bg-surface p-3', simF === s.last4 ? 'border-brand-500 ring-2 ring-brand-500/20' : 'border-line')}>
-                <div className="flex items-start gap-2.5">
-                  <span className={cx('grid h-9 w-9 shrink-0 place-items-center rounded-lg border text-xs font-bold', s.tone)}>{s.slot ? `S${s.slot}` : s.id.toUpperCase()}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="truncate text-sm font-semibold">{s.label}</span>
-                      <span className={cx('h-2 w-2 shrink-0 rounded-full', health === 'ok' ? 'bg-emerald-500' : health === 'bench' ? 'bg-rose-500' : health === 'slow' ? 'bg-amber-500' : 'bg-slate-400')} />
+        {/* ── Telefon: ikkala SIM bitta telefonda — slot tartibida yonma-yon, har SMS uchun jonli taymer ─── */}
+        <div className="overflow-hidden rounded-2xl border border-line bg-surface-2/30">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-4 py-2.5">
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand-500/10 text-brand-600 dark:text-brand-300">
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="6" y="2" width="12" height="20" rx="2.5" /><path d="M11 18h2" /></svg>
+            </span>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold">{t('Telefon')} · {n(simRows.length)} SIM</div>
+              <div className="text-[11px] text-muted">{t('Ikkala SIM bitta telefonda — SMS soʻrovlari orasida 2,5 s oraliq, kod faqat oʻz SIMidagi ishga kiritiladi')}</div>
+            </div>
+            {unmatched.length > 0 && (
+              <span className="ml-auto rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-0.5 text-[11px] text-amber-700 dark:text-amber-300">
+                {t('SIMga bogʻlanmagan SMS')}: {unmatched.map((r) => `${r.key === '?' ? t('nomaʼlum') : r.key.replace('slot:', 'SIM ')} ${n(r.count)}`).join(' · ')}
+              </span>
+            )}
+          </div>
+          {simRows.length === 0 && <div className="px-4 py-8 text-center text-sm text-muted">{t('SIM ulanmagan — Sozlamalardan qoʻshing.')}</div>}
+          <div className={cx('grid divide-line', simRows.length > 1 ? 'md:grid-cols-2 md:divide-x' : '', 'divide-y md:divide-y-0')}>
+            {simRows.map((s) => {
+              const st = s.st;
+              const done = (st?.ok ?? 0) + (st?.miss ?? 0);
+              const okPct = done ? Math.round(((st?.ok ?? 0) / done) * 100) : null;
+              const benched = !!st?.benchedUntil && st.benchedUntil > Date.now();
+              const fresh = st?.lastOkAt && Date.now() - st.lastOkAt < 3 * 60_000;
+              const health = s.state !== 'on' ? 'off' : benched ? 'bench' : fresh ? 'ok' : st?.requested ? 'slow' : 'idle';
+              const waiting = [...(st?.waiting ?? [])].sort((a, b) => a.at - b.at);
+              const tout = st?.timeoutMs ? Math.round(st.timeoutMs / 1000) : null;
+              return (
+                <div key={s.id} className={cx('p-4', simF === s.last4 && 'bg-brand-500/5')}>
+                  {/* sarlavha: slot · nom · raqam · holat */}
+                  <div className="flex items-center gap-3">
+                    <div className={cx('relative grid h-11 w-9 shrink-0 place-items-center rounded-md border text-[11px] font-bold', s.tone)} style={{ clipPath: 'polygon(0 0, 72% 0, 100% 22%, 100% 100%, 0 100%)' }}>
+                      {s.slot ? s.slot : '?'}
                     </div>
-                    <div className="text-xs tabular-nums text-muted">…{s.last4} · {s.slot ? `${t('telefonda')} SIM ${s.slot}` : t('slot hali nomaʼlum')}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate font-semibold">{s.label}</span>
+                        <span className={cx('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium',
+                          health === 'ok' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : health === 'bench' ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300' : health === 'slow' ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'bg-surface-2 text-muted')}>
+                          <span className={cx('h-1.5 w-1.5 rounded-full', health === 'ok' ? 'bg-emerald-500' : health === 'bench' ? 'bg-rose-500' : health === 'slow' ? 'bg-amber-500' : 'bg-slate-400')} />
+                          {health === 'ok' ? t('ishlayapti') : health === 'bench' ? t('chetda') : health === 'slow' ? t('sekin') : health === 'off' ? t('oʻchiq') : t('kutmoqda')}
+                        </span>
+                      </div>
+                      <div className="text-xs tabular-nums text-muted">…{s.last4} · {s.slot ? `${s.slot}-slot` : t('slot nomaʼlum')}{tout ? ` · ${t('kutish')} ${fmtDur(tout)}` : ''}</div>
+                    </div>
+                    <button onClick={() => setSimF((v) => (v === s.last4 ? '' : s.last4))} className={cx('shrink-0 rounded-lg border px-2.5 py-1 text-[11px] font-medium', simF === s.last4 ? 'border-brand-500 bg-brand-500 text-white' : 'border-line text-muted hover:text-fg')}>
+                      {simF === s.last4 ? t('Filtr ✓') : t('Loglar')}
+                    </button>
                   </div>
-                  <button onClick={() => setSimF((v) => (v === s.last4 ? '' : s.last4))} className={cx('shrink-0 rounded-lg px-2 py-1 text-[11px] font-medium', simF === s.last4 ? 'bg-brand-500 text-white' : 'text-muted hover:bg-surface-2 hover:text-fg')}>
-                    {simF === s.last4 ? t('Filtr ✓') : t('Loglar')}
-                  </button>
+
+                  {/* raqamlar */}
+                  <div className="mt-3 grid grid-cols-4 gap-2 text-center">
+                    {[
+                      [n(st?.requested ?? 0), t('soʻraldi'), ''],
+                      [n(st?.ok ?? 0), t('keldi'), 'text-emerald-600 dark:text-emerald-300'],
+                      [n(st?.miss ?? 0), t('kelmadi'), st?.miss ? 'text-rose-600 dark:text-rose-300' : 'text-muted'],
+                      [okPct == null ? '—' : `${okPct}%`, t('aniqlik'), okPct == null ? 'text-muted' : okPct >= 85 ? 'text-emerald-600 dark:text-emerald-300' : okPct >= 60 ? 'text-amber-600 dark:text-amber-300' : 'text-rose-600 dark:text-rose-300'],
+                    ].map(([v, l, c]) => (
+                      <div key={l} className="rounded-lg border border-line bg-surface py-1.5">
+                        <div className={cx('text-base font-semibold tabular-nums', c)}>{v}</div>
+                        <div className="text-[10px] text-muted">{l}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* kutilayotgan SMS — har biri uchun taymer */}
+                  <div className="mt-3">
+                    <div className="mb-1.5 flex items-center justify-between text-[11px] text-muted">
+                      <span>{t('Kutilayotgan SMS')} <b className="tabular-nums text-fg">{waiting.length}</b>/3</span>
+                      <span className="tabular-nums">{t('oxirgi kod')}: {ago(t, st?.lastOkAt)}</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {waiting.length === 0 && <div className="rounded-lg border border-dashed border-line px-3 py-2.5 text-center text-[11px] text-muted">{state === 'run' ? t('Hozir SMS kutilmayapti') : '—'}</div>}
+                      {waiting.map((w) => {
+                        const el = Math.max(0, (Date.now() - w.at) / 1000);
+                        const lim = Math.max(1, (w.until - w.at) / 1000);
+                        const frac = Math.min(1, el / lim);
+                        return (
+                          <div key={`${w.pinfl}-${w.work}`} className="rounded-lg border border-line bg-surface px-2.5 py-1.5">
+                            <div className="flex items-center gap-2 text-[11px]">
+                              <span className="font-mono tabular-nums text-fg">{w.pinfl}</span>
+                              <span className="truncate font-mono text-muted">{w.work}</span>
+                              {w.tries > 0 && <span className="rounded bg-amber-500/10 px-1 text-[10px] text-amber-700 dark:text-amber-300">{w.tries}/3</span>}
+                              <span className={cx('ml-auto font-mono font-semibold tabular-nums', frac > 0.8 ? 'text-rose-600 dark:text-rose-300' : frac > 0.5 ? 'text-amber-600 dark:text-amber-300' : 'text-fg')}>{fmtDur(Math.round(el))}</span>
+                              <span className="font-mono tabular-nums text-muted">/ {fmtDur(Math.round(lim))}</span>
+                            </div>
+                            <div className="mt-1 h-1 overflow-hidden rounded-full bg-surface-2">
+                              <div className={cx('h-full rounded-full transition-[width] duration-1000 ease-linear', frac > 0.8 ? 'bg-rose-500' : frac > 0.5 ? 'bg-amber-500' : 'bg-emerald-500')} style={{ width: `${frac * 100}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="mt-2.5 flex flex-wrap justify-between gap-x-3 gap-y-0.5 text-[11px] text-muted">
+                    <span>{t('60 daq ichida kelgan SMS')}: <b className="tabular-nums text-fg">{n(s.recv)}</b>{s.recvAt ? ` · ${ago(t, s.recvAt)}` : ''}</span>
+                    {statSince && <span className="tabular-nums">{t('hisob')}: {new Date(statSince).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} {t('dan')}</span>}
+                  </div>
+                  {benched && <div className="mt-2 rounded-lg bg-rose-500/10 px-2.5 py-1.5 text-[11px] text-rose-700 dark:text-rose-300">{t('SMS ketma-ket kelmadi — vaqtincha chetlatilgan, qaytadi')}: {hhmmss(st!.benchedUntil!)}</div>}
+                  {s.state !== 'on' && <div className="mt-2 rounded-lg bg-surface-2 px-2.5 py-1.5 text-[11px] text-muted">{t('Bu SIM oʻchirilgan — unga SMS soʻralmaydi')}</div>}
                 </div>
-                <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
-                  <div className="rounded-lg bg-surface-2/60 py-1.5"><div className="text-base font-semibold tabular-nums">{n(st?.requested ?? 0)}</div><div className="text-[10px] text-muted">{t('soʻraldi')}</div></div>
-                  <div className="rounded-lg bg-emerald-500/8 py-1.5"><div className="text-base font-semibold tabular-nums text-emerald-600 dark:text-emerald-300">{n(st?.ok ?? 0)}</div><div className="text-[10px] text-muted">{t('kod keldi')}</div></div>
-                  <div className="rounded-lg bg-rose-500/8 py-1.5"><div className={cx('text-base font-semibold tabular-nums', st?.miss ? 'text-rose-600 dark:text-rose-300' : 'text-muted')}>{n(st?.miss ?? 0)}</div><div className="text-[10px] text-muted">{t('kelmadi')}</div></div>
-                </div>
-                <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-surface-2">
-                  <div className={cx('h-full rounded-full transition-[width] duration-500', pct == null ? 'bg-transparent' : pct >= 85 ? 'bg-emerald-500' : pct >= 60 ? 'bg-amber-500' : 'bg-rose-500')} style={{ width: `${pct ?? 0}%` }} />
-                </div>
-                <div className="mt-2 space-y-0.5 text-[11px] text-muted">
-                  {statSince && <div className="flex justify-between gap-2"><span>{t('Hisoblangan')}</span><span className="tabular-nums">{new Date(statSince).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} {t('dan')}</span></div>}
-                  <div className="flex justify-between gap-2"><span>{t('Muvaffaqiyat')}</span><b className="tabular-nums text-fg">{pct == null ? '—' : `${pct}%`}</b></div>
-                  <div className="flex justify-between gap-2"><span>{t('Hozir kutilmoqda')}</span><b className="tabular-nums text-fg">{n(st?.inflight ?? 0)}</b></div>
-                  <div className="flex justify-between gap-2"><span>{t('Oxirgi kod')}</span><span className="tabular-nums">{ago(t, st?.lastOkAt)}</span></div>
-                  <div className="flex justify-between gap-2"><span>{t('60 daqiqada kelgan SMS')}</span><span className="tabular-nums">{n(s.recv)}{s.recvAt ? ` · ${ago(t, s.recvAt)}` : ''}</span></div>
-                </div>
-                {benched && <div className="mt-2 rounded-lg bg-rose-500/10 px-2 py-1 text-[11px] text-rose-700 dark:text-rose-300">{t('SMS ketma-ket kelmadi — vaqtincha chetlatilgan, qaytadi')}: {hhmmss(st!.benchedUntil!)}</div>}
-                {s.state !== 'on' && <div className="mt-2 rounded-lg bg-surface-2 px-2 py-1 text-[11px] text-muted">{t('Bu SIM oʻchirilgan — unga SMS soʻralmaydi')}</div>}
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-        {unmatched.length > 0 && (
-          <p className="text-[11px] text-muted">
-            {t('SIMga bogʻlanmagan SMS (60 daqiqa)')}: {unmatched.map((r) => `${r.key === '?' ? t('nomaʼlum') : r.key.replace('slot:', 'SIM ')} — ${n(r.count)}`).join(' · ')}
-            {' '}{t('— avtomator toʻgʻri kodni koʻrib slotni oʻzi oʻrganadi.')}
-          </p>
-        )}
 
         {/* ── Log ──────────────────────────────────────────────────── */}
         <div className="overflow-hidden rounded-xl border border-line">
