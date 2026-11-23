@@ -3,6 +3,7 @@
 // Flow: initSession → getDebtSearchPage → searchDebtsByPinfl (captcha) → [per case] prepareAndRequestSms
 // (captcha) → submitSmsCode (OTP) → fetchExecutionDetails (Step 19).
 import { CaptchaSolver } from './captcha';
+import { decodeEntities, isPersonName } from './breakdown';
 
 const REDIRECTS = [301, 302, 303, 307, 308];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -269,7 +270,7 @@ export class MibEngine {
     // Faqat sanoq mos kelsa biriktiramiz (aks holda noto'g'ri juftlashmasin — null → ehtiyot uchun tortiladi).
     const cred = creditors.length === workNumbers.length ? creditors : [];
     const cases: Step10Case[] = workNumbers.map((wn, i) => ({ workNumber: wn, monitoringUrl: monitoringLinks[i] || monitoringLinks[0] || null, creditor: cred[i] ?? null }));
-    return { success: true, pinfl, fio: fio.trim(), totalDebt: totalDebt.trim(), currentDebt: currentDebt.trim(), cases, step10Url: resultPath };
+    return { success: true, pinfl, fio: decodeEntities(fio).trim(), totalDebt: totalDebt.trim(), currentDebt: currentDebt.trim(), cases, step10Url: resultPath };
   }
 
   async prepareAndRequestSms(monitoringUrl: string, pinfl: string, workNumber: string, phone: string): Promise<{ success: boolean; step16Url: string; verifyFormAction: string }> {
@@ -390,7 +391,7 @@ export class MibEngine {
     // maydon bo'sh (null) qaytadi (ours ishда bu completeCase'да «Nomaʼlum» → novalid → qayta urinadi).
     const isFurniture = (v: string): boolean =>
       /Рақамлаштириш|коррупци|муҳим омилдир|шаффофлик|МИБ орқали|ундирилди|қарздорлиги/i.test(v) || /!\s*$/.test(v);
-    const clean19 = (v: string): string => v.replace(/<[^>]+>/g, '').replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim();
+    const clean19 = (v: string): string => decodeEntities(v.replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
     const extractField = (pattern: string): string | null => {
       const m1 = html.match(new RegExp(`<div class="exec-item[^"]*"[\\s\\S]*?<p>[\\s\\S]*?${pattern}[\\s\\S]*?<\\/p>\\s*<label[^>]*>([^<]+)<\\/label>`, 'i'));
       if (m1 && m1[1] && m1[1].trim()) { const c = clean19(m1[1]); if (c && !isFurniture(c)) return c; }
@@ -404,7 +405,7 @@ export class MibEngine {
       return null;
     };
     const unmaskedNameMatch = html.match(/Тўловчининг номи[^\n<]*<\/td>\s*<td[^>]*>([^<]+)<\/td>/i) || html.match(/Тўловчининг номи[^\n<]*\n\s*([^<\n]+)/i);
-    let personFullName = unmaskedNameMatch ? unmaskedNameMatch[1]!.trim() : null;
+    let personFullName = unmaskedNameMatch ? clean19(unmaskedNameMatch[1]!) : null;
     if (!personFullName || personFullName.includes('***')) {
       const debtorField = extractField('Қарздор');
       if (debtorField && !debtorField.includes('***')) personFullName = debtorField;
@@ -412,6 +413,9 @@ export class MibEngine {
     }
     // Ism maydoni ham bo'sh bo'lса, yuqoridagi regex sahifа banner/sloganini olishi mumkin edi — rad etamiz.
     if (personFullName && isFurniture(personFullName)) personFullName = null;
+    // To'lov kvitansiyasi yo'q sahifada «Қарздор» qolipi «Қарздорлик…» yorlig'iga tushib, SUMMAni ism deb
+    // qaytarardi («21 630.00» — 825 ish, 2026-11-23). Harfsiz qiymat ism emas; maskalangani o'z holicha qoladi.
+    if (personFullName && !personFullName.includes('***') && !isPersonName(personFullName)) personFullName = null;
     const creditorName = extractField('Ундирувчи');
     const formatPhone = (raw: string | null): string => {
       if (!raw) return 'Nomaʼlum';

@@ -4,6 +4,7 @@
 // MibReport (standalone) va MibDashboard (konveyer + standalone) ikkalasi ham shu yerdan
 // import qiladi — aylanma (circular) importdan qochish uchun alohida modul.
 import React from 'react';
+import { isPersonName } from '@/lib/mib/breakdown';
 import { useT } from '@/lib/i18n/client';
 
 export interface CaseRow {
@@ -35,7 +36,7 @@ export const val = (v: string | null) => (v && v !== 'Nomaʼlum' ? v : '—');
 
 export function ClientDetail({ client, hasDetail }: { client: ClientRow; hasDetail: boolean }) {
   const t = useT();
-  const fullName = client.cases.map((k) => k.personFullName).find((nm) => nm && !nm.includes('***') && nm !== 'Nomaʼlum');
+  const fullName = client.cases.map((k) => k.personFullName).find(isPersonName);
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">

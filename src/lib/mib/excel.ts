@@ -5,14 +5,28 @@
 import ExcelJS from 'exceljs';
 import type { MibCase, MibClient, MibReport } from '@prisma/client';
 import { parseMoney } from './stats';
-import { groupBreakdown, regionFromText, clean, type Dim } from './breakdown';
+import { groupBreakdown, regionFromText, rowKey, clean, shortFirm, decodeEntities, bestFio, UNKNOWN, type Dim } from './breakdown';
 
 // Ishlarga server sudya va sud ish raqamini qo'shadi (src/lib/mib/judges.ts, attachJudgesToClients).
 type CaseRowX = MibCase & { judge?: string | null; courtCaseNumber?: string | null };
 type ClientWithCases = MibClient & { cases: CaseRowX[] };
 
 const num = (s: string | null) => (s ? parseMoney(s) : 0);
-const txt = (s: string | null | undefined) => (s && s !== 'Nomaʼlum' ? s : '');
+// HTML entity'lar ochiladi («O&#039;G&#039;LI» → «O'G'LI») — bazada eski tortilgan yozuvlarda bor.
+// Ortiqcha bo'shliqlar (qo'sh probel, chetdagi probel) ham tozalanadi — Excel'da filtr/qidiruv buzilmasin.
+const txt = (s: string | null | undefined) => (s && s !== 'Nomaʼlum' ? decodeEntities(s).replace(/\s+/g, ' ').trim() : '');
+const sp = (s: string) => s.replace(/\s+/g, ' ').trim();
+// Detali olinmagan ishda summa NOMA'LUM — 0 emas, bo'sh katak (0 «qarzi yo'q» deb o'qilardi).
+const numOrBlank = (s: string | null, has: boolean): number | string => (has ? num(s) : '');
+// Sarlavha: qalin + fon + muzlatilgan qator + avtofiltr.
+function styleHeader(ws: ExcelJS.Worksheet): void {
+  const h = ws.getRow(1);
+  h.font = { bold: true };
+  h.alignment = { vertical: 'middle', wrapText: true };
+  h.eachCell((c) => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8EEF7' } }; });
+  ws.views = [{ state: 'frozen', ySplit: 1 }];
+  if (ws.columnCount > 0) ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: ws.columnCount } };
+}
 const UNK = 'Aniqlanmagan';
 
 const DIMS: Dim[] = ['sudya', 'firma', 'region', 'hudud', 'bank'];
@@ -49,16 +63,17 @@ function addBreakdownSheet(wb: ExcelJS.Workbook, clients: ClientWithCases[], dim
   const rows = groupBreakdown(clients, dim);
   const totalDebt = rows.reduce((a, r) => a + r.debt, 0) || 1;
   for (const r of rows) {
-    const row: Record<string, unknown> = { label: r.label, cases: r.cases, ours: r.ours, clients: r.clients, share: Math.round((r.debt / totalDebt) * 1000) / 10, debt: r.debt };
+    const row: Record<string, unknown> = { label: sp(r.label), cases: r.cases, ours: r.ours, clients: r.clients, share: Math.round((r.debt / totalDebt) * 1000) / 10, debt: r.debt };
     if (dim === 'hudud') row.region = regionFromText(r.label) ?? (r.label === UNK ? UNK : ''); // hudud → qaysi viloyat
     if (dim === 'sudya') row.court = courtOf.get(r.label) ?? '';
     ws.addRow(row);
   }
   const t = rows.reduce((a, r) => ({ cases: a.cases + r.cases, ours: a.ours + r.ours, debt: a.debt + r.debt }), { cases: 0, ours: 0, debt: 0 });
-  ws.addRow({ label: `Jami · ${rows.length} guruh`, cases: t.cases, ours: t.ours, clients: '', share: 100, debt: t.debt });
-  ws.getRow(1).font = { bold: true };
+  // Jami mijoz — ALOHIDA mijozlar soni (bir mijoz bir necha guruhda bo'lishi mumkin, qo'shib bo'lmaydi).
+  const distinct = clients.filter((c) => c.cases.some((k) => dim === 'firma' || rowKey(c, k, dim) !== UNKNOWN)).length;
+  ws.addRow({ label: `Jami · ${rows.length} guruh`, cases: t.cases, ours: t.ours, clients: distinct, share: rows.length ? 100 : 0, debt: t.debt });
+  styleHeader(ws);
   ws.lastRow!.font = { bold: true };
-  ws.views = [{ state: 'frozen', ySplit: 1 }];
   ws.getColumn('debt').numFmt = '#,##0';
 }
 
@@ -82,7 +97,7 @@ function addExecutorSheet(wb: ExcelJS.Workbook, clients: ClientWithCases[]): voi
       if (!k.isTargetFirm) continue; // faqat bizniki — ijrochi detali shu ishларда bor
       const name = txt(k.executorName) || UNK;
       const phone = txt(k.executorPhone);
-      const dept = clean(k.executorDept) || UNK;
+      const dept = txt(k.executorDept) || UNK;
       const key = `${name}|${phone}|${dept}`;
       const a = map.get(key) ?? { name, phone, dept, region: regionFromText(txt(k.executorDept) || txt(k.courtOrgan)) ?? UNK, cases: 0, clients: new Set<number>(), debt: 0 };
       a.cases += 1; a.clients.add(c.id); a.debt += num(k.remainingDebt);
@@ -92,10 +107,10 @@ function addExecutorSheet(wb: ExcelJS.Workbook, clients: ClientWithCases[]): voi
   const rows = [...map.values()].sort((x, y) => y.debt - x.debt || y.cases - x.cases);
   for (const a of rows) ws.addRow({ name: a.name, phone: a.phone, dept: a.dept, region: a.region, cases: a.cases, clients: a.clients.size, debt: a.debt });
   const t = rows.reduce((s, a) => ({ cases: s.cases + a.cases, debt: s.debt + a.debt }), { cases: 0, debt: 0 });
-  ws.addRow({ name: `Jami · ${rows.length} ijrochi`, phone: '', dept: '', region: '', cases: t.cases, clients: '', debt: t.debt });
-  ws.getRow(1).font = { bold: true };
+  const distinct = clients.filter((c) => c.cases.some((k) => k.isTargetFirm)).length;
+  ws.addRow({ name: `Jami · ${rows.length} ijrochi`, phone: '', dept: '', region: '', cases: t.cases, clients: distinct, debt: t.debt });
+  styleHeader(ws);
   ws.lastRow!.font = { bold: true };
-  ws.views = [{ state: 'frozen', ySplit: 1 }];
   ws.getColumn('debt').numFmt = '#,##0';
 }
 
@@ -132,22 +147,29 @@ export async function buildMibExcel(
     { header: '№', key: 'no', width: 6 },
     { header: 'PINFL', key: 'pinfl', width: 18 },
     { header: 'F.I.O', key: 'fio', width: 34 },
-    { header: 'Firma (Excel)', key: 'firm', width: 12 },
-    { header: 'Holat (Excel)', key: 'holat', width: 16 },
+    { header: 'Firma', key: 'firm', width: 22 },
+    { header: 'Ish raqami (Excel)', key: 'ish', width: 18 },
+    { header: 'Holat (Excel)', key: 'holat', width: 26 },
     { header: 'MIB holati', key: 'status', width: 14 },
     { header: 'Ijro ishlari', key: 'cases', width: 12 },
-    { header: 'Jami qarz (mib)', key: 'debt', width: 18 },
+    { header: 'Umumiy summa', key: 'debt', width: 18 },
     { header: 'Qoldiq (jami)', key: 'remaining', width: 18 },
     { header: 'Tekshirilgan', key: 'checked', width: 18 },
+    { header: 'Izoh', key: 'note', width: 40 },
   ];
   const STATUS_UZ: Record<string, string> = { PENDING: 'Navbatda', RUNNING: 'Tekshirilmoqda', DONE: 'Topildi', CLEAN: 'Toza', FAILED: 'Xato' };
   for (const c of oursClients) {
-    const fullName = c.cases.map((k) => k.personFullName).find((nm) => nm && !nm.includes('***') && nm !== 'Nomaʼlum');
     const remaining = c.cases.reduce((s, k) => s + num(k.remainingDebt), 0);
+    // «Umumiy summa» — ishlarning I/H summasi yig'indisi (mib.uz qidiruvidagi «umumiy qarzdorlik» amalda
+    // doim 0 keladi — ustun butunlay nol bo'lib qolardi). Firma — Excel'da bo'lmasa ishlardagi firmalardan.
+    const total = c.cases.reduce((s, k) => s + num(k.totalAmount), 0) || num(c.totalDebt);
+    const firms = [...new Set(c.cases.filter((k) => k.isTargetFirm && k.firmName).map((k) => shortFirm(k.firmName!)))].join(', ');
+    const missing = c.cases.filter((k) => k.isTargetFirm && !k.detailFetchedAt).length;
     s1.addRow({
-      no: c.rowNo ?? '', pinfl: c.pinfl, fio: fullName || c.fio2 || c.fio || '', firm: c.firm || '', holat: c.holat || '',
-      status: STATUS_UZ[c.status] ?? c.status, cases: c.cases.length, debt: num(c.totalDebt), remaining,
+      no: c.rowNo ?? '', pinfl: c.pinfl, fio: sp(bestFio(c)), firm: txt(c.firm) || firms, ish: txt(c.ishRaqami), holat: txt(c.holat),
+      status: STATUS_UZ[c.status] ?? c.status, cases: c.cases.length, debt: total, remaining,
       checked: c.checkedAt ? new Date(c.checkedAt) : '',
+      note: [missing ? `${missing} ta ish detali olinmagan (SMS kelmadi)` : '', opts.clientId ? '' : txt(c.status === 'FAILED' ? c.error : '')].filter(Boolean).join('; '),
     });
   }
 
@@ -181,30 +203,30 @@ export async function buildMibExcel(
     { header: 'MFO', key: 'mfo', width: 10 },
     { header: 'Hisob raqami', key: 'account', width: 24 },
     { header: 'Qarorlar', key: 'decisions', width: 40 },
+    { header: 'Izoh', key: 'note', width: 30 },
   ];
   for (const c of oursClients) {
-    const fullName = c.cases.map((k) => k.personFullName).find((nm) => nm && !nm.includes('***') && nm !== 'Nomaʼlum') || c.fio2 || c.fio || '';
+    const fullName = sp(bestFio(c));
     if (!c.cases.length) continue;
     for (const k of c.cases) {
-      const dec = Array.isArray(k.decisions) ? (k.decisions as { article: string; date: string }[]).map((d) => `${d.article} (${d.date})`).join('; ') : '';
+      const dec = Array.isArray(k.decisions) ? (k.decisions as { article: string; date: string }[]).map((d) => `${txt(d.article)} (${d.date})`).join('; ') : '';
+      const has = !!k.detailFetchedAt; // detal olinmagan ishda summalar noma'lum → bo'sh
       s2.addRow({
         no: c.rowNo ?? '', pinfl: c.pinfl, fio: fullName, work: k.workNumber,
         firm: txt(k.firmName), inn: txt(k.firmInn), court: txt(k.courtOrgan), courtcase: txt(k.courtCaseNumber), judge: txt(k.judge),
         doctype: txt(k.courtDocType), docnum: txt(k.courtDocNumber),
         docdate: txt(k.courtDocDate), eff: txt(k.courtEffectiveDate), exec: txt(k.executorName), execphone: txt(k.executorPhone), dept: txt(k.executorDept),
         received: txt(k.mibReceivedDate), initiated: txt(k.mibInitiatedDate),
-        total: num(k.totalAmount), main: num(k.mainDebt), fee: num(k.executionFee), fine: num(k.fine), remaining: num(k.remainingDebt),
+        total: numOrBlank(k.totalAmount, has), main: numOrBlank(k.mainDebt, has), fee: numOrBlank(k.executionFee, has), fine: numOrBlank(k.fine, has), remaining: numOrBlank(k.remainingDebt, has),
         bank: txt(k.bankName), mfo: txt(k.bankMfo), account: txt(k.bankAccount), decisions: dec,
+        note: has ? '' : `Detal olinmagan${k.error ? ` — ${txt(k.error)}` : ''}`,
       });
     }
   }
 
   // Header styling + money number format on both sheets.
-  for (const ws of [s1, s2]) {
-    ws.getRow(1).font = { bold: true };
-    ws.getRow(1).alignment = { vertical: 'middle' };
-    ws.views = [{ state: 'frozen', ySplit: 1 }];
-  }
+  for (const ws of [s1, s2]) styleHeader(ws);
+  s1.getColumn('checked').numFmt = 'dd.mm.yyyy hh:mm';
   ['debt', 'remaining'].forEach((k) => { const col = s1.getColumn(k); col.numFmt = '#,##0'; });
   ['total', 'main', 'fee', 'fine', 'remaining'].forEach((k) => { const col = s2.getColumn(k); col.numFmt = '#,##0'; });
 
