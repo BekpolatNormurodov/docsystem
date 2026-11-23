@@ -7,6 +7,7 @@ import { BASE_PATH } from '@/lib/base-path';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ico } from '@/ui';
 import { useT } from '@/lib/i18n/client';
+import { kindOf } from './MibMonitor';
 
 interface Line { id: number; ts: number; msg: string }
 const hhmmss = (ms: number) => new Date(ms).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -61,7 +62,7 @@ export function MibLogPanel({ q, title = 'Avtomator logi', defaultOpen = true }:
             : lines.map((l) => (
               <div key={l.id} className="flex gap-2 whitespace-pre-wrap break-words">
                 <span className="shrink-0 tabular-nums text-slate-500">{hhmmss(l.ts)}</span>
-                <span className={l.msg.includes('XATO') || l.msg.toUpperCase().includes('KELMADI') ? 'text-rose-400' : l.msg.includes('keldi') || l.msg.includes('tayyor') || l.msg.includes('ijro ishi') ? 'text-emerald-300' : 'text-slate-200'}>{l.msg}</span>
+                <span className={({ err: 'text-rose-400', wait: 'text-amber-200', ok: 'text-emerald-300', sms: 'text-slate-300', info: 'text-slate-400' } as Record<string, string>)[kindOf(l.msg)]}>{l.msg}</span>
               </div>
             ))}
         </div>

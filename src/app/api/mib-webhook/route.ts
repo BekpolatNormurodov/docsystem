@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { cleanSimId } from '@/lib/mib/config';
+import { cleanSimId, parseSimSlot, simIdForSlot } from '@/lib/mib/config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -72,7 +72,9 @@ export async function POST(req: NextRequest) {
   // tasdiqlay olsin. Kodsiz yozuvni real tekshiruv (waitForSms) OLMAYDI — u faqat kodli qatorni oladi.
   // `?sim=<id>` — bir nechta SIM ulanganда har forwarder O'Z manzilига yuboradi; kod qaysi raqamga
   // kelgani shundan aniqlanadi (avtomator o'sha raqamga so'ralgan ishga sinaydi — kodlar aralashmaydi).
-  const sim = cleanSimId(req.nextUrl.searchParams.get('sim'));
+  // `?sim=` bo'lmasa (bitta telefonda 2 SIM — forwarder bitta manzilga yuboradi) matndagi «SIM N» slotidan
+  // aniqlanadi; slot hali o'rganilmagan bo'lsa belgisiz qoladi (avtomator umumiy pooldan sinaydi).
+  const sim = cleanSimId(req.nextUrl.searchParams.get('sim')) ?? await simIdForSlot(parseSimSlot(rawBody)).catch(() => null);
   await prisma.mibSms.create({ data: { code: code || '', raw: rawBody.slice(0, 1000), source: ua.includes('Mozilla') ? 'web-test' : 'forwarder', sim } });
   return NextResponse.json({ success: true, received: true, extractedCode: code, sim });
 }

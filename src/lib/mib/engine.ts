@@ -33,10 +33,17 @@ export interface Step19Details {
   decisions: { article: string; date: string }[];
 }
 
+/** mib.uz SMS yubormadi (tasdiqlash formasi qaytmadi). kind='captcha' — captcha rad etildi (qayta urinish mumkin). */
+export class MibSmsNotRequested extends Error {
+  constructor(public kind: 'captcha' | 'other', public detail: string) { super(`SMS soʻralmadi (${kind === 'captcha' ? 'captcha rad etildi' : detail})`); }
+}
+
 export class MibEngine {
   baseUrl: string;
   cookies = new Map<string, string>();
   jsessionid = '';
+  /** Oxirgi olingan ijro-detal sahifasi (diagnostika: parser namunasi uchun, run.ts vaqti-vaqti bilan saqlaydi). */
+  lastDetailHtml = '';
   captchaSolver: CaptchaSolver;
   private log: (m: string) => void;
   private timeoutMs: number;
@@ -189,11 +196,11 @@ export class MibEngine {
           const imgRes = await this.request(currentCaptchaImg);
           const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
           secureCode = await this.captchaSolver.solve(imgBuffer);
-        } catch (e) { this.log(`captcha load err: ${(e as Error).message}`); }
+        } catch (e) { this.log(`captcha yuklanmadi: ${(e as Error).message}`); }
       }
 
       if (!secureCode) {
-        this.log(`PINFL ${pinfl}: captcha ${attempt}/${CAPTCHA_ATTEMPTS} — oʻqilmadi, yangilanmoqda…`);
+        if (attempt % 5 === 0) this.log(`${pinfl} · captcha qiyin (${attempt}/${CAPTCHA_ATTEMPTS})`);
         const captchaLinkId = (debtPageHtml.match(/<a class="captcha[^"]*" id="([^"]+)"/i) || [])[1] || 'id6';
         const refreshMatch = debtPageHtml.match(new RegExp(`Wicket\\.Ajax\\.ajax\\(\\{"u":"([^"]+)".*?"c":"${captchaLinkId}"`))
           || debtPageHtml.match(/Wicket\.Ajax\.ajax\(\{"u":"([^"]+)".*?"c":"id6"/);
@@ -210,7 +217,7 @@ export class MibEngine {
         continue;
       }
 
-      this.log(`PINFL ${pinfl}: captcha ${attempt}/${CAPTCHA_ATTEMPTS} yechildi (${secureCode}) — qidirilmoqda…`);
+      // captcha yechildi — qidirilmoqda
       const postBody = new URLSearchParams({ [`${formId}_hf_0`]: '', pinfl: pinfl.trim(), secure_code: String(secureCode).trim(), submit_button: '1' }).toString();
       const postRes = await this.request(cleanAjaxUrl, {
         method: 'POST',
@@ -234,14 +241,14 @@ export class MibEngine {
       // toza deb qaytaramiz (run.ts uni CLEAN qiladi). Captcha haqiqatan xato bo'lsa mib.uz boshqa
       // (himoya kodi) feedback beradi — u bu shartga tushmaydi va pastda qayta urinaveramiz.
       if (/қарздорлик[\s\S]{0,40}аниқланмади|qarzdorlik[\s\S]{0,40}aniqlanmadi/i.test(ajaxXml)) {
-        this.log(`PINFL ${pinfl}: MIB da qarzdorlik aniqlanmadi — toza`);
+        // MIBda qarzdorlik yo'q — toza (runner yozadi)
         return { success: true, pinfl, fio: '', totalDebt: '0', currentDebt: '0', cases: [], step10Url: '' };
       }
       const newImgMatch = ajaxXml.match(/src="([^"]*antiCache=[^"]*)"/i) || ajaxXml.match(/<img[^>]*src="([^"]+)"/i);
       if (newImgMatch) currentCaptchaImg = new URL(newImgMatch[1]!.replace(/&amp;/g, '&'), `${this.baseUrl}/${baseUrl}`).href;
       await sleep(1000);
     }
-    this.log(`PINFL ${pinfl}: captcha ${CAPTCHA_ATTEMPTS} urinishda ham yechilmadi`);
+    this.log(`${pinfl} ✗ captcha ${CAPTCHA_ATTEMPTS} urinishda yechilmadi`);
     return { success: false, message: `Captcha ${CAPTCHA_ATTEMPTS} marta urinishda ham yechilmadi` };
   }
 
@@ -305,10 +312,10 @@ export class MibEngine {
           const imgRes = await this.request(currentCaptchaImg);
           const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
           secureCode = await this.captchaSolver.solve(imgBuffer);
-        } catch (e) { this.log(`PINFL ${pinfl} · ish ${workNumber}: monitoring captcha xato: ${(e as Error).message}`); }
+        } catch (e) { this.log(`${pinfl} · ${workNumber} ✗ captcha: ${(e as Error).message}`); }
       }
       if (!secureCode) {
-        this.log(`PINFL ${pinfl} · ish ${workNumber}: monitoring captcha ${attempt}/${CAPTCHA_ATTEMPTS} — oʻqilmadi, yangilanmoqda…`);
+        if (attempt % 5 === 0) this.log(`${pinfl} · ${workNumber} · captcha qiyin (${attempt}/${CAPTCHA_ATTEMPTS})`);
         const linkId = (formHtml.match(/<a class="captcha[^"]*" id="([^"]+)"/i) || [])[1] || 'id1d';
         const refreshMatch = html.match(new RegExp(`Wicket\\.Ajax\\.ajax\\(\\{"u":"([^"]+)".*?"c":"${linkId}"`));
         if (refreshMatch) {
@@ -340,12 +347,18 @@ export class MibEngine {
         // tekshirilmas edi — SMS «so'raldi» deb yozilib, kod kelmasa sababi ko'rinmasdi (2026-09-30).
         const feedback = [...step16Html.matchAll(/feedbackPanel(?:ERROR|WARNING|INFO)?[^>]*>\s*<span[^>]*>([^<]{3,300})</gi)]
           .map((m) => m[1]!.replace(/\s+/g, ' ').trim()).filter(Boolean);
-        if (feedback.length) this.log(`PINFL ${pinfl} · ish ${workNumber}: mib.uz xabari — «${feedback.join(' | ').slice(0, 300)}»`);
         if (!verifyFormMatch) {
+          // SMS tasdiqlash formasi yo'q — demak SMS YUBORILMADI. Ilgari shunga qaramay «so'raldi» deb
+          // qaytarilardi: ish 2 daqiqa bekor kutib «SMS kelmadi» bo'lardi va ayb SIMga yozilardi
+          // (2026-11-23: 5 soatda 131 ta — «kelmadi»larning asosiy qismi). Eng ko'p sabab — captcha
+          // noto'g'ri o'qilgan («Текширув коди нотўғри»): chaqiruvchi sahifani yangidan ochib qayta so'raydi.
+          const why = feedback.join(' | ').slice(0, 160);
+          if (/Текширув коди/i.test(why)) throw new MibSmsNotRequested('captcha', why);
           const txt = step16Html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')
             .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-          this.log(`PINFL ${pinfl} · ish ${workNumber}: SMS tasdiqlash formasi YO'Q (HTTP ${step16Res.status}) — sahifa: «${txt.slice(0, 260)}»`);
+          throw new MibSmsNotRequested('other', why || txt.slice(0, 160));
         }
+        if (feedback.length) this.log(`${pinfl} · ${workNumber} · mib.uz: «${feedback.join(' | ').slice(0, 160)}»`);
         const rawVerifyAction = verifyFormMatch ? verifyFormMatch[1]! : '';
         const verifyFormAction = new URL(rawVerifyAction, step16Url).href;
         return { success: true, step16Url, verifyFormAction };
@@ -380,6 +393,7 @@ export class MibEngine {
       res = await this.request(nextUrl);
       html = await res.text();
     }
+    this.lastDetailHtml = html;
     return this.parseStep19Details(html);
   }
 
@@ -399,10 +413,12 @@ export class MibEngine {
       if (m2 && m2[1] && m2[1].trim()) { const c = clean19(m2[1]); if (c && !isFurniture(c)) return c; }
       return null;
     };
+    // «simple-list» qatori: <li><span>Yorliq</span><strong>qiymat</strong></li>. QAT'IY — bitta <li> ichida.
+    // Ilgari `[\s\S]*?` sahifa bo'ylab sirg'alardi: yangiliklar bannerida «жарима» so'zi bo'lsa, undan keyingi
+    // BIRINCHI <strong> (ya'ni «Асосий қарздорлик» qiymati) olinib, «Jarima» ustuniga asosiy qarz yozilardi.
     const extractSimpleList = (pattern: string): string | null => {
-      const match = html.match(new RegExp(`<li>[\\s\\S]*?<span>[\\s\\S]*?${pattern}[\\s\\S]*?<\\/span>\\s*<strong>([^<]+)<\\/strong>`, 'i'));
-      if (match && match[1]) return match[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
-      return null;
+      const match = html.match(new RegExp(`<li>\\s*<span>\\s*${pattern}\\s*<\\/span>\\s*<strong>([^<]+)<\\/strong>`, 'i'));
+      return match && match[1] ? match[1].replace(/\s+/g, ' ').trim() : null;
     };
     const unmaskedNameMatch = html.match(/Тўловчининг номи[^\n<]*<\/td>\s*<td[^>]*>([^<]+)<\/td>/i) || html.match(/Тўловчининг номи[^\n<]*\n\s*([^<\n]+)/i);
     let personFullName = unmaskedNameMatch ? clean19(unmaskedNameMatch[1]!) : null;
@@ -438,11 +454,11 @@ export class MibEngine {
     const caseSubject = extractField('И[\\/ҳ\\s]*мазмуни') || (html.match(/Тўлов мақсади[^\n<]*<\/td>\s*<td[^>]*>([^<]+)<\/td>/i) || [])[1] || 'Qarzdorlik';
     const mibReceivedDate = extractField('МИБ га келиб тушган сана') || extractField('келиб тушган сана');
     const mibInitiatedDate = extractField('қўзғатиш санаси') || extractField('Ижро иши юритувни қўзғатиш санаси');
-    const totalAmount = (html.match(/И\/Ҳ кўрсатилган сумма<\/p>\s*<label>([^<]+)<\/label>/i) || [])[1] || extractSimpleList('Асосий қарздорлик') || '0.00';
+    const totalAmount = (html.match(/И\/Ҳ кўрсатилган сумма\s*<\/p>\s*<label>([^<]+)<\/label>/i) || [])[1]?.trim() || extractSimpleList('Асосий қарздорлик') || '0.00';
     const mainDebt = extractSimpleList('Асосий қарздорлик') || totalAmount || '0.00';
     const executionFee = extractSimpleList('Ижро йиғими') || '0.00';
     const fine = extractSimpleList('Жарима') || '0.00';
-    const remainingDebt = (html.match(/Қарздорлик қолдиғи<\/p>\s*<label>([^<]+)<\/label>/i) || [])[1] || mainDebt || '0.00';
+    const remainingDebt = (html.match(/Қарздорлик қолдиғи\s*<\/p>\s*<label>([^<]+)<\/label>/i) || [])[1]?.trim() || mainDebt || '0.00';
     const bankName = (html.match(/Банк номи[^\n<]*<\/td>\s*<td[^>]*>([^<]+)<\/td>/i) || [])[1] || (html.match(/Банк номи[^\n<]*\n\s*([^<\n]+)/i) || [])[1] || null;
     const mfo = (html.match(/БММ рақами \/ МФО[\s\S]*?(\d{5})/i) || [])[1] || (html.match(/МФО\s*(\d{5})/i) || [])[1] || null;
     const accountNumber = (html.match(/ҳ\/р[^\n<]*\n\s*(\d{20})/i) || [])[1] || (html.match(/(\d{20})/i) || [])[1] || null;

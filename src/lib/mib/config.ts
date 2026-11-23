@@ -22,7 +22,13 @@ const K = {
  * `id` — qisqa barqaror kalit: shu SIM forwarder'i `…/api/mib-webhook?sim=<id>` ga POST qiladi, shunda
  * kelgan kod QAYSI raqamga tegishli ekani aniq bo'ladi (kodlar aralashmaydi).
  */
-export interface MibSim { id: string; phone: string; label: string; state: 'pending' | 'on' | 'off'; addedAt: string }
+export interface MibSim {
+  id: string; phone: string; label: string; state: 'pending' | 'on' | 'off'; addedAt: string;
+  /** Telefondagi SIM SLOT raqami — forwarder SMS matnida «…на номер SIM 2» deb yuboradi. Bitta telefonda
+   *  2 SIM bo'lsa forwarder bitta (umumiy) manzilga yuboradi; slot orqali kod qaysi SIMga kelgani aniqlanadi.
+   *  Avtomator to'g'ri kod qaysi SIMga so'ralganini ko'rib slotni O'ZI o'rganadi (learnSimSlot). */
+  slot?: number;
+}
 export const MAX_SIMS = 6;
 
 export interface MibConfig {
@@ -61,6 +67,7 @@ function readSims(map: Map<string, string>): MibSim[] {
           .map((x, i) => ({
             id: x.id!, phone: digitsOnly(x.phone), label: String(x.label || `SIM ${i + 1}`),
             state: x.state === 'on' || x.state === 'off' ? x.state : 'pending', addedAt: String(x.addedAt || ''),
+            ...(Number.isInteger(x.slot) && x.slot! >= 1 && x.slot! <= 9 ? { slot: x.slot } : {}),
           }));
       }
     } catch { /* buzuq JSON — eski kalitlarga tushamiz */ }
@@ -155,6 +162,34 @@ export async function confirmSimBySms(simId: string | null): Promise<string | nu
   sim.state = 'on';
   await setMibConfig({ sims });
   return sim.phone;
+}
+
+/** Forwarder matnidan SIM slot raqami: «на номер SIM 2», «SIM2», «sim slot 1», «SIM-1». Topilmasa null. */
+export function parseSimSlot(raw: string | null | undefined): number | null {
+  const m = String(raw ?? '').match(/\bSIM\s*(?:slot\s*)?[-#:]?\s*([1-9])\b/i);
+  return m ? Number(m[1]) : null;
+}
+
+/** Slot → SIM id (faqat slotini bilgan SIMlar). Webhook belgisiz SMS'ni shu orqali SIMga bog'laydi. */
+export async function simIdForSlot(slot: number | null): Promise<string | null> {
+  if (!slot) return null;
+  const { sims } = await getMibConfig();
+  return sims.find((x) => x.slot === slot)?.id ?? null;
+}
+
+/**
+ * Slotni o'rganish: avtomator `simId` ga so'ralgan ish uchun kodni TO'G'RI deb tasdiqladi va o'sha SMS
+ * `slot` dan kelgan — demak shu SIM o'sha slotda. Faqat hali hech kimga berilmagan slot yoziladi (boshqa
+ * SIMda turgan bo'lsa — o'sha SIMdan olinadi, chunki yangi dalil kuchliroq). O'zgarsa true.
+ */
+export async function learnSimSlot(simId: string, slot: number): Promise<boolean> {
+  const { sims } = await getMibConfig();
+  const sim = sims.find((x) => x.id === simId);
+  if (!sim || sim.slot === slot) return false;
+  for (const x of sims) if (x.id !== simId && x.slot === slot) delete x.slot;
+  sim.slot = slot;
+  await setMibConfig({ sims });
+  return true;
 }
 
 /** Webhook `?sim=` qiymati — faqat qisqa harf-raqam (bazaga begona matn yozilmasin). */

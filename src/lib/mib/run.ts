@@ -8,11 +8,14 @@
 // SMS_WINDOW ta ish «uchishда» tutiladi. Bitta telefon kifoya — pooldagi kodlar har formaга sinab
 // ko'riladi va TO'G'RIsi DETAL (ijrochi nomi) chiqqanidan aniqlanadi (noto'g'ri kod bo'sh detal beradi →
 // saqlanmaydi). Bu ~2.5× tezlashtiradi.
+import fs from 'node:fs';
+import path from 'node:path';
 import { prisma } from '@/lib/db';
-import { MibEngine } from './engine';
+import { MIB_ROOT } from './store';
+import { MibEngine, MibSmsNotRequested } from './engine';
 import { CaptchaSolver } from './captcha';
 import { resolveCreditor } from './companies';
-import { getMibConfig, getActiveSims, type ActiveSim } from './config';
+import { getMibConfig, getActiveSims, learnSimSlot, parseSimSlot, type ActiveSim } from './config';
 import { pushMibLog } from './log-buffer';
 import { firmKeyWords, creditorIsOurs } from './creditor-match';
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -31,6 +34,17 @@ const SMS_WINDOW = 3;
 // SIM «sovutish»: bir SIMga so'ralgan SMS ketma-ket shuncha marta kelmasa (SIM o'chgan / balans / forwarder
 // uxlagan) — u SIM_COOLDOWN_MS ga chetlatiladi, ishlar qolgan SIMlarga o'tadi. Yagona SIM chetlatilmaydi.
 const SIM_MAX_MISSES = 4;
+// BITTA TELEFON, 2 SIM (2026-11-23): ikkala SIM bir telefonda — SMS so'rovlari orasida kichik oraliq
+// (telefon/forwarder bir vaqtda kelgan SMS'larni to'da qilib, kechiktirib yubormasin).
+const SMS_GAP_MS = 2500;
+// Sekin SIM: kodlari kech (3-5 daqiqa, to'da bo'lib) keladigan SIM uchun kutish muddati o'zi uzayadi —
+// kech kod «egasiz» qolib keyingi ishlarga noto'g'ri sinalmasin. Chegara: shuncha ms.
+const SIM_TIMEOUT_MAX_MS = 6 * 60_000;
+// SIM JIMIB QOLDI: SMS'lar to'lqin bo'lib keladi (2026-11-23: …0986 ~5 daqiqada 30-50 ta, keyin 2-6 daqiqa
+// jim — raqamga SMS cheklovi). Shu SIMga so'ralgan SMS odatdagidan ancha uzoq kelmasa — unga YANGI so'rov
+// yuborilmaydi (dam): 1 → 3 → 5 → 10 daqiqa, ishlar boshqa SIMga o'tadi; kutayotgan ishlari kutishda qoladi.
+// Dam tugagach bitta so'rov bilan sinaladi; kod kelsa — to'liq qaytadi va bosqich nolga tushadi.
+const SIM_REST_STEPS_MIN = [1, 3, 5, 10];
 const SIM_COOLDOWN_MS = 10 * 60_000;
 // Pooldagi bitta kodni bitta ishга sinash cheklovi (3-urinish limitidan oshmaslik uchun).
 const MAX_CODE_TRIES = 3;
@@ -56,6 +70,51 @@ const RECONNECT_STEPS_MIN = [1, 3, 5, 10];
 export interface MibHalt { at: number; reason: string; waiting: boolean; retryAt?: number; attempt?: number }
 const LAST_HALT = new Map<number, MibHalt>();
 export const getMibHalt = (reportId: number): MibHalt | null => LAST_HALT.get(reportId) ?? null;
+
+// Jonli SIM statistikasi (monitor oynasi uchun) — run davomida xotirada. Har SIM: nechta SMS so'raldi,
+// nechtasida to'g'ri kod keldi / kelmadi, oxirgi vaqt, chetlatilganmi. `perSim` — kodlar SIM bo'yicha
+// ajratilyaptimi (har SIMga alohida oyna) yoki umumiy poolda; `window` — bir vaqtda «uchishdagi» SMS soni.
+export interface MibSimWaiting { pinfl: string; work: string; at: number; until: number; tries: number }
+export interface MibSimStat { id: string; label: string; phone: string; tagged: boolean; requested: number; ok: number; miss: number; inflight: number; lastReqAt?: number; lastOkAt?: number; benchedUntil?: number; restLvl?: number; slot?: number | null; timeoutMs?: number; waiting?: MibSimWaiting[] }
+export interface MibRunInfo { startedAt: number; since: number; perSim: boolean; window: number; sims: MibSimStat[] }
+// SIM statistikasi HISOBOT bo'yicha jamlanib saqlanadi (Setting `mib.simstat.<id>`): STOP/GO, deploy yoki
+// restartdan keyin nolga tushmaydi — monitor butun hisobot davomidagi raqamlarni ko'rsatadi.
+type SavedSimStat = Pick<MibSimStat, 'requested' | 'ok' | 'miss' | 'lastReqAt' | 'lastOkAt'>;
+interface SavedRunStat { since: number; sims: Record<string, SavedSimStat> }
+const simStatKey = (reportId: number) => `mib.simstat.${reportId}`;
+async function loadSimStat(reportId: number): Promise<SavedRunStat | null> {
+  const row = await prisma.setting.findUnique({ where: { key: simStatKey(reportId) } }).catch(() => null);
+  try { const v = row?.value ? JSON.parse(row.value) as SavedRunStat : null; return v && typeof v.since === 'number' ? v : null; } catch { return null; }
+}
+async function saveSimStat(reportId: number, v: SavedRunStat): Promise<void> {
+  const value = JSON.stringify(v);
+  await prisma.setting.upsert({ where: { key: simStatKey(reportId) }, create: { key: simStatKey(reportId), value }, update: { value } }).catch(() => {});
+}
+/**
+ * Server (qayta) ishga tushganda: «ishlayapti» belgisi qolgan, lekin jonli avtomatori yo'q hisobotlarni O'ZI
+ * davom ettiradi. Deploy/restart avtomatorni o'ldiradi; ilgari u faqat kimdir hisobot sahifasini ochganda
+ * davom etardi (2026-11-23: deploydan keyin 39 daqiqa bekor turgan). /api/health dan chaqiriladi (Docker
+ * healthcheck uni har 15 s da uradi) — jarayon umrida bir marta ishlaydi.
+ */
+let bootResumed = false;
+export async function resumeMibRunsOnBoot(): Promise<void> {
+  if (bootResumed) return;
+  bootResumed = true;
+  try {
+    const reports = await prisma.mibReport.findMany({ where: { autoRun: true }, select: { id: true } });
+    for (const r of reports) {
+      if (ACTIVE.has(r.id)) continue;
+      await reconcileZombieClients(r.id).catch(() => {});
+      const res = await startMibRun(r.id).catch(() => null);
+      if (res) { console.log(`[mib r${r.id}] server ishga tushdi — ${res.pending} ta mijoz bilan oʻzi davom etmoqda`); pushMibLog(`▶ Server qayta ishga tushdi — tekshiruv oʻzi davom etmoqda (${res.pending} ta navbatda)`, r.id); }
+    }
+  } catch { bootResumed = false; /* baza hali tayyor emas — keyingi healthcheck'da qayta uriniladi */ }
+}
+
+/** Run ishlamayotganda ham monitor oxirgi saqlangan statistikani ko'rsatsin. */
+export async function getSavedSimStat(reportId: number): Promise<SavedRunStat | null> { return loadSimStat(reportId); }
+const RUN_INFO = new Map<number, MibRunInfo>();
+export const getMibRunInfo = (reportId: number): MibRunInfo | null => RUN_INFO.get(reportId) ?? null;
 
 /**
  * «Xato» (FAILED) bo'lib qolgan mijozlarni qayta navbatga (PENDING) qaytaradi — «Xatolarni davom
@@ -113,13 +172,16 @@ async function stillRunning(reportId: number): Promise<boolean> {
 }
 
 // Pipeline'да «uchishдаги» bitta bizники ish.
-interface Inflight { clientId: number; pinfl: string; workNumber: string; caseId: number; verifyFormAction: string; markerId: number; simId: string }
+interface Inflight { clientId: number; pinfl: string; workNumber: string; caseId: number; verifyFormAction: string; markerId: number; simId: string; requestedAt: number; tried: Set<string>; tries: number }
 
 export async function runMibReportJob(jobId: number): Promise<void> {
   const job = await prisma.job.findUnique({ where: { id: jobId }, select: { params: true } });
   const reportId = Number((job?.params as any)?.reportId);
   if (!reportId) return;
-  if (ACTIVE.has(reportId)) { log(`report ${reportId} already running — skip duplicate`); return; }
+  // Shu run'ning har log qatori hisobotga bog'lanadi (monitor faqat shu hisobotni ko'rsatadi). Ichki
+  // funksiyalar va engine shu `log`ni ishlatadi (modul darajasidagini yashiradi).
+  const log = (m: string) => { console.log(`[mib r${reportId}] ${m}`); pushMibLog(m, reportId); };
+  if (ACTIVE.has(reportId)) { log('allaqachon ishlayapti — takror ishga tushirilmadi'); return; }
   ACTIVE.add(reportId);
   LAST_HALT.delete(reportId);
 
@@ -134,12 +196,12 @@ export async function runMibReportJob(jobId: number): Promise<void> {
   let engine = new MibEngine(cfg.baseUrl, { captcha, log });
 
   try {
-    log(`report ${reportId}: OCR (tesseract) ishga tushmoqda…`);
+    // OCR (tesseract) ishga tushmoqda
     await captcha.init();
-    log(`report ${reportId}: OCR tayyor`);
+    // OCR tayyor
   } catch (e) {
     const reason = `Captcha (OCR) ishga tushmadi: ${(e as Error).message}`;
-    log(`report ${reportId}: ${reason}`);
+    log(`✗ ${reason}`);
     LAST_HALT.set(reportId, { at: Date.now(), reason, waiting: false });
     await failReport(reportId, jobId, reason);
     ACTIVE.delete(reportId); return;
@@ -161,7 +223,7 @@ export async function runMibReportJob(jobId: number): Promise<void> {
       const mins = RECONNECT_STEPS_MIN[Math.min(attempt, RECONNECT_STEPS_MIN.length - 1)]!;
       const retryAt = Date.now() + mins * 60_000;
       LAST_HALT.set(reportId, { at: since, reason: why, waiting: true, retryAt, attempt: attempt + 1 });
-      log(`report ${reportId}: ${why} — ${mins} daqiqa kutiladi, soʻng ulanish qayta tekshiriladi (${attempt + 1}-urinish)`);
+      log(`⏸ Ulanish yoʻq — ${mins} daq kutiladi (${attempt + 1}-urinish) · ${why.slice(0, 140)}`);
       while (Date.now() < retryAt) {
         if (!(await stillRunning(reportId))) return false;
         await sleep(Math.min(5000, Math.max(0, retryAt - Date.now())));
@@ -171,7 +233,7 @@ export async function runMibReportJob(jobId: number): Promise<void> {
         engine = new MibEngine(cfg.baseUrl, { captcha, log });
         await bootSession();
         LAST_HALT.delete(reportId);
-        log(`report ${reportId}: ulanish tiklandi (${Math.round((Date.now() - since) / 60_000)} daqiqadan soʻng) — davom etilmoqda`);
+        log(`▶ Ulanish tiklandi (${Math.round((Date.now() - since) / 60_000)} daq) — davom`);
         return true;
       } catch (e) {
         why = `mib.uz hali javob bermayapti: ${(e as Error).message || String(e)}`;
@@ -180,9 +242,9 @@ export async function runMibReportJob(jobId: number): Promise<void> {
   }
 
   try {
-    log(`report ${reportId}: mib.uz sessiya ochilmoqda…`);
+    // mib.uz sessiya ochilmoqda
     await bootSession();
-    log(`report ${reportId}: sessiya tayyor`);
+    log('▶ Boshlandi — mib.uz sessiyasi tayyor');
   } catch (e) {
     // Boshida ham ulanish bo'lmasa run yopilmaydi — kutib qayta urinadi (STOP bosilsa chiqadi).
     const ok = await waitForConnection(`mib.uz sessiyasi ochilmadi: ${(e as Error).message}`);
@@ -209,15 +271,57 @@ export async function runMibReportJob(jobId: number): Promise<void> {
 
   // ── SIMlar ────────────────────────────────────────────────────────────────
   let sims: ActiveSim[] = await getActiveSims().catch(() => []);
+  const simStat = new Map<string, MibSimStat>();
+  const saved = await loadSimStat(reportId);
+  const since = saved?.since ?? Date.now();
+  const runStartedAt = Date.now();
+  const stat = (x: { id: string; label: string; phone: string }) => {
+    let st = simStat.get(x.id);
+    if (!st) {
+      const prev = saved?.sims[x.id];
+      st = { id: x.id, label: x.label, phone: x.phone, tagged: false, requested: prev?.requested ?? 0, ok: prev?.ok ?? 0, miss: prev?.miss ?? 0, inflight: 0, lastReqAt: prev?.lastReqAt, lastOkAt: prev?.lastOkAt };
+      simStat.set(x.id, st);
+    }
+    return st;
+  };
+  let savedAt = 0;
+  const persistStat = async (force = false) => {
+    if (!force && Date.now() - savedAt < 15_000) return;
+    savedAt = Date.now();
+    const sims: Record<string, SavedSimStat> = { ...(saved?.sims ?? {}) };
+    for (const st of simStat.values()) sims[st.id] = { requested: st.requested, ok: st.ok, miss: st.miss, lastReqAt: st.lastReqAt, lastOkAt: st.lastOkAt };
+    await saveSimStat(reportId, { since, sims });
+  };
   const simMiss = new Map<string, number>();   // simId → ketma-ket kelmagan SMS soni
   const simBench = new Map<string, number>();  // simId → shu vaqtgacha chetlatilgan (ms)
+  const simLat = new Map<string, number[]>();   // simId → oxirgi kod kelish vaqtlari (ms)
+  const simExtra = new Map<string, number>();   // simId → kech kod kuzatilgani uchun qo'shimcha kutish (ms)
+  const lateSeen = new Set<number>();           // «egasiz» kech kod sifatida sanalgan SMS id'lari
+  let lastSmsReqAt = 0;
+  let lastSampleAt = 0;
+  const simRestLvl = new Map<string, number>(); // simId → nechanchi dam bosqichi (0 — normal)
+  const simRestFrom = new Map<string, number>(); // simId → dam qaysi so'rovdan keyin boshlangan (requestedAt)
+  // SIM bo'yicha kutish muddati: sozlama (default 120 s) yoki shu SIMning kod kelish tezligiga qarab
+  // (p90 × 2) — qaysi katta bo'lsa; kech kodlar kuzatilsa qo'shimcha. SIM_TIMEOUT_MAX_MS dan oshmaydi.
+  const simTimeout = (simId: string): number => {
+    const lat = [...(simLat.get(simId) ?? [])].sort((a, b) => a - b);
+    const p90 = lat.length >= 5 ? lat[Math.floor(lat.length * 0.9)]! * 2 : 0;
+    return Math.min(SIM_TIMEOUT_MAX_MS, Math.max(smsTimeoutMs, p90) + (simExtra.get(simId) ?? 0));
+  };
   let simRr = 0;
   const simSig = (l: ActiveSim[]) => l.map((x) => `${x.id}:${x.phone}:${x.tagged ? 1 : 0}`).join(',');
-  const simName = (x: { label: string; phone: string }) => `${x.label} (…${x.phone.slice(-4)})`;
+  const simName = (x: { label: string; phone: string }) => `${x.label} …${x.phone.slice(-4)}`;
   const usableSims = () => { const now = Date.now(); const u = sims.filter((x) => (simBench.get(x.id) ?? 0) <= now); return u.length ? u : sims; };
   // Kodlar SIM bo'yicha ajratiladimi (hamma ishlatilayotgan SIM o'z manzilidan SMS olganmi).
-  const perSimMode = () => { const u = usableSims(); return u.length > 1 && u.every((x) => x.tagged); };
-  const windowCap = () => (perSimMode() ? SMS_WINDOW * usableSims().length : SMS_WINDOW);
+  // Kodlar SIM bo'yicha ajratiladi — hamma SIM o'z kodini belgilab olgan (dam olayotgani ham hisob).
+  const perSimMode = () => sims.length > 1 && sims.every((x) => x.tagged);
+  // Oyna: ishlatiladigan har SIMga SMS_WINDOW; dam olayotgan SIMning kutayotgan ishlari ALOHIDA hisob —
+  // ular boshqa SIMning joyini band qilmasin (aks holda bitta SIM jimib qolsa umumiy tezlik ikki barobar tushardi).
+  const windowCap = () => {
+    if (!perSimMode()) return SMS_WINDOW;
+    const u = new Set(usableSims().map((x) => x.id));
+    return SMS_WINDOW * u.size + inflight.filter((it) => !u.has(it.simId)).length;
+  };
   const simLoad = (id: string) => inflight.reduce((n, it) => n + (it.simId === id ? 1 : 0), 0);
   // Keyingi SMS qaysi SIMga so'raladi: eng kam yuklangani (teng bo'lsa navbat bilan). null → hammasi band.
   function pickSim(): ActiveSim | null {
@@ -234,7 +338,22 @@ export async function runMibReportJob(jobId: number): Promise<void> {
     if (best) simRr = (u.indexOf(best) + 1) % u.length;
     return best;
   }
-  if (sims.length > 1) log(`report ${reportId}: ${sims.length} ta SIM — ${sims.map(simName).join(', ')} · ${perSimMode() ? `har SIMga ${SMS_WINDOW} tadan (jami ${windowCap()}) parallel SMS` : `kodlar umumiy poolда (baʼzi SIM oʻz webhook manzilisiz) — jami ${SMS_WINDOW} parallel SMS`}`);
+  // Monitor uchun jonli surat (har holat o'zgarganda yangilanadi — arzon, faqat xotira).
+  const publish = () => {
+    const now = Date.now();
+    for (const x of sims) {
+      const st = stat(x); st.label = x.label; st.phone = x.phone; st.tagged = x.tagged; st.inflight = simLoad(x.id);
+      st.benchedUntil = (simBench.get(x.id) ?? 0) > now ? simBench.get(x.id) : undefined;
+      st.timeoutMs = simTimeout(x.id);
+      st.restLvl = simRestLvl.get(x.id) ?? 0;
+      st.waiting = inflight.filter((it) => it.simId === x.id).map((it) => ({ pinfl: it.pinfl, work: it.workNumber, at: it.requestedAt, until: it.requestedAt + simTimeout(x.id), tries: it.tries }));
+    }
+    const active = new Set(sims.map((x) => x.id));
+    RUN_INFO.set(reportId, { startedAt: runStartedAt, since, perSim: perSimMode(), window: windowCap(), sims: [...simStat.values()].filter((x) => active.has(x.id)) });
+    void persistStat();
+  };
+  publish();
+  if (sims.length > 1) log(`SIM: ${sims.map(simName).join(', ')} · ${perSimMode() ? `parallel ${windowCap()} SMS` : `umumiy pool ${windowCap()} SMS (slotlar oʻrganilmoqda)`}`);
 
   async function finalizeClient(clientId: number, pinfl: string): Promise<void> {
     const bad = smsBad.get(clientId);
@@ -245,73 +364,154 @@ export async function runMibReportJob(jobId: number): Promise<void> {
       // dublikat bo'lmasin). «attempts asc» tartibi tufayli qolganlari tugagach qayta olinadi.
       await prisma.mibCase.deleteMany({ where: { clientId } });
       await prisma.mibClient.update({ where: { id: clientId }, data: { status: 'PENDING', error: `SMS kelmadi — qayta urinadi (${attemptNo}/${MAX_SMS_ATTEMPTS})` } });
-      log(`report ${reportId}: PINFL ${pinfl} → SMS kelmadi, qayta navbatga (${attemptNo}/${MAX_SMS_ATTEMPTS})`);
+      log(`${pinfl} ↻ SMS kelmadi — qayta navbatga (${attemptNo}/${MAX_SMS_ATTEMPTS})`);
     } else {
       // Oldingi urinishdagi «qayta urinadi (n/3)» xatosi qolib ketmasin — sahifa «to'xtab qolgan» ko'rinardi.
       await prisma.mibClient.update({ where: { id: clientId }, data: { status: 'DONE', checkedAt: new Date(), error: bad ? 'Baʼzi SMS kelmadi — detal toʻliq emas' : null } });
-      log(`report ${reportId}: PINFL ${pinfl} → ${m.cases} ijro (${m.ours} bizniki, ${m.other} boshqa)${bad ? ` — ba'zi SMS kelmadi` : ''}`);
+      log(`${pinfl} ✓ ${m.cases} ijro · bizniki ${m.ours}${bad ? ' · baʼzi SMS kelmadi' : ''}`);
     }
     remaining.delete(clientId); smsBad.delete(clientId); cliAttempt.delete(clientId); cliMeta.delete(clientId);
     await bump();
   }
 
-  // Bitta bizники ishни tugallash: pool'dан (markerId'дан keyingi) kodlarni formaga sinaydi, TO'G'Rи
-  // kodni DETAL orqali aniqlaydi (ijrochi nomi bo'lsa — to'g'ri; bo'sh bo'lsa — noto'g'ri, consume qilinmaydi).
-  async function completeCase(item: Inflight): Promise<boolean> {
-    const deadline = Date.now() + smsTimeoutMs;
-    const tried = new Set<string>();
-    let tries = 0;
-    while (Date.now() < deadline && tries < MAX_CODE_TRIES) {
-      const rows = await prisma.mibSms.findMany({
-        // Faqat SHU ish so'ralgan SIMga kelgan kodlar (+ belgisiz — eski umumiy manzildan kelganlar).
-        where: { consumed: false, id: { gt: item.markerId }, NOT: { code: '' }, OR: [{ sim: item.simId }, { sim: null }] },
-        orderBy: { id: 'asc' }, take: SMS_WINDOW + 3,
-      });
-      const fresh = rows.filter((r) => !tried.has(r.code));
-      if (fresh.length === 0) { await sleep(3000); continue; }
-      for (const row of fresh) {
-        if (tries >= MAX_CODE_TRIES) break;
-        tried.add(row.code); tries += 1;
-        try {
-          const step19Url = await engine.submitSmsCode(item.verifyFormAction, row.code);
-          const d = await engine.fetchExecutionDetails(step19Url);
-          const valid = !!(d && d.executor && d.executor.name && d.executor.name !== 'Nomaʼlum');
-          if (!valid) continue; // bo'sh detal → noto'g'ri kod (boshqa ishники); consume QILMAYMIZ
-          await prisma.mibSms.update({ where: { id: row.id }, data: { consumed: true } }).catch(() => {});
-          // Klassifikatsiya (firma/isTargetFirm) allaqachon Step10 MASKASIДАN (creation'да) aniqlangan.
-          // Banner buzган Step19 uni DOWNGRADE qilmaydi (ours ish Davlat bo'lib qolmasin). Step19 faqat
-          // UPGRADE qiladi — Step10 bo'sh/noaniq bo'lса, detalда real target kreditor topilса.
-          const f19 = resolveCreditor(d.creditor);
-          const upgrade = f19.isTarget ? { firmName: f19.name, firmInn: f19.inn, isTargetFirm: true, creditor: d.creditor } : {};
-          await prisma.mibCase.updateMany({
-            where: { id: item.caseId },
-            data: {
-              personFullName: d.personFullName,
-              executorName: d.executor.name, executorPhone: d.executor.phone, executorDept: d.executor.department,
-              courtOrgan: d.court.organ, courtDocType: d.court.docType, courtDocNumber: d.court.docNumber, courtDocDate: d.court.docDate, courtEffectiveDate: d.court.effectiveDate, caseSubject: d.court.subject,
-              mibReceivedDate: d.mibDates.receivedDate, mibInitiatedDate: d.mibDates.initiatedDate,
-              totalAmount: d.financials.totalAmount, mainDebt: d.financials.mainDebt, executionFee: d.financials.executionFee, fine: d.financials.fine, remainingDebt: d.financials.remainingDebt,
-              bankName: d.bankReceipt.bankName, bankMfo: d.bankReceipt.mfo, bankAccount: d.bankReceipt.accountNumber,
-              decisions: d.decisions as any, detailFetchedAt: new Date(), error: null,
-              ...upgrade,
-            },
-          });
-          return true;
-        } catch { /* submit yiqildi → keyingi kod */ }
+  // Bitta kodni bitta ishga kiritib ko'radi. TO'G'RI kod DETAL (ijrochi nomi) chiqqanidan bilinadi; noto'g'ri
+  // bo'lsa kod consume QILINMAYDI (boshqa ishniki bo'lishi mumkin) va ish urinishi sanaladi.
+  async function attemptCode(item: Inflight, row: { id: number; code: string; sim: string | null; raw: string | null }): Promise<boolean> {
+    item.tried.add(row.code); item.tries += 1;
+    try {
+      const step19Url = await engine.submitSmsCode(item.verifyFormAction, row.code);
+      const d = await engine.fetchExecutionDetails(step19Url);
+      const valid = !!(d && d.executor && d.executor.name && d.executor.name !== 'Nomaʼlum');
+      if (!valid) return false;
+      await prisma.mibSms.update({ where: { id: row.id }, data: { consumed: true } }).catch(() => {});
+      // Parser namunasi: summalar (I/H summasi, qoldiq) sahifadan to'g'ri o'qilayotganini tekshirish uchun
+      // 10 daqiqada bir marta oxirgi TO'G'RI detal sahifasi saqlanadi (bitta fayl, ustidan yoziladi).
+      if (Date.now() - lastSampleAt > 10 * 60_000 && engine.lastDetailHtml) {
+        lastSampleAt = Date.now();
+        const dir = path.join(MIB_ROOT, '_debug');
+        void fs.promises.mkdir(dir, { recursive: true }).then(() => fs.promises.writeFile(path.join(dir, 'step19.html'), engine.lastDetailHtml)).catch(() => {});
       }
-    }
-    return false;
+      // Belgisiz SMS to'g'ri chiqdi — u qaysi slotdan kelgan bo'lsa, o'sha slot SHU SIMniki. O'rganamiz:
+      // webhook keyingi SMS'larni o'zi SIMga bog'laydi va har SIMga alohida oyna ochiladi (tezlik ×N).
+      if (!row.sim && sims.length > 1) {
+        const slot = parseSimSlot(row.raw);
+        if (slot && (await learnSimSlot(item.simId, slot).catch(() => false))) {
+          const sm = sims.find((x) => x.id === item.simId);
+          log(`${sm ? simName(sm) : item.simId} → telefonda ${slot}-slot ✓`);
+        }
+      }
+      // Klassifikatsiya (firma/isTargetFirm) allaqachon Step10 MASKASIДАN (creation'да) aniqlangan.
+      // Banner buzган Step19 uni DOWNGRADE qilmaydi (ours ish Davlat bo'lib qolmasin). Step19 faqat
+      // UPGRADE qiladi — Step10 bo'sh/noaniq bo'lса, detalда real target kreditor topilса.
+      const f19 = resolveCreditor(d.creditor);
+      const upgrade = f19.isTarget ? { firmName: f19.name, firmInn: f19.inn, isTargetFirm: true, creditor: d.creditor } : {};
+      await prisma.mibCase.updateMany({
+        where: { id: item.caseId },
+        data: {
+          personFullName: d.personFullName,
+          executorName: d.executor.name, executorPhone: d.executor.phone, executorDept: d.executor.department,
+          courtOrgan: d.court.organ, courtDocType: d.court.docType, courtDocNumber: d.court.docNumber, courtDocDate: d.court.docDate, courtEffectiveDate: d.court.effectiveDate, caseSubject: d.court.subject,
+          mibReceivedDate: d.mibDates.receivedDate, mibInitiatedDate: d.mibDates.initiatedDate,
+          totalAmount: d.financials.totalAmount, mainDebt: d.financials.mainDebt, executionFee: d.financials.executionFee, fine: d.financials.fine, remainingDebt: d.financials.remainingDebt,
+          bankName: d.bankReceipt.bankName, bankMfo: d.bankReceipt.mfo, bankAccount: d.bankReceipt.accountNumber,
+          decisions: d.decisions as any, detailFetchedAt: new Date(), error: null,
+          ...upgrade,
+        },
+      });
+      return true;
+    } catch { return false; }
   }
 
-  // Eng eski «uchishдаги» ishni tugatadi.
+  // Jimib qolgan SIMni aniqlaydi: eng eski kutayotgan SMS'i odatdagi kelish vaqtidan (median × 3, 30-90 s)
+  // oshib ketgan va shu vaqt ichida bu SIMdan bitta ham kod kelmagan bo'lsa — dam beradi (yangi so'rov yo'q).
+  function checkStalls(now: number): void {
+    if (sims.length < 2) return; // yagona SIMga dam berilmaydi — boshqa yo'l yo'q
+    for (const x of sims) {
+      if ((simBench.get(x.id) ?? 0) > now) continue;
+      const waiting = inflight.filter((it) => it.simId === x.id);
+      if (!waiting.length) continue;
+      const oldest = Math.min(...waiting.map((it) => it.requestedAt));
+      if ((simRestFrom.get(x.id) ?? 0) >= oldest) continue; // shu so'rov bo'yicha allaqachon dam berilgan
+      const lat = [...(simLat.get(x.id) ?? [])].sort((a, b) => a - b);
+      const med = lat.length ? lat[Math.floor(lat.length / 2)]! : 15_000;
+      const stallAfter = Math.min(90_000, Math.max(30_000, med * 3));
+      const lastOk = stat(x).lastOkAt ?? 0;
+      if (now - oldest < stallAfter || lastOk > oldest) continue;
+      const lvl = Math.min(SIM_REST_STEPS_MIN.length, (simRestLvl.get(x.id) ?? 0) + 1);
+      const mins = SIM_REST_STEPS_MIN[lvl - 1]!;
+      simRestLvl.set(x.id, lvl); simRestFrom.set(x.id, oldest);
+      simBench.set(x.id, now + mins * 60_000);
+      log(`⏸ ${simName(x)} — ${Math.round((now - oldest) / 1000)} s dan beri SMS kelmayapti · ${mins} daq dam (ishlar ${sims.filter((y) => y.id !== x.id).map(simName).join(', ')} ga)`);
+    }
+  }
+
+  // KOD → ISH moslash (noto'g'ri kiritishlarsiz, 2026-11-23). mib.uz bitta ishga 3 marta noto'g'ri kod
+  // kiritilsa uni bloklaydi («Текширув коди нотўғри» ×3). Ilgari har ish kelgan hamma kodni ketma-ket sinardi:
+  // bir SIMda 3 ta ish kutayotganda boshqalarning kodi bilan urinishlar tugab, ish bloklanardi. Endi:
+  //   • kod faqat O'Z SIMidagi (belgisiz bo'lsa — istalgan) va kod kelishidan OLDIN so'ralgan ishlarga beriladi;
+  //   • so'rov tartibida — eng eski kutayotgan ishga birinchi (SMS'lar odatda shu tartibda keladi);
+  //   • har ishda oxirgi urinish O'Z kodi uchun saqlanadi: 2 ta noto'g'ri urinishi bo'lgan ishga kod faqat
+  //     boshqa nomzod qolmaganda beriladi;
+  //   • kodi kelgan birinchi ish tugaydi (navbat kutilmaydi), muddati o'tgani «kelmadi» bo'ladi.
   async function drainOldest(): Promise<void> {
-    const item = inflight.shift();
-    if (!item) return;
-    log(`PINFL ${item.pinfl} · ish ${item.workNumber}: OTP kutilib, detal olinmoqda…`);
-    let ok = false;
-    try { ok = await completeCase(item); } catch { ok = false; }
-    if (ok) simMiss.set(item.simId, 0);
+    while (inflight.length) {
+      const minMarker = Math.min(...inflight.map((it) => it.markerId));
+      const rows = await prisma.mibSms.findMany({
+        where: { consumed: false, id: { gt: minMarker }, NOT: { code: '' } },
+        select: { id: true, code: true, sim: true, raw: true, createdAt: true },
+        orderBy: { id: 'asc' }, take: 60,
+      });
+      for (const row of rows) {
+        const cands = inflight.filter((it) => it.markerId < row.id && !it.tried.has(row.code) && it.tries < MAX_CODE_TRIES && (!row.sim || row.sim === it.simId));
+        if (cands.length === 0) {
+          // Egasiz kod: shu SIMning ishi allaqachon «kelmadi» bo'lgan — SMS kech kelyapti. Shu SIM kutishini uzaytiramiz.
+          if (row.sim && !lateSeen.has(row.id) && Date.now() - row.createdAt.getTime() < 60_000) {
+            lateSeen.add(row.id);
+            const cur = simExtra.get(row.sim) ?? 0;
+            if (cur < SIM_TIMEOUT_MAX_MS) {
+              simExtra.set(row.sim, Math.min(SIM_TIMEOUT_MAX_MS, cur + 60_000));
+              const sm = sims.find((x) => x.id === row.sim);
+              if (sm) log(`⏸ ${simName(sm)} — SMS kech kelyapti, kutish ${Math.round(simTimeout(sm.id) / 60_000)} daq`);
+            }
+          }
+          continue;
+        }
+        // Oxirgi urinishni o'z kodi uchun saqlash: avval 2 tadan kam xato qilganlar.
+        const order = [...cands.filter((c) => c.tries < MAX_CODE_TRIES - 1), ...cands.filter((c) => c.tries >= MAX_CODE_TRIES - 1)];
+        for (const it of order) {
+          if (!inflight.includes(it)) continue;
+          if (await attemptCode(it, row)) {
+            inflight.splice(inflight.indexOf(it), 1);
+            const lat = simLat.get(it.simId) ?? []; lat.push(Date.now() - it.requestedAt); if (lat.length > 30) lat.shift(); simLat.set(it.simId, lat);
+            await finishCase(it, true);
+            return;
+          }
+        }
+      }
+      // Muddati o'tgan yoki urinishlari tugagan ish — «kelmadi».
+      const now = Date.now();
+      const dead = inflight.find((it) => it.tries >= MAX_CODE_TRIES || now > it.requestedAt + simTimeout(it.simId));
+      if (dead) { inflight.splice(inflight.indexOf(dead), 1); await finishCase(dead, false); return; }
+      checkStalls(now);
+      publish();
+      await sleep(2000);
+    }
+  }
+
+  async function finishCase(item: Inflight, ok: boolean): Promise<void> {
+    { const sm = sims.find((x) => x.id === item.simId); if (sm) { const st = stat(sm); if (ok) { st.ok += 1; st.lastOkAt = Date.now(); } else st.miss += 1; } }
+    const simTag = sims.length > 1 ? ` · ${simName(sims.find((x) => x.id === item.simId) ?? { label: item.simId, phone: '' })}` : '';
+    if (ok) {
+      simMiss.set(item.simId, 0);
+      log(`${item.pinfl} · ${item.workNumber} ✓ kod${simTag}`);
+      if ((simRestLvl.get(item.simId) ?? 0) > 0) {
+        simRestLvl.set(item.simId, 0); simBench.delete(item.simId);
+        const sm = sims.find((x) => x.id === item.simId);
+        if (sm) log(`▶ ${simName(sm)} — SMS yana kelyapti, toʻliq ishga qaytdi`);
+      }
+    }
     else {
+      log(`${item.pinfl} · ${item.workNumber} ✗ SMS kelmadi${simTag}`);
       smsBad.set(item.clientId, true);
       await prisma.mibCase.updateMany({ where: { id: item.caseId }, data: { error: 'SMS kod kelmadi' } }).catch(() => {});
       // SIM ketma-ket javobsiz — boshqa SIM bor bo'lsa buni vaqtincha chetlatamiz (ishlar ularga o'tadi).
@@ -320,9 +520,10 @@ export async function runMibReportJob(jobId: number): Promise<void> {
       const sim = sims.find((x) => x.id === item.simId);
       if (sim && miss >= SIM_MAX_MISSES && usableSims().some((x) => x.id !== sim.id) && (simBench.get(sim.id) ?? 0) <= Date.now()) {
         simBench.set(sim.id, Date.now() + SIM_COOLDOWN_MS); simMiss.set(sim.id, 0);
-        log(`report ${reportId}: ${simName(sim)} ga ${miss} ta SMS ketma-ket kelmadi — ${SIM_COOLDOWN_MS / 60_000} daqiqaga chetlatildi, ishlar qolgan SIMlarga oʻtadi`);
+        log(`⏸ ${simName(sim)} — ${miss} ta SMS kelmadi, ${SIM_COOLDOWN_MS / 60_000} daq chetda`);
       }
     }
+    publish();
     const rem = (remaining.get(item.clientId) ?? 1) - 1;
     remaining.set(item.clientId, rem);
     if (rem <= 0) await finalizeClient(item.clientId, item.pinfl);
@@ -356,17 +557,18 @@ export async function runMibReportJob(jobId: number): Promise<void> {
     const freshSims = await getActiveSims().catch(() => null);
     if (freshSims && simSig(freshSims) !== simSig(sims)) {
       sims = freshSims;
-      log(`report ${reportId}: SIMlar yangilandi — ${sims.length ? sims.map(simName).join(', ') : 'ishlayotgan SIM yoʻq'} · jami ${windowCap()} parallel SMS`);
+      log(`SIM: ${sims.length ? sims.map(simName).join(', ') : 'ishlayotgan SIM yoʻq'} · ${perSimMode() ? 'parallel' : 'umumiy pool'} ${windowCap()} SMS`);
+      publish();
     }
     const attemptNo = (client.attempts ?? 0) + 1;
-    log(`report ${reportId}: PINFL ${client.pinfl} tekshirilmoqda…`);
+    // mijoz qidirilmoqda
     await prisma.mibClient.update({ where: { id: client.id }, data: { status: 'RUNNING', attempts: { increment: 1 } } });
     try {
       debtPage = await engine.getDebtSearchPage((await engine.request('/home').then((r) => r.text())));
       const search = await engine.searchDebtsByPinfl(client.pinfl, debtPage);
 
       if (!search.success) {
-        log(`PINFL ${client.pinfl}: qidiruv muvaffaqiyatsiz — ${search.message || 'xato'}`);
+        log(`${client.pinfl} ✗ ${search.message || 'qidiruv muvaffaqiyatsiz'}`);
         await prisma.mibClient.update({ where: { id: client.id }, data: { status: 'FAILED', fio2: search.fio || null, checkedAt: new Date(), error: search.message || 'Qidiruv muvaffaqiyatsiz' } });
         // Captcha ketma-ket yechilmasa ham bu tizimli nosozlik (sahifa buzilgan / blok) — saqlagichga sanaladi.
         if (await tripBreaker(client.id, search.message || 'Qidiruv muvaffaqiyatsiz')) return true;
@@ -374,7 +576,7 @@ export async function runMibReportJob(jobId: number): Promise<void> {
       }
       consecErrIds = []; // mib.uz to'g'ri javob berdi — ulanish joyida
       if (!search.cases || search.cases.length === 0) {
-        log(`PINFL ${client.pinfl}: qarz topilmadi (toza)`);
+        log(`${client.pinfl} — MIBda qarzi yoʻq`);
         await prisma.mibClient.update({ where: { id: client.id }, data: { status: 'CLEAN', fio2: search.fio || null, totalDebt: search.totalDebt || null, currentDebt: search.currentDebt || null, checkedAt: new Date(), error: null } });
         await bump(); return true;
       }
@@ -408,7 +610,7 @@ export async function runMibReportJob(jobId: number): Promise<void> {
       remaining.set(client.id, ourItems.length);
       // SMS so'rovlarini KETMA-KET yuboramiz (bitta sessiyada xavfsiz) — kutishlari keyin ustma-ust bo'ladi.
       // OVERFILL'ni oldini olamiz: bitta mijozда ko'p (>SMS_WINDOW) bizniki ish bo'lsa, hammasini birdan
-      // «uchishга» qo'ymaymiz — aks holda completeCase pooldа SMS_WINDOW'дан ko'p kod bo'lib, MAX_CODE_TRIES=3
+      // «uchishга» qo'ymaymiz — aks holda pooldа SMS_WINDOW'дан ko'p kod bo'lib, MAX_CODE_TRIES=3
       // ichida to'g'ri kod sinalmay qolishi mumkin edi (2026-09-17 audit). Oyna to'lsa — eng eskisini tugatamiz.
       for (const it of ourItems) {
         while (inflight.length >= windowCap()) await drainOldest();
@@ -416,15 +618,42 @@ export async function runMibReportJob(jobId: number): Promise<void> {
         let sim = pickSim();
         while (!sim && inflight.length) { await drainOldest(); sim = pickSim(); }
         sim ??= usableSims()[0] ?? sims[0]!;
+        // Bitta telefon: SMS so'rovlari orasida kamida SMS_GAP_MS.
+        const gap = lastSmsReqAt + SMS_GAP_MS - Date.now();
+        if (gap > 0) await sleep(gap);
         const markerId = await maxSmsId();
-        const sms = await engine.prepareAndRequestSms(it.monitoringUrl, client.pinfl, it.workNumber, sim.phone);
-        inflight.push({ clientId: client.id, pinfl: client.pinfl, workNumber: it.workNumber, caseId: it.caseId, verifyFormAction: sms.verifyFormAction, markerId, simId: sim.id });
-        log(`PINFL ${client.pinfl} · ish ${it.workNumber}: SMS so'raldi${sims.length > 1 ? ` → ${simName(sim)}` : ''} (pipeline)`);
+        // SMS haqiqatan so'ralganiga ishonch: captcha rad etilsa sahifa yangidan ochilib qayta so'raladi (3 marta).
+        let sms: Awaited<ReturnType<typeof engine.prepareAndRequestSms>> | null = null;
+        let notReq = '';
+        for (let tryNo = 1; tryNo <= 3 && !sms; tryNo++) {
+          try { sms = await engine.prepareAndRequestSms(it.monitoringUrl, client.pinfl, it.workNumber, sim.phone); }
+          catch (e) {
+            if (!(e instanceof MibSmsNotRequested)) throw e;
+            notReq = e.message;
+            if (e.kind !== 'captcha') break; // limit / raqam / xizmat — qayta urinish foyda bermaydi
+            await sleep(1500);
+          }
+        }
+        if (!sms) {
+          // SMS so'ralmadi — SIM aybdor emas (statistikasiga yozilmaydi); ish detalsiz qoladi, mijoz qayta navbatga.
+          log(`${client.pinfl} · ${it.workNumber} ✗ ${notReq}`);
+          smsBad.set(client.id, true);
+          await prisma.mibCase.updateMany({ where: { id: it.caseId }, data: { error: notReq.slice(0, 180) } }).catch(() => {});
+          const rem = (remaining.get(client.id) ?? 1) - 1;
+          remaining.set(client.id, rem);
+          if (rem <= 0) await finalizeClient(client.id, client.pinfl);
+          continue;
+        }
+        lastSmsReqAt = Date.now();
+        inflight.push({ clientId: client.id, pinfl: client.pinfl, workNumber: it.workNumber, caseId: it.caseId, verifyFormAction: sms.verifyFormAction, markerId, simId: sim.id, requestedAt: Date.now(), tried: new Set(), tries: 0 });
+        { const st = stat(sim); st.requested += 1; st.lastReqAt = Date.now(); }
+        publish();
+        log(`${client.pinfl} · ${it.workNumber} → SMS${sims.length > 1 ? ` · ${simName(sim)}` : ''}`);
       }
       return true;
     } catch (e) {
       const msg = (e as Error).message || String(e);
-      log(`report ${reportId}: PINFL ${client.pinfl} XATO: ${msg}`);
+      log(`${client.pinfl} ✗ ${msg.slice(0, 160)}`);
       await prisma.mibClient.update({ where: { id: client.id }, data: { status: 'FAILED', error: msg, checkedAt: new Date() } });
       // Sessiyani ALMASHTIRISHDAN OLDIN «uchishдаги» ishларни tugatamiz: ularning verify-formasi ESKI
       // sessiya (JSESSIONID)ga bog'liq — yangi sessiya cookie bilan yuborilsa mib.uz uni tanimaydi va
@@ -461,9 +690,11 @@ export async function runMibReportJob(jobId: number): Promise<void> {
     await prisma.mibReport.update({ where: { id: reportId }, data: { autoRun: false, runJobId: null } });
     await prisma.job.update({ where: { id: jobId }, data: { status: 'DONE', message: remainingCnt ? 'Toʻxtatildi' : 'Yakunlandi' } }).catch(() => {});
     LAST_HALT.delete(reportId); // kutish paytida STOP bosilgan bo'lsa «kutilmoqda» belgisi qolib ketmasin
-    log(`report ${reportId}: tugadi (${processed} ta ishlandi, ${remainingCnt} qoldi)`);
+    log(`■ Tugadi · ${processed} ta tekshirildi · ${remainingCnt} qoldi`);
   } finally {
+    await persistStat(true).catch(() => {});
     await captcha.terminate().catch(() => {});
+    RUN_INFO.delete(reportId);
     ACTIVE.delete(reportId);
   }
 }

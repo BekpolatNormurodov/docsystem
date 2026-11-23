@@ -20,6 +20,7 @@ import { regionOf, groupBreakdown, parseMoney, clean, bestFio, shortFirm, normal
 import { MIB_COMPANIES } from '@/lib/mib/companies';
 import { useT } from '@/lib/i18n/client';
 import { RecheckModal, type RecheckInfo } from '../mib-hisoboti/RecheckModal';
+import { MibMonitorModal } from '../mib-hisoboti/MibMonitor';
 
 interface Report { id: number; createdAt: string; label: string | null; total: number; autoRun: boolean; statusFilter: string | null; sourceFileName?: string }
 interface Stats {
@@ -127,6 +128,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   // Avtomator o'zi pauza qilgan bo'lsa (ulanish uzildi) — sababi; «Ulanishni tekshirish» natijasi.
   const [halt, setHalt] = useState<{ at: number; reason: string; waiting?: boolean; retryAt?: number; attempt?: number } | null>(null);
   const [health, setHealth] = useState<Health | null>(null);
+  const [monitorOpen, setMonitorOpen] = useState(false);
 
   const load = useCallback(async () => {
     const j = await jget(aggregate ? `${BASE_PATH}/api/mib/all` : `${BASE_PATH}/api/mib/${reportId}`);
@@ -332,6 +334,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
 
   return (
     <div className="space-y-4">
+      {!aggregate && <MibMonitorModal reportId={reportId} open={monitorOpen} onClose={() => setMonitorOpen(false)} title={`${t('Jonli monitor')} · ${report.label || report.sourceFileName || `#${reportId}`}`} />}
       <RecheckModal open={!!reusedInfo} info={reusedInfo} onClose={() => setReusedInfo(null)} onConfirm={doForceReused} onKeepOld={doKeepOldReused} />
       {/* ── standalone: «Holat» + sana → Ro'yxatni qurish ────────────────── */}
       {variant === 'standalone' && !report.autoRun && !isManual && !aggregate && (
@@ -381,6 +384,9 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
               {busy === 'reseed' ? <Spinner size={16} /> : <Ico.refresh size={16} />} {t('Konveyerdan yangilash')}
             </button>
           )}
+          <button className={cx('btn-ghost shrink-0', report.autoRun && 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300')} onClick={() => setMonitorOpen(true)} title={t('Avtomator holati, SIM kartalar va shu hisobot loglari')}>
+            {report.autoRun ? <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" /></span> : <Ico.chart size={16} />} {t('Jonli monitor')}
+          </button>
           <button className="btn-ghost shrink-0" disabled={busy === 'health'} onClick={checkHealth} title={t('Server mib.uz ga yeta oladimi: sayt → sessiya → qidiruv formasi → SMS raqami')}>
             {busy === 'health' ? <Spinner size={16} /> : <Ico.globe size={16} />} {t('Ulanishni tekshirish')}
           </button>
@@ -476,6 +482,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
           totalCases={totalCases}
           onStop={stop}
           busyStop={busy === 'stop'}
+          onMonitor={() => setMonitorOpen(true)}
         />
       )}
 
@@ -854,10 +861,10 @@ function Pager({ page, totalPages, total, pageSize, onPage, onPageSize }: { page
 //    Vizual: chapdan yorqin pulsatsiyalayotgan yashil «LIVE» + katta progress bar (foiz), o'ngdan
 //    STOP tugmasi. Ostida qatorda: bizniki live counter, RUNNING/PENDING/FAILED chip'lar.
 function LiveProgressCard({
-  checked, total, pending, running, failed, oursCases, totalCases, onStop, busyStop,
+  checked, total, pending, running, failed, oursCases, totalCases, onStop, busyStop, onMonitor,
 }: {
   checked: number; total: number; pending: number; running: number; failed: number;
-  oursCases: number; totalCases: number; onStop: () => void; busyStop: boolean;
+  oursCases: number; totalCases: number; onStop: () => void; busyStop: boolean; onMonitor?: () => void;
 }) {
   const t = useT();
   const pct = total > 0 ? Math.min(100, Math.round((checked / total) * 1000) / 10) : 0;
@@ -884,6 +891,7 @@ function LiveProgressCard({
             <div className="text-2xl font-bold tabular-nums leading-none text-emerald-700 dark:text-emerald-300">{pct}%</div>
             <div className="mt-1 text-xs text-muted tabular-nums">{n(checked)} / {n(total)}</div>
           </div>
+          {onMonitor && <button className="btn-ghost shrink-0" onClick={onMonitor}><Ico.chart size={16} /> {t('SIM va loglar')}</button>}
           <button className="btn-danger shrink-0" disabled={busyStop} onClick={onStop} title={t('Avtomatorni to‘xtatish (davom ettirsangiz shu joydan davom etadi)')}>
             {busyStop ? <Spinner size={16} /> : <Ico.minus size={16} />} STOP
           </button>
