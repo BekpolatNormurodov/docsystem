@@ -22,6 +22,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // SMS OTP kutish chegarasi endi Sozlamalarда (cfg.smsTimeoutSec, default 120s) — deploy'siz o'zgartiriladi.
 // SMS kod kelmasa mijoz shuncha marta QAYTA urinilib ko'riladi (keyin ish detalsiz DONE bo'ladi).
 const MAX_SMS_ATTEMPTS = 3;
+// Navbat tugagach detalsiz qolgan bizniki ishlar uchun mijoz jami shuncha martagacha qayta tekshiriladi.
+const MAX_DETAIL_ATTEMPTS = 6;
 // Bir vaqtда «uchishда» tutiladigan SMS soni (pipeline oynasi). mib.uz bitta sessiyada bir necha
 // verifikatsiyani ochiq tutadi (jonli sinov) va formaга ~3 marta kod kiritishga ruxsat beradi.
 const SMS_WINDOW = 3;
@@ -701,6 +703,15 @@ export async function runMibReportJob(jobId: number): Promise<void> {
         // mumkin. Tekshirmasak run oxiridagi qayta urinishlar hech qachon bajarilmay «Toʻxtatildi» bo'lardi
         // (2026-09-28: BEKTOSHEV 1/3 da qolib ketdi). Urinishlar MAX_SMS_ATTEMPTS bilan cheklangan — cheksiz emas.
         if (noMore && (await prisma.mibClient.count({ where: { reportId, status: 'PENDING' } })) > 0) { noMore = false; continue; }
+        // Navbat tugadi. BIZNIKI ishi detalsiz qolgan mijozlar (SMS 3 urinishda ham kelmagan) yana bir bor
+        // qayta tortiladi — «detal baribir olinsin». Cheklangan: har mijoz jami MAX_DETAIL_ATTEMPTS martagacha.
+        if (noMore && cfg.deepDetail && sims.length) {
+          const again = await prisma.mibClient.updateMany({
+            where: { reportId, status: 'DONE', attempts: { lt: MAX_DETAIL_ATTEMPTS }, cases: { some: { isTargetFirm: true, detailFetchedAt: null, archivedAt: null } } },
+            data: { status: 'PENDING', error: 'Detal toʻliq emas — qayta tortiladi' },
+          });
+          if (again.count) { log(`↻ ${again.count} ta mijozda bizniki ish detalsiz qolgan — qayta tortiladi`); noMore = false; continue; }
+        }
         break; // hech narsa qolmadi
       }
       await drainOldest();
