@@ -591,7 +591,7 @@ export async function runMibReportJob(jobId: number): Promise<void> {
     // Telefon raqami run davomida o'zgarishi mumkin (Sozlamalar). Har mijoz oldidan qayta o'qiymiz —
     // aks holda run ESKI raqamga SMS so'rab, hamma ish «SMS kelmadi» bo'lib qolardi (2026-09-30).
     const fresh = await getMibConfig().catch(() => null);
-    if (fresh) cfg.deepDetail = fresh.deepDetail;
+    if (fresh) { cfg.deepDetail = fresh.deepDetail; cfg.twoPhase = fresh.twoPhase; }
     // SIMlar ro'yxati ham (qo'shildi / o'chirildi / birinchi belgili SMS keldi → oyna kengayadi).
     const freshSims = await getActiveSims().catch(() => null);
     if (freshSims && simSig(freshSims) !== simSig(sims)) {
@@ -600,6 +600,10 @@ export async function runMibReportJob(jobId: number): Promise<void> {
       publish();
     }
     const attemptNo = (client.attempts ?? 0) + 1;
+    // 2 BOSQICH (Sozlamalar): mijoz BIRINCHI marta tekshirilayotganda faqat ishlar RO'YXATI olinadi (SMS'siz).
+    // Navbat `attempts asc` tartibida — avval hamma yangi mijozlar ro'yxati yig'iladi; navbat tugagach
+    // requeueMissingDetail ularni qaytaradi va ikkinchi o'tishda (attempts ≥ 1) detal SMS bilan tortiladi.
+    const listOnly = cfg.twoPhase && cfg.deepDetail && sims.length > 0 && (client.attempts ?? 0) === 0;
     // mijoz qidirilmoqda
     await prisma.mibClient.update({ where: { id: client.id }, data: { status: 'RUNNING', attempts: { increment: 1 } } });
     try {
@@ -640,8 +644,17 @@ export async function runMibReportJob(jobId: number): Promise<void> {
         const caseRow = await prisma.mibCase.create({ data: { clientId: client.id, workNumber: c.workNumber, monitoringUrl: c.monitoringUrl ?? null, creditor: c.creditor ?? null, firmName: f0.name, firmInn: f0.inn, isTargetFirm: f0.isTarget } });
         if (!isOurs) { other += 1; await prisma.mibCase.updateMany({ where: { id: caseRow.id }, data: { error: 'Boshqa kreditor — detal olinmadi' } }); continue; }
         ours += 1;
-        if (cfg.deepDetail && sims.length && c.monitoringUrl) ourItems.push({ workNumber: c.workNumber, monitoringUrl: c.monitoringUrl, caseId: caseRow.id });
+        if (listOnly) await prisma.mibCase.updateMany({ where: { id: caseRow.id }, data: { error: 'Detal navbatda (2-bosqich)' } });
+        else if (cfg.deepDetail && sims.length && c.monitoringUrl) ourItems.push({ workNumber: c.workNumber, monitoringUrl: c.monitoringUrl, caseId: caseRow.id });
         else if (cfg.deepDetail && !sims.length) await prisma.mibCase.updateMany({ where: { id: caseRow.id }, data: { error: 'SMS telefon raqami sozlanmagan' } });
+      }
+      if (listOnly) {
+        // 1-bosqich: ro'yxat saqlandi. Bizniki ishi bo'lsa — detal keyin (navbat oxirida) tortiladi.
+        await prisma.mibClient.update({ where: { id: client.id }, data: { status: 'DONE', checkedAt: new Date(), error: ours ? 'Roʻyxat olindi — detal navbatda' : null } });
+        log(`${client.pinfl} ≡ ${search.cases.length} ijro · bizniki ${ours} (roʻyxat)`);
+        await bump();
+        await sleep(1200); // SMS kutishi yo'q — mib.uz'ni tez-tez urmaslik uchun kichik oraliq
+        return true;
       }
       cliMeta.set(client.id, { cases: search.cases.length, ours, other });
       cliAttempt.set(client.id, attemptNo);

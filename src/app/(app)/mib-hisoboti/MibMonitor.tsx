@@ -44,7 +44,7 @@ const SIM_TONE = [
 export function kindOf(msg: string): Exclude<Kind, 'all'> | 'wait' | 'info' {
   if (msg.includes('✗') || /kelmadi|XATO/.test(msg)) return 'err';
   if (msg.includes('⏸') || msg.includes('↻')) return 'wait';
-  if (msg.includes('✓') || msg.startsWith('▶') || msg.startsWith('■') || /MIBda qarzi yoʻq/.test(msg)) return 'ok';
+  if (msg.includes('✓') || msg.includes('≡') || msg.startsWith('▶') || msg.startsWith('■') || /MIBda qarzi yoʻq/.test(msg)) return 'ok';
   if (msg.includes('→ SMS')) return 'sms';
   return 'info';
 }

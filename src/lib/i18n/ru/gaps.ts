@@ -230,4 +230,8 @@ export const gaps: Record<string, string> = {
   "Dam olmoqda — SMS kelmay qoldi": "Пауза — SMS перестали приходить",
   "Yangi SMS boshqa SIMga soʻralyapti. Dam tugagach bitta sinov SMS — kod kelsa toʻliq qaytadi.": "Новые SMS запрашиваются на другую SIM. После паузы — одно пробное SMS; если код придёт, SIM вернётся полностью.",
   "bosqich": "этап",
+  "2 bosqich: avval roʻyxat, keyin detal": "2 этапа: сначала список, потом детали",
+  "Yoqilgan — yangi mijozlarda avval ishlar roʻyxati SMS’siz yigʻiladi (Excel darhol chiqadi), navbat tugagach bizniki ishlar detali SMS bilan tortiladi. Toʻliq detal umumiy hisobda kechroq tugaydi.": "Включено — у новых клиентов сначала собирается список дел без SMS (Excel доступен сразу), после очереди детали наших дел запрашиваются по SMS. Полные детали в сумме будут готовы позже.",
+  "Oʻchirilgan — har mijozda roʻyxat va detal birga olinadi (toʻliq detal eng tez shu rejimda tugaydi).": "Отключено — у каждого клиента список и детали берутся вместе (полные детали быстрее всего в этом режиме).",
+  "ta mijozda bizniki ish detalsiz qolgan edi — qayta navbatga qoʻyildi, detal SMS bilan yigʻilmoqda.": "клиентов имели наши дела без деталей — возвращены в очередь, детали собираются по SMS.",
 };

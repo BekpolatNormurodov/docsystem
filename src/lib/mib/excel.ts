@@ -8,7 +8,8 @@ import { parseMoney } from './stats';
 import { groupBreakdown, regionFromText, rowKey, clean, shortFirm, decodeEntities, bestFio, UNKNOWN, type Dim } from './breakdown';
 
 // Ishlarga server sudya va sud ish raqamini qo'shadi (src/lib/mib/judges.ts, attachJudgesToClients).
-type CaseRowX = MibCase & { judge?: string | null; courtCaseNumber?: string | null };
+// `priorAt` — shu ishning DETALI oldingi tekshiruvdan olingan (2-bosqich rejimida ro'yxat yangi, detal hali navbatda).
+type CaseRowX = MibCase & { judge?: string | null; courtCaseNumber?: string | null; priorAt?: Date | null };
 // `prior` — natija shu hisobotdan emas, boshqa hisobotdagi oldingi tekshiruvdan olingan (route qo'yadi).
 type ClientWithCases = MibClient & { cases: CaseRowX[]; prior?: { reportId: number; checkedAt: Date | null } };
 // Sanalar Excel'da HAQIQIY sana bo'lsin (matn emas — saralash/filtr ishlasin).
@@ -294,7 +295,7 @@ export async function buildMibExcel(
         total: numOrBlank(k.totalAmount, has), main: numOrBlank(k.mainDebt, has), fee: numOrBlank(k.executionFee, has), fine: fineOf(k, has), remaining: numOrBlank(k.remainingDebt, has),
         bank: txt(k.bankName), mfo: txt(k.bankMfo), account: txt(k.bankAccount), decisions: dec,
         checked: local(c.checkedAt),
-        note: [c.prior ? `Oldingi tekshiruvdan${c.prior.checkedAt ? ` (${dmy(c.prior.checkedAt)})` : ''}` : '', has ? '' : `Detal olinmagan${k.error ? ` — ${txt(k.error)}` : ''}`].filter(Boolean).join('; '),
+        note: [c.prior ? `Oldingi tekshiruvdan${c.prior.checkedAt ? ` (${dmy(c.prior.checkedAt)})` : ''}` : k.priorAt !== undefined ? `Detal oldingi tekshiruvdan${k.priorAt ? ` (${dmy(k.priorAt)})` : ''}` : '', has ? '' : `Detal olinmagan${k.error ? ` — ${txt(k.error)}` : ''}`].filter(Boolean).join('; '),
       });
     }
   }

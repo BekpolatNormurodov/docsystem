@@ -260,6 +260,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
     const { ok, json } = await jpost(`${BASE_PATH}/api/mib/${reportId}/run`);
     if (!ok) { setNote(json.error || t('Xatolik')); setBusy(''); return; }
     if (!json.phoneConfigured) setNote(t('Diqqat: telefon raqami sozlanmagan — chuqur detal (SMS) olinmaydi, faqat ijro ishlari roʻyxati.'));
+    else if (json.redo > 0) setNote(`${n(json.redo)} ${t('ta mijozda bizniki ish detalsiz qolgan edi — qayta navbatga qoʻyildi, detal SMS bilan yigʻilmoqda.')}`);
     await load(); await onChanged?.(); setBusy('');
   };
   // «Xatolarni davom ettirish» — FAILED mijozlar qayta navbatga (PENDING) qo'yilib, run davom etadi.

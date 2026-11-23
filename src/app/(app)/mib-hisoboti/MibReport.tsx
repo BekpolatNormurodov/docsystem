@@ -18,7 +18,7 @@ interface ListReport extends Report { statusCounts: Record<string, number> }
 interface SimRow { id: string; phone: string; label: string; state: 'pending' | 'on' | 'off'; webhookUrl: string; smsCount: number; lastSmsAt: string | null }
 interface MibConfig {
   phone: string; sims: SimRow[]; untagged: { smsCount: number; lastSmsAt: string | null };
-  baseUrl: string; intervalSec: number; webhookUrl: string; deepDetail: boolean; maxSims: number; error?: string;
+  baseUrl: string; intervalSec: number; webhookUrl: string; deepDetail: boolean; twoPhase?: boolean; maxSims: number; error?: string;
 }
 // Avtomatordagi bilan bir xil: har SIMga bir vaqtda shuncha SMS «uchishda» (src/lib/mib/run.ts SMS_WINDOW).
 const SMS_PER_SIM = 3;
@@ -262,6 +262,11 @@ function ConfigCard() {
     setCfg((c) => c ? { ...c, deepDetail: next } : c); // darhol ko'rinsin
     await act('deep', { deepDetail: next });
   };
+  const toggleTwoPhase = async () => {
+    const next = !(cfg?.twoPhase ?? false);
+    setCfg((c) => c ? { ...c, twoPhase: next } : c);
+    await act('two', { twoPhase: next });
+  };
   const addSim = async (e: React.FormEvent) => {
     e.preventDefault();
     if (phone9.length !== 9) { setSimErr(t('Telefon raqami 9 ta raqamdan iborat boʻlishi kerak')); return; }
@@ -421,6 +426,22 @@ function ConfigCard() {
         <button role="switch" aria-checked={cfg?.deepDetail ?? true} onClick={toggleDeep}
           className={cx('relative h-6 w-11 shrink-0 rounded-full transition-colors', (cfg?.deepDetail ?? true) ? 'bg-brand-500' : 'bg-slate-300 dark:bg-slate-600')}>
           <span className={cx('absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all', (cfg?.deepDetail ?? true) ? 'left-[22px]' : 'left-0.5')} />
+        </button>
+      </div>
+
+      {/* 2 bosqich: avval hamma mijozning ro'yxati (SMS'siz, tez), keyin detal. */}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface-2/40 px-3 py-2.5">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium">{t('2 bosqich: avval roʻyxat, keyin detal')}</div>
+          <div className="text-xs text-muted">
+            {(cfg?.twoPhase ?? false)
+              ? t('Yoqilgan — yangi mijozlarda avval ishlar roʻyxati SMS’siz yigʻiladi (Excel darhol chiqadi), navbat tugagach bizniki ishlar detali SMS bilan tortiladi. Toʻliq detal umumiy hisobda kechroq tugaydi.')
+              : t('Oʻchirilgan — har mijozda roʻyxat va detal birga olinadi (toʻliq detal eng tez shu rejimda tugaydi).')}
+          </div>
+        </div>
+        <button role="switch" aria-checked={cfg?.twoPhase ?? false} onClick={toggleTwoPhase} disabled={!(cfg?.deepDetail ?? true)}
+          className={cx('relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40', (cfg?.twoPhase ?? false) ? 'bg-brand-500' : 'bg-slate-300 dark:bg-slate-600')}>
+          <span className={cx('absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all', (cfg?.twoPhase ?? false) ? 'left-[22px]' : 'left-0.5')} />
         </button>
       </div>
 
