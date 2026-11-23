@@ -33,6 +33,14 @@ const txt = (s: string | null | undefined) => (s && s !== 'Nomaʼlum' ? decodeEn
 const sp = (s: string) => s.replace(/\s+/g, ' ').trim();
 // Detali olinmagan ishda summa NOMA'LUM — 0 emas, bo'sh katak (0 «qarzi yo'q» deb o'qilardi).
 const numOrBlank = (s: string | null, has: boolean): number | string => (has ? num(s) : '');
+// ESKI yozuvlardagi «Jarima»: parser xatosi tufayli (2026-11-23 gacha) yangiliklar bannerida «жарима» so'zi
+// bo'lsa jarima o'rniga ASOSIY QARZ yozilgan. Jarima asosiy qarzga so'mgacha teng bo'lishi mumkin emas —
+// bunday qiymat noma'lum deb, bo'sh qoldiriladi (ish qayta tekshirilganda haqiqiysi yoziladi).
+const fineOf = (k: { fine: string | null; mainDebt: string | null }, has: boolean): number | string => {
+  if (!has) return '';
+  const f = num(k.fine);
+  return f > 0 && f === num(k.mainDebt) ? '' : f;
+};
 // Sarlavha: qalin + fon + muzlatilgan qator + avtofiltr.
 // Butunlay bo'sh ustunni olib tashlaydi (masalan manba Excel'da «Ish raqami» / «Holat» bo'lmasa — 100%
 // bo'sh ustun «ma'lumot yetishmayapti» degan taassurot berardi). `keep` — doim qoladigan ustun kalitlari.
@@ -283,7 +291,7 @@ export async function buildMibExcel(
         doctype: txt(k.courtDocType), docnum: txt(k.courtDocNumber),
         docdate: mibDate(k.courtDocDate), eff: mibDate(k.courtEffectiveDate), exec: txt(k.executorName), execphone: txt(k.executorPhone), dept: txt(k.executorDept),
         received: mibDate(k.mibReceivedDate), initiated: mibDate(k.mibInitiatedDate),
-        total: numOrBlank(k.totalAmount, has), main: numOrBlank(k.mainDebt, has), fee: numOrBlank(k.executionFee, has), fine: numOrBlank(k.fine, has), remaining: numOrBlank(k.remainingDebt, has),
+        total: numOrBlank(k.totalAmount, has), main: numOrBlank(k.mainDebt, has), fee: numOrBlank(k.executionFee, has), fine: fineOf(k, has), remaining: numOrBlank(k.remainingDebt, has),
         bank: txt(k.bankName), mfo: txt(k.bankMfo), account: txt(k.bankAccount), decisions: dec,
         checked: local(c.checkedAt),
         note: [c.prior ? `Oldingi tekshiruvdan${c.prior.checkedAt ? ` (${dmy(c.prior.checkedAt)})` : ''}` : '', has ? '' : `Detal olinmagan${k.error ? ` — ${txt(k.error)}` : ''}`].filter(Boolean).join('; '),
@@ -326,7 +334,7 @@ export async function buildMibExcel(
   for (const k of ['docdate', 'eff', 'received']) s2.getColumn(k).numFmt = 'dd.mm.yyyy';
   s2.getColumn('initiated').numFmt = 'dd.mm.yyyy hh:mm';
   dropEmptyColumns(s1, ['no', 'pinfl', 'fio', 'status', 'cases']);
-  dropEmptyColumns(s2, ['no', 'pinfl', 'fio', 'work']);
+  dropEmptyColumns(s2, ['no', 'pinfl', 'fio', 'work', 'total', 'main', 'fee', 'fine', 'remaining']); // summa ustunlari doim qoladi
   if (s3) dropEmptyColumns(s3, ['no', 'pinfl', 'fio', 'status']);
   for (const ws of [s1, s2, ...(s3 ? [s3] : [])]) styleHeader(ws);
 
