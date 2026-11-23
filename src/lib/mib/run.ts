@@ -61,7 +61,22 @@ export const getMibHalt = (reportId: number): MibHalt | null => LAST_HALT.get(re
 // nechtasida to'g'ri kod keldi / kelmadi, oxirgi vaqt, chetlatilganmi. `perSim` — kodlar SIM bo'yicha
 // ajratilyaptimi (har SIMga alohida oyna) yoki umumiy poolda; `window` — bir vaqtda «uchishdagi» SMS soni.
 export interface MibSimStat { id: string; label: string; phone: string; tagged: boolean; requested: number; ok: number; miss: number; inflight: number; lastReqAt?: number; lastOkAt?: number; benchedUntil?: number }
-export interface MibRunInfo { startedAt: number; perSim: boolean; window: number; sims: MibSimStat[] }
+export interface MibRunInfo { startedAt: number; since: number; perSim: boolean; window: number; sims: MibSimStat[] }
+// SIM statistikasi HISOBOT bo'yicha jamlanib saqlanadi (Setting `mib.simstat.<id>`): STOP/GO, deploy yoki
+// restartdan keyin nolga tushmaydi — monitor butun hisobot davomidagi raqamlarni ko'rsatadi.
+type SavedSimStat = Pick<MibSimStat, 'requested' | 'ok' | 'miss' | 'lastReqAt' | 'lastOkAt'>;
+interface SavedRunStat { since: number; sims: Record<string, SavedSimStat> }
+const simStatKey = (reportId: number) => `mib.simstat.${reportId}`;
+async function loadSimStat(reportId: number): Promise<SavedRunStat | null> {
+  const row = await prisma.setting.findUnique({ where: { key: simStatKey(reportId) } }).catch(() => null);
+  try { const v = row?.value ? JSON.parse(row.value) as SavedRunStat : null; return v && typeof v.since === 'number' ? v : null; } catch { return null; }
+}
+async function saveSimStat(reportId: number, v: SavedRunStat): Promise<void> {
+  const value = JSON.stringify(v);
+  await prisma.setting.upsert({ where: { key: simStatKey(reportId) }, create: { key: simStatKey(reportId), value }, update: { value } }).catch(() => {});
+}
+/** Run ishlamayotganda ham monitor oxirgi saqlangan statistikani ko'rsatsin. */
+export async function getSavedSimStat(reportId: number): Promise<SavedRunStat | null> { return loadSimStat(reportId); }
 const RUN_INFO = new Map<number, MibRunInfo>();
 export const getMibRunInfo = (reportId: number): MibRunInfo | null => RUN_INFO.get(reportId) ?? null;
 
@@ -221,10 +236,25 @@ export async function runMibReportJob(jobId: number): Promise<void> {
   // ── SIMlar ────────────────────────────────────────────────────────────────
   let sims: ActiveSim[] = await getActiveSims().catch(() => []);
   const simStat = new Map<string, MibSimStat>();
+  const saved = await loadSimStat(reportId);
+  const since = saved?.since ?? Date.now();
+  const runStartedAt = Date.now();
   const stat = (x: { id: string; label: string; phone: string }) => {
     let st = simStat.get(x.id);
-    if (!st) { st = { id: x.id, label: x.label, phone: x.phone, tagged: false, requested: 0, ok: 0, miss: 0, inflight: 0 }; simStat.set(x.id, st); }
+    if (!st) {
+      const prev = saved?.sims[x.id];
+      st = { id: x.id, label: x.label, phone: x.phone, tagged: false, requested: prev?.requested ?? 0, ok: prev?.ok ?? 0, miss: prev?.miss ?? 0, inflight: 0, lastReqAt: prev?.lastReqAt, lastOkAt: prev?.lastOkAt };
+      simStat.set(x.id, st);
+    }
     return st;
+  };
+  let savedAt = 0;
+  const persistStat = async (force = false) => {
+    if (!force && Date.now() - savedAt < 15_000) return;
+    savedAt = Date.now();
+    const sims: Record<string, SavedSimStat> = { ...(saved?.sims ?? {}) };
+    for (const st of simStat.values()) sims[st.id] = { requested: st.requested, ok: st.ok, miss: st.miss, lastReqAt: st.lastReqAt, lastOkAt: st.lastOkAt };
+    await saveSimStat(reportId, { since, sims });
   };
   const simMiss = new Map<string, number>();   // simId → ketma-ket kelmagan SMS soni
   const simBench = new Map<string, number>();  // simId → shu vaqtgacha chetlatilgan (ms)
@@ -256,7 +286,8 @@ export async function runMibReportJob(jobId: number): Promise<void> {
     const now = Date.now();
     for (const x of sims) { const st = stat(x); st.label = x.label; st.phone = x.phone; st.tagged = x.tagged; st.inflight = simLoad(x.id); st.benchedUntil = (simBench.get(x.id) ?? 0) > now ? simBench.get(x.id) : undefined; }
     const active = new Set(sims.map((x) => x.id));
-    RUN_INFO.set(reportId, { startedAt: RUN_INFO.get(reportId)?.startedAt ?? now, perSim: perSimMode(), window: windowCap(), sims: [...simStat.values()].filter((x) => active.has(x.id)) });
+    RUN_INFO.set(reportId, { startedAt: runStartedAt, since, perSim: perSimMode(), window: windowCap(), sims: [...simStat.values()].filter((x) => active.has(x.id)) });
+    void persistStat();
   };
   publish();
   if (sims.length > 1) log(`SIM: ${sims.map(simName).join(', ')} · ${perSimMode() ? `parallel ${windowCap()} SMS` : `umumiy pool ${windowCap()} SMS (slotlar oʻrganilmoqda)`}`);
@@ -513,6 +544,7 @@ export async function runMibReportJob(jobId: number): Promise<void> {
     LAST_HALT.delete(reportId); // kutish paytida STOP bosilgan bo'lsa «kutilmoqda» belgisi qolib ketmasin
     log(`■ Tugadi · ${processed} ta tekshirildi · ${remainingCnt} qoldi`);
   } finally {
+    await persistStat(true).catch(() => {});
     await captcha.terminate().catch(() => {});
     RUN_INFO.delete(reportId);
     ACTIVE.delete(reportId);
