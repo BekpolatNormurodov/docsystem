@@ -159,4 +159,7 @@ export const gaps: Record<string, string> = {
   "SIM topilmadi": "SIM не найдена",
   "Telefon raqami +998 va 9 ta raqamdan iborat boʻlishi kerak": "Номер телефона должен быть +998 и 9 цифр",
   "Bu raqam allaqachon qoʻshilgan": "Этот номер уже добавлен",
+  "Ulanish yoʻq — avtomator kutyapti.": "Нет соединения — автоматор ждёт.",
+  "keyingi tekshiruv": "следующая проверка",
+  "tiklansa oʻzi davom etadi": "при восстановлении продолжит сам",
 };
