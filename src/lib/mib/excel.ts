@@ -19,6 +19,18 @@ const sp = (s: string) => s.replace(/\s+/g, ' ').trim();
 // Detali olinmagan ishda summa NOMA'LUM — 0 emas, bo'sh katak (0 «qarzi yo'q» deb o'qilardi).
 const numOrBlank = (s: string | null, has: boolean): number | string => (has ? num(s) : '');
 // Sarlavha: qalin + fon + muzlatilgan qator + avtofiltr.
+// Butunlay bo'sh ustunni olib tashlaydi (masalan manba Excel'da «Ish raqami» / «Holat» bo'lmasa — 100%
+// bo'sh ustun «ma'lumot yetishmayapti» degan taassurot berardi). `keep` — doim qoladigan ustun kalitlari.
+function dropEmptyColumns(ws: ExcelJS.Worksheet, keep: string[] = []): void {
+  for (let ci = ws.columnCount; ci >= 1; ci--) {
+    const col = ws.getColumn(ci);
+    if (col.key && keep.includes(col.key)) continue;
+    let filled = false;
+    ws.eachRow((r, i) => { if (i > 1 && !filled) { const v = r.getCell(ci).value; if (v != null && v !== '') filled = true; } });
+    if (!filled) ws.spliceColumns(ci, 1);
+  }
+}
+
 function styleHeader(ws: ExcelJS.Worksheet): void {
   const h = ws.getRow(1);
   h.font = { bold: true };
@@ -141,6 +153,39 @@ export async function buildMibExcel(
     return Buffer.from(out);
   }
 
+  // ── Sheet 0: Xulosa ─ hisobot qanchalik TO'LIQ ekanini birinchi qarashda ko'rsatadi ─────────────
+  // («Excel chala» shikoyati: hisobot hali tekshirilayotgan bo'lsa yoki bizniki ishi yo'q mijozlar
+  // Mijozlar varag'iga tushmasa — qatorlar soni ro'yxatnikidan kam ko'rinardi, sababi yozilmagan edi.)
+  const isOne = !!opts.clientId;
+  if (!isOne) {
+    const cnt = (st: string) => clients.filter((c) => c.status === st).length;
+    const checked = cnt('DONE') + cnt('CLEAN');
+    const pending = cnt('PENDING') + cnt('RUNNING');
+    const oc = oursClients.flatMap((c) => c.cases);
+    const detailed = oc.filter((k) => k.detailFetchedAt).length;
+    const notary = oc.filter((k) => /нотариус|notarius/i.test(k.courtDocType ?? '')).length;
+    const x = wb.addWorksheet('Xulosa');
+    x.columns = [{ header: 'Koʻrsatkich', key: 'k', width: 46 }, { header: 'Qiymat', key: 'v', width: 22 }, { header: 'Izoh', key: 'n', width: 70 }];
+    const row = (k: string, v: unknown, n = '') => x.addRow({ k, v, n });
+    row('Hisobot', txt(report.label) || txt(report.sourceFileName) || `#${report.id}`);
+    row('Excel tuzilgan', new Date());
+    row('Roʻyxatdagi mijozlar', clients.length);
+    row('Tekshirilgan', checked, `${clients.length ? Math.round((checked / clients.length) * 100) : 0}%`);
+    row('Hali tekshirilmagan (navbatda)', pending, pending ? 'Hisobot TUGAMAGAN — bu mijozlar «Qolgan mijozlar» varag\'ida, ishlari hali yoʻq' : '');
+    row('Xato bilan qolgan', cnt('FAILED'), cnt('FAILED') ? 'Dashboard\'da «Xatolarni davom ettirish» bilan qayta tekshiring' : '');
+    row('Bizning firma ishi bor mijozlar', oursClients.length, '«Mijozlar» varag\'i');
+    row('Bizning ijro ishlari', oc.length, '«Ishlar» varag\'i (boshqa kreditorlar ishlari kiritilmaydi)');
+    row('— detali olingan', detailed, oc.length ? `${Math.round((detailed / oc.length) * 1000) / 10}%` : '');
+    row('— detali olinmagan', oc.length - detailed, oc.length - detailed ? 'SMS kod kelmagan — «Izoh» ustunida' : '');
+    row('— notarius ijro xati', notary, notary ? 'Sud qarori emas — «Sud ish raqami» / «Sudya» boʻlmaydi' : '');
+    row('Bizning qoldiq qarz (soʻm)', oc.reduce((a, k) => a + num(k.remainingDebt), 0));
+    x.getColumn('v').numFmt = '#,##0';
+    x.getCell('B3').numFmt = 'dd.mm.yyyy hh:mm';
+    styleHeader(x);
+    x.autoFilter = undefined as never;
+    if (pending) x.getRow(6).eachCell((c) => { c.font = { bold: true, color: { argb: 'FFB42318' } }; });
+  }
+
   // ── Sheet 1: Mijozlar ─────────────────────────────────────────────────────
   const s1 = wb.addWorksheet('Mijozlar');
   s1.columns = [
@@ -182,7 +227,7 @@ export async function buildMibExcel(
     { header: 'Ijro ishi raqami', key: 'work', width: 20 },
     { header: 'Undiruvchi (firma)', key: 'firm', width: 40 },
     { header: 'INN', key: 'inn', width: 14 },
-    { header: 'Sud organi', key: 'court', width: 40 },
+    { header: 'Ijroga yuborgan (sud / notarius)', key: 'court', width: 40 },
     { header: 'Sud ish raqami', key: 'courtcase', width: 20 },
     { header: 'Sudya', key: 'judge', width: 32 },
     { header: 'Hujjat turi', key: 'doctype', width: 16 },
@@ -211,9 +256,11 @@ export async function buildMibExcel(
     for (const k of c.cases) {
       const dec = Array.isArray(k.decisions) ? (k.decisions as { article: string; date: string }[]).map((d) => `${txt(d.article)} (${d.date})`).join('; ') : '';
       const has = !!k.detailFetchedAt; // detal olinmagan ishda summalar noma'lum → bo'sh
+      // Notarius ijro xati — sud ishi emas: sud raqami/sudya bo'sh qolishi TABIIY, buni yozib qo'yamiz.
+      const notary = /нотариус|notarius/i.test(k.courtDocType ?? '');
       s2.addRow({
         no: c.rowNo ?? '', pinfl: c.pinfl, fio: fullName, work: k.workNumber,
-        firm: txt(k.firmName), inn: txt(k.firmInn), court: txt(k.courtOrgan), courtcase: txt(k.courtCaseNumber), judge: txt(k.judge),
+        firm: txt(k.firmName), inn: txt(k.firmInn), court: txt(k.courtOrgan), courtcase: notary ? 'notarius' : txt(k.courtCaseNumber), judge: notary ? '—' : txt(k.judge),
         doctype: txt(k.courtDocType), docnum: txt(k.courtDocNumber),
         docdate: txt(k.courtDocDate), eff: txt(k.courtEffectiveDate), exec: txt(k.executorName), execphone: txt(k.executorPhone), dept: txt(k.executorDept),
         received: txt(k.mibReceivedDate), initiated: txt(k.mibInitiatedDate),
@@ -225,10 +272,40 @@ export async function buildMibExcel(
   }
 
   // Header styling + money number format on both sheets.
-  for (const ws of [s1, s2]) styleHeader(ws);
-  s1.getColumn('checked').numFmt = 'dd.mm.yyyy hh:mm';
+  // ── Qolgan mijozlar: ro'yxatdagi, lekin «Mijozlar»ga tushmaganlar (navbatda / xato / toza / faqat
+  //    boshqa kreditor) — Excel ro'yxat bilan to'liq solishtirilsin, hech kim «yo'qolib» qolmasin.
+  let s3: ExcelJS.Worksheet | null = null;
+  if (!isOne) {
+    const inOurs = new Set(oursClients.map((c) => c.id));
+    const rest = clients.filter((c) => !inOurs.has(c.id));
+    if (rest.length) {
+      s3 = wb.addWorksheet('Qolgan mijozlar');
+      s3.columns = [
+        { header: '№', key: 'no', width: 6 }, { header: 'PINFL', key: 'pinfl', width: 18 }, { header: 'F.I.O', key: 'fio', width: 34 },
+        { header: 'Firma', key: 'firm', width: 14 }, { header: 'Holat', key: 'status', width: 26 }, { header: 'Boshqa kreditor ishlari', key: 'other', width: 14 },
+        { header: 'Tekshirilgan', key: 'checked', width: 18 }, { header: 'Izoh', key: 'note', width: 50 },
+      ];
+      const ORDER: Record<string, number> = { FAILED: 0, PENDING: 1, RUNNING: 1, DONE: 2, CLEAN: 3 };
+      rest.sort((a, b) => (ORDER[a.status] ?? 9) - (ORDER[b.status] ?? 9) || (a.rowNo ?? 0) - (b.rowNo ?? 0));
+      for (const c of rest) {
+        const label = c.status === 'DONE' ? 'Bizning firma ishi yoʻq' : c.status === 'CLEAN' ? 'MIBda qarzi yoʻq (toza)' : c.status === 'FAILED' ? 'Xato' : 'Hali tekshirilmagan';
+        s3.addRow({
+          no: c.rowNo ?? '', pinfl: c.pinfl, fio: sp(bestFio(c)), firm: txt(c.firm), status: label,
+          other: c.status === 'DONE' ? c.cases.filter((k) => !k.isTargetFirm).length : '',
+          checked: c.checkedAt ? new Date(c.checkedAt) : '', note: c.status === 'FAILED' ? txt(c.error) : '',
+        });
+      }
+      s3.getColumn('checked').numFmt = 'dd.mm.yyyy hh:mm';
+    }
+  }
+
   ['debt', 'remaining'].forEach((k) => { const col = s1.getColumn(k); col.numFmt = '#,##0'; });
   ['total', 'main', 'fee', 'fine', 'remaining'].forEach((k) => { const col = s2.getColumn(k); col.numFmt = '#,##0'; });
+  s1.getColumn('checked').numFmt = 'dd.mm.yyyy hh:mm';
+  dropEmptyColumns(s1, ['no', 'pinfl', 'fio', 'status', 'cases']);
+  dropEmptyColumns(s2, ['no', 'pinfl', 'fio', 'work']);
+  if (s3) dropEmptyColumns(s3, ['no', 'pinfl', 'fio', 'status']);
+  for (const ws of [s1, s2, ...(s3 ? [s3] : [])]) styleHeader(ws);
 
   // To'liq hisobotga kesim varaqlarini ham qo'shamiz (bitta mijoz eksportida shart emas).
   // «Ijrochilar boʻyicha» — birinchi kesim varaq (eng koʻp soʻraladi), so'ng firma/region/hudud/bank.

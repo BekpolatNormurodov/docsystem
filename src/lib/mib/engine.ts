@@ -189,11 +189,11 @@ export class MibEngine {
           const imgRes = await this.request(currentCaptchaImg);
           const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
           secureCode = await this.captchaSolver.solve(imgBuffer);
-        } catch (e) { this.log(`captcha load err: ${(e as Error).message}`); }
+        } catch (e) { this.log(`captcha yuklanmadi: ${(e as Error).message}`); }
       }
 
       if (!secureCode) {
-        this.log(`PINFL ${pinfl}: captcha ${attempt}/${CAPTCHA_ATTEMPTS} — oʻqilmadi, yangilanmoqda…`);
+        if (attempt % 5 === 0) this.log(`${pinfl} · captcha qiyin (${attempt}/${CAPTCHA_ATTEMPTS})`);
         const captchaLinkId = (debtPageHtml.match(/<a class="captcha[^"]*" id="([^"]+)"/i) || [])[1] || 'id6';
         const refreshMatch = debtPageHtml.match(new RegExp(`Wicket\\.Ajax\\.ajax\\(\\{"u":"([^"]+)".*?"c":"${captchaLinkId}"`))
           || debtPageHtml.match(/Wicket\.Ajax\.ajax\(\{"u":"([^"]+)".*?"c":"id6"/);
@@ -210,7 +210,7 @@ export class MibEngine {
         continue;
       }
 
-      this.log(`PINFL ${pinfl}: captcha ${attempt}/${CAPTCHA_ATTEMPTS} yechildi (${secureCode}) — qidirilmoqda…`);
+      // captcha yechildi — qidirilmoqda
       const postBody = new URLSearchParams({ [`${formId}_hf_0`]: '', pinfl: pinfl.trim(), secure_code: String(secureCode).trim(), submit_button: '1' }).toString();
       const postRes = await this.request(cleanAjaxUrl, {
         method: 'POST',
@@ -234,14 +234,14 @@ export class MibEngine {
       // toza deb qaytaramiz (run.ts uni CLEAN qiladi). Captcha haqiqatan xato bo'lsa mib.uz boshqa
       // (himoya kodi) feedback beradi — u bu shartga tushmaydi va pastda qayta urinaveramiz.
       if (/қарздорлик[\s\S]{0,40}аниқланмади|qarzdorlik[\s\S]{0,40}aniqlanmadi/i.test(ajaxXml)) {
-        this.log(`PINFL ${pinfl}: MIB da qarzdorlik aniqlanmadi — toza`);
+        // MIBda qarzdorlik yo'q — toza (runner yozadi)
         return { success: true, pinfl, fio: '', totalDebt: '0', currentDebt: '0', cases: [], step10Url: '' };
       }
       const newImgMatch = ajaxXml.match(/src="([^"]*antiCache=[^"]*)"/i) || ajaxXml.match(/<img[^>]*src="([^"]+)"/i);
       if (newImgMatch) currentCaptchaImg = new URL(newImgMatch[1]!.replace(/&amp;/g, '&'), `${this.baseUrl}/${baseUrl}`).href;
       await sleep(1000);
     }
-    this.log(`PINFL ${pinfl}: captcha ${CAPTCHA_ATTEMPTS} urinishda ham yechilmadi`);
+    this.log(`${pinfl} ✗ captcha ${CAPTCHA_ATTEMPTS} urinishda yechilmadi`);
     return { success: false, message: `Captcha ${CAPTCHA_ATTEMPTS} marta urinishda ham yechilmadi` };
   }
 
@@ -305,10 +305,10 @@ export class MibEngine {
           const imgRes = await this.request(currentCaptchaImg);
           const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
           secureCode = await this.captchaSolver.solve(imgBuffer);
-        } catch (e) { this.log(`PINFL ${pinfl} · ish ${workNumber}: monitoring captcha xato: ${(e as Error).message}`); }
+        } catch (e) { this.log(`${pinfl} · ${workNumber} ✗ captcha: ${(e as Error).message}`); }
       }
       if (!secureCode) {
-        this.log(`PINFL ${pinfl} · ish ${workNumber}: monitoring captcha ${attempt}/${CAPTCHA_ATTEMPTS} — oʻqilmadi, yangilanmoqda…`);
+        if (attempt % 5 === 0) this.log(`${pinfl} · ${workNumber} · captcha qiyin (${attempt}/${CAPTCHA_ATTEMPTS})`);
         const linkId = (formHtml.match(/<a class="captcha[^"]*" id="([^"]+)"/i) || [])[1] || 'id1d';
         const refreshMatch = html.match(new RegExp(`Wicket\\.Ajax\\.ajax\\(\\{"u":"([^"]+)".*?"c":"${linkId}"`));
         if (refreshMatch) {
@@ -340,11 +340,11 @@ export class MibEngine {
         // tekshirilmas edi — SMS «so'raldi» deb yozilib, kod kelmasa sababi ko'rinmasdi (2026-09-30).
         const feedback = [...step16Html.matchAll(/feedbackPanel(?:ERROR|WARNING|INFO)?[^>]*>\s*<span[^>]*>([^<]{3,300})</gi)]
           .map((m) => m[1]!.replace(/\s+/g, ' ').trim()).filter(Boolean);
-        if (feedback.length) this.log(`PINFL ${pinfl} · ish ${workNumber}: mib.uz xabari — «${feedback.join(' | ').slice(0, 300)}»`);
+        if (feedback.length) this.log(`${pinfl} · ${workNumber} · mib.uz: «${feedback.join(' | ').slice(0, 160)}»`);
         if (!verifyFormMatch) {
           const txt = step16Html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')
             .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-          this.log(`PINFL ${pinfl} · ish ${workNumber}: SMS tasdiqlash formasi YO'Q (HTTP ${step16Res.status}) — sahifa: «${txt.slice(0, 260)}»`);
+          this.log(`${pinfl} · ${workNumber} ✗ SMS formasi yoʻq (HTTP ${step16Res.status}): «${txt.slice(0, 160)}»`);
         }
         const rawVerifyAction = verifyFormMatch ? verifyFormMatch[1]! : '';
         const verifyFormAction = new URL(rawVerifyAction, step16Url).href;

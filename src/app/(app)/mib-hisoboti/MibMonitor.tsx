@@ -35,18 +35,21 @@ const SIM_TONE = [
   'border-lime-500/40 bg-lime-500/10 text-lime-700 dark:text-lime-300',
 ];
 
-function kindOf(msg: string): Exclude<Kind, 'all'> | 'info' {
-  const m = msg.toLowerCase();
-  if (/xato|kelmadi|uzildi|yechilmadi|muvaffaqiyatsiz|chetlatildi|javob bermayapti|ochilmadi/.test(m)) return 'err';
-  if (/kod keldi|ijro \(|toza|tiklandi|tayyor|slotida ekan/.test(m)) return 'ok';
-  if (/sms so'raldi|sms soʻraldi|otp kutil/.test(m)) return 'sms';
+// Log qatorlari qisqa va belgili (src/lib/mib/run.ts): «✓» natija, «✗» xato, «→ SMS» so'rov, «⏸» kutish,
+// «▶»/«■» boshlanish/tugash, «↻» qayta navbat.
+export function kindOf(msg: string): Exclude<Kind, 'all'> | 'wait' | 'info' {
+  if (msg.includes('✗') || /kelmadi|XATO/.test(msg)) return 'err';
+  if (msg.includes('⏸') || msg.includes('↻')) return 'wait';
+  if (msg.includes('✓') || msg.startsWith('▶') || msg.startsWith('■') || /MIBda qarzi yoʻq/.test(msg)) return 'ok';
+  if (msg.includes('→ SMS')) return 'sms';
   return 'info';
 }
-const KIND_STYLE: Record<string, { dot: string; text: string; label: string }> = {
-  err: { dot: 'bg-rose-400', text: 'text-rose-300', label: 'XATO' },
-  ok: { dot: 'bg-emerald-400', text: 'text-emerald-300', label: 'OK' },
-  sms: { dot: 'bg-sky-400', text: 'text-slate-200', label: 'SMS' },
-  info: { dot: 'bg-slate-500', text: 'text-slate-300', label: '' },
+const KIND_STYLE: Record<string, { dot: string; text: string }> = {
+  err: { dot: 'bg-rose-400', text: 'text-rose-300' },
+  wait: { dot: 'bg-amber-400', text: 'text-amber-200' },
+  ok: { dot: 'bg-emerald-400', text: 'text-emerald-300' },
+  sms: { dot: 'bg-sky-400', text: 'text-slate-300' },
+  info: { dot: 'bg-slate-500', text: 'text-slate-400' },
 };
 
 function ago(t: useTFn, ms?: number | string | null): string {
@@ -119,7 +122,7 @@ export function MibMonitorModal({ reportId, open, onClose, title }: { reportId: 
   }, [lines, kind, simF, q]);
   const counts = useMemo(() => {
     const c = { all: lines.length, sms: 0, ok: 0, err: 0 } as Record<Kind, number>;
-    for (const l of lines) { const k = kindOf(l.msg); if (k !== 'info') c[k] += 1; }
+    for (const l of lines) { const k = kindOf(l.msg); if (k === 'sms' || k === 'ok' || k === 'err') c[k] += 1; }
     return c;
   }, [lines]);
 
@@ -137,22 +140,27 @@ export function MibMonitorModal({ reportId, open, onClose, title }: { reportId: 
     a.download = `mib-report-${reportId}-log.txt`; a.click(); URL.revokeObjectURL(a.href);
   };
 
-  // Logdagi «… (…1234)» SIM nomini rangli belgiga aylantiramiz.
+  // Qatorni bezaymiz: SIM nomi («Ucell …2650») — rangli belgi; boshidagi PINFL · ish — ajratilgan.
   const renderMsg = (msg: string) => {
-    if (!simRows.length) return msg;
-    const parts: React.ReactNode[] = [];
-    const re = /([^()→]*?)\s*\(…(\d{4})\)/g;
-    let last = 0; let m: RegExpExecArray | null;
-    while ((m = re.exec(msg))) {
-      const sim = simRows.find((s) => s.last4 === m![2]);
-      if (!sim) continue;
-      const labelStart = m.index + m[0].indexOf(m[1]!.trimStart());
-      parts.push(msg.slice(last, labelStart));
-      parts.push(<span key={m.index} className={cx('mx-0.5 inline-flex items-center rounded border px-1 text-[11px] font-semibold', sim.tone)}>{sim.label} …{sim.last4}</span>);
-      last = m.index + m[0].length;
+    const tokens = simRows.map((r) => ({ text: `${r.label} …${r.last4}`, tone: r.tone }));
+    const out: React.ReactNode[] = [];
+    const head = msg.match(/^(\d{14})((?: · \d+)?)/);
+    let rest = msg;
+    if (head) {
+      out.push(<span key="p" className="text-slate-100">{head[1]}</span>);
+      if (head[2]) out.push(<span key="w" className="text-slate-500">{head[2]}</span>);
+      rest = msg.slice(head[0].length);
     }
-    parts.push(msg.slice(last));
-    return parts;
+    let k = 0;
+    while (rest) {
+      let best = -1, tok: (typeof tokens)[number] | null = null;
+      for (const tk of tokens) { const at = rest.indexOf(tk.text); if (at >= 0 && (best < 0 || at < best)) { best = at; tok = tk; } }
+      if (!tok) { out.push(rest); break; }
+      out.push(rest.slice(0, best));
+      out.push(<span key={`s${k++}`} className={cx('inline-flex items-center rounded border px-1 text-[11px] font-semibold', tok.tone)}>{tok.text}</span>);
+      rest = rest.slice(best + tok.text.length);
+    }
+    return out;
   };
 
   const run = mon?.run;
@@ -279,7 +287,7 @@ export function MibMonitorModal({ reportId, open, onClose, title }: { reportId: 
                   <div key={l.id} className="flex items-start gap-2 rounded px-1 hover:bg-white/5">
                     <span className="shrink-0 tabular-nums text-slate-500">{hhmmss(l.ts)}</span>
                     <span className={cx('mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full', ks.dot)} />
-                    <span className={cx('min-w-0 whitespace-pre-wrap break-words', ks.text)}>{renderMsg(l.msg.replace(/^report \d+: /, ''))}</span>
+                    <span className={cx('min-w-0 whitespace-pre-wrap break-words', ks.text)}>{renderMsg(l.msg)}</span>
                   </div>
                 );
               })}
