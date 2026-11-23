@@ -37,6 +37,8 @@ export class MibEngine {
   baseUrl: string;
   cookies = new Map<string, string>();
   jsessionid = '';
+  /** Oxirgi olingan ijro-detal sahifasi (diagnostika: parser namunasi uchun, run.ts vaqti-vaqti bilan saqlaydi). */
+  lastDetailHtml = '';
   captchaSolver: CaptchaSolver;
   private log: (m: string) => void;
   private timeoutMs: number;
@@ -380,6 +382,7 @@ export class MibEngine {
       res = await this.request(nextUrl);
       html = await res.text();
     }
+    this.lastDetailHtml = html;
     return this.parseStep19Details(html);
   }
 

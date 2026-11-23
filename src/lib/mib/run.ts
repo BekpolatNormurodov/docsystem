@@ -8,7 +8,10 @@
 // SMS_WINDOW ta ish «uchishда» tutiladi. Bitta telefon kifoya — pooldagi kodlar har formaга sinab
 // ko'riladi va TO'G'RIsi DETAL (ijrochi nomi) chiqqanidan aniqlanadi (noto'g'ri kod bo'sh detal beradi →
 // saqlanmaydi). Bu ~2.5× tezlashtiradi.
+import fs from 'node:fs';
+import path from 'node:path';
 import { prisma } from '@/lib/db';
+import { MIB_ROOT } from './store';
 import { MibEngine } from './engine';
 import { CaptchaSolver } from './captcha';
 import { resolveCreditor } from './companies';
@@ -274,6 +277,7 @@ export async function runMibReportJob(jobId: number): Promise<void> {
   const simExtra = new Map<string, number>();   // simId → kech kod kuzatilgani uchun qo'shimcha kutish (ms)
   const lateSeen = new Set<number>();           // «egasiz» kech kod sifatida sanalgan SMS id'lari
   let lastSmsReqAt = 0;
+  let lastSampleAt = 0;
   const simRestLvl = new Map<string, number>(); // simId → nechanchi dam bosqichi (0 — normal)
   const simRestFrom = new Map<string, number>(); // simId → dam qaysi so'rovdan keyin boshlangan (requestedAt)
   // SIM bo'yicha kutish muddati: sozlama (default 120 s) yoki shu SIMning kod kelish tezligiga qarab
@@ -359,6 +363,13 @@ export async function runMibReportJob(jobId: number): Promise<void> {
       const valid = !!(d && d.executor && d.executor.name && d.executor.name !== 'Nomaʼlum');
       if (!valid) return false;
       await prisma.mibSms.update({ where: { id: row.id }, data: { consumed: true } }).catch(() => {});
+      // Parser namunasi: summalar (I/H summasi, qoldiq) sahifadan to'g'ri o'qilayotganini tekshirish uchun
+      // 10 daqiqada bir marta oxirgi TO'G'RI detal sahifasi saqlanadi (bitta fayl, ustidan yoziladi).
+      if (Date.now() - lastSampleAt > 10 * 60_000 && engine.lastDetailHtml) {
+        lastSampleAt = Date.now();
+        const dir = path.join(MIB_ROOT, '_debug');
+        void fs.promises.mkdir(dir, { recursive: true }).then(() => fs.promises.writeFile(path.join(dir, 'step19.html'), engine.lastDetailHtml)).catch(() => {});
+      }
       // Belgisiz SMS to'g'ri chiqdi — u qaysi slotdan kelgan bo'lsa, o'sha slot SHU SIMniki. O'rganamiz:
       // webhook keyingi SMS'larni o'zi SIMga bog'laydi va har SIMga alohida oyna ochiladi (tezlik ×N).
       if (!row.sim && sims.length > 1) {

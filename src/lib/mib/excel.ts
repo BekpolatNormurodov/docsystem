@@ -11,7 +11,19 @@ import { groupBreakdown, regionFromText, rowKey, clean, shortFirm, decodeEntitie
 type CaseRowX = MibCase & { judge?: string | null; courtCaseNumber?: string | null };
 // `prior` — natija shu hisobotdan emas, boshqa hisobotdagi oldingi tekshiruvdan olingan (route qo'yadi).
 type ClientWithCases = MibClient & { cases: CaseRowX[]; prior?: { reportId: number; checkedAt: Date | null } };
-const dmy = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString('ru-RU') : '');
+// Sanalar Excel'da HAQIQIY sana bo'lsin (matn emas — saralash/filtr ishlasin).
+//  • mib.uz matni «05.11.2026» / «19.11.2026 00:30:27» → o'sha devor-soati (UTC sifatida yoziladi, Excel shuni ko'rsatadi);
+//  • bazadagi vaqt (UTC) → Toshkent vaqti (+5, yozgi vaqt yo'q).
+const TASHKENT_MS = 5 * 3600_000;
+const local = (d: Date | string | null | undefined): Date | '' => (d ? new Date(new Date(d).getTime() + TASHKENT_MS) : '');
+function mibDate(s: string | null | undefined): Date | string {
+  const v = txt(s);
+  const m = v.match(/^(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (!m) return v;
+  const d = new Date(Date.UTC(+m[3]!, +m[2]! - 1, +m[1]!, +(m[4] ?? 0), +(m[5] ?? 0), +(m[6] ?? 0)));
+  return Number.isNaN(d.getTime()) || d.getUTCDate() !== +m[1]! ? v : d;
+}
+const dmy = (d: Date | null | undefined) => (d ? new Date(new Date(d).getTime() + TASHKENT_MS).toLocaleDateString('ru-RU', { timeZone: 'UTC' }) : '');
 const priorNote = (c: ClientWithCases) => (c.prior ? `Oldingi tekshiruvdan${c.prior.checkedAt ? ` (${dmy(c.prior.checkedAt)})` : ''} — bu hisobotda hali navbatda` : '');
 
 const num = (s: string | null) => (s ? parseMoney(s) : 0);
@@ -173,7 +185,7 @@ export async function buildMibExcel(
     x.columns = [{ header: 'Koʻrsatkich', key: 'k', width: 46 }, { header: 'Qiymat', key: 'v', width: 22 }, { header: 'Izoh', key: 'n', width: 70 }];
     const row = (k: string, v: unknown, n = '') => x.addRow({ k, v, n });
     row('Hisobot', txt(report.label) || txt(report.sourceFileName) || `#${report.id}`);
-    row('Excel tuzilgan', new Date());
+    row('Excel tuzilgan', local(new Date()));
     row('Roʻyxatdagi mijozlar', clients.length);
     row('Tekshirilgan (shu hisobotda)', checked, `${clients.length ? Math.round((checked / clients.length) * 100) : 0}%`);
     row('Oldingi tekshiruvlardan olingan', priorCnt, priorCnt ? 'Bu hisobotda hali navbatda, lekin shu PINFL boshqa hisobotda tekshirilgan — oʻsha natija qoʻyildi («Izoh» ustunida sanasi)' : '');
@@ -219,7 +231,7 @@ export async function buildMibExcel(
     s1.addRow({
       no: c.rowNo ?? '', pinfl: c.pinfl, fio: sp(bestFio(c)), firm: txt(c.firm) || firms, ish: txt(c.ishRaqami), holat: txt(c.holat),
       status: c.prior ? 'Oldingi natija' : STATUS_UZ[c.status] ?? c.status, cases: c.cases.length, debt: total, remaining,
-      checked: c.checkedAt ? new Date(c.checkedAt) : '',
+      checked: local(c.checkedAt),
       note: [priorNote(c), missing ? `${missing} ta ish detali olinmagan (SMS kelmadi)` : '', opts.clientId ? '' : txt(c.status === 'FAILED' ? c.error : '')].filter(Boolean).join('; '),
     });
   }
@@ -269,11 +281,11 @@ export async function buildMibExcel(
         no: c.rowNo ?? '', pinfl: c.pinfl, fio: fullName, work: k.workNumber,
         firm: txt(k.firmName), inn: txt(k.firmInn), court: txt(k.courtOrgan), courtcase: notary ? 'notarius' : txt(k.courtCaseNumber), judge: notary ? '—' : txt(k.judge),
         doctype: txt(k.courtDocType), docnum: txt(k.courtDocNumber),
-        docdate: txt(k.courtDocDate), eff: txt(k.courtEffectiveDate), exec: txt(k.executorName), execphone: txt(k.executorPhone), dept: txt(k.executorDept),
-        received: txt(k.mibReceivedDate), initiated: txt(k.mibInitiatedDate),
+        docdate: mibDate(k.courtDocDate), eff: mibDate(k.courtEffectiveDate), exec: txt(k.executorName), execphone: txt(k.executorPhone), dept: txt(k.executorDept),
+        received: mibDate(k.mibReceivedDate), initiated: mibDate(k.mibInitiatedDate),
         total: numOrBlank(k.totalAmount, has), main: numOrBlank(k.mainDebt, has), fee: numOrBlank(k.executionFee, has), fine: numOrBlank(k.fine, has), remaining: numOrBlank(k.remainingDebt, has),
         bank: txt(k.bankName), mfo: txt(k.bankMfo), account: txt(k.bankAccount), decisions: dec,
-        checked: c.checkedAt ? new Date(c.checkedAt) : '',
+        checked: local(c.checkedAt),
         note: [c.prior ? `Oldingi tekshiruvdan${c.prior.checkedAt ? ` (${dmy(c.prior.checkedAt)})` : ''}` : '', has ? '' : `Detal olinmagan${k.error ? ` — ${txt(k.error)}` : ''}`].filter(Boolean).join('; '),
       });
     }
@@ -300,7 +312,7 @@ export async function buildMibExcel(
         s3.addRow({
           no: c.rowNo ?? '', pinfl: c.pinfl, fio: sp(bestFio(c)), firm: txt(c.firm), status: label,
           other: c.status === 'DONE' ? c.cases.filter((k) => !k.isTargetFirm).length : '',
-          checked: c.checkedAt ? new Date(c.checkedAt) : '', note: c.prior ? priorNote(c) : c.status === 'FAILED' ? txt(c.error) : '',
+          checked: local(c.checkedAt), note: c.prior ? priorNote(c) : c.status === 'FAILED' ? txt(c.error) : '',
         });
       }
       s3.getColumn('checked').numFmt = 'dd.mm.yyyy hh:mm';
@@ -311,6 +323,8 @@ export async function buildMibExcel(
   ['total', 'main', 'fee', 'fine', 'remaining'].forEach((k) => { const col = s2.getColumn(k); col.numFmt = '#,##0'; });
   s1.getColumn('checked').numFmt = 'dd.mm.yyyy hh:mm';
   s2.getColumn('checked').numFmt = 'dd.mm.yyyy';
+  for (const k of ['docdate', 'eff', 'received']) s2.getColumn(k).numFmt = 'dd.mm.yyyy';
+  s2.getColumn('initiated').numFmt = 'dd.mm.yyyy hh:mm';
   dropEmptyColumns(s1, ['no', 'pinfl', 'fio', 'status', 'cases']);
   dropEmptyColumns(s2, ['no', 'pinfl', 'fio', 'work']);
   if (s3) dropEmptyColumns(s3, ['no', 'pinfl', 'fio', 'status']);
