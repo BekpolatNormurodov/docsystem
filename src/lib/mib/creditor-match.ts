@@ -20,7 +20,7 @@ export function firmKeyWords(name: string): string[] {
 }
 
 /** MASKA bo'lagini («B***HT») regexga aylantiradi — boshi/oxiri qat'iy, o'rtasi ixtiyoriy. */
-function fragRegex(frag: string): RegExp {
+export function fragRegex(frag: string): RegExp {
   const body = frag
     .replace(/["«»'']/g, '')
     .replace(/[.+?^${}()|[\]\\]/g, '\\$&')

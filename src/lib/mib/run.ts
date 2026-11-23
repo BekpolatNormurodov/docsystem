@@ -96,11 +96,35 @@ async function saveSimStat(reportId: number, v: SavedRunStat): Promise<void> {
  * davom etardi (2026-11-23: deploydan keyin 39 daqiqa bekor turgan). /api/health dan chaqiriladi (Docker
  * healthcheck uni har 15 s da uradi) — jarayon umrida bir marta ishlaydi.
  */
+/**
+ * «Boshqa kreditor» deb belgilangan, lekin kreditor maskasi aslida BIZNING firmamizniki bo'lgan ishlarni
+ * to'g'rilaydi (isTargetFirm + firma nomi/INN). mib.uz bir firmani har xil maskalaydi — tanish qoidasi
+ * yangilanganda eski yozuvlar ham shu bilan tuzaladi (2026-11-23: «U**N FI***CE SO***NS» — 380 ta URBAN ishi
+ * detali olingan holda hisobot/Excel'dan tashqarida qolgan). Xavfsiz va takrorlanuvchi: faqat bayroq va
+ * firma nomi yangilanadi, hech narsa o'chirilmaydi. Qaytaradi: nechta ish tuzatildi.
+ */
+export async function reclassifyMissedOurs(): Promise<number> {
+  const groups = await prisma.mibCase.groupBy({ by: ['creditor'], where: { isTargetFirm: false, creditor: { not: null } }, _count: { _all: true } });
+  let fixed = 0;
+  for (const g of groups) {
+    const cred = g.creditor ?? '';
+    const f = resolveCreditor(cred.trim());
+    if (!f.isTarget) continue;
+    const r = await prisma.mibCase.updateMany({ where: { isTargetFirm: false, creditor: cred }, data: { isTargetFirm: true, firmName: f.name, firmInn: f.inn } });
+    // «Boshqa kreditor — detal olinmadi» izohi endi noto'g'ri: detali borlarida tozalanadi.
+    await prisma.mibCase.updateMany({ where: { creditor: cred, isTargetFirm: true, error: { startsWith: 'Boshqa kreditor' } }, data: { error: null } });
+    fixed += r.count;
+    if (r.count) console.log(`[mib] tasnif tuzatildi: ${r.count} ta ish → ${f.name} («${cred.slice(0, 50)}»)`);
+  }
+  return fixed;
+}
+
 let bootResumed = false;
 export async function resumeMibRunsOnBoot(): Promise<void> {
   if (bootResumed) return;
   bootResumed = true;
   try {
+    await reclassifyMissedOurs().catch((e) => console.log(`[mib] tasnifni tuzatib boʻlmadi: ${(e as Error).message}`));
     const reports = await prisma.mibReport.findMany({ where: { autoRun: true }, select: { id: true } });
     for (const r of reports) {
       if (ACTIVE.has(r.id)) continue;
