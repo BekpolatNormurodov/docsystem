@@ -63,3 +63,14 @@ describe('resolveCreditor — mib.uz masks', () => {
     ]) expect(ours(m), m).toBe(false);
   });
 });
+
+import { creditorIsOurs, firmKeyWords } from './creditor-match';
+describe('creditorIsOurs — deep-pull decision (prod firm short names)', () => {
+  const W = ['BRIGHT FUTURE FINANCING', 'URBAN FINANCE SOLUTIONS', 'COMMUNITY MMT', 'MUVAFFAQIYAT MMT', 'FUNDFLOW', 'ZAYMLY', 'DARROWMAD', 'DYNAMIC CREDIT SOLUTIONS MIKROMOLIYA TASHKILOTI', '"PRESTIGE MOLIYA" MCHJ MMT'].map(firmKeyWords);
+  it('pulls details for our masks', () => {
+    for (const m of ['U**N FI***CE SO***NS MI***YA TA***TI', '"B***HT FU***RE FI***NG MI***YA TA***I" MA***TI', 'CO***TY MI***CE MI***YA TA***TI', '"F***OW MI***YA TA***I" MA***TI', '"Z***Y" MA***TI CH***AN', 'MU***AT MI***YA TA***TI']) expect(creditorIsOurs(m, W), m).toBe(true);
+  });
+  it('does not spend SMS on hidden-start foreign masks', () => {
+    for (const m of ['"**T RE***IL T**E CO***Y" MA***TI CH***AN JA***AT', '"**T EL KA***LI IS***GI "H***K" AK***IK TI***AT B**I', '"**D S**T T**E L**" MA***TI CH***AN JA***AT', '"**W M**A KR***T" MA***TI CH***AN JA***AT', '"**R B**" AK***IK JA***TI', 'Da***at']) expect(creditorIsOurs(m, W), m).toBe(false);
+  });
+});
