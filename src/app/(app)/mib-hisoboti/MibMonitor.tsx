@@ -13,7 +13,7 @@ import { useT } from '@/lib/i18n/client';
 
 interface Line { id: number; ts: number; msg: string }
 interface Waiting { pinfl: string; work: string; at: number; until: number; tries: number }
-interface SimStat { id: string; label: string; phone: string; tagged: boolean; requested: number; ok: number; miss: number; inflight: number; lastReqAt?: number; lastOkAt?: number; benchedUntil?: number; timeoutMs?: number; waiting?: Waiting[] }
+interface SimStat { id: string; label: string; phone: string; tagged: boolean; requested: number; ok: number; miss: number; inflight: number; lastReqAt?: number; lastOkAt?: number; benchedUntil?: number; restLvl?: number; timeoutMs?: number; waiting?: Waiting[] }
 interface Monitor {
   active: boolean;
   run: { startedAt: number; since: number; perSim: boolean; window: number; sims: SimStat[] } | null;
@@ -286,7 +286,7 @@ export function MibMonitorModal({ reportId, open, onClose, title }: { reportId: 
                         <span className={cx('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium',
                           health === 'ok' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : health === 'bench' ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300' : health === 'slow' ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'bg-surface-2 text-muted')}>
                           <span className={cx('h-1.5 w-1.5 rounded-full', health === 'ok' ? 'bg-emerald-500' : health === 'bench' ? 'bg-rose-500' : health === 'slow' ? 'bg-amber-500' : 'bg-slate-400')} />
-                          {health === 'ok' ? t('ishlayapti') : health === 'bench' ? t('chetda') : health === 'slow' ? t('sekin') : health === 'off' ? t('oʻchiq') : t('kutmoqda')}
+                          {health === 'ok' ? t('ishlayapti') : health === 'bench' ? `${t('dam')} ${fmtDur(Math.max(0, Math.round((st!.benchedUntil! - Date.now()) / 1000)))}` : health === 'slow' ? t('sekin') : health === 'off' ? t('oʻchiq') : t('kutmoqda')}
                         </span>
                       </div>
                       <div className="text-xs tabular-nums text-muted">…{s.last4} · {s.slot ? `${s.slot}-slot` : t('slot nomaʼlum')}{tout ? ` · ${t('kutish')} ${fmtDur(tout)}` : ''}</div>
@@ -345,7 +345,15 @@ export function MibMonitorModal({ reportId, open, onClose, title }: { reportId: 
                     <span>{t('60 daq ichida kelgan SMS')}: <b className="tabular-nums text-fg">{n(s.recv)}</b>{s.recvAt ? ` · ${ago(t, s.recvAt)}` : ''}</span>
                     {statSince && <span className="tabular-nums">{t('hisob')}: {new Date(statSince).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} {t('dan')}</span>}
                   </div>
-                  {benched && <div className="mt-2 rounded-lg bg-rose-500/10 px-2.5 py-1.5 text-[11px] text-rose-700 dark:text-rose-300">{t('SMS ketma-ket kelmadi — vaqtincha chetlatilgan, qaytadi')}: {hhmmss(st!.benchedUntil!)}</div>}
+                  {benched && (
+                    <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-800 dark:text-amber-200">
+                      <div className="flex items-center justify-between gap-2">
+                        <b>{t('Dam olmoqda — SMS kelmay qoldi')}</b>
+                        <span className="font-mono font-semibold tabular-nums">{fmtDur(Math.max(0, Math.round((st!.benchedUntil! - Date.now()) / 1000)))}</span>
+                      </div>
+                      <div className="mt-0.5 opacity-80">{t('Yangi SMS boshqa SIMga soʻralyapti. Dam tugagach bitta sinov SMS — kod kelsa toʻliq qaytadi.')}{st?.restLvl ? ` · ${st.restLvl}-${t('bosqich')} (1 → 3 → 5 → 10 ${t('daq')})` : ''}</div>
+                    </div>
+                  )}
                   {s.state !== 'on' && <div className="mt-2 rounded-lg bg-surface-2 px-2.5 py-1.5 text-[11px] text-muted">{t('Bu SIM oʻchirilgan — unga SMS soʻralmaydi')}</div>}
                 </div>
               );
