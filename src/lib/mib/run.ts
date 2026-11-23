@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { prisma } from '@/lib/db';
 import { MIB_ROOT } from './store';
-import { MibEngine } from './engine';
+import { MibEngine, MibSmsNotRequested } from './engine';
 import { CaptchaSolver } from './captcha';
 import { resolveCreditor } from './companies';
 import { getMibConfig, getActiveSims, learnSimSlot, parseSimSlot, type ActiveSim } from './config';
@@ -90,6 +90,27 @@ async function saveSimStat(reportId: number, v: SavedRunStat): Promise<void> {
   const value = JSON.stringify(v);
   await prisma.setting.upsert({ where: { key: simStatKey(reportId) }, create: { key: simStatKey(reportId), value }, update: { value } }).catch(() => {});
 }
+/**
+ * Server (qayta) ishga tushganda: «ishlayapti» belgisi qolgan, lekin jonli avtomatori yo'q hisobotlarni O'ZI
+ * davom ettiradi. Deploy/restart avtomatorni o'ldiradi; ilgari u faqat kimdir hisobot sahifasini ochganda
+ * davom etardi (2026-11-23: deploydan keyin 39 daqiqa bekor turgan). /api/health dan chaqiriladi (Docker
+ * healthcheck uni har 15 s da uradi) — jarayon umrida bir marta ishlaydi.
+ */
+let bootResumed = false;
+export async function resumeMibRunsOnBoot(): Promise<void> {
+  if (bootResumed) return;
+  bootResumed = true;
+  try {
+    const reports = await prisma.mibReport.findMany({ where: { autoRun: true }, select: { id: true } });
+    for (const r of reports) {
+      if (ACTIVE.has(r.id)) continue;
+      await reconcileZombieClients(r.id).catch(() => {});
+      const res = await startMibRun(r.id).catch(() => null);
+      if (res) { console.log(`[mib r${r.id}] server ishga tushdi — ${res.pending} ta mijoz bilan oʻzi davom etmoqda`); pushMibLog(`▶ Server qayta ishga tushdi — tekshiruv oʻzi davom etmoqda (${res.pending} ta navbatda)`, r.id); }
+    }
+  } catch { bootResumed = false; /* baza hali tayyor emas — keyingi healthcheck'da qayta uriniladi */ }
+}
+
 /** Run ishlamayotganda ham monitor oxirgi saqlangan statistikani ko'rsatsin. */
 export async function getSavedSimStat(reportId: number): Promise<SavedRunStat | null> { return loadSimStat(reportId); }
 const RUN_INFO = new Map<number, MibRunInfo>();
@@ -601,7 +622,28 @@ export async function runMibReportJob(jobId: number): Promise<void> {
         const gap = lastSmsReqAt + SMS_GAP_MS - Date.now();
         if (gap > 0) await sleep(gap);
         const markerId = await maxSmsId();
-        const sms = await engine.prepareAndRequestSms(it.monitoringUrl, client.pinfl, it.workNumber, sim.phone);
+        // SMS haqiqatan so'ralganiga ishonch: captcha rad etilsa sahifa yangidan ochilib qayta so'raladi (3 marta).
+        let sms: Awaited<ReturnType<typeof engine.prepareAndRequestSms>> | null = null;
+        let notReq = '';
+        for (let tryNo = 1; tryNo <= 3 && !sms; tryNo++) {
+          try { sms = await engine.prepareAndRequestSms(it.monitoringUrl, client.pinfl, it.workNumber, sim.phone); }
+          catch (e) {
+            if (!(e instanceof MibSmsNotRequested)) throw e;
+            notReq = e.message;
+            if (e.kind !== 'captcha') break; // limit / raqam / xizmat — qayta urinish foyda bermaydi
+            await sleep(1500);
+          }
+        }
+        if (!sms) {
+          // SMS so'ralmadi — SIM aybdor emas (statistikasiga yozilmaydi); ish detalsiz qoladi, mijoz qayta navbatga.
+          log(`${client.pinfl} · ${it.workNumber} ✗ ${notReq}`);
+          smsBad.set(client.id, true);
+          await prisma.mibCase.updateMany({ where: { id: it.caseId }, data: { error: notReq.slice(0, 180) } }).catch(() => {});
+          const rem = (remaining.get(client.id) ?? 1) - 1;
+          remaining.set(client.id, rem);
+          if (rem <= 0) await finalizeClient(client.id, client.pinfl);
+          continue;
+        }
         lastSmsReqAt = Date.now();
         inflight.push({ clientId: client.id, pinfl: client.pinfl, workNumber: it.workNumber, caseId: it.caseId, verifyFormAction: sms.verifyFormAction, markerId, simId: sim.id, requestedAt: Date.now(), tried: new Set(), tries: 0 });
         { const st = stat(sim); st.requested += 1; st.lastReqAt = Date.now(); }

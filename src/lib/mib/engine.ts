@@ -33,6 +33,11 @@ export interface Step19Details {
   decisions: { article: string; date: string }[];
 }
 
+/** mib.uz SMS yubormadi (tasdiqlash formasi qaytmadi). kind='captcha' — captcha rad etildi (qayta urinish mumkin). */
+export class MibSmsNotRequested extends Error {
+  constructor(public kind: 'captcha' | 'other', public detail: string) { super(`SMS soʻralmadi (${kind === 'captcha' ? 'captcha rad etildi' : detail})`); }
+}
+
 export class MibEngine {
   baseUrl: string;
   cookies = new Map<string, string>();
@@ -342,12 +347,18 @@ export class MibEngine {
         // tekshirilmas edi — SMS «so'raldi» deb yozilib, kod kelmasa sababi ko'rinmasdi (2026-09-30).
         const feedback = [...step16Html.matchAll(/feedbackPanel(?:ERROR|WARNING|INFO)?[^>]*>\s*<span[^>]*>([^<]{3,300})</gi)]
           .map((m) => m[1]!.replace(/\s+/g, ' ').trim()).filter(Boolean);
-        if (feedback.length) this.log(`${pinfl} · ${workNumber} · mib.uz: «${feedback.join(' | ').slice(0, 160)}»`);
         if (!verifyFormMatch) {
+          // SMS tasdiqlash formasi yo'q — demak SMS YUBORILMADI. Ilgari shunga qaramay «so'raldi» deb
+          // qaytarilardi: ish 2 daqiqa bekor kutib «SMS kelmadi» bo'lardi va ayb SIMga yozilardi
+          // (2026-11-23: 5 soatda 131 ta — «kelmadi»larning asosiy qismi). Eng ko'p sabab — captcha
+          // noto'g'ri o'qilgan («Текширув коди нотўғри»): chaqiruvchi sahifani yangidan ochib qayta so'raydi.
+          const why = feedback.join(' | ').slice(0, 160);
+          if (/Текширув коди/i.test(why)) throw new MibSmsNotRequested('captcha', why);
           const txt = step16Html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')
             .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-          this.log(`${pinfl} · ${workNumber} ✗ SMS formasi yoʻq (HTTP ${step16Res.status}): «${txt.slice(0, 160)}»`);
+          throw new MibSmsNotRequested('other', why || txt.slice(0, 160));
         }
+        if (feedback.length) this.log(`${pinfl} · ${workNumber} · mib.uz: «${feedback.join(' | ').slice(0, 160)}»`);
         const rawVerifyAction = verifyFormMatch ? verifyFormMatch[1]! : '';
         const verifyFormAction = new URL(rawVerifyAction, step16Url).href;
         return { success: true, step16Url, verifyFormAction };

@@ -12,6 +12,9 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     await prisma.$queryRaw`SELECT 1`;
+    // MIB avtomatori deploy/restartdan keyin O'ZI davom etsin (sahifa ochilishini kutmasdan). Bir marta
+    // ishlaydi; dinamik import — probe yengil qolsin; xatosi probe javobiga ta'sir qilmaydi.
+    void import('@/lib/mib/run').then((m) => m.resumeMibRunsOnBoot()).catch(() => {});
     return NextResponse.json({ status: 'ok', db: 'up', ts: new Date().toISOString() });
   } catch (e) {
     return NextResponse.json(
