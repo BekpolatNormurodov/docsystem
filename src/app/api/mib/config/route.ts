@@ -66,8 +66,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(await payload());
   }
 
-  const patch: { baseUrl?: string; intervalSec?: number; deepDetail?: boolean } = {};
+  const patch: { baseUrl?: string; intervalSec?: number; deepDetail?: boolean; twoPhase?: boolean } = {};
   if (typeof body?.deepDetail === 'boolean') patch.deepDetail = body.deepDetail;
+  if (typeof body?.twoPhase === 'boolean') patch.twoPhase = body.twoPhase;
   if (typeof body?.baseUrl === 'string' && body.baseUrl.trim()) patch.baseUrl = body.baseUrl.trim().replace(/\/+$/, '');
   if (body?.intervalSec !== undefined) {
     const n = Number(body.intervalSec);

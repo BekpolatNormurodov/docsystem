@@ -10,6 +10,7 @@ const K = {
   baseUrl: 'mib.baseUrl',
   intervalSec: 'mib.intervalSec',
   deepDetail: 'mib.deepDetail',
+  twoPhase: 'mib.twoPhase',
   smsTimeoutSec: 'mib.smsTimeoutSec',
   sims: 'mib.sims',
 } as const;
@@ -41,6 +42,9 @@ export interface MibConfig {
   /** Chuqur detal (SMS-OTP bilan har ish bo'yicha bank/sud/summa). O'chirilsa — faqat ijro ishi
    *  ro'yxati olinadi (SMS so'ralmaydi, tez va «birdan»). */
   deepDetail: boolean;
+  /** 2 BOSQICH: avval hamma mijozning ishlar RO'YXATI SMS'siz yig'iladi (tez — Excel darhol chiqadi), so'ng
+   *  bizniki ishlar DETALI SMS bilan alohida tortiladi. O'chiq bo'lsa (default) — har mijozda ikkalasi birga. */
+  twoPhase: boolean;
   /** SMS OTP kutish chegarasi (soniya). Sozlamalarда o'zgartiriladi — deploy shart emas. */
   smsTimeoutSec: number;
 }
@@ -49,7 +53,7 @@ export interface MibConfig {
 // faqat kutishда ketardi. Endi 30s (operator qarori) — 2 barobar tez, lekin oraliq saqlanadi.
 // Chegara 2s gacha tushirildi — operator Sozlamalarда xohlagancha o'zgartiradi.
 export const MIN_INTERVAL_SEC = 2;
-const DEFAULTS: MibConfig = { phone: '', sims: [], baseUrl: 'https://mib.uz', intervalSec: 30, deepDetail: true, smsTimeoutSec: 120 };
+const DEFAULTS: MibConfig = { phone: '', sims: [], baseUrl: 'https://mib.uz', intervalSec: 30, deepDetail: true, twoPhase: false, smsTimeoutSec: 120 };
 export const MIN_SMS_TIMEOUT_SEC = 20;
 
 const digitsOnly = (s: unknown) => String(s ?? '').replace(/\D/g, '');
@@ -91,6 +95,7 @@ export async function getMibConfig(): Promise<MibConfig> {
     baseUrl: map.get(K.baseUrl) || DEFAULTS.baseUrl,
     intervalSec: Number.isFinite(intervalSec) && intervalSec >= MIN_INTERVAL_SEC ? intervalSec : DEFAULTS.intervalSec,
     deepDetail: map.get(K.deepDetail) !== '0', // default yoqilgan; faqat '0' o'chiradi
+    twoPhase: map.get(K.twoPhase) === '1',
     smsTimeoutSec: (() => { const v = Number(map.get(K.smsTimeoutSec)); return Number.isFinite(v) && v >= MIN_SMS_TIMEOUT_SEC ? v : DEFAULTS.smsTimeoutSec; })(),
   };
 }
@@ -106,6 +111,7 @@ export async function setMibConfig(patch: Partial<MibConfig>): Promise<void> {
   if (patch.baseUrl !== undefined) entries.push([K.baseUrl, patch.baseUrl]);
   if (patch.intervalSec !== undefined) entries.push([K.intervalSec, String(patch.intervalSec)]);
   if (patch.deepDetail !== undefined) entries.push([K.deepDetail, patch.deepDetail ? '1' : '0']);
+  if (patch.twoPhase !== undefined) entries.push([K.twoPhase, patch.twoPhase ? '1' : '0']);
   if (patch.smsTimeoutSec !== undefined) entries.push([K.smsTimeoutSec, String(patch.smsTimeoutSec)]);
   for (const [key, value] of entries) {
     await prisma.setting.upsert({ where: { key }, create: { key, value }, update: { value } });

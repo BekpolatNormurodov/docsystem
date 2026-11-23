@@ -36,7 +36,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   // o'zi almashtiradi. Bitta mijoz eksportiga (client=) tegmaydi.
   let merged: (typeof own[number] & { prior?: { reportId: number; checkedAt: Date | null } })[] = own;
   if (!clientId) {
-    const need = own.filter((c) => c.status !== 'DONE' && c.status !== 'CLEAN').map((c) => c.pinfl);
+    // 2-bosqich rejimida 1-bosqichdan o'tgan mijoz (ro'yxat bor, detal hali yo'q) ham oldingi DETALdan foydalanadi.
+    const listOnly = (c: typeof own[number]) => c.status === 'DONE' && (c.error ?? '').startsWith('Roʻyxat olindi');
+    const need = own.filter((c) => (c.status !== 'DONE' && c.status !== 'CLEAN') || listOnly(c)).map((c) => c.pinfl);
     const best = new Map<string, typeof own[number]>();
     for (let i = 0; i < need.length; i += 1000) {
       const rows = await prisma.mibClient.findMany({
@@ -50,6 +52,12 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       }
     }
     merged = own.map((c) => {
+      if (listOnly(c)) {
+        // Ro'yxat YANGI (shu hisobotdan), detal esa — o'sha ish raqami oldin tortilgan bo'lsa — oldingi tekshiruvdan.
+        const prev = new Map((best.get(c.pinfl)?.cases ?? []).filter((k) => k.detailFetchedAt).map((k) => [k.workNumber, k]));
+        const at = best.get(c.pinfl)?.checkedAt ?? null;
+        return { ...c, cases: c.cases.map((k) => (prev.has(k.workNumber) && !k.detailFetchedAt ? { ...prev.get(k.workNumber)!, isTargetFirm: k.isTargetFirm, firmName: k.firmName, firmInn: k.firmInn, priorAt: at } : k)) };
+      }
       const p = c.status !== 'DONE' && c.status !== 'CLEAN' ? best.get(c.pinfl) : undefined;
       if (!p) return c;
       return { ...c, status: p.status, cases: p.cases, fio2: p.fio2 ?? c.fio2, totalDebt: p.totalDebt, currentDebt: p.currentDebt, checkedAt: p.checkedAt, error: null, prior: { reportId: p.reportId, checkedAt: p.checkedAt } };
