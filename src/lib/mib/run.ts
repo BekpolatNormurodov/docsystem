@@ -496,6 +496,7 @@ export async function runMibReportJob(jobId: number): Promise<void> {
   //   SMS kutish vaqti bekor ketmaydi; true qaytarsa ish bajarildi (kutish shart emas).
   async function drainOldest(idle?: () => Promise<boolean>): Promise<void> {
     while (inflight.length) {
+      checkStalls(Date.now()); // har aylanishda — kodlar uzluksiz kelsa ham jimib qolgan SIM aniqlansin
       const minMarker = Math.min(...inflight.map((it) => it.markerId));
       const rows = await prisma.mibSms.findMany({
         where: { consumed: false, id: { gt: minMarker }, NOT: { code: '' } },
@@ -664,7 +665,8 @@ export async function runMibReportJob(jobId: number): Promise<void> {
         await prisma.mibClient.update({ where: { id: client.id }, data: { status: 'DONE', checkedAt: new Date(), error: ours ? 'Roʻyxat olindi — detal navbatda' : null } });
         log(`${client.pinfl} ≡ ${search.cases.length} ijro · bizniki ${ours} (roʻyxat)`);
         await bump();
-        await sleep(1200); // SMS kutishi yo'q — mib.uz'ni tez-tez urmaslik uchun kichik oraliq
+        // mib.uz'ni tez-tez urmaslik uchun kichik oraliq; parallel rejimda (SMS ham ketyapti) qisqaroq.
+        await sleep(inflight.length ? 400 : 1200);
         return true;
       }
       cliMeta.set(client.id, { cases: search.cases.length, ours, other });
@@ -743,6 +745,9 @@ export async function runMibReportJob(jobId: number): Promise<void> {
           break;                                           // ikkalasi ham tugadi
         }
         await drainOldest(() => searchAndQueue('list'));
+        // Har tugagan koddan keyin BITTA mijozning ro'yxati. Faqat «bo'sh vaqt»ga tayanib bo'lmaydi: kodlar
+        // uzluksiz kelsa (jonli: 4 daqiqada 79 kod) bo'sh vaqt umuman bo'lmay, ro'yxat to'xtab qolgan edi.
+        if (await stillRunning(reportId)) await searchAndQueue('list');
         continue;
       }
       // Oynani to'ldiramiz: SMS_WINDOW ta ish «uchishда» bo'lguncha yangi mijozларни qidiramiz.
