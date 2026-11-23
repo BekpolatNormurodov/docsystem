@@ -23,3 +23,14 @@ describe('mib name helpers', () => {
     expect(bestFio({ fio: null, fio2: null, cases: [{ personFullName: '5 608 092.00' }] })).toBe('');
   });
 });
+
+import { parseSimSlot } from './config';
+describe('parseSimSlot', () => {
+  it('reads the phone SIM slot from forwarder text', () => {
+    expect(parseSimSlot('{"subject":"У вас новое SMS на номер SIM 2","message":"Kod:12345"}')).toBe(2);
+    expect(parseSimSlot('SIM1 incoming')).toBe(1);
+    expect(parseSimSlot('sim slot 2')).toBe(2);
+    expect(parseSimSlot('Kod:12345 mib.uz')).toBeNull();
+    expect(parseSimSlot(null)).toBeNull();
+  });
+});
