@@ -34,6 +34,36 @@ export function isPostalFee(k: { totalAmount?: string | null; mainDebt?: string 
   return amt > 0 && amt <= POSTAL_MAX;
 }
 export const clean = (s: string | null | undefined): string => (s && s !== 'Nomaʼlum' ? s.trim() : '');
+
+/** mib.uz HTML'idan kelgan matndagi entity'larni ochadi: «O&#039;G&#039;LI» → «O'G'LI», &quot; → ". */
+export function decodeEntities(s: string): string {
+  if (!s.includes('&')) return s;
+  const NAMED: Record<string, string> = { amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', nbsp: ' ', laquo: '«', raquo: '»' };
+  return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) => {
+    if (e[0] === '#') {
+      const code = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+      return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : m;
+    }
+    return NAMED[e.toLowerCase()] ?? m;
+  });
+}
+/** Haqiqiy ism-familiyami? Bo'sh / «Nomaʼlum» / maskalangan («AB***OV») / SUMMA («21 630.00» — detal
+ *  sahifasida to'lov kvitansiyasi bo'lmasa parser «Қарздор…» yorlig'idan summani ism deb olgan,
+ *  2026-11-23: 825 ish) bo'lsa — yo'q. Kamida 3 ta harf bo'lishi shart. */
+export function isPersonName(s: string | null | undefined): s is string {
+  if (!s || s === 'Nomaʼlum' || s.includes('***')) return false;
+  return (s.match(/\p{L}/gu) ?? []).length >= 3;
+}
+/** Mijozning ko'rsatiladigan F.I.O'si: mib.uz detalidagi TO'LIQ ism → portfel (Excel) ismi → mib.uz
+ *  qidiruvidagi ism (odatda maskalangan «AB***OV» — faqat boshqasi yo'q bo'lsa). */
+export function bestFio(c: { fio?: string | null; fio2?: string | null; cases: { personFullName?: string | null }[] }): string {
+  const full = c.cases.map((k) => k.personFullName).find(isPersonName);
+  if (full) return decodeEntities(full).trim();
+  if (isPersonName(c.fio)) return c.fio.trim();
+  // Oxirgi chora — maskalangan qidiruv ismi (harfi bo'lsa); summa/raqam hech qachon ism o'rniga chiqmaydi.
+  const masked = clean(c.fio2);
+  return /\p{L}/u.test(masked) ? decodeEntities(masked) : '';
+}
 export const shortFirm = (s: string): string => s.replace(/ MIKROMOLIYA.*$/i, '').replace(/["«»]/g, '').trim();
 
 // Bank nomini FILIALSIZ bazaga keltiradi — «АТБ "Bank" Xorazm filiali» va «... Toshkent viloyat

@@ -15,7 +15,7 @@ import { Ico, Spinner, DateField, useConfirm } from '@/ui';
 import { type ClientRow } from '../mib-hisoboti/MibClientDetail';
 import { ClientDetailFull } from '../mib-hisoboti/ClientDetailFull';
 import { MibLogPanel } from '../mib-hisoboti/MibLogPanel';
-import { regionOf, groupBreakdown, parseMoney, clean, shortFirm, normalizeBank, isPostalFee, UNKNOWN, OTHER_FIRM, type Dim } from '@/lib/mib/breakdown';
+import { regionOf, groupBreakdown, parseMoney, clean, bestFio, shortFirm, normalizeBank, isPostalFee, UNKNOWN, OTHER_FIRM, type Dim } from '@/lib/mib/breakdown';
 import { MIB_COMPANIES } from '@/lib/mib/companies';
 import { useT } from '@/lib/i18n/client';
 import { RecheckModal, type RecheckInfo } from '../mib-hisoboti/RecheckModal';
@@ -574,7 +574,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
                       onClick={() => c.caseCount > 0 && openClient(c.id)}>
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-1.5 font-medium tabular-nums">{c.caseCount > 0 && <Ico.eye size={13} className="shrink-0 text-brand-500" />}{c.pinfl}</div>
-                        <div className="truncate text-xs text-muted">{clean(c.fio2) || clean(c.fio) || '—'}</div>
+                        <div className="truncate text-xs text-muted">{bestFio(c) || '—'}</div>
                       </td>
                       <td className="px-3 py-2 text-xs">
                         {c.ourFirms.length
