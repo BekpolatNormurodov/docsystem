@@ -41,7 +41,11 @@ export function creditorIsOurs(creditor: string | null | undefined, firmWordsLis
     if (!fw.length || fw.length > mask.length) continue;
     let ok = true;
     for (let i = 0; i < fw.length; i++) {
-      if (!fragRegex(mask[i]!).test(fw[i]!)) { ok = false; break; }
+      // Bo'lakning BIRINCHI harfi ochiq bo'lishi shart. Boshi yashirin maska («**T RE***IL…», «**D S**T…»,
+      // «**W M**A…») bir so'zli firmalarimizga (MUVAFFAQIYAT / DARROWMAD / FUNDFLOW) oxirgi harfi bilangina
+      // «mos» kelib, begona firmalar ishiga SMS so'ralardi (2026-11-23: 476 ta ish). Bizning firmalar
+      // maskasi doim birinchi harfi bilan keladi («F***OW», «Z***Y», «U**N»).
+      if (!/^[^*]/.test(mask[i]!) || !fragRegex(mask[i]!).test(fw[i]!)) { ok = false; break; }
     }
     if (ok) return true;
   }
