@@ -5,7 +5,7 @@ import { requireAccess } from '@/lib/auth';
 import { computeStats } from '@/lib/mib/stats';
 import { parseHisobot } from '@/lib/mib/parse';
 import { mibReportDir } from '@/lib/mib/store';
-import { reconcileZombieClients, startMibRun, isMibRunActive } from '@/lib/mib/run';
+import { reconcileZombieClients, startMibRun, isMibRunActive, getMibHalt } from '@/lib/mib/run';
 import { attachJudgesToClients } from '@/lib/mib/judges';
 import { getT } from '@/lib/i18n/server';
 
@@ -54,7 +54,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     const p = await parseHisobot(report.sourcePath).catch(() => null);
     if (p) { holatValues = p.holatValues; sentDateRange = p.sentDateRange; }
   }
-  return NextResponse.json({ report, clients, stats, holatValues, sentDateRange });
+  return NextResponse.json({ report, clients, stats, holatValues, sentDateRange, halt: getMibHalt(id) });
 }
 
 // DELETE — remove a report (clients/cases cascade) + its folder.
