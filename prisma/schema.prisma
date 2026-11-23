@@ -340,11 +340,13 @@ model MibSms {
   code      String
   raw       String?  @db.Text
   source    String?
+  sim       String? // qaysi SIMga kelgan (webhook `?sim=<id>`, MibSim.id); null — belgisiz (eski manzil)
   createdAt DateTime @default(now())
   consumed  Boolean  @default(false)
 
   @@index([createdAt])
   @@index([consumed])
+  @@index([sim])
 }
 
 model InvoiceRecord {

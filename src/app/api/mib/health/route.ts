@@ -52,7 +52,10 @@ export async function GET() {
   const lastSms = await prisma.mibSms.findFirst({ orderBy: { id: 'desc' }, select: { createdAt: true } }).catch(() => null);
   if (!cfg.deepDetail) checks.push({ key: 'sms', ok: true, detail: 'chuqur detal o‘chirilgan — SMS kerak emas' });
   else if (!cfg.phone) checks.push({ key: 'sms', ok: false, detail: 'SMS telefon raqami sozlanmagan' });
-  else checks.push({ key: 'sms', ok: true, warn: !lastSms, detail: `raqam …${cfg.phone.slice(-4)}` });
+  else {
+    const on = cfg.sims.filter((x) => x.state === 'on');
+    checks.push({ key: 'sms', ok: true, warn: !lastSms, detail: on.length > 1 ? `${on.length} ta SIM: ${on.map((x) => `…${x.phone.slice(-4)}`).join(', ')}` : `raqam …${cfg.phone.slice(-4)}` });
+  }
 
   const ok = checks.every((c) => c.ok);
   pushMibLog(`ulanish tekshiruvi: ${checks.map((c) => `${c.key}=${c.ok ? 'OK' : 'XATO'}${c.ms != null ? ` ${c.ms}ms` : ''}`).join(', ')}`);

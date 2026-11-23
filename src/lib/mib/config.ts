@@ -11,14 +11,25 @@ const K = {
   intervalSec: 'mib.intervalSec',
   deepDetail: 'mib.deepDetail',
   smsTimeoutSec: 'mib.smsTimeoutSec',
+  sims: 'mib.sims',
 } as const;
 
+/**
+ * Bitta SIM (SMS qabul qiluvchi raqam). Bir nechta SIM ulansa avtomator SMS so'rovlarini ular orasida
+ * taqsimlaydi — har raqam o'z OTP oqimini olib, tortish N barobar tezlashadi.
+ *   state: 'pending' — kiritilgan, lekin hali SMS bilan tasdiqlanmagan (SMS SO'RALMAYDI);
+ *          'on'      — ishlayapti; 'off' — operator vaqtincha o'chirgan.
+ * `id` — qisqa barqaror kalit: shu SIM forwarder'i `…/api/mib-webhook?sim=<id>` ga POST qiladi, shunda
+ * kelgan kod QAYSI raqamga tegishli ekani aniq bo'ladi (kodlar aralashmaydi).
+ */
+export interface MibSim { id: string; phone: string; label: string; state: 'pending' | 'on' | 'off'; addedAt: string }
+export const MAX_SIMS = 6;
+
 export interface MibConfig {
-  /** ISHLAYOTGAN raqam — faqat shu raqamdan test SMS kelgach o'zgaradi. */
+  /** Birinchi ISHLAYOTGAN raqam (eski kod uchun qulaylik: «raqam sozlanganmi»). `sims`dan hosil bo'ladi. */
   phone: string;
-  /** Kiritilgan, lekin hali SMS bilan tasdiqlanmagan raqam. */
-  phonePending: string;
-  phoneConfirmedAt: string;
+  /** Barcha SIMlar (ishlayotgan + tasdiqlanmagan + o'chirilgan). */
+  sims: MibSim[];
   baseUrl: string;
   intervalSec: number;
   /** Chuqur detal (SMS-OTP bilan har ish bo'yicha bank/sud/summa). O'chirilsa — faqat ijro ishi
@@ -32,17 +43,44 @@ export interface MibConfig {
 // faqat kutishда ketardi. Endi 30s (operator qarori) — 2 barobar tez, lekin oraliq saqlanadi.
 // Chegara 2s gacha tushirildi — operator Sozlamalarда xohlagancha o'zgartiradi.
 export const MIN_INTERVAL_SEC = 2;
-const DEFAULTS: MibConfig = { phone: '', phonePending: '', phoneConfirmedAt: '', baseUrl: 'https://mib.uz', intervalSec: 30, deepDetail: true, smsTimeoutSec: 120 };
+const DEFAULTS: MibConfig = { phone: '', sims: [], baseUrl: 'https://mib.uz', intervalSec: 30, deepDetail: true, smsTimeoutSec: 120 };
 export const MIN_SMS_TIMEOUT_SEC = 20;
+
+const digitsOnly = (s: unknown) => String(s ?? '').replace(/\D/g, '');
+
+/** Saqlangan `mib.sims` JSON'ini o'qiydi; yo'q bo'lsa ESKI yagona-raqam sozlamasidan (mib.phone /
+ *  mib.phonePending) hosil qiladi — eski o'rnatma hech narsa qilmasdan ishlashda davom etadi. */
+function readSims(map: Map<string, string>): MibSim[] {
+  const raw = map.get(K.sims);
+  if (raw) {
+    try {
+      const arr = JSON.parse(raw) as Partial<MibSim>[];
+      if (Array.isArray(arr)) {
+        return arr
+          .filter((x) => x && typeof x.id === 'string' && digitsOnly(x.phone))
+          .map((x, i) => ({
+            id: x.id!, phone: digitsOnly(x.phone), label: String(x.label || `SIM ${i + 1}`),
+            state: x.state === 'on' || x.state === 'off' ? x.state : 'pending', addedAt: String(x.addedAt || ''),
+          }));
+      }
+    } catch { /* buzuq JSON — eski kalitlarga tushamiz */ }
+  }
+  const legacy: MibSim[] = [];
+  const live = digitsOnly(map.get(K.phone));
+  const pend = digitsOnly(map.get(K.phonePending));
+  if (live) legacy.push({ id: 's1', phone: live, label: 'SIM 1', state: 'on', addedAt: map.get(K.phoneConfirmedAt) || '' });
+  if (pend && pend !== live) legacy.push({ id: live ? 's2' : 's1', phone: pend, label: live ? 'SIM 2' : 'SIM 1', state: 'pending', addedAt: '' });
+  return legacy;
+}
 
 export async function getMibConfig(): Promise<MibConfig> {
   const rows = await prisma.setting.findMany({ where: { key: { in: Object.values(K) } } });
   const map = new Map(rows.map((r) => [r.key, r.value]));
   const intervalSec = Number(map.get(K.intervalSec));
+  const sims = readSims(map);
   return {
-    phone: map.get(K.phone) || DEFAULTS.phone,
-    phonePending: map.get(K.phonePending) || DEFAULTS.phonePending,
-    phoneConfirmedAt: map.get(K.phoneConfirmedAt) || DEFAULTS.phoneConfirmedAt,
+    phone: sims.find((x) => x.state === 'on')?.phone || DEFAULTS.phone,
+    sims,
     baseUrl: map.get(K.baseUrl) || DEFAULTS.baseUrl,
     intervalSec: Number.isFinite(intervalSec) && intervalSec >= MIN_INTERVAL_SEC ? intervalSec : DEFAULTS.intervalSec,
     deepDetail: map.get(K.deepDetail) !== '0', // default yoqilgan; faqat '0' o'chiradi
@@ -52,9 +90,12 @@ export async function getMibConfig(): Promise<MibConfig> {
 
 export async function setMibConfig(patch: Partial<MibConfig>): Promise<void> {
   const entries: [string, string][] = [];
-  if (patch.phone !== undefined) entries.push([K.phone, patch.phone]);
-  if (patch.phonePending !== undefined) entries.push([K.phonePending, patch.phonePending]);
-  if (patch.phoneConfirmedAt !== undefined) entries.push([K.phoneConfirmedAt, patch.phoneConfirmedAt]);
+  if (patch.sims !== undefined) {
+    entries.push([K.sims, JSON.stringify(patch.sims)]);
+    // Eski kalitlar ham mos tursin (orqaga qaytarilgan kod / tashqi skriptlar yagona raqamni o'qiy olsin).
+    entries.push([K.phone, patch.sims.find((x) => x.state === 'on')?.phone ?? '']);
+    entries.push([K.phonePending, '']);
+  }
   if (patch.baseUrl !== undefined) entries.push([K.baseUrl, patch.baseUrl]);
   if (patch.intervalSec !== undefined) entries.push([K.intervalSec, String(patch.intervalSec)]);
   if (patch.deepDetail !== undefined) entries.push([K.deepDetail, patch.deepDetail ? '1' : '0']);
@@ -64,14 +105,74 @@ export async function setMibConfig(patch: Partial<MibConfig>): Promise<void> {
   }
 }
 
+/** Yangi SIM uchun qisqa, takrorlanmas id (webhook manzilida ishlatiladi): s1, s2, … */
+function nextSimId(sims: MibSim[]): string {
+  for (let i = 1; ; i++) if (!sims.some((x) => x.id === `s${i}`)) return `s${i}`;
+}
+
+/** SIM qo'shadi — 'pending' holatda (SMS so'ralmaydi) : faqat shu raqamdan SMS kelgach yoki operator
+ *  qo'lda yoqqach ishlaydi. Xato terilgan raqam OTP oqimini jimgina sindirmasin. */
+export async function addSim(phoneRaw: string, label?: string): Promise<{ ok: true; sim: MibSim } | { ok: false; error: string }> {
+  const phone = digitsOnly(phoneRaw);
+  if (phone.length !== 12 || !phone.startsWith('998')) return { ok: false, error: 'Telefon raqami +998 va 9 ta raqamdan iborat boʻlishi kerak' };
+  const { sims } = await getMibConfig();
+  if (sims.some((x) => x.phone === phone)) return { ok: false, error: 'Bu raqam allaqachon qoʻshilgan' };
+  if (sims.length >= MAX_SIMS) return { ok: false, error: `Koʻpi bilan ${MAX_SIMS} ta SIM ulash mumkin` };
+  const id = nextSimId(sims);
+  const sim: MibSim = { id, phone, label: (label || '').trim().slice(0, 30) || `SIM ${id.slice(1)}`, state: 'pending', addedAt: new Date().toISOString() };
+  await setMibConfig({ sims: [...sims, sim] });
+  return { ok: true, sim };
+}
+
+export async function updateSim(id: string, patch: { state?: 'on' | 'off'; label?: string }): Promise<boolean> {
+  const { sims } = await getMibConfig();
+  const sim = sims.find((x) => x.id === id);
+  if (!sim) return false;
+  if (patch.state) sim.state = patch.state;
+  if (typeof patch.label === 'string' && patch.label.trim()) sim.label = patch.label.trim().slice(0, 30);
+  await setMibConfig({ sims });
+  return true;
+}
+
+export async function removeSim(id: string): Promise<boolean> {
+  const { sims } = await getMibConfig();
+  if (!sims.some((x) => x.id === id)) return false;
+  await setMibConfig({ sims: sims.filter((x) => x.id !== id) });
+  return true;
+}
+
 /**
- * Kutilayotgan raqamni ISHLAYOTGAN raqamga aylantiradi — faqat shu raqamdan (uning
- * forwarder'idan) haqiqiy SMS kelganda chaqiriladi. Boshqa hech qanday yo'l bilan
- * `mib.phone` o'zgarmaydi: shunchaki maydonni tahrirlab «Saqlash» bosish yetarli emas.
+ * SMS keldi — bu o'sha SIM (va uning forwarder'i) ishlayotganining isboti: 'pending' SIM 'on' bo'ladi.
+ *   simId berilgan (webhook `?sim=`) → aynan o'sha SIM;
+ *   simId yo'q (belgisiz, eski manzil) → faqat BITTA kutayotgan SIM bo'lsa o'sha (qaysi biri ekani aniq).
+ * Qaytaradi: tasdiqlangan raqam yoki null.
  */
-export async function confirmPendingPhone(): Promise<string | null> {
-  const cfg = await getMibConfig();
-  if (!cfg.phonePending) return null;
-  await setMibConfig({ phone: cfg.phonePending, phonePending: '', phoneConfirmedAt: new Date().toISOString() });
-  return cfg.phonePending;
+export async function confirmSimBySms(simId: string | null): Promise<string | null> {
+  const { sims } = await getMibConfig();
+  const pending = sims.filter((x) => x.state === 'pending');
+  const sim = simId ? pending.find((x) => x.id === simId) : pending.length === 1 ? pending[0] : undefined;
+  if (!sim) return null;
+  sim.state = 'on';
+  await setMibConfig({ sims });
+  return sim.phone;
+}
+
+/** Webhook `?sim=` qiymati — faqat qisqa harf-raqam (bazaga begona matn yozilmasin). */
+export const cleanSimId = (v: string | null | undefined): string | null => {
+  const s = String(v ?? '').trim().toLowerCase();
+  return /^[a-z0-9]{1,12}$/.test(s) ? s : null;
+};
+
+export interface ActiveSim { id: string; phone: string; label: string; tagged: boolean }
+/**
+ * Avtomator ishlatadigan SIMlar (state 'on'). `tagged` — shu SIMning O'Z webhook manzilidan
+ * (`?sim=<id>`) kamida bitta SMS kelgan: ya'ni uning kodlari boshqalarnikidan ajratiladi.
+ */
+export async function getActiveSims(): Promise<ActiveSim[]> {
+  const { sims } = await getMibConfig();
+  const on = sims.filter((x) => x.state === 'on');
+  if (on.length === 0) return [];
+  const seen = await prisma.mibSms.groupBy({ by: ['sim'], where: { sim: { in: on.map((x) => x.id) } }, _count: { _all: true } }).catch(() => []);
+  const tagged = new Set(seen.map((r) => r.sim));
+  return on.map((x) => ({ id: x.id, phone: x.phone, label: x.label, tagged: tagged.has(x.id) }));
 }

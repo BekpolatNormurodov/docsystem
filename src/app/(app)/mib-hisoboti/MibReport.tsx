@@ -14,7 +14,13 @@ interface Report {
   total: number; autoRun: boolean; runJobId: number | null;
 }
 interface ListReport extends Report { statusCounts: Record<string, number> }
-interface MibConfig { phone: string; phonePending: string; phoneConfirmedAt: string; baseUrl: string; intervalSec: number; webhookUrl: string; deepDetail: boolean }
+interface SimRow { id: string; phone: string; label: string; state: 'pending' | 'on' | 'off'; webhookUrl: string; smsCount: number; lastSmsAt: string | null }
+interface MibConfig {
+  phone: string; sims: SimRow[]; untagged: { smsCount: number; lastSmsAt: string | null };
+  baseUrl: string; intervalSec: number; webhookUrl: string; deepDetail: boolean; maxSims: number; error?: string;
+}
+// Avtomatordagi bilan bir xil: har SIMga bir vaqtda shuncha SMS «uchishda» (src/lib/mib/run.ts SMS_WINDOW).
+const SMS_PER_SIM = 3;
 
 const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
 const n = (x: number) => (x || 0).toLocaleString('ru-RU');
@@ -36,7 +42,7 @@ export function MibReport() {
   const [aggregate, setAggregate] = useState(true); // kirganda default «Umumiy»
 
   const refresh = useCallback(async () => {
-    const j = await jget('/api/mib');
+    const j = await jget(`/api/mib`);
     setReports(j.reports ?? []);
     setLoading(false);
   }, []);
@@ -97,7 +103,7 @@ export function MibReport() {
         </div>
       )}
 
-      <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} size="lg" title={t('MIB sozlamalari')} description={t('Telefon (SMS OTP), interval, chuqur detal va webhook')}>
+      <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} size="lg" title={t('MIB sozlamalari')} description={t('SIM kartalar (SMS OTP), interval, chuqur detal va webhook')}>
         <ConfigCard />
       </Modal>
     </div>
@@ -120,7 +126,7 @@ function TekshirishCard({ onUploaded }: { onUploaded: (id: number) => void }) {
     const p = pinfl.replace(/\D/g, '');
     if (p.length !== 14) { setPMsg({ ok: false, text: t('PINFL 14 ta raqamdan iborat boʻlishi kerak') }); return; }
     setPBusy(true); setPMsg(null);
-    const { ok, json } = await jpost('/api/mib/check-pinfl', { pinfl: p });
+    const { ok, json } = await jpost(`/api/mib/check-pinfl`, { pinfl: p });
     setPBusy(false);
     if (!ok) { setPMsg({ ok: false, text: json.error || t('Xatolik') }); return; }
     if (json.reused) {
@@ -132,7 +138,7 @@ function TekshirishCard({ onUploaded }: { onUploaded: (id: number) => void }) {
   };
   const doForce = async () => {
     if (!reusedInfo) return;
-    const { json } = await jpost('/api/mib/check-pinfl', { pinfl: reusedInfo.pinfl, force: true });
+    const { json } = await jpost(`/api/mib/check-pinfl`, { pinfl: reusedInfo.pinfl, force: true });
     setReusedInfo(null);
     router.push(`/mib-hisoboti/mijoz/${json.clientId || reusedInfo.clientId}`);
   };
@@ -148,7 +154,7 @@ function TekshirishCard({ onUploaded }: { onUploaded: (id: number) => void }) {
     setUErr(''); setUBusy(true);
     try {
       const fd = new FormData(); fd.append('file', file); if (label.trim()) fd.append('label', label.trim());
-      const res = await fetch('/api/mib/upload', { method: 'POST', body: fd });
+      const res = await fetch(`/api/mib/upload`, { method: 'POST', body: fd });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) { setUErr(j.error || t('Xatolik')); return; }
       setFile(null); setLabel(''); onUploaded(j.reportId);
@@ -214,64 +220,76 @@ function TekshirishCard({ onUploaded }: { onUploaded: (id: number) => void }) {
   );
 }
 
-// ── Config (phone / interval / webhook) ───────────────────────────────────────
-// Strip the country code → national 9 digits (no live re-masking, which fought the cursor).
-const toNational = (raw: string) => { const d = (raw || '').replace(/\D/g, ''); return (d.startsWith('998') ? d.slice(3) : d).slice(0, 9); };
+// ── Config (SIMlar / interval / webhook) ──────────────────────────────────────
+const fmtPhone = (p: string) => { const d = p.replace(/\D/g, ''); return d.length === 12 ? `+${d.slice(0, 3)} ${d.slice(3, 5)} ${d.slice(5, 8)} ${d.slice(8, 10)} ${d.slice(10)}` : `+${d}`; };
 
 function ConfigCard() {
   const t = useT();
+  const confirm = useConfirm();
   const [cfg, setCfg] = useState<MibConfig | null>(null);
-  const [phone9, setPhone9] = useState(''); // national 9 digits
   const [interval, setIntervalS] = useState('60');
   const [saved, setSaved] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState('');
+  // yangi SIM
+  const [phone9, setPhone9] = useState(''); // national 9 digits
+  const [label, setLabel] = useState('');
+  const [simErr, setSimErr] = useState('');
+  const [busy, setBusy] = useState('');
 
   const load = useCallback(async () => {
-    const j = await jget('/api/mib/config') as MibConfig;
-    setCfg(j); setPhone9(toNational(j.phone || '')); setIntervalS(String(j.intervalSec || 60));
+    const j = await jget(`/api/mib/config`) as MibConfig;
+    setCfg(j); setIntervalS(String(j.intervalSec || 60));
   }, []);
   useEffect(() => { void load(); }, [load]);
 
-  const save = async () => {
-    const full = phone9.length === 9 ? `998${phone9}` : '';
-    // Interval kamida 60s — bundan tez urish MIB tomonidan bloklanadi.
-    const { json } = await jpost('/api/mib/config', { phone: full, intervalSec: Math.max(60, Number(interval) || 60) });
-    setCfg((c) => c ? { ...c, ...json } : c);
-    if (json?.intervalSec) setIntervalS(String(json.intervalSec));
-    setSaved(true); setTimeout(() => setSaved(false), 1500);
+  // Har amal yangilangan to'liq sozlamani qaytaradi.
+  const act = async (key: string, body: unknown): Promise<boolean> => {
+    setBusy(key); setSimErr('');
+    const { ok, json } = await jpost(`/api/mib/config`, body);
+    setBusy('');
+    if (!ok) { setSimErr(json?.error || t('Xatolik')); return false; }
+    setCfg(json as MibConfig);
+    return true;
   };
 
+  const save = async () => {
+    // Interval kamida 60s — bundan tez urish MIB tomonidan bloklanadi.
+    if (await act('save', { intervalSec: Math.max(60, Number(interval) || 60) })) { setSaved(true); setTimeout(() => setSaved(false), 1500); }
+  };
   const toggleDeep = async () => {
     const next = !(cfg?.deepDetail ?? true);
     setCfg((c) => c ? { ...c, deepDetail: next } : c); // darhol ko'rinsin
-    const { json } = await jpost('/api/mib/config', { deepDetail: next });
-    setCfg((c) => c ? { ...c, ...json } : c);
+    await act('deep', { deepDetail: next });
   };
-
-  // Kutayotgan raqamni test SMS'siz, qo'lда ishlaydigan qilib qo'yish.
-  const activatePending = async () => {
-    const { json } = await jpost('/api/mib/config', { activatePending: true });
-    setCfg((c) => c ? { ...c, ...json } : c);
-    setPhone9(toNational(json?.phone || ''));
+  const addSim = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (phone9.length !== 9) { setSimErr(t('Telefon raqami 9 ta raqamdan iborat boʻlishi kerak')); return; }
+    if (await act('add', { addSim: { phone: `998${phone9}`, label } })) { setPhone9(''); setLabel(''); }
   };
+  const setSimState = (sim: SimRow, state: 'on' | 'off') => act(`st-${sim.id}`, { updateSim: { id: sim.id, state } });
+  const removeSim = async (sim: SimRow) => {
+    const yes = await confirm({ title: t('SIMni oʻchirish'), description: `${sim.label} · ${fmtPhone(sim.phone)} ${t('roʻyxatdan olib tashlanadi — unga SMS soʻralmaydi.')}`, confirmLabel: t('Oʻchirish'), danger: true });
+    if (yes) await act(`rm-${sim.id}`, { removeSim: sim.id });
+  };
+  const copy = (key: string, text: string) => { void navigator.clipboard?.writeText(text); setCopied(key); setTimeout(() => setCopied(''), 1200); };
 
   // Test the SMS pipeline: wait for a code to arrive at the webhook (operator sends a test SMS).
   const [testState, setTestState] = useState<'idle' | 'waiting' | 'ok' | 'timeout'>('idle');
   const [testCode, setTestCode] = useState('');
+  const [testSim, setTestSim] = useState<string | null>(null);
   const testSms = async () => {
-    setTestState('waiting'); setTestCode('');
-    const start = await jpost('/api/mib/test-sms');
+    setTestState('waiting'); setTestCode(''); setTestSim(null);
+    const start = await jpost(`/api/mib/test-sms`);
     const baseline = Number(start.json?.baselineId) || 0;
     const deadline = Date.now() + 90_000;
     const tick = async () => {
       if (Date.now() > deadline) { setTestState('timeout'); return; }
       const r = await jget(`/api/mib/test-sms?after=${baseline}`);
       if (r?.code) {
-        setTestCode(String(r.code));
+        setTestCode(String(r.code)); setTestSim(r.sim ?? null);
         setTestState('ok');
-        // SMS kelishi — kutayotgan raqamning haqiqiyligi isboti. Server uni shu paytda
-        // ishlayotgan raqamga aylantiradi; sozlamani qayta o'qib holatni yangilaymiz.
-        if (r.confirmedPhone) void load();
+        // SMS kelishi — o'sha SIM ishlayotganining isboti (kutayotgani yoqiladi); holatni yangilaymiz.
+        void load();
         return;
       }
       setTimeout(() => { void tick(); }, 3000);
@@ -279,23 +297,114 @@ function ConfigCard() {
     void tick();
   };
 
+  const sims = cfg?.sims ?? [];
+  const onSims = sims.filter((x) => x.state === 'on');
+  // Kodlar SIM bo'yicha ajraladimi: har ishlayotgan SIM o'z manzilidan kamida bitta SMS olgan.
+  const perSim = onSims.length > 1 && onSims.every((x) => x.smsCount > 0);
+  const parallel = perSim ? onSims.length * SMS_PER_SIM : SMS_PER_SIM;
+  const testSimRow = testSim ? sims.find((x) => x.id === testSim) : null;
+
   return (
     <div className="card p-4">
       <div className="mb-3 flex items-center gap-2 text-sm font-semibold"><Ico.settings size={16} className="text-brand-600 dark:text-brand-400" /> {t('Sozlamalar')}</div>
-      <div className="grid gap-3 sm:grid-cols-[1fr_150px_auto] sm:items-end">
-        <label>
-          <span className="field-label">{t('Telefon raqami (SMS shu raqamga keladi)')}</span>
-          <div className="flex items-center rounded-xl border border-[var(--field-line)] bg-[var(--field)] pl-3.5 transition focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/25">
-            <span className="select-none pr-2 text-sm font-medium tabular-nums text-muted">+998</span>
-            <input className="w-full bg-transparent py-2.5 pr-3.5 text-sm tabular-nums tracking-[0.15em] text-fg outline-none placeholder:tracking-normal placeholder:text-muted/60" inputMode="numeric" maxLength={9} placeholder="901234567"
-              value={phone9} onChange={(e) => setPhone9(e.target.value.replace(/\D/g, '').slice(0, 9))} />
+
+      {/* ── SIM kartalar: SMS-OTP shu raqamlarga so'raladi. Bir nechta bo'lsa so'rovlar taqsimlanadi. ── */}
+      <div className="rounded-xl border border-line">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-3 py-2">
+          <div className="text-sm font-medium">{t('SIM kartalar (SMS keladigan raqamlar)')}</div>
+          <div className="text-xs text-muted">
+            {onSims.length === 0
+              ? <span className="text-rose-600 dark:text-rose-300">{t('ishlayotgan SIM yoʻq — chuqur detal olinmaydi')}</span>
+              : <><b className="tabular-nums text-fg">{onSims.length}</b> {t('ta SIM ishlayapti')} · {t('bir vaqtda')} <b className="tabular-nums text-fg">{parallel}</b> {t('ta SMS')}</>}
           </div>
-        </label>
+        </div>
+
+        {sims.length === 0 && <p className="px-3 py-4 text-sm text-muted">{t('Hali SIM qoʻshilmagan. Pastda raqamni kiriting.')}</p>}
+        {sims.map((sim) => {
+          const stBusy = busy === `st-${sim.id}`;
+          return (
+            <div key={sim.id} className="space-y-2 border-b border-line px-3 py-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-surface-2 text-xs font-semibold text-muted">{sim.id.replace(/^s/, '')}</span>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium tabular-nums">{fmtPhone(sim.phone)} <span className="font-normal text-muted">· {sim.label}</span></div>
+                  <div className="text-[11px] text-muted">
+                    {sim.lastSmsAt ? <>{t('oxirgi SMS')}: {dt(sim.lastSmsAt)} · {n(sim.smsCount)} {t('ta')}</> : t('shu manzilga hali SMS kelmagan')}
+                  </div>
+                </div>
+                <div className="ml-auto flex flex-wrap items-center gap-2">
+                  {sim.state === 'on' && <span className="badge border-emerald-500/30 text-emerald-600 dark:text-emerald-300">{t('ishlayapti')}</span>}
+                  {sim.state === 'off' && <span className="badge border-line text-muted">{t('oʻchirilgan')}</span>}
+                  {sim.state === 'pending' && <span className="badge border-amber-500/30 text-amber-600 dark:text-amber-300">{t('tasdiqlanmagan')}</span>}
+                  {sim.state === 'pending' ? (
+                    <button className="btn-ghost px-2.5 py-1 text-xs" disabled={stBusy} onClick={() => setSimState(sim, 'on')} title={t('Test SMS’ni kutmasdan qoʻlda yoqish')}>
+                      {stBusy ? <Spinner size={13} /> : <Ico.check size={13} />} {t('Yoqish')}
+                    </button>
+                  ) : (
+                    <button role="switch" aria-checked={sim.state === 'on'} aria-label={t('SIMni yoqish/oʻchirish')} disabled={stBusy} onClick={() => setSimState(sim, sim.state === 'on' ? 'off' : 'on')}
+                      className={cx('relative h-6 w-11 shrink-0 rounded-full transition-colors', sim.state === 'on' ? 'bg-brand-500' : 'bg-slate-300 dark:bg-slate-600')}>
+                      <span className={cx('absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all', sim.state === 'on' ? 'left-[22px]' : 'left-0.5')} />
+                    </button>
+                  )}
+                  <button className="grid h-7 w-7 place-items-center rounded-lg text-muted hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-300" onClick={() => removeSim(sim)} title={t('Oʻchirish')} aria-label={t('Oʻchirish')}>
+                    <Ico.trash size={14} />
+                  </button>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 rounded-lg bg-surface-2 px-2.5 py-1.5">
+                <span className="shrink-0 text-[11px] text-muted">{t('Shu telefon forwarderi manzili:')}</span>
+                <code className="min-w-0 flex-1 truncate text-xs">{sim.webhookUrl}</code>
+                <button className="btn-ghost shrink-0 px-2 py-0.5 text-xs" onClick={() => copy(sim.id, sim.webhookUrl)}>
+                  {copied === sim.id ? <Ico.check size={13} /> : <Ico.files size={13} />} {copied === sim.id ? t('Nusxa olindi') : t('Nusxa')}
+                </button>
+              </div>
+              {sim.state === 'pending' && (
+                <p className="text-[11px] text-amber-600 dark:text-amber-300">
+                  {t('Bu raqamga hali SMS soʻralmaydi. Telefon forwarderiga yuqoridagi manzilni qoʻyib «SMS ni tekshirish» bosing va shu SIMga test SMS yuboring — kelishi bilan oʻzi yoqiladi.')}
+                </p>
+              )}
+            </div>
+          );
+        })}
+
+        <form onSubmit={addSim} className="flex flex-wrap items-end gap-2 px-3 py-2.5">
+          <label className="min-w-[200px] flex-1">
+            <span className="field-label">{t('Yangi SIM raqami')}</span>
+            <div className="flex items-center rounded-xl border border-[var(--field-line)] bg-[var(--field)] pl-3.5 transition focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/25">
+              <span className="select-none pr-2 text-sm font-medium tabular-nums text-muted">+998</span>
+              <input className="w-full bg-transparent py-2.5 pr-3.5 text-sm tabular-nums tracking-[0.15em] text-fg outline-none placeholder:tracking-normal placeholder:text-muted/60" inputMode="numeric" maxLength={9} placeholder="901234567"
+                value={phone9} onChange={(e) => { setPhone9(e.target.value.replace(/\D/g, '').slice(0, 9)); setSimErr(''); }} />
+            </div>
+          </label>
+          <label className="w-[150px]">
+            <span className="field-label">{t('Nomi (ixtiyoriy)')}</span>
+            <input className="field-input" maxLength={30} value={label} onChange={(e) => setLabel(e.target.value)} placeholder={`SIM ${sims.length + 1}`} />
+          </label>
+          <button type="submit" className="btn-ghost shrink-0" disabled={busy === 'add' || phone9.length !== 9 || sims.length >= (cfg?.maxSims ?? 6)}>
+            {busy === 'add' ? <Spinner size={16} /> : <Ico.add size={16} />} {t('SIM qoʻshish')}
+          </button>
+        </form>
+        {simErr && <p className="px-3 pb-2.5 text-sm font-medium text-rose-600 dark:text-rose-300">{simErr}</p>}
+      </div>
+
+      {/* Tezlik izohi: SIMlar soni tezlikni faqat kodlar ajratilganda oshiradi. */}
+      {onSims.length > 1 && (
+        <p className={cx('mt-2 rounded-lg border px-3 py-2 text-xs', perSim ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300' : 'border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300')}>
+          {perSim
+            ? `${t('SMS soʻrovlari')} ${onSims.length} ${t('ta SIM orasida teng taqsimlanadi — har biriga bir vaqtda')} ${SMS_PER_SIM} ${t('tadan. Biror SIM javob bermay qolsa, u vaqtincha chetlatilib ishlar qolganlariga oʻtadi.')}`
+            : t('SIMlar navbatlashadi, lekin tezlik hali oshmaydi: baʼzi SIM oʻz manzilidan SMS olmagan, shuning uchun kodlar aralash keladi. Har telefon forwarderiga OʻZ manzilini qoʻying va har biridan bir marta test SMS yuboring.')}
+        </p>
+      )}
+      {(cfg?.untagged?.smsCount ?? 0) > 0 && sims.length > 1 && cfg?.untagged.lastSmsAt && (
+        <p className="mt-1 text-[11px] text-muted">{t('Umumiy (SIMsiz) manzilga oxirgi SMS')}: {dt(cfg.untagged.lastSmsAt)} — {t('forwarderlarda eski manzil qolgan boʻlsa, yuqoridagi SIM manzillariga almashtiring.')}</p>
+      )}
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-[180px_auto] sm:items-end sm:justify-start">
         <label>
           <span className="field-label">{t('Interval (sekund, eng kami 60)')}</span>
           <input className="field-input tabular-nums" inputMode="numeric" value={interval} onChange={(e) => setIntervalS(e.target.value.replace(/\D/g, ''))} />
         </label>
-        <button className="btn-primary shrink-0" onClick={save}>{saved ? <><Ico.check size={16} /> {t('Saqlandi')}</> : t('Saqlash')}</button>
+        <button className="btn-primary shrink-0" disabled={busy === 'save'} onClick={save}>{saved ? <><Ico.check size={16} /> {t('Saqlandi')}</> : t('Saqlash')}</button>
       </div>
 
       {/* Chuqur detal (SMS) — o'chirilsa har ish uchun SMS so'ralmaydi, faqat ijro ishi ro'yxati (tez). */}
@@ -314,44 +423,18 @@ function ConfigCard() {
         </button>
       </div>
 
-      {/* Raqam holati: saqlash o'zi raqamni ALMASHTIRMAYDI — faqat o'sha raqamdan test SMS
-          kelgach almashadi. Shunda xato terilgan raqam OTP oqimini jimgina sindirmaydi. */}
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-        <span className="text-muted">{t('Ishlayotgan raqam:')}</span>
-        {cfg?.phone
-          ? <span className="badge border-emerald-500/30 text-emerald-600 dark:text-emerald-300 tabular-nums">+{cfg.phone} · {t('tasdiqlangan')}</span>
-          : <span className="badge border-line text-muted">{t('hali yo‘q')}</span>}
-        {cfg?.phonePending && (
-          <>
-            <span className="badge border-amber-500/30 text-amber-600 dark:text-amber-300 tabular-nums">
-              +{cfg.phonePending} · {t('tasdiqlanmagan')}
-            </span>
-            <button className="btn-ghost px-2.5 py-1 text-xs" onClick={activatePending}>
-              <Ico.check size={13} /> {t('Shu raqamga oʻtkazish')}
-            </button>
-            <span className="text-xs text-amber-600 dark:text-amber-300">
-              {t('— yoki shu raqamdan test SMS yuboring')}
-            </span>
-          </>
-        )}
-      </div>
-      {cfg?.webhookUrl && (
-        <div className="mt-3 flex items-center gap-2 rounded-xl border border-line bg-surface-2 px-3 py-2">
-          <span className="text-xs text-muted">{t('Webhook (Android forwarder shu manzilga POST qilsin):')}</span>
-          <code className="flex-1 truncate text-xs">{cfg.webhookUrl}</code>
-          <button className="btn-ghost px-2 py-1 text-xs" onClick={() => { navigator.clipboard?.writeText(cfg.webhookUrl); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>
-            {copied ? <Ico.check size={14} /> : <Ico.files size={14} />} {copied ? t('Nusxa olindi') : t('Nusxa')}
-          </button>
-        </div>
-      )}
-
       {/* Test the SMS pipeline (phone → forwarder → webhook) before running the automator. */}
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button className="btn-ghost" disabled={testState === 'waiting'} onClick={testSms}>
           {testState === 'waiting' ? <Spinner size={16} /> : <Ico.send size={16} />} {t('SMS ni tekshirish')}
         </button>
         {testState === 'waiting' && <span className="text-sm text-amber-600 dark:text-amber-300">{t('Telefondan test SMS yuboring — kelishi kutilmoqda…')}</span>}
-        {testState === 'ok' && <span className="text-sm font-medium text-emerald-600 dark:text-emerald-300">{t('✓ Tasdiqlandi — kod keldi:')} <b className="tabular-nums">{testCode}</b>{t('. Telefon + webhook ishlayapti.')}</span>}
+        {testState === 'ok' && (
+          <span className="text-sm font-medium text-emerald-600 dark:text-emerald-300">
+            {t('✓ Tasdiqlandi — kod keldi:')} <b className="tabular-nums">{testCode}</b>
+            {testSimRow ? <> · {testSimRow.label} ({fmtPhone(testSimRow.phone)})</> : sims.length > 1 ? <span className="text-amber-600 dark:text-amber-300"> · {t('umumiy manzilga keldi (qaysi SIM ekani nomaʼlum)')}</span> : null}
+          </span>
+        )}
         {testState === 'timeout' && <span className="text-sm text-rose-600 dark:text-rose-300">{t('⏱ 90s ichida SMS kelmadi — telefon/forwarder/webhook’ni tekshiring.')}</span>}
       </div>
     </div>
