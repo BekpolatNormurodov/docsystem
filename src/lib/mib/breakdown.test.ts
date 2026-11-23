@@ -34,3 +34,32 @@ describe('parseSimSlot', () => {
     expect(parseSimSlot(null)).toBeNull();
   });
 });
+
+import { resolveCreditor } from './companies';
+describe('resolveCreditor — mib.uz masks', () => {
+  const ours = (s: string) => resolveCreditor(s).isTarget;
+  it('recognises every mask variant of our firms (real prod masks)', () => {
+    for (const m of [
+      'U**N FI***CE SO***NS MI***YA TA***TI', '"U***AN FI***CE SO***NS MI***YA TA***I" MA***TI CH***AN JA***AT',
+      '"B***HT FU***RE FI***NG MI***YA TA***I" MA***TI CH***AN JA***AT MI***Y', 'BR***HT FU***RE FI***NG MI***YA TA***TI',
+      '"C***TY MI***CE MI***YA TA***I" MA***TI CH***AN JA***AT MI***YA TA***T', 'CO***TY MI***CE MI***YA TA***TI',
+      '"F***OW MI***YA TA***I" MA***TI CH***AN JA***AT MI***YA TA***TI', 'FU***OW MI***YA TA***TI', 'FU***OW MI***YA TA***TI M**J',
+      '"Z***Y" MA***TI CH***AN JA***AT MI***YA TA***TI', 'ZA***LY',
+    ]) expect(ours(m), m).toBe(true);
+    expect(resolveCreditor('U**N FI***CE SO***NS MI***YA TA***TI').name).toMatch(/^URBAN/);
+  });
+  it('does not claim other creditors (real prod masks)', () => {
+    for (const m of [
+      '«O***in Yu***uz P**s Mi***ya Ta***i» МЧЖ', '"S***A" MA***TI CH***AN JA***AT MI***YA TA***TI', '"T***N" MA***TI CH***AN JA***AT MI***YA TA***TI',
+      '"F***NA BI***ES MI***YA TA***I" MA***TI CH***AN JA***AT', '"V***NT RE***IL FI***E" MA***TI CH***AN JA***AT', 'VA***NT RE***IL FI***CE',
+      '"**O SO***ON MI***YA TA***I" MA***TI CH***AN JA***AT', '"**C CR***T" MA***TI CH***AN JA***AT MI***YA TA***TI', '"P***ME SA***A" MA***TI CH***AN JA***AT MI***YA TA***TI',
+      '"O***OS FI***E" MA***TI CH***AN JA***AT MI***YA TA***TI', '"K***AT TA***NT MI***YA TA***I" M**J', '"B***OR SA***YA G**P MI***YA TA***I" MA***TI CH***AN JA***AT',
+      '"O***NT FI***NS B**" AK***IK JA***TI', '"M***UK FI***CE MI***YA TA***I" MA***TI CH***AN JA***AT', '"B***ES FI***NS MI***YA TA***I" MA***TI CH***AN JA***AT',
+      '"P***IT T**D MI***YA TA***I" MA***TI CH***AN JA***AT', '"**T FI***NG SE***CE MI***YA TA***I" MA***TI CH***AN JA***AT', '"M***YA TA***TI OA***T" MA***TI CH***AN JA***AT XO***IY KO***NA MI***Y',
+      // noaniq / boshqa: bir so'zli maska yoki boshi yashirin — bizniki DEYILMAYDI
+      '"**W M**A KR***T" MA***TI CH***AN JA***AT', 'MU***AT KU***OV SA***CH', '"U***AN AI***S" AK***IK JA***TI', 'MU***AT MI***YA TA***TI',
+      '"A***k" ATB Bu***ro fi***li', 'Da***at', 'Да***ат', '"**R B**" AK***IK JA***TI', '"P***R" MA***TI CH***AN JA***AT QO***MA KO***NA MI***YA TA***TI',
+      '"E***OM P**S MI***YA TA***I" MA***TI CH***AN JA***AT', '"H***OH MI***YA TA***I" MA***TI CH***AN JA***AT', '"L***IT RE***IL FI***E" MA***TI CH***AN JA***AT',
+    ]) expect(ours(m), m).toBe(false);
+  });
+});

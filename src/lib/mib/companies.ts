@@ -1,6 +1,8 @@
 // The 8 target microfinance firms (companies.json in the tests project) + creditor→firm resolution.
 // mib.uz returns the creditor as a raw (often garbled) string; match it against these patterns to
 // attach the canonical firm name + INN, and flag whether it's one of our target firms (vs state duty).
+import { firmKeyWords, fragRegex } from './creditor-match';
+
 export interface MibCompany {
   id: number; name: string; inn: string; bank: string; mfo: string; account: string;
   director: string; category: string; patterns: string[];
@@ -43,5 +45,27 @@ export function resolveCreditor(rawCreditor: string | null | undefined): Resolve
       } catch { /* bad regex — skip */ }
     }
   }
+  const masked = matchMasked(clean);
+  if (masked) return { name: masked.name, inn: masked.inn, category: masked.category, isTarget: true };
   return { name: clean, inn: 'Nomaʼlum', category: 'Boshqa', isTarget: false };
+}
+
+// MASKA bo'yicha umumiy moslash (qo'lda yozilgan patternlar ushlamagan holatlar uchun). mib.uz bir firmani
+// har xil maskalaydi: «"U***AN FI***CE SO***NS …"» ham, «U**N FI***CE SO***NS …» ham (2026-11-23: ikkinchisi
+// tanilmay, 380 ta URBAN ishi detali olingan holda «boshqa kreditor» bo'lib, hisobot va Excel'ga tushmagan).
+// QAT'IY qoida — noto'g'ri firmani «bizniki» demaslik muhimroq:
+//   • faqat KAMIDA 2 farqlovchi so'zli brendlar (URBAN FINANCE SOLUTIONS, BRIGHT FUTURE FINANCING, …).
+//     Bir so'zli brend (ZAYMLY, FUNDFLOW, MUVAFFAQIYAT) bu yerda TANILMAYDI — maska juda oz ma'lumot beradi
+//     («**W M**A KR***T» FUNDFLOW'ga yopishib qolgan edi); ular faqat yuqoridagi aniq patternlar orqali;
+//   • kreditorning BOSHIDAGI bo'laklar brend so'zlariga ketma-ket mos kelsin;
+//   • har bo'lakning BIRINCHI harfi ochiq bo'lsin («**O …» kabi boshi yashirin maska mos kelmaydi).
+const COMPANY_WORDS = MIB_COMPANIES.map((c) => ({ c, words: firmKeyWords(c.name) })).filter((x) => x.words.length >= 2);
+function matchMasked(clean: string): MibCompany | null {
+  if (!clean.includes('*')) return null;
+  const mask = clean.replace(/["«»'']/g, ' ').trim().split(/\s+/).filter(Boolean);
+  for (const { c, words } of COMPANY_WORDS) {
+    if (words.length > mask.length) continue;
+    if (words.every((w, i) => /^[^*]/.test(mask[i]!) && fragRegex(mask[i]!).test(w))) return c;
+  }
+  return null;
 }
