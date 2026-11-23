@@ -46,9 +46,16 @@ export const isMibRunActive = (reportId: number): boolean => ACTIVE.has(reportId
 // deb yopilardi. Endi shuncha mijoz KETMA-KET texnik xato bersa run PAUZA qilinadi: o'sha mijozlar
 // PENDINGga qaytadi (yo'qolmaydi), sababi dashboard'да ko'rsatiladi; ulanish tiklangach GO davom ettiradi.
 const MAX_CONSEC_ERRORS = 5;
-// Oxirgi avtomatik to'xtash sababi (jarayon xotirasida — restartда tozalanadi; log'да ham bor).
-const LAST_HALT = new Map<number, { at: number; reason: string }>();
-export const getMibHalt = (reportId: number): { at: number; reason: string } | null => LAST_HALT.get(reportId) ?? null;
+// AQLLI QAYTA ULANISH (2026-11-23): pauza endi «to'xtab qolish» emas — avtomator o'zi kutadi, ulanishni
+// tekshiradi va tiklangach DAVOM etadi. Kutish bosqichlari (daqiqa): 1 → 3 → 5 → 10, keyin har 10 daqiqada
+// (STOP bosilguncha). Kutish paytida mib.uz'ga so'rov yuborilmaydi (blok bo'lsa uni uzaytirmaslik uchun).
+const RECONNECT_STEPS_MIN = [1, 3, 5, 10];
+// Oxirgi avtomatik pauza holati (jarayon xotirasida — restartда tozalanadi; log'да ham bor).
+//   waiting=true  → avtomator tirik, `retryAt` da ulanishni qayta tekshiradi (attempt — nechanchi urinish)
+//   waiting=false → butunlay to'xtagan (masalan OCR ishga tushmadi) — qo'lda GO kerak
+export interface MibHalt { at: number; reason: string; waiting: boolean; retryAt?: number; attempt?: number }
+const LAST_HALT = new Map<number, MibHalt>();
+export const getMibHalt = (reportId: number): MibHalt | null => LAST_HALT.get(reportId) ?? null;
 
 /**
  * «Xato» (FAILED) bo'lib qolgan mijozlarni qayta navbatga (PENDING) qaytaradi — «Xatolarni davom
@@ -133,29 +140,63 @@ export async function runMibReportJob(jobId: number): Promise<void> {
   } catch (e) {
     const reason = `Captcha (OCR) ishga tushmadi: ${(e as Error).message}`;
     log(`report ${reportId}: ${reason}`);
-    LAST_HALT.set(reportId, { at: Date.now(), reason });
+    LAST_HALT.set(reportId, { at: Date.now(), reason, waiting: false });
     await failReport(reportId, jobId, reason);
     ACTIVE.delete(reportId); return;
   }
 
   let debtPage = '';
-  const bootSession = async () => { const { homeHtml } = await engine.initSession(); debtPage = await engine.getDebtSearchPage(homeHtml); };
+  const bootSession = async () => {
+    const { homeHtml } = await engine.initSession();
+    debtPage = await engine.getDebtSearchPage(homeHtml);
+    // Blok/texnik-ishlar sahifasi ham 200 qaytaradi — qidiruv formasi borligini tekshiramiz.
+    if (!/id="tab_pinfl"|Wicket\.Ajax/i.test(debtPage)) throw new Error('mib.uz PINFL qidiruv formasini qaytarmadi (blok yoki texnik ishlar)');
+  };
+
+  // Ulanish yo'q: 1 → 3 → 5 → 10 daqiqa (keyin har 10) kutib, yangi sessiya ochib ko'radi. Ochilsa true
+  // (run davom etadi). STOP bosilsa false. Kutish 5 soniyalik bo'laklarda — STOP darhol seziladi.
+  async function waitForConnection(why: string): Promise<boolean> {
+    const since = Date.now();
+    for (let attempt = 0; ; attempt++) {
+      const mins = RECONNECT_STEPS_MIN[Math.min(attempt, RECONNECT_STEPS_MIN.length - 1)]!;
+      const retryAt = Date.now() + mins * 60_000;
+      LAST_HALT.set(reportId, { at: since, reason: why, waiting: true, retryAt, attempt: attempt + 1 });
+      log(`report ${reportId}: ${why} — ${mins} daqiqa kutiladi, soʻng ulanish qayta tekshiriladi (${attempt + 1}-urinish)`);
+      while (Date.now() < retryAt) {
+        if (!(await stillRunning(reportId))) return false;
+        await sleep(Math.min(5000, Math.max(0, retryAt - Date.now())));
+      }
+      if (!(await stillRunning(reportId))) return false;
+      try {
+        engine = new MibEngine(cfg.baseUrl, { captcha, log });
+        await bootSession();
+        LAST_HALT.delete(reportId);
+        log(`report ${reportId}: ulanish tiklandi (${Math.round((Date.now() - since) / 60_000)} daqiqadan soʻng) — davom etilmoqda`);
+        return true;
+      } catch (e) {
+        why = `mib.uz hali javob bermayapti: ${(e as Error).message || String(e)}`;
+      }
+    }
+  }
+
   try {
     log(`report ${reportId}: mib.uz sessiya ochilmoqda…`);
     await bootSession();
     log(`report ${reportId}: sessiya tayyor`);
   } catch (e) {
-    const reason = `mib.uz sessiyasi ochilmadi: ${(e as Error).message}`;
-    log(`report ${reportId}: ${reason}`);
-    LAST_HALT.set(reportId, { at: Date.now(), reason });
-    await failReport(reportId, jobId, reason);
-    await captcha.terminate().catch(() => {}); ACTIVE.delete(reportId); return;
+    // Boshida ham ulanish bo'lmasa run yopilmaydi — kutib qayta urinadi (STOP bosilsa chiqadi).
+    const ok = await waitForConnection(`mib.uz sessiyasi ochilmadi: ${(e as Error).message}`);
+    if (!ok) {
+      LAST_HALT.delete(reportId);
+      await prisma.mibReport.update({ where: { id: reportId }, data: { autoRun: false, runJobId: null } }).catch(() => {});
+      await prisma.job.update({ where: { id: jobId }, data: { status: 'DONE', message: 'Toʻxtatildi' } }).catch(() => {});
+      await captcha.terminate().catch(() => {}); ACTIVE.delete(reportId); return;
+    }
   }
 
   let processed = 0;
   // Ketma-ket texnik xato (istisno) bergan mijozlar — saqlagich uchun. Har muvaffaqiyatli qidiruv tozalaydi.
   let consecErrIds: number[] = [];
-  let halted = '';
   const bump = async () => { processed += 1; await prisma.job.update({ where: { id: jobId }, data: { progress: processed } }).catch(() => {}); };
 
   // Pipeline holati
@@ -287,17 +328,19 @@ export async function runMibReportJob(jobId: number): Promise<void> {
     if (rem <= 0) await finalizeClient(item.clientId, item.pinfl);
   }
 
-  // Saqlagich: mijoz texnik xato berdi. MAX_CONSEC_ERRORS ta ketma-ket bo'lsa — o'sha mijozlarni
-  // PENDINGga qaytarib run'ni pauza qiladi (true). Navbat «xato»ga yonib ketmaydi.
+  // Saqlagich: mijoz texnik xato berdi. MAX_CONSEC_ERRORS ta ketma-ket bo'lsa — o'sha mijozlarni PENDINGga
+  // qaytaradi (navbat «xato»ga yonib ketmaydi) va ulanish tiklanguncha KUTADI (1/3/5/10 daqiqa), so'ng run
+  // o'zi davom etadi. true → saqlagich ishladi (chaqiruvchi shu mijozni qayta sanamaydi).
   async function tripBreaker(clientId: number, msg: string): Promise<boolean> {
     consecErrIds.push(clientId);
     if (consecErrIds.length < MAX_CONSEC_ERRORS) return false;
+    // «Uchishdagi» ishlar eski sessiyaga bog'liq — kutishdan oldin tugatib olamiz (aks holda SMS'i yo'qoladi).
+    while (inflight.length) await drainOldest();
+    const n = consecErrIds.length;
     await prisma.mibClient.updateMany({ where: { id: { in: consecErrIds }, status: 'FAILED' }, data: { status: 'PENDING', error: null, checkedAt: null } });
-    halted = `mib.uz bilan ulanish uzildi — ${consecErrIds.length} ta mijoz ketma-ket xato berdi (${msg}). Avtomator pauza qilindi, mijozlar navbatda qoldi.`;
-    log(`report ${reportId}: ${halted}`);
-    LAST_HALT.set(reportId, { at: Date.now(), reason: halted });
-    await prisma.mibReport.update({ where: { id: reportId }, data: { autoRun: false } }).catch(() => {});
-    return true;
+    consecErrIds = [];
+    await waitForConnection(`mib.uz bilan ulanish uzildi — ${n} ta mijoz ketma-ket xato berdi (${msg}). Mijozlar navbatda qoldi`);
+    return true; // STOP bosilgan bo'lsa asosiy sikl `stillRunning` orqali o'zi chiqadi
   }
 
   // Bitta PENDING mijozни qidirib, bizники ishlarига SMS so'raydi (pipeline'ga qo'shadi).
@@ -416,7 +459,8 @@ export async function runMibReportJob(jobId: number): Promise<void> {
 
     const remainingCnt = await prisma.mibClient.count({ where: { reportId, status: 'PENDING' } });
     await prisma.mibReport.update({ where: { id: reportId }, data: { autoRun: false, runJobId: null } });
-    await prisma.job.update({ where: { id: jobId }, data: { status: 'DONE', message: halted ? 'Ulanish uzildi — pauza' : remainingCnt ? 'Toʻxtatildi' : 'Yakunlandi' } }).catch(() => {});
+    await prisma.job.update({ where: { id: jobId }, data: { status: 'DONE', message: remainingCnt ? 'Toʻxtatildi' : 'Yakunlandi' } }).catch(() => {});
+    LAST_HALT.delete(reportId); // kutish paytida STOP bosilgan bo'lsa «kutilmoqda» belgisi qolib ketmasin
     log(`report ${reportId}: tugadi (${processed} ta ishlandi, ${remainingCnt} qoldi)`);
   } finally {
     await captcha.terminate().catch(() => {});
