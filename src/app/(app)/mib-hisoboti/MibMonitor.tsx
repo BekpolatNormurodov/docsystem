@@ -14,7 +14,9 @@ interface Line { id: number; ts: number; msg: string }
 interface SimStat { id: string; label: string; phone: string; tagged: boolean; requested: number; ok: number; miss: number; inflight: number; lastReqAt?: number; lastOkAt?: number; benchedUntil?: number }
 interface Monitor {
   active: boolean;
-  run: { startedAt: number; perSim: boolean; window: number; sims: SimStat[] } | null;
+  run: { startedAt: number; since: number; perSim: boolean; window: number; sims: SimStat[] } | null;
+  saved: { since: number; sims: Record<string, Pick<SimStat, 'requested' | 'ok' | 'miss' | 'lastReqAt' | 'lastOkAt'>> } | null;
+  progress: { total: number; checked: number; pending: number; failed: number; perMin: number; etaMin: number | null };
   halt: { at: number; reason: string; waiting: boolean; retryAt?: number; attempt?: number } | null;
   sims: { id: string; label: string; phone: string; state: 'pending' | 'on' | 'off'; slot: number | null }[];
   received: { key: string; count: number; used: number; lastAt: string | null }[];
@@ -98,7 +100,10 @@ export function MibMonitorModal({ reportId, open, onClose, title }: { reportId: 
   // SIM ro'yxati: ishlayotganlar (+ run statistikasi) — tartib va rang bir xil qolsin.
   const simRows = useMemo(() => {
     const cfg = mon?.sims ?? [];
-    const stats = new Map((mon?.run?.sims ?? []).map((s) => [s.id, s]));
+    // Jonli run bo'lsa — uning statistikasi (u ham saqlanganidan davom etadi); bo'lmasa — oxirgi saqlangani.
+    const stats = new Map<string, Partial<SimStat>>(mon?.run
+      ? mon.run.sims.map((s) => [s.id, s])
+      : Object.entries(mon?.saved?.sims ?? {}).map(([id, v]) => [id, v]));
     return cfg.filter((s) => s.state === 'on' || stats.has(s.id)).map((s, i) => {
       const st = stats.get(s.id);
       const recv = (mon?.received ?? []).filter((r) => r.key === s.id || (s.slot != null && r.key === `slot:${s.slot}`));
@@ -165,7 +170,11 @@ export function MibMonitorModal({ reportId, open, onClose, title }: { reportId: 
   const run = mon?.run;
   const halt = mon?.halt;
   const state: 'run' | 'wait' | 'idle' = halt?.waiting && mon?.active ? 'wait' : mon?.active ? 'run' : 'idle';
-  const tot = (run?.sims ?? []).reduce((a, s) => ({ req: a.req + s.requested, ok: a.ok + s.ok, miss: a.miss + s.miss }), { req: 0, ok: 0, miss: 0 });
+  const tot = simRows.reduce((a, s) => ({ req: a.req + (s.st?.requested ?? 0), ok: a.ok + (s.st?.ok ?? 0), miss: a.miss + (s.st?.miss ?? 0) }), { req: 0, ok: 0, miss: 0 });
+  const pr = mon?.progress;
+  const pct = pr && pr.total ? Math.round((pr.checked / pr.total) * 1000) / 10 : 0;
+  const eta = (m: number | null | undefined) => (m == null ? '—' : m < 60 ? `${m} ${t('daq')}` : m < 48 * 60 ? `${Math.floor(m / 60)} ${t('soat')} ${m % 60} ${t('daq')}` : `${Math.round(m / 60 / 24 * 10) / 10} ${t('kun')}`);
+  const statSince = run?.since ?? mon?.saved?.since;
   const onCount = simRows.filter((s) => s.state === 'on').length;
 
   return (
@@ -192,10 +201,10 @@ export function MibMonitorModal({ reportId, open, onClose, title }: { reportId: 
                   : <><b className="tabular-nums">{run.window}</b> {t('ta SMS bir vaqtda')}</>}
             </span>
           )}
-          {run && <span className="text-xs text-muted">{t('Run boshlangan')}: {ago(t, run.startedAt)}</span>}
-          {run && tot.req > 0 && (
-            <span className="ml-auto text-xs text-muted tabular-nums">
-              {t('Jami')}: <b className="text-fg">{n(tot.req)}</b> {t('soʻraldi')} · <b className="text-emerald-600 dark:text-emerald-300">{n(tot.ok)}</b> {t('keldi')} · <b className={tot.miss ? 'text-rose-600 dark:text-rose-300' : 'text-fg'}>{n(tot.miss)}</b> {t('kelmadi')}
+          {run && <span className="text-xs text-muted">{t('Joriy run')}: {ago(t, run.startedAt)}</span>}
+          {tot.req > 0 && (
+            <span className="ml-auto text-xs text-muted tabular-nums" title={statSince ? `${t('Hisobot boʻyicha')} · ${new Date(statSince).toLocaleString('ru-RU')}` : undefined}>
+              SMS: <b className="text-fg">{n(tot.req)}</b> {t('soʻraldi')} · <b className="text-emerald-600 dark:text-emerald-300">{n(tot.ok)}</b> {t('keldi')} · <b className={tot.miss ? 'text-rose-600 dark:text-rose-300' : 'text-fg'}>{n(tot.miss)}</b> {t('kelmadi')}
             </span>
           )}
           {state === 'wait' && halt && (
@@ -203,8 +212,32 @@ export function MibMonitorModal({ reportId, open, onClose, title }: { reportId: 
               {halt.reason} · {halt.attempt ? `${halt.attempt}-${t('urinish')} · ` : ''}{t('keyingi tekshiruv')} <b className="tabular-nums">{halt.retryAt ? hhmmss(halt.retryAt) : '—'}</b>
             </div>
           )}
-          {state === 'idle' && <div className="w-full text-xs text-muted">{t('Hozir run yoʻq — SIM statistikasi run ishlaganda toʻladi. Pastdagi loglar oxirgi run’dan.')}</div>}
+          {state === 'idle' && <div className="w-full text-xs text-muted">{t('Hozir run yoʻq — raqamlar va loglar oxirgi saqlangan holatdan.')}</div>}
         </div>
+
+        {/* ── Hisobot bo'yicha UMUMIY progress — pauza/restartdan qat'i nazar (bazadan) ─────────────── */}
+        {pr && pr.total > 0 && (
+          <div className="grid gap-3 sm:grid-cols-4">
+            <div className="rounded-xl border border-line bg-surface p-3 sm:col-span-2">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-xs text-muted">{t('Tekshirildi')}</span>
+                <span className="text-lg font-semibold tabular-nums">{n(pr.checked)} <span className="text-sm font-normal text-muted">/ {n(pr.total)}</span> <span className="text-sm text-brand-600 dark:text-brand-400">{pct}%</span></span>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-2"><div className="h-full rounded-full bg-brand-500 transition-[width] duration-500" style={{ width: `${pct}%` }} /></div>
+              <div className="mt-1.5 flex justify-between text-[11px] text-muted tabular-nums"><span>{n(pr.pending)} {t('navbatda')}</span><span className={pr.failed ? 'text-rose-600 dark:text-rose-300' : ''}>{n(pr.failed)} {t('xato')}</span></div>
+            </div>
+            <div className="rounded-xl border border-line bg-surface p-3">
+              <div className="text-xs text-muted">{t('Tezlik (oxirgi 15 daq)')}</div>
+              <div className="mt-1 text-lg font-semibold tabular-nums">{pr.perMin.toLocaleString('ru-RU')} <span className="text-sm font-normal text-muted">{t('mijoz/daq')}</span></div>
+              <div className="text-[11px] text-muted tabular-nums">≈ {n(Math.round(pr.perMin * 60))} {t('mijoz/soat')}</div>
+            </div>
+            <div className="rounded-xl border border-line bg-surface p-3">
+              <div className="text-xs text-muted">{t('Qolgan vaqt (taxminan)')}</div>
+              <div className="mt-1 text-lg font-semibold tabular-nums">{pr.pending ? eta(pr.etaMin) : t('tugadi')}</div>
+              <div className="text-[11px] text-muted">{t('shu tezlikda')}</div>
+            </div>
+          </div>
+        )}
 
         {/* ── SIM kartalar ─────────────────────────────────────────── */}
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -240,6 +273,7 @@ export function MibMonitorModal({ reportId, open, onClose, title }: { reportId: 
                   <div className={cx('h-full rounded-full transition-[width] duration-500', pct == null ? 'bg-transparent' : pct >= 85 ? 'bg-emerald-500' : pct >= 60 ? 'bg-amber-500' : 'bg-rose-500')} style={{ width: `${pct ?? 0}%` }} />
                 </div>
                 <div className="mt-2 space-y-0.5 text-[11px] text-muted">
+                  {statSince && <div className="flex justify-between gap-2"><span>{t('Hisoblangan')}</span><span className="tabular-nums">{new Date(statSince).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} {t('dan')}</span></div>}
                   <div className="flex justify-between gap-2"><span>{t('Muvaffaqiyat')}</span><b className="tabular-nums text-fg">{pct == null ? '—' : `${pct}%`}</b></div>
                   <div className="flex justify-between gap-2"><span>{t('Hozir kutilmoqda')}</span><b className="tabular-nums text-fg">{n(st?.inflight ?? 0)}</b></div>
                   <div className="flex justify-between gap-2"><span>{t('Oxirgi kod')}</span><span className="tabular-nums">{ago(t, st?.lastOkAt)}</span></div>
@@ -292,7 +326,7 @@ export function MibMonitorModal({ reportId, open, onClose, title }: { reportId: 
               })}
           </div>
           <div className="flex items-center justify-between gap-2 border-t border-line px-3 py-1.5 text-[11px] text-muted">
-            <span className="tabular-nums">{n(shown.length)} / {n(lines.length)} {t('qator')} · {t('server qayta ishga tushsa log tozalanadi')}</span>
+            <span className="tabular-nums">{n(shown.length)} / {n(lines.length)} {t('qator')} · {t('oldingi run’lar loglari ham saqlanadi')}</span>
             {!follow && <button onClick={() => { setFollow(true); if (box.current) box.current.scrollTop = box.current.scrollHeight; }} className="rounded-md bg-brand-500 px-2 py-0.5 font-medium text-white">{t('↓ Oxiriga')}</button>}
           </div>
         </div>
