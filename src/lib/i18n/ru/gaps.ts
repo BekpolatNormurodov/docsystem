@@ -245,4 +245,5 @@ export const gaps: Record<string, string> = {
   "Hamma bizniki ishning detali olingan": "Детали получены по всем нашим делам",
   "detal kutyapti": "ждут детали",
   "roʻyxat tugagach boshlanadi": "начнётся после списка",
+  "roʻyxat bilan parallel": "параллельно со списком",
 };

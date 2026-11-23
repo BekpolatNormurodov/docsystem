@@ -492,7 +492,9 @@ export async function runMibReportJob(jobId: number): Promise<void> {
   //   • har ishda oxirgi urinish O'Z kodi uchun saqlanadi: 2 ta noto'g'ri urinishi bo'lgan ishga kod faqat
   //     boshqa nomzod qolmaganda beriladi;
   //   • kodi kelgan birinchi ish tugaydi (navbat kutilmaydi), muddati o'tgani «kelmadi» bo'ladi.
-  async function drainOldest(): Promise<void> {
+  //   idle — kod hali kelmagan paytda bajariladigan ish (parallel rejimda: navbatdagi mijozning RO'YXATINI olish).
+  //   SMS kutish vaqti bekor ketmaydi; true qaytarsa ish bajarildi (kutish shart emas).
+  async function drainOldest(idle?: () => Promise<boolean>): Promise<void> {
     while (inflight.length) {
       const minMarker = Math.min(...inflight.map((it) => it.markerId));
       const rows = await prisma.mibSms.findMany({
@@ -533,7 +535,7 @@ export async function runMibReportJob(jobId: number): Promise<void> {
       if (dead) { inflight.splice(inflight.indexOf(dead), 1); await finishCase(dead, false); return; }
       checkStalls(now);
       publish();
-      await sleep(2000);
+      if (!(idle && (await stillRunning(reportId)) && (await idle().catch(() => false)))) await sleep(2000);
     }
   }
 
@@ -585,8 +587,17 @@ export async function runMibReportJob(jobId: number): Promise<void> {
 
   // Bitta PENDING mijozни qidirib, bizники ishlarига SMS so'raydi (pipeline'ga qo'shadi).
   // false → PENDING mijoz qolmadi.
-  async function searchAndQueue(): Promise<boolean> {
-    const client = await prisma.mibClient.findFirst({ where: { reportId, status: 'PENDING' }, orderBy: [{ attempts: 'asc' }, { id: 'asc' }] });
+  //   mode — PARALLEL 2 bosqich uchun (2026-11-24): 'list' → faqat ro'yxati hali olinmagan mijoz (SMS'siz);
+  //   'detail' → detal kerak bo'lgan mijoz (SMS bilan): avval qayta navbatdagi, so'ng ro'yxati olingan-u
+  //   bizniki ishi detalsiz turgan mijoz. mode berilmasa — oddiy rejim (navbatdagi keyingi mijoz).
+  async function searchAndQueue(mode?: 'list' | 'detail'): Promise<boolean> {
+    const order = [{ attempts: 'asc' as const }, { id: 'asc' as const }];
+    const client = mode === 'list'
+      ? await prisma.mibClient.findFirst({ where: { reportId, status: 'PENDING', attempts: 0 }, orderBy: order })
+      : mode === 'detail'
+        ? (await prisma.mibClient.findFirst({ where: { reportId, status: 'PENDING', attempts: { gt: 0 } }, orderBy: order }))
+          ?? (await prisma.mibClient.findFirst({ where: { reportId, status: 'DONE', attempts: { lt: MAX_DETAIL_ATTEMPTS }, cases: { some: { isTargetFirm: true, detailFetchedAt: null, archivedAt: null } } }, orderBy: order }))
+        : await prisma.mibClient.findFirst({ where: { reportId, status: 'PENDING' }, orderBy: order });
     if (!client) return false;
     // Telefon raqami run davomida o'zgarishi mumkin (Sozlamalar). Har mijoz oldidan qayta o'qiymiz —
     // aks holda run ESKI raqamga SMS so'rab, hamma ish «SMS kelmadi» bo'lib qolardi (2026-09-30).
@@ -603,7 +614,7 @@ export async function runMibReportJob(jobId: number): Promise<void> {
     // 2 BOSQICH (Sozlamalar): mijoz BIRINCHI marta tekshirilayotganda faqat ishlar RO'YXATI olinadi (SMS'siz).
     // Navbat `attempts asc` tartibida — avval hamma yangi mijozlar ro'yxati yig'iladi; navbat tugagach
     // requeueMissingDetail ularni qaytaradi va ikkinchi o'tishda (attempts ≥ 1) detal SMS bilan tortiladi.
-    const listOnly = cfg.twoPhase && cfg.deepDetail && sims.length > 0 && (client.attempts ?? 0) === 0;
+    const listOnly = cfg.deepDetail && sims.length > 0 && (mode === 'list' || (mode === undefined && cfg.twoPhase && (client.attempts ?? 0) === 0));
     // mijoz qidirilmoqda
     await prisma.mibClient.update({ where: { id: client.id }, data: { status: 'RUNNING', attempts: { increment: 1 } } });
     try {
@@ -720,6 +731,20 @@ export async function runMibReportJob(jobId: number): Promise<void> {
   try {
     let noMore = false;
     while (await stillRunning(reportId)) {
+      // ── PARALLEL 2 BOSQICH: detal (SMS) va ro'yxat BIR VAQTDA. SMS oynasi detal kerak mijozlar bilan
+      //    to'ldiriladi; kodlar kutilayotgan har bo'sh daqiqada navbatdagi mijozning ro'yxati olinadi.
+      //    Shunday qilib ro'yxat SMS'ni kutmaydi, detal esa ro'yxat tugashini kutmaydi.
+      if (cfg.twoPhase && cfg.deepDetail && sims.length) {
+        let more = true;
+        while (more && inflight.length < windowCap() && (await stillRunning(reportId))) more = await searchAndQueue('detail');
+        if (inflight.length === 0) {
+          if (await searchAndQueue('list')) continue;      // detal ishi yo'q — ro'yxatni davom ettiramiz
+          if (await searchAndQueue('detail')) continue;    // ro'yxat tugadi — qolgan detal
+          break;                                           // ikkalasi ham tugadi
+        }
+        await drainOldest(() => searchAndQueue('list'));
+        continue;
+      }
       // Oynani to'ldiramiz: SMS_WINDOW ta ish «uchishда» bo'lguncha yangi mijozларни qidiramiz.
       while (inflight.length < windowCap() && !noMore && (await stillRunning(reportId))) {
         if (!(await searchAndQueue())) { noMore = true; break; }
