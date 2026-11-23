@@ -9,7 +9,10 @@ import { groupBreakdown, regionFromText, rowKey, clean, shortFirm, decodeEntitie
 
 // Ishlarga server sudya va sud ish raqamini qo'shadi (src/lib/mib/judges.ts, attachJudgesToClients).
 type CaseRowX = MibCase & { judge?: string | null; courtCaseNumber?: string | null };
-type ClientWithCases = MibClient & { cases: CaseRowX[] };
+// `prior` — natija shu hisobotdan emas, boshqa hisobotdagi oldingi tekshiruvdan olingan (route qo'yadi).
+type ClientWithCases = MibClient & { cases: CaseRowX[]; prior?: { reportId: number; checkedAt: Date | null } };
+const dmy = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString('ru-RU') : '');
+const priorNote = (c: ClientWithCases) => (c.prior ? `Oldingi tekshiruvdan${c.prior.checkedAt ? ` (${dmy(c.prior.checkedAt)})` : ''} — bu hisobotda hali navbatda` : '');
 
 const num = (s: string | null) => (s ? parseMoney(s) : 0);
 // HTML entity'lar ochiladi («O&#039;G&#039;LI» → «O'G'LI») — bazada eski tortilgan yozuvlarda bor.
@@ -158,7 +161,9 @@ export async function buildMibExcel(
   // Mijozlar varag'iga tushmasa — qatorlar soni ro'yxatnikidan kam ko'rinardi, sababi yozilmagan edi.)
   const isOne = !!opts.clientId;
   if (!isOne) {
-    const cnt = (st: string) => clients.filter((c) => c.status === st).length;
+    const fresh = clients.filter((c) => !c.prior);
+    const priorCnt = clients.length - fresh.length;
+    const cnt = (st: string) => fresh.filter((c) => c.status === st).length;
     const checked = cnt('DONE') + cnt('CLEAN');
     const pending = cnt('PENDING') + cnt('RUNNING');
     const oc = oursClients.flatMap((c) => c.cases);
@@ -170,8 +175,9 @@ export async function buildMibExcel(
     row('Hisobot', txt(report.label) || txt(report.sourceFileName) || `#${report.id}`);
     row('Excel tuzilgan', new Date());
     row('Roʻyxatdagi mijozlar', clients.length);
-    row('Tekshirilgan', checked, `${clients.length ? Math.round((checked / clients.length) * 100) : 0}%`);
-    row('Hali tekshirilmagan (navbatda)', pending, pending ? 'Hisobot TUGAMAGAN — bu mijozlar «Qolgan mijozlar» varag\'ida, ishlari hali yoʻq' : '');
+    row('Tekshirilgan (shu hisobotda)', checked, `${clients.length ? Math.round((checked / clients.length) * 100) : 0}%`);
+    row('Oldingi tekshiruvlardan olingan', priorCnt, priorCnt ? 'Bu hisobotda hali navbatda, lekin shu PINFL boshqa hisobotda tekshirilgan — oʻsha natija qoʻyildi («Izoh» ustunida sanasi)' : '');
+    row('Hech qachon tekshirilmagan (navbatda)', pending, pending ? 'Hisobot TUGAMAGAN — bu mijozlar «Qolgan mijozlar» varag\'ida, ishlari hali yoʻq' : '');
     row('Xato bilan qolgan', cnt('FAILED'), cnt('FAILED') ? 'Dashboard\'da «Xatolarni davom ettirish» bilan qayta tekshiring' : '');
     row('Bizning firma ishi bor mijozlar', oursClients.length, '«Mijozlar» varag\'i');
     row('Bizning ijro ishlari', oc.length, '«Ishlar» varag\'i (boshqa kreditorlar ishlari kiritilmaydi)');
@@ -183,7 +189,7 @@ export async function buildMibExcel(
     x.getCell('B3').numFmt = 'dd.mm.yyyy hh:mm';
     styleHeader(x);
     x.autoFilter = undefined as never;
-    if (pending) x.getRow(6).eachCell((c) => { c.font = { bold: true, color: { argb: 'FFB42318' } }; });
+    if (pending) x.getRow(7).eachCell((c) => { c.font = { bold: true, color: { argb: 'FFB42318' } }; });
   }
 
   // ── Sheet 1: Mijozlar ─────────────────────────────────────────────────────
@@ -212,9 +218,9 @@ export async function buildMibExcel(
     const missing = c.cases.filter((k) => k.isTargetFirm && !k.detailFetchedAt).length;
     s1.addRow({
       no: c.rowNo ?? '', pinfl: c.pinfl, fio: sp(bestFio(c)), firm: txt(c.firm) || firms, ish: txt(c.ishRaqami), holat: txt(c.holat),
-      status: STATUS_UZ[c.status] ?? c.status, cases: c.cases.length, debt: total, remaining,
+      status: c.prior ? 'Oldingi natija' : STATUS_UZ[c.status] ?? c.status, cases: c.cases.length, debt: total, remaining,
       checked: c.checkedAt ? new Date(c.checkedAt) : '',
-      note: [missing ? `${missing} ta ish detali olinmagan (SMS kelmadi)` : '', opts.clientId ? '' : txt(c.status === 'FAILED' ? c.error : '')].filter(Boolean).join('; '),
+      note: [priorNote(c), missing ? `${missing} ta ish detali olinmagan (SMS kelmadi)` : '', opts.clientId ? '' : txt(c.status === 'FAILED' ? c.error : '')].filter(Boolean).join('; '),
     });
   }
 
@@ -248,6 +254,7 @@ export async function buildMibExcel(
     { header: 'MFO', key: 'mfo', width: 10 },
     { header: 'Hisob raqami', key: 'account', width: 24 },
     { header: 'Qarorlar', key: 'decisions', width: 40 },
+    { header: 'Tekshirilgan', key: 'checked', width: 16 },
     { header: 'Izoh', key: 'note', width: 30 },
   ];
   for (const c of oursClients) {
@@ -266,7 +273,8 @@ export async function buildMibExcel(
         received: txt(k.mibReceivedDate), initiated: txt(k.mibInitiatedDate),
         total: numOrBlank(k.totalAmount, has), main: numOrBlank(k.mainDebt, has), fee: numOrBlank(k.executionFee, has), fine: numOrBlank(k.fine, has), remaining: numOrBlank(k.remainingDebt, has),
         bank: txt(k.bankName), mfo: txt(k.bankMfo), account: txt(k.bankAccount), decisions: dec,
-        note: has ? '' : `Detal olinmagan${k.error ? ` — ${txt(k.error)}` : ''}`,
+        checked: c.checkedAt ? new Date(c.checkedAt) : '',
+        note: [c.prior ? `Oldingi tekshiruvdan${c.prior.checkedAt ? ` (${dmy(c.prior.checkedAt)})` : ''}` : '', has ? '' : `Detal olinmagan${k.error ? ` — ${txt(k.error)}` : ''}`].filter(Boolean).join('; '),
       });
     }
   }
@@ -292,7 +300,7 @@ export async function buildMibExcel(
         s3.addRow({
           no: c.rowNo ?? '', pinfl: c.pinfl, fio: sp(bestFio(c)), firm: txt(c.firm), status: label,
           other: c.status === 'DONE' ? c.cases.filter((k) => !k.isTargetFirm).length : '',
-          checked: c.checkedAt ? new Date(c.checkedAt) : '', note: c.status === 'FAILED' ? txt(c.error) : '',
+          checked: c.checkedAt ? new Date(c.checkedAt) : '', note: c.prior ? priorNote(c) : c.status === 'FAILED' ? txt(c.error) : '',
         });
       }
       s3.getColumn('checked').numFmt = 'dd.mm.yyyy hh:mm';
@@ -302,6 +310,7 @@ export async function buildMibExcel(
   ['debt', 'remaining'].forEach((k) => { const col = s1.getColumn(k); col.numFmt = '#,##0'; });
   ['total', 'main', 'fee', 'fine', 'remaining'].forEach((k) => { const col = s2.getColumn(k); col.numFmt = '#,##0'; });
   s1.getColumn('checked').numFmt = 'dd.mm.yyyy hh:mm';
+  s2.getColumn('checked').numFmt = 'dd.mm.yyyy';
   dropEmptyColumns(s1, ['no', 'pinfl', 'fio', 'status', 'cases']);
   dropEmptyColumns(s2, ['no', 'pinfl', 'fio', 'work']);
   if (s3) dropEmptyColumns(s3, ['no', 'pinfl', 'fio', 'status']);
