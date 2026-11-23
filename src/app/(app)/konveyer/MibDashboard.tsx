@@ -26,6 +26,10 @@ interface Stats {
   totalRemainingDebt: number; ourRemainingDebt?: number; firms: { name: string; inn: string; cases: number; clients: number; remainingDebt: number }[];
 }
 
+interface HealthCheck { key: 'site' | 'session' | 'form' | 'sms'; ok: boolean; warn?: boolean; ms?: number; detail: string }
+interface Health { ok: boolean; baseUrl: string; checks: HealthCheck[]; lastSmsAt: string | null; checkedAt: string; error?: string }
+const HEALTH_LABEL: Record<HealthCheck['key'], string> = { site: 'mib.uz sayti', session: 'Sessiya', form: 'Qidiruv formasi', sms: 'SMS raqami' };
+
 const cx = (...c: (string | false | undefined | null)[]) => c.filter(Boolean).join(' ');
 const n = (x: number) => (x || 0).toLocaleString('ru-RU');
 const som = (x: number) => (x || 0).toLocaleString('ru-RU', { maximumFractionDigits: 0 });
@@ -119,12 +123,16 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   const [addMsg, setAddMsg] = useState<{ ok: boolean; text: string } | null>(null);
   // Reused PINFL — modal (window.confirm o'rniga)
   const [reusedInfo, setReusedInfo] = useState<(RecheckInfo & { clientId: number }) | null>(null);
+  // Avtomator o'zi pauza qilgan bo'lsa (ulanish uzildi) — sababi; «Ulanishni tekshirish» natijasi.
+  const [halt, setHalt] = useState<{ at: number; reason: string } | null>(null);
+  const [health, setHealth] = useState<Health | null>(null);
 
   const load = useCallback(async () => {
     const j = await jget(aggregate ? '/api/mib/all' : `/api/mib/${reportId}`);
     setReport(j.report ?? null); setClients(j.clients ?? []); setStats(j.stats ?? null);
     setHolatValues(j.holatValues ?? []);
     setSentRange(j.sentDateRange ?? { min: null, max: null });
+    setHalt(j.halt ?? null);
     if (j.report?.statusFilter != null) setStatusFilter(j.report.statusFilter);
   }, [reportId, aggregate]);
   useEffect(() => { void load(); }, [load]);
@@ -195,6 +203,18 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   const oursDebt = stats ? (stats.ourRemainingDebt ?? stats.firms.reduce((s, f) => s + f.remainingDebt, 0)) : 0;
   const totalCases = stats?.totalCases ?? 0;
   const checked = (stats?.status.DONE ?? 0) + (stats?.status.CLEAN ?? 0);
+  const failedCount = stats?.status.FAILED ?? 0;
+  // Xato sabablari (eng ko'pi tepada) — nima uchun osilib qolganini ko'rsatish uchun. Xabardagi
+  // o'zgaruvchan qismlar (URL, raqamlar) bir guruhga tushsin deb soddalashtiriladi.
+  const failReasons = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of clients) {
+      if (c.status !== 'FAILED') continue;
+      const key = (c.error || '').replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').replace(/[:\s]+$/, '').trim().slice(0, 140) || '—';
+      m.set(key, (m.get(key) ?? 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  }, [clients]);
   const built = (report?.total ?? 0) > 0;
   const pulled = totalCases > 0 || (stats?.detailedCases ?? 0) > 0;
   // «Qo'lda tekshiruvlar» (Excelsiz) — Excel «Holat» / «Ro'yxatni qurish» ko'rsatilmaydi.
@@ -238,6 +258,32 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
     if (!ok) { setNote(json.error || t('Xatolik')); setBusy(''); return; }
     if (!json.phoneConfigured) setNote(t('Diqqat: telefon raqami sozlanmagan — chuqur detal (SMS) olinmaydi, faqat ijro ishlari roʻyxati.'));
     await load(); await onChanged?.(); setBusy('');
+  };
+  // «Xatolarni davom ettirish» — FAILED mijozlar qayta navbatga (PENDING) qo'yilib, run davom etadi.
+  const retryFailed = async () => {
+    const yes = await confirm({
+      title: t('Xatolarni davom ettirish'),
+      description: `${n(failedCount)} ${t('ta «xato» mijoz qayta navbatga qoʻyiladi va tekshirish shu joydan davom etadi. Avval «Ulanishni tekshirish» bilan mib.uz ishlayotganiga ishonch hosil qiling.')}`,
+      confirmLabel: t('Ha, davom ettirish'),
+    });
+    if (!yes) return;
+    setBusy('retry'); setNote('');
+    const { ok, json } = await jpost(`/api/mib/${reportId}/run`, { retryFailed: true });
+    if (!ok) setNote(json.error || t('Xatolik'));
+    else if (!json.phoneConfigured) setNote(t('Diqqat: telefon raqami sozlanmagan — chuqur detal (SMS) olinmaydi, faqat ijro ishlari roʻyxati.'));
+    await load(); await onChanged?.(); setBusy('');
+  };
+  // «Ulanishni tekshirish» — server mib.uz'ga yeta oladimi (sayt → sessiya → qidiruv formasi → SMS raqami).
+  const checkHealth = async () => {
+    setBusy('health');
+    try {
+      const r = await fetch(`/api/mib/health`, { cache: 'no-store' });
+      const j = await r.json().catch(() => null);
+      setHealth(j?.checks ? j : { ok: false, baseUrl: '', checks: [], lastSmsAt: null, checkedAt: new Date().toISOString(), error: j?.error || `HTTP ${r.status}` });
+    } catch (e) {
+      setHealth({ ok: false, baseUrl: '', checks: [], lastSmsAt: null, checkedAt: new Date().toISOString(), error: (e as Error).message });
+    }
+    setBusy('');
   };
   const stop = async () => { setBusy('stop'); await jpost(`/api/mib/${reportId}/stop`); await load(); await onChanged?.(); setBusy(''); };
   const doReseed = async () => { setBusy('reseed'); await reseed?.(); await load(); await onChanged?.(); setBusy(''); };
@@ -315,6 +361,8 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
         <div className="flex items-center gap-2 text-sm text-muted">
           <Ico.layer size={16} className="text-brand-600 dark:text-brand-400" />
           <span><b className="text-fg">{t('Umumiy')}</b> · {t('barcha hisobotlar birga')} · <b className="tabular-nums text-fg">{n(report.total)}</b> {t('ta mijoz (PINFL bo‘yicha yagona)')}</span>
+          <div className="flex-1" />
+          <button className="btn-ghost shrink-0" disabled={busy === 'health'} onClick={checkHealth}>{busy === 'health' ? <Spinner size={16} /> : <Ico.globe size={16} />} {t('Ulanishni tekshirish')}</button>
         </div>
       ) : (
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -332,6 +380,15 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
               {busy === 'reseed' ? <Spinner size={16} /> : <Ico.refresh size={16} />} {t('Konveyerdan yangilash')}
             </button>
           )}
+          <button className="btn-ghost shrink-0" disabled={busy === 'health'} onClick={checkHealth} title={t('Server mib.uz ga yeta oladimi: sayt → sessiya → qidiruv formasi → SMS raqami')}>
+            {busy === 'health' ? <Spinner size={16} /> : <Ico.globe size={16} />} {t('Ulanishni tekshirish')}
+          </button>
+          {!report.autoRun && failedCount > 0 && (
+            <button className="btn-ghost shrink-0 border-rose-500/40 text-rose-600 hover:bg-rose-500/10 dark:text-rose-300" disabled={busy === 'retry' || busy === 'go'} onClick={retryFailed}
+              title={t('«Xato» boʻlib qolgan mijozlarni qayta navbatga qoʻyib, tekshirishni davom ettiradi')}>
+              {busy === 'retry' ? <Spinner size={16} /> : <Ico.redo size={16} />} {t('Xatolarni davom ettirish')} <span className="tabular-nums opacity-80">({n(failedCount)})</span>
+            </button>
+          )}
           {report.autoRun ? (
             <button className="btn-danger shrink-0" disabled={busy === 'stop'} onClick={stop}>{busy === 'stop' ? <Spinner size={16} /> : <Ico.minus size={16} />} STOP</button>
           ) : (
@@ -341,6 +398,34 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
       </div>
       )}
       {note && <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-600 dark:text-amber-300">{note}</p>}
+      {/* Avtomator o'zi pauza qilgan (ulanish uzildi) — mijozlar navbatda qolgan, GO davom ettiradi. */}
+      {halt && !report.autoRun && !aggregate && (
+        <div className="flex flex-wrap items-start gap-2 rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-sm text-rose-700 dark:text-rose-300">
+          <Ico.info size={16} className="mt-0.5 shrink-0" />
+          <span className="min-w-0 flex-1">{halt.reason} <span className="text-xs opacity-70">· {new Date(halt.at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span></span>
+          <span className="text-xs opacity-80">{t('Ulanishni tekshirib, GO bilan davom ettiring.')}</span>
+        </div>
+      )}
+      {health && <HealthCard health={health} onClose={() => setHealth(null)} />}
+      {/* Xato sabablari — nima uchun «xato» boʻlib qolgani (eng koʻpi tepada). */}
+      {!aggregate && !report.autoRun && failedCount > 0 && (
+        <details className="group rounded-lg border border-line bg-surface-2/30 px-3 py-2 text-sm">
+          <summary className="flex cursor-pointer list-none items-center gap-2 text-muted hover:text-fg">
+            <svg className="h-4 w-4 shrink-0 transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m9 6 6 6-6 6" /></svg>
+            <b className="tabular-nums text-rose-600 dark:text-rose-300">{n(failedCount)}</b> {t('ta mijoz «xato» holatida — sabablari')}
+            {failReasons[0] && <span className="min-w-0 flex-1 truncate text-xs opacity-80">· {failReasons[0][0]} ({n(failReasons[0][1])})</span>}
+          </summary>
+          <ul className="mt-2 space-y-1">
+            {failReasons.slice(0, 8).map(([reason, cnt]) => (
+              <li key={reason} className="flex items-start gap-2 text-xs">
+                <span className="w-14 shrink-0 text-right font-semibold tabular-nums text-rose-600 dark:text-rose-300">{n(cnt)}</span>
+                <span className="min-w-0 flex-1 break-words text-muted">{reason}</span>
+              </li>
+            ))}
+            {failReasons.length > 8 && <li className="pl-16 text-xs text-muted">… {t('yana')} {n(failReasons.length - 8)} {t('xil sabab')}</li>}
+          </ul>
+        </details>
+      )}
       {variant === 'standalone' && !built && !report.autoRun && !aggregate && (
         <div className="rounded-xl border border-dashed border-line bg-surface-2/40 px-4 py-3 text-sm text-muted">
           {t('Excel yuklandi. Yuqorida «Holat» (masalan')} <b className="text-fg">{t('MIBda')}</b>{t(') ni tanlab')} <b className="text-fg">{t('Roʻyxatni qurish')}</b> {t('bosing, soʻng')} <b className="text-fg">GO</b>.
@@ -594,6 +679,42 @@ function BreakdownTable({ rows, dim, activeLabel, onPick }: { rows: BRow[]; dim:
           </tr>
         </tfoot>
       </table>
+    </div>
+  );
+}
+
+// «Ulanishni tekshirish» natijasi — har bosqich alohida (qaysi joyda uzilgani ko'rinsin).
+function HealthCard({ health, onClose }: { health: Health; onClose: () => void }) {
+  const t = useT();
+  const tone = health.ok ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-rose-500/30 bg-rose-500/5';
+  return (
+    <div className={cx('rounded-lg border px-3 py-2.5 text-sm', tone)}>
+      <div className="flex items-center gap-2">
+        <span className={cx('h-2.5 w-2.5 shrink-0 rounded-full', health.ok ? 'bg-emerald-500' : 'bg-rose-500')} />
+        <b className={health.ok ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'}>
+          {health.ok ? t('Ulanish joyida — mib.uz ishlayapti') : t('Ulanishda muammo bor')}
+        </b>
+        <span className="truncate text-xs text-muted">{health.baseUrl} · {new Date(health.checkedAt).toLocaleTimeString('ru-RU')}</span>
+        <button className="ml-auto shrink-0 text-muted hover:text-fg" onClick={onClose} aria-label={t('Yopish')}><Ico.close size={16} /></button>
+      </div>
+      {health.error && <p className="mt-1.5 text-xs text-rose-700 dark:text-rose-300">{health.error}</p>}
+      {health.checks.length > 0 && (
+        <div className="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
+          {health.checks.map((c) => (
+            <div key={c.key} className="rounded-lg border border-line bg-surface px-2.5 py-1.5">
+              <div className="flex items-center gap-1.5 text-xs font-medium">
+                <span className={cx('h-2 w-2 shrink-0 rounded-full', !c.ok ? 'bg-rose-500' : c.warn ? 'bg-amber-500' : 'bg-emerald-500')} />
+                {t(HEALTH_LABEL[c.key])}
+                {c.ms != null && <span className="ml-auto tabular-nums text-muted">{n(c.ms)} ms</span>}
+              </div>
+              <div className={cx('mt-0.5 break-words text-[11px]', c.ok ? 'text-muted' : 'text-rose-700 dark:text-rose-300')}>{t(c.detail)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="mt-1.5 text-[11px] text-muted">
+        {t('Oxirgi SMS')}: {health.lastSmsAt ? new Date(health.lastSmsAt).toLocaleString('ru-RU') : t('hali kelmagan')}
+      </div>
     </div>
   );
 }
