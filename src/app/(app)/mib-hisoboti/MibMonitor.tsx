@@ -73,7 +73,8 @@ export function PhaseSteps({ p }: { p: PhaseInfo }) {
   const s1Done = p.pendingNew === 0;
   const s1Active = p.running && !s1Done;
   const s2Done = s1Done && p.awaiting === 0 && p.oursTotal === p.oursDetailed;
-  const s2Active = p.running && s1Done && !s2Done;
+  // PARALLEL: detal ro'yxat tugashini kutmaydi — detal kutayotgan ish bo'lsa ikkala bosqich bir vaqtda ishlaydi.
+  const s2Active = p.running && !s2Done && (s1Done || p.awaiting > 0);
   const pct1 = p.total ? Math.min(100, Math.round(((p.total - p.pendingNew) / p.total) * 1000) / 10) : 0;
   const pct2 = p.oursTotal ? Math.min(100, Math.round((p.oursDetailed / p.oursTotal) * 1000) / 10) : 0;
   const Step = ({ no, title, sub, active, done, pct, main, rest, bar }: { no: number; title: string; sub: string; active: boolean; done: boolean; pct: number; main: React.ReactNode; rest: React.ReactNode; bar: string }) => (
@@ -109,7 +110,7 @@ export function PhaseSteps({ p }: { p: PhaseInfo }) {
       <svg className="mx-auto h-5 w-5 shrink-0 rotate-90 text-muted md:rotate-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M5 12h14M13 6l6 6-6 6" /></svg>
       <Step no={2} title={t('2-bosqich · Detal')} sub={t('SMS bilan: bizniki ishlarning summa, ijrochi, sud, bank')} active={s2Active} done={s2Done} pct={pct2}
         main={<>{n(p.oursDetailed)} <span className="text-sm font-normal text-muted">/ {n(p.oursTotal)} {t('bizniki ish')}</span></>}
-        rest={s2Done ? t('Hamma bizniki ishning detali olingan') : <>{t('detal kutyapti')}: <b className="text-fg">{n(p.oursTotal - p.oursDetailed)}</b> {t('ish')} · <b className="text-fg">{n(p.awaiting)}</b> {t('mijoz')}{!s1Done && p.running ? ` · ${t('roʻyxat tugagach boshlanadi')}` : ''}</>}
+        rest={s2Done ? t('Hamma bizniki ishning detali olingan') : <>{t('detal kutyapti')}: <b className="text-fg">{n(p.oursTotal - p.oursDetailed)}</b> {t('ish')} · <b className="text-fg">{n(p.awaiting)}</b> {t('mijoz')}{!s1Done && p.running ? ` · ${t('roʻyxat bilan parallel')}` : ''}</>}
         bar={s2Done ? 'bg-emerald-500' : 'bg-violet-500'} />
     </div>
   );
