@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
-import { runMibReportJob, isMibRunActive } from '@/lib/mib/run';
+import { runMibReportJob, isMibRunActive, requeueFailedClients } from '@/lib/mib/run';
 import { getMibConfig } from '@/lib/mib/config';
 import { getT } from '@/lib/i18n/server';
 
@@ -11,7 +11,7 @@ export const maxDuration = 300;
 // POST — GO: start (or resume) the durable automator for this report. Runs INLINE in the web process
 // (long-lived loop), so it doesn't block the shared doc worker. Idempotent-ish: refuses if already
 // running. It processes only PENDING clients, so pressing GO again after a restart resumes cleanly.
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   await requireAccess('mib-report');
   const t = getT();
   const id = Number(params.id);
@@ -21,6 +21,10 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   // A live loop for this report → truly already running. autoRun=true with NO live loop = stale flag
   // left by a process restart; treat GO as a resume.
   if (report.autoRun && isMibRunActive(id)) return NextResponse.json({ error: t('Allaqachon ishlayapti') }, { status: 409 });
+
+  // «Xatolarni davom ettirish»: body { retryFailed: true } → FAILED mijozlar qayta navbatga.
+  const body = await req.json().catch(() => ({}));
+  const requeued = body?.retryFailed ? await requeueFailedClients(id) : 0;
 
   // Recover any client stuck RUNNING (killed/duplicate loop) so it re-enters the queue.
   await prisma.mibClient.updateMany({ where: { reportId: id, status: 'RUNNING' }, data: { status: 'PENDING' } });
@@ -36,5 +40,5 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     await prisma.mibReport.update({ where: { id }, data: { autoRun: false, runJobId: null } }).catch(() => {});
   });
 
-  return NextResponse.json({ jobId: job.id, pending, phoneConfigured: !!cfg.phone, intervalSec: cfg.intervalSec });
+  return NextResponse.json({ jobId: job.id, pending, requeued, phoneConfigured: !!cfg.phone, intervalSec: cfg.intervalSec });
 }

@@ -31,6 +31,24 @@ const log = (m: string) => { console.log(`[mib] ${m}`); pushMibLog(m); };
 const ACTIVE = new Set<number>();
 export const isMibRunActive = (reportId: number): boolean => ACTIVE.has(reportId);
 
+// ULANISH SAQLAGICHI (circuit breaker): mib.uz yiqilsa/bloklasa har mijoz ketma-ket istisno bilan
+// FAILED bo'lardi — butun navbat (minglab mijoz) bir necha daqiqada «xato»ga aylanib, run «tugadi»
+// deb yopilardi. Endi shuncha mijoz KETMA-KET texnik xato bersa run PAUZA qilinadi: o'sha mijozlar
+// PENDINGga qaytadi (yo'qolmaydi), sababi dashboard'да ko'rsatiladi; ulanish tiklangach GO davom ettiradi.
+const MAX_CONSEC_ERRORS = 5;
+// Oxirgi avtomatik to'xtash sababi (jarayon xotirasida — restartда tozalanadi; log'да ham bor).
+const LAST_HALT = new Map<number, { at: number; reason: string }>();
+export const getMibHalt = (reportId: number): { at: number; reason: string } | null => LAST_HALT.get(reportId) ?? null;
+
+/**
+ * «Xato» (FAILED) bo'lib qolgan mijozlarni qayta navbatga (PENDING) qaytaradi — «Xatolarni davom
+ * ettirish». Urinishlar soni nolga tushadi (SMS qayta urinish limiti yangidan). Qaytaradi: nechta.
+ */
+export async function requeueFailedClients(reportId: number): Promise<number> {
+  const r = await prisma.mibClient.updateMany({ where: { reportId, status: 'FAILED' }, data: { status: 'PENDING', error: null, attempts: 0, checkedAt: null } });
+  return r.count;
+}
+
 // Qo'lda qo'shilgan (bitta PINFL) mijozlar shu «holat» bilan belgilanadi — Excel qayta qurishda
 // (build) o'chirilmaydi, shuning uchun tekshiruvlar yig'ilib boradi.
 export const MANUAL_HOLAT = 'Qoʻlda';
@@ -86,6 +104,7 @@ export async function runMibReportJob(jobId: number): Promise<void> {
   if (!reportId) return;
   if (ACTIVE.has(reportId)) { log(`report ${reportId} already running — skip duplicate`); return; }
   ACTIVE.add(reportId);
+  LAST_HALT.delete(reportId);
 
   await prisma.job.update({ where: { id: jobId }, data: { status: 'RUNNING' } }).catch(() => {});
   await prisma.mibClient.updateMany({ where: { reportId, status: 'RUNNING' }, data: { status: 'PENDING' } });
@@ -102,7 +121,10 @@ export async function runMibReportJob(jobId: number): Promise<void> {
     await captcha.init();
     log(`report ${reportId}: OCR tayyor`);
   } catch (e) {
-    await failReport(reportId, jobId, `Captcha (OCR) ishga tushmadi: ${(e as Error).message}`);
+    const reason = `Captcha (OCR) ishga tushmadi: ${(e as Error).message}`;
+    log(`report ${reportId}: ${reason}`);
+    LAST_HALT.set(reportId, { at: Date.now(), reason });
+    await failReport(reportId, jobId, reason);
     ACTIVE.delete(reportId); return;
   }
 
@@ -113,11 +135,17 @@ export async function runMibReportJob(jobId: number): Promise<void> {
     await bootSession();
     log(`report ${reportId}: sessiya tayyor`);
   } catch (e) {
-    await failReport(reportId, jobId, `Sessiya ochilmadi: ${(e as Error).message}`);
+    const reason = `mib.uz sessiyasi ochilmadi: ${(e as Error).message}`;
+    log(`report ${reportId}: ${reason}`);
+    LAST_HALT.set(reportId, { at: Date.now(), reason });
+    await failReport(reportId, jobId, reason);
     await captcha.terminate().catch(() => {}); ACTIVE.delete(reportId); return;
   }
 
   let processed = 0;
+  // Ketma-ket texnik xato (istisno) bergan mijozlar — saqlagich uchun. Har muvaffaqiyatli qidiruv tozalaydi.
+  let consecErrIds: number[] = [];
+  let halted = '';
   const bump = async () => { processed += 1; await prisma.job.update({ where: { id: jobId }, data: { progress: processed } }).catch(() => {}); };
 
   // Pipeline holati
@@ -210,6 +238,19 @@ export async function runMibReportJob(jobId: number): Promise<void> {
     if (rem <= 0) await finalizeClient(item.clientId, item.pinfl);
   }
 
+  // Saqlagich: mijoz texnik xato berdi. MAX_CONSEC_ERRORS ta ketma-ket bo'lsa — o'sha mijozlarni
+  // PENDINGga qaytarib run'ni pauza qiladi (true). Navbat «xato»ga yonib ketmaydi.
+  async function tripBreaker(clientId: number, msg: string): Promise<boolean> {
+    consecErrIds.push(clientId);
+    if (consecErrIds.length < MAX_CONSEC_ERRORS) return false;
+    await prisma.mibClient.updateMany({ where: { id: { in: consecErrIds }, status: 'FAILED' }, data: { status: 'PENDING', error: null, checkedAt: null } });
+    halted = `mib.uz bilan ulanish uzildi — ${consecErrIds.length} ta mijoz ketma-ket xato berdi (${msg}). Avtomator pauza qilindi, mijozlar navbatda qoldi.`;
+    log(`report ${reportId}: ${halted}`);
+    LAST_HALT.set(reportId, { at: Date.now(), reason: halted });
+    await prisma.mibReport.update({ where: { id: reportId }, data: { autoRun: false } }).catch(() => {});
+    return true;
+  }
+
   // Bitta PENDING mijozни qidirib, bizники ishlarига SMS so'raydi (pipeline'ga qo'shadi).
   // false → PENDING mijoz qolmadi.
   async function searchAndQueue(): Promise<boolean> {
@@ -232,8 +273,11 @@ export async function runMibReportJob(jobId: number): Promise<void> {
       if (!search.success) {
         log(`PINFL ${client.pinfl}: qidiruv muvaffaqiyatsiz — ${search.message || 'xato'}`);
         await prisma.mibClient.update({ where: { id: client.id }, data: { status: 'FAILED', fio2: search.fio || null, checkedAt: new Date(), error: search.message || 'Qidiruv muvaffaqiyatsiz' } });
+        // Captcha ketma-ket yechilmasa ham bu tizimli nosozlik (sahifa buzilgan / blok) — saqlagichga sanaladi.
+        if (await tripBreaker(client.id, search.message || 'Qidiruv muvaffaqiyatsiz')) return true;
         await bump(); return true;
       }
+      consecErrIds = []; // mib.uz to'g'ri javob berdi — ulanish joyida
       if (!search.cases || search.cases.length === 0) {
         log(`PINFL ${client.pinfl}: qarz topilmadi (toza)`);
         await prisma.mibClient.update({ where: { id: client.id }, data: { status: 'CLEAN', fio2: search.fio || null, totalDebt: search.totalDebt || null, currentDebt: search.currentDebt || null, checkedAt: new Date(), error: null } });
@@ -287,6 +331,7 @@ export async function runMibReportJob(jobId: number): Promise<void> {
       // sessiya (JSESSIONID)ga bog'liq — yangi sessiya cookie bilan yuborilsa mib.uz uni tanimaydi va
       // SMS'i kelgan bo'lsa ham «kelmadi» bo'lib buziladi (2026-09-17 audit). Eski sessiyada tugatib olamiz.
       while (inflight.length) await drainOldest();
+      if (await tripBreaker(client.id, msg)) return true;
       try { engine = new MibEngine(cfg.baseUrl, { captcha, log }); await bootSession(); } catch { /* keyingi tick */ }
       return true;
     }
@@ -315,7 +360,7 @@ export async function runMibReportJob(jobId: number): Promise<void> {
 
     const remainingCnt = await prisma.mibClient.count({ where: { reportId, status: 'PENDING' } });
     await prisma.mibReport.update({ where: { id: reportId }, data: { autoRun: false, runJobId: null } });
-    await prisma.job.update({ where: { id: jobId }, data: { status: 'DONE', message: remainingCnt ? 'Toʻxtatildi' : 'Yakunlandi' } }).catch(() => {});
+    await prisma.job.update({ where: { id: jobId }, data: { status: 'DONE', message: halted ? 'Ulanish uzildi — pauza' : remainingCnt ? 'Toʻxtatildi' : 'Yakunlandi' } }).catch(() => {});
     log(`report ${reportId}: tugadi (${processed} ta ishlandi, ${remainingCnt} qoldi)`);
   } finally {
     await captcha.terminate().catch(() => {});
