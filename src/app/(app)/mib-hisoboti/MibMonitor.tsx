@@ -18,6 +18,7 @@ interface Monitor {
   run: { startedAt: number; since: number; perSim: boolean; window: number; sims: SimStat[] } | null;
   saved: { since: number; sims: Record<string, Pick<SimStat, 'requested' | 'ok' | 'miss' | 'lastReqAt' | 'lastOkAt'>> } | null;
   progress: { total: number; checked: number; pending: number; failed: number; perMin: number; etaMin: number | null };
+  phase?: { twoPhase: boolean; pendingNew: number; awaiting: number; oursTotal: number; oursDetailed: number };
   halt: { at: number; reason: string; waiting: boolean; retryAt?: number; attempt?: number } | null;
   sims: { id: string; label: string; phone: string; state: 'pending' | 'on' | 'off'; slot: number | null }[];
   received: { key: string; count: number; used: number; lastAt: string | null }[];
@@ -63,6 +64,56 @@ function ago(t: useTFn, ms?: number | string | null): string {
   return `${Math.floor(s / 3600)} ${t('soat oldin')}`;
 }
 type useTFn = ReturnType<typeof useT>;
+
+// ── 2 BOSQICH ko'rsatkichi: 1) Ro'yxat (SMS'siz) → 2) Detal (SMS bilan). Dashboard va monitor ikkalasida.
+// Qaysi bosqich ishlayotgani, har birida nechta bajarilgani va nechta qolgani bir qarashda ko'rinadi.
+export interface PhaseInfo { total: number; listed: number; pendingNew: number; awaiting: number; oursTotal: number; oursDetailed: number; running: boolean }
+export function PhaseSteps({ p }: { p: PhaseInfo }) {
+  const t = useT();
+  const s1Done = p.pendingNew === 0;
+  const s1Active = p.running && !s1Done;
+  const s2Done = s1Done && p.awaiting === 0 && p.oursTotal === p.oursDetailed;
+  const s2Active = p.running && s1Done && !s2Done;
+  const pct1 = p.total ? Math.min(100, Math.round(((p.total - p.pendingNew) / p.total) * 1000) / 10) : 0;
+  const pct2 = p.oursTotal ? Math.min(100, Math.round((p.oursDetailed / p.oursTotal) * 1000) / 10) : 0;
+  const Step = ({ no, title, sub, active, done, pct, main, rest, bar }: { no: number; title: string; sub: string; active: boolean; done: boolean; pct: number; main: React.ReactNode; rest: React.ReactNode; bar: string }) => (
+    <div className={cx('relative flex-1 rounded-xl border p-3.5 transition-colors', active ? 'border-brand-500 bg-brand-500/5 ring-2 ring-brand-500/15' : done ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-line bg-surface')}>
+      <div className="flex items-center gap-2.5">
+        <span className={cx('grid h-8 w-8 shrink-0 place-items-center rounded-full text-sm font-bold', done ? 'bg-emerald-500 text-white' : active ? 'bg-brand-500 text-white' : 'bg-surface-2 text-muted')}>
+          {done ? <Ico.check size={16} /> : no}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold">{title}</div>
+          <div className="truncate text-[11px] text-muted">{sub}</div>
+        </div>
+        <span className={cx('inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold',
+          done ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : active ? 'bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'bg-surface-2 text-muted')}>
+          {active && <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-400 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-brand-500" /></span>}
+          {done ? t('Tugadi') : active ? t('Ishlayapti') : p.running ? t('Navbatda') : t('Toʻxtagan')}
+        </span>
+      </div>
+      <div className="mt-3 flex items-baseline justify-between gap-2">
+        <span className="text-lg font-semibold tabular-nums">{main}</span>
+        <span className={cx('text-sm font-semibold tabular-nums', done ? 'text-emerald-600 dark:text-emerald-300' : 'text-brand-600 dark:text-brand-400')}>{pct}%</span>
+      </div>
+      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-surface-2"><div className={cx('h-full rounded-full transition-[width] duration-500', bar)} style={{ width: `${pct}%` }} /></div>
+      <div className="mt-1.5 text-[11px] text-muted tabular-nums">{rest}</div>
+    </div>
+  );
+  return (
+    <div className="flex flex-col items-stretch gap-2 md:flex-row md:items-center">
+      <Step no={1} title={t('1-bosqich · Roʻyxat')} sub={t('SMS’siz: har mijozning ijro ishlari roʻyxati')} active={s1Active} done={s1Done} pct={pct1}
+        main={<>{n(p.total - p.pendingNew)} <span className="text-sm font-normal text-muted">/ {n(p.total)} {t('mijoz')}</span></>}
+        rest={s1Done ? t('Hamma mijozning roʻyxati olingan') : <>{t('qoldi')}: <b className="text-fg">{n(p.pendingNew)}</b> {t('mijoz')}</>}
+        bar={s1Done ? 'bg-emerald-500' : 'bg-brand-500'} />
+      <svg className="mx-auto h-5 w-5 shrink-0 rotate-90 text-muted md:rotate-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+      <Step no={2} title={t('2-bosqich · Detal')} sub={t('SMS bilan: bizniki ishlarning summa, ijrochi, sud, bank')} active={s2Active} done={s2Done} pct={pct2}
+        main={<>{n(p.oursDetailed)} <span className="text-sm font-normal text-muted">/ {n(p.oursTotal)} {t('bizniki ish')}</span></>}
+        rest={s2Done ? t('Hamma bizniki ishning detali olingan') : <>{t('detal kutyapti')}: <b className="text-fg">{n(p.oursTotal - p.oursDetailed)}</b> {t('ish')} · <b className="text-fg">{n(p.awaiting)}</b> {t('mijoz')}{!s1Done && p.running ? ` · ${t('roʻyxat tugagach boshlanadi')}` : ''}</>}
+        bar={s2Done ? 'bg-emerald-500' : 'bg-violet-500'} />
+    </div>
+  );
+}
 
 export function MibMonitorModal({ reportId, open, onClose, title }: { reportId: number; open: boolean; onClose: () => void; title?: string }) {
   const t = useT();
@@ -243,6 +294,10 @@ export function MibMonitorModal({ reportId, open, onClose, title }: { reportId: 
               <div className="text-[11px] text-muted">{t('shu tezlikda')}</div>
             </div>
           </div>
+        )}
+
+        {mon?.phase?.twoPhase && pr && (
+          <PhaseSteps p={{ total: pr.total, listed: pr.checked, pendingNew: mon.phase.pendingNew, awaiting: mon.phase.awaiting, oursTotal: mon.phase.oursTotal, oursDetailed: mon.phase.oursDetailed, running: !!mon.active }} />
         )}
 
         {/* ── Telefon: ikkala SIM bitta telefonda — slot tartibida yonma-yon, har SMS uchun jonli taymer ─── */}

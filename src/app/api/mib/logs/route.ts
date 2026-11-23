@@ -24,13 +24,18 @@ export async function GET(req: NextRequest) {
   const logs = after ? getMibLogs(after, q, 400, report) : await getMibLogsWithHistory(report, 1500);
 
   const since = new Date(Date.now() - 60 * 60_000);
-  const [cfg, sms, statusRows, recent, saved] = await Promise.all([
+  const [cfg, sms, statusRows, recent, saved, pendingNew, awaiting, oursTotal, oursDetailed] = await Promise.all([
     getMibConfig(),
     prisma.mibSms.findMany({ where: { createdAt: { gte: since } }, select: { sim: true, consumed: true, code: true, raw: true, createdAt: true }, orderBy: { id: 'desc' }, take: 3000 }).catch(() => []),
     prisma.mibClient.groupBy({ by: ['status'], where: { reportId: report }, _count: { _all: true } }).catch(() => []),
     // Tezlik: oxirgi 15 daqiqada tekshirilgan mijozlar (pauza/restart ham hisobga kiradi — haqiqiy sur'at).
     prisma.mibClient.count({ where: { reportId: report, status: { in: ['DONE', 'CLEAN'] }, checkedAt: { gte: new Date(Date.now() - 15 * 60_000) } } }).catch(() => 0),
     getSavedSimStat(report),
+    // 2 bosqich ko'rsatkichlari: ro'yxati hali olinmagan · detali kutilayotgan mijozlar · bizniki ishlar / detallisi
+    prisma.mibClient.count({ where: { reportId: report, status: { in: ['PENDING', 'RUNNING'] }, attempts: 0 } }).catch(() => 0),
+    prisma.mibClient.count({ where: { reportId: report, OR: [{ status: { in: ['PENDING', 'RUNNING'] }, attempts: { gt: 0 } }, { status: 'DONE', cases: { some: { isTargetFirm: true, detailFetchedAt: null, archivedAt: null } } }] } }).catch(() => 0),
+    prisma.mibCase.count({ where: { client: { reportId: report }, isTargetFirm: true, archivedAt: null } }).catch(() => 0),
+    prisma.mibCase.count({ where: { client: { reportId: report }, isTargetFirm: true, archivedAt: null, detailFetchedAt: { not: null } } }).catch(() => 0),
   ]);
   const st: Record<string, number> = {};
   for (const r of statusRows) st[r.status] = r._count._all;
@@ -55,6 +60,7 @@ export async function GET(req: NextRequest) {
       run: getMibRunInfo(report),
       saved, // run ishlamayotganda ko'rsatiladigan jamlangan SIM statistikasi
       progress: { total, checked, pending, failed: st.FAILED ?? 0, perMin, etaMin: perMin > 0 ? Math.round(pending / perMin) : null },
+      phase: { twoPhase: cfg.twoPhase && cfg.deepDetail, pendingNew, awaiting, oursTotal, oursDetailed },
       halt: getMibHalt(report),
       sims: cfg.sims.map((x) => ({ id: x.id, label: x.label, phone: x.phone, state: x.state, slot: x.slot ?? null })),
       received: [...recv.values()],

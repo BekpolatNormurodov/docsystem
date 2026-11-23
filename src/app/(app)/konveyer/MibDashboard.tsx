@@ -19,7 +19,7 @@ import { regionOf, groupBreakdown, parseMoney, clean, bestFio, shortFirm, normal
 import { MIB_COMPANIES } from '@/lib/mib/companies';
 import { useT } from '@/lib/i18n/client';
 import { RecheckModal, type RecheckInfo } from '../mib-hisoboti/RecheckModal';
-import { MibMonitorModal } from '../mib-hisoboti/MibMonitor';
+import { MibMonitorModal, PhaseSteps } from '../mib-hisoboti/MibMonitor';
 
 interface Report { id: number; createdAt: string; label: string | null; total: number; autoRun: boolean; statusFilter: string | null; sourceFileName?: string }
 interface Stats {
@@ -128,6 +128,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   const [halt, setHalt] = useState<{ at: number; reason: string; waiting?: boolean; retryAt?: number; attempt?: number } | null>(null);
   const [health, setHealth] = useState<Health | null>(null);
   const [monitorOpen, setMonitorOpen] = useState(false);
+  const [twoPhase, setTwoPhase] = useState(false);
 
   const load = useCallback(async () => {
     const j = await jget(aggregate ? '/api/mib/all' : `/api/mib/${reportId}`);
@@ -135,6 +136,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
     setHolatValues(j.holatValues ?? []);
     setSentRange(j.sentDateRange ?? { min: null, max: null });
     setHalt(j.halt ?? null);
+    setTwoPhase(!!j.twoPhase);
     if (j.report?.statusFilter != null) setStatusFilter(j.report.statusFilter);
   }, [reportId, aggregate]);
   useEffect(() => { void load(); }, [load]);
@@ -206,6 +208,19 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   const totalCases = stats?.totalCases ?? 0;
   const checked = (stats?.status.DONE ?? 0) + (stats?.status.CLEAN ?? 0);
   const failedCount = stats?.status.FAILED ?? 0;
+  // 2 bosqich ko'rsatkichlari (Sozlamalarda yoqilgan bo'lsa): ro'yxati olinmagan · detali kutilayotgan · bizniki ishlar.
+  const phase = useMemo(() => {
+    let pendingNew = 0, awaiting = 0, oursTotal = 0, oursDetailed = 0, listed = 0;
+    for (const c of clients) {
+      const queued = c.status === 'PENDING' || c.status === 'RUNNING';
+      if (c.status === 'DONE' || c.status === 'CLEAN') listed += 1;
+      let miss = false;
+      for (const k of c.cases) if (k.isTargetFirm) { oursTotal += 1; if (k.detailFetchedAt) oursDetailed += 1; else miss = true; }
+      if (queued && c.attempts === 0) pendingNew += 1;
+      else if (queued || (c.status === 'DONE' && miss)) awaiting += 1;
+    }
+    return { total: clients.length, listed, pendingNew, awaiting, oursTotal, oursDetailed };
+  }, [clients]);
   // Xato sabablari (eng ko'pi tepada) — nima uchun osilib qolganini ko'rsatish uchun. Xabardagi
   // o'zgaruvchan qismlar (URL, raqamlar) bir guruhga tushsin deb soddalashtiriladi.
   const failReasons = useMemo(() => {
@@ -485,6 +500,9 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
           onMonitor={() => setMonitorOpen(true)}
         />
       )}
+
+      {/* ── 2 BOSQICH: 1) Ro'yxat (SMS'siz) → 2) Detal (SMS bilan) — qaysi biri ishlayotgani aniq ko'rinsin ── */}
+      {twoPhase && !aggregate && built && <PhaseSteps p={{ ...phase, running: report.autoRun }} />}
 
       {/* ── KPI: MIBda jami / bizniki / summalar ─────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
