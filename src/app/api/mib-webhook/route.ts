@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { cleanSimId } from '@/lib/mib/config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Public webhook the operator's phone SMS-forwarder POSTs to. FORMATGA BEFARQ: JSON (istalgan
+// Public webhook the operator's phone SMS-forwarder POSTs to. Bir nechta SIM bo'lsa har biri o'z
+// manzili bilan: `/api/mib-webhook?sim=s1`, `?sim=s2`, … (Sozlamalarda ko'rsatiladi). FORMATGA BEFARQ: JSON (istalgan
 // maydon nomi, ichma-ich/massiv ham), urlencoded yoki oddiy matn — hammasidan 4-7 xonali OTP ajratadi.
 // Avtomator SMS so'ragandan keyin MibSms'dan yangi, ishlatilmagan kodni oladi. Autentifikatsiyasiz
 // (telefon cookie yubormaydi) — faqat raqamli kod yozadi, hech narsa o'qib chiqarilmaydi.
@@ -68,15 +70,18 @@ export async function POST(req: NextRequest) {
   const ua = req.headers.get('user-agent') || '';
   // HAR POST yoziladi (kodsiz test xabar ham) — «SMS ni tekshirish» forwarding ishlaganini
   // tasdiqlay olsin. Kodsiz yozuvni real tekshiruv (waitForSms) OLMAYDI — u faqat kodli qatorni oladi.
-  await prisma.mibSms.create({ data: { code: code || '', raw: rawBody.slice(0, 1000), source: ua.includes('Mozilla') ? 'web-test' : 'forwarder' } });
-  return NextResponse.json({ success: true, received: true, extractedCode: code });
+  // `?sim=<id>` — bir nechta SIM ulanganда har forwarder O'Z manzilига yuboradi; kod qaysi raqamga
+  // kelgani shundan aniqlanadi (avtomator o'sha raqamga so'ralgan ishga sinaydi — kodlar aralashmaydi).
+  const sim = cleanSimId(req.nextUrl.searchParams.get('sim'));
+  await prisma.mibSms.create({ data: { code: code || '', raw: rawBody.slice(0, 1000), source: ua.includes('Mozilla') ? 'web-test' : 'forwarder', sim } });
+  return NextResponse.json({ success: true, received: true, extractedCode: code, sim });
 }
 
 // GET ?code=1234 — qo'lda test; oddiy GET — health.
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get('code');
   if (code && /^\d{4,7}$/.test(code)) {
-    await prisma.mibSms.create({ data: { code, raw: `code=${code}`, source: 'get-test' } });
+    await prisma.mibSms.create({ data: { code, raw: `code=${code}`, source: 'get-test', sim: cleanSimId(req.nextUrl.searchParams.get('sim')) } });
     return NextResponse.json({ success: true, extractedCode: code });
   }
   return NextResponse.json({ status: 'ok', server: 'MIB SMS webhook' });

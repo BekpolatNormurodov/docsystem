@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
-import { confirmPendingPhone } from '@/lib/mib/config';
+import { confirmSimBySms } from '@/lib/mib/config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,7 +32,8 @@ export async function GET(req: NextRequest) {
   });
   if (!row) return NextResponse.json({ waiting: true });
   await prisma.mibSms.update({ where: { id: row.id }, data: { consumed: true } });
-  const confirmedPhone = await confirmPendingPhone().catch(() => null);
+  // SMS qaysi SIM manzilига kelgan bo'lsa — o'sha SIM tasdiqlanadi (belgisiz bo'lsa: yagona kutayotgani).
+  const confirmedPhone = await confirmSimBySms(row.sim).catch(() => null);
   // Kodsiz test xabar ham forwarding ishlaganini tasdiqlaydi — UI truthy `code` kutadi.
-  return NextResponse.json({ code: row.code || 'OK (kodsiz)', source: row.source, confirmedPhone });
+  return NextResponse.json({ code: row.code || 'OK (kodsiz)', source: row.source, sim: row.sim, confirmedPhone });
 }
