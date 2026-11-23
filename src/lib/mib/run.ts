@@ -37,6 +37,11 @@ const SMS_GAP_MS = 2500;
 // Sekin SIM: kodlari kech (3-5 daqiqa, to'da bo'lib) keladigan SIM uchun kutish muddati o'zi uzayadi —
 // kech kod «egasiz» qolib keyingi ishlarga noto'g'ri sinalmasin. Chegara: shuncha ms.
 const SIM_TIMEOUT_MAX_MS = 6 * 60_000;
+// SIM JIMIB QOLDI: SMS'lar to'lqin bo'lib keladi (2026-11-23: …0986 ~5 daqiqada 30-50 ta, keyin 2-6 daqiqa
+// jim — raqamga SMS cheklovi). Shu SIMga so'ralgan SMS odatdagidan ancha uzoq kelmasa — unga YANGI so'rov
+// yuborilmaydi (dam): 1 → 3 → 5 → 10 daqiqa, ishlar boshqa SIMga o'tadi; kutayotgan ishlari kutishda qoladi.
+// Dam tugagach bitta so'rov bilan sinaladi; kod kelsa — to'liq qaytadi va bosqich nolga tushadi.
+const SIM_REST_STEPS_MIN = [1, 3, 5, 10];
 const SIM_COOLDOWN_MS = 10 * 60_000;
 // Pooldagi bitta kodni bitta ishга sinash cheklovi (3-urinish limitidan oshmaslik uchun).
 const MAX_CODE_TRIES = 3;
@@ -67,7 +72,7 @@ export const getMibHalt = (reportId: number): MibHalt | null => LAST_HALT.get(re
 // nechtasida to'g'ri kod keldi / kelmadi, oxirgi vaqt, chetlatilganmi. `perSim` — kodlar SIM bo'yicha
 // ajratilyaptimi (har SIMga alohida oyna) yoki umumiy poolda; `window` — bir vaqtda «uchishdagi» SMS soni.
 export interface MibSimWaiting { pinfl: string; work: string; at: number; until: number; tries: number }
-export interface MibSimStat { id: string; label: string; phone: string; tagged: boolean; requested: number; ok: number; miss: number; inflight: number; lastReqAt?: number; lastOkAt?: number; benchedUntil?: number; slot?: number | null; timeoutMs?: number; waiting?: MibSimWaiting[] }
+export interface MibSimStat { id: string; label: string; phone: string; tagged: boolean; requested: number; ok: number; miss: number; inflight: number; lastReqAt?: number; lastOkAt?: number; benchedUntil?: number; restLvl?: number; slot?: number | null; timeoutMs?: number; waiting?: MibSimWaiting[] }
 export interface MibRunInfo { startedAt: number; since: number; perSim: boolean; window: number; sims: MibSimStat[] }
 // SIM statistikasi HISOBOT bo'yicha jamlanib saqlanadi (Setting `mib.simstat.<id>`): STOP/GO, deploy yoki
 // restartdan keyin nolga tushmaydi — monitor butun hisobot davomidagi raqamlarni ko'rsatadi.
@@ -269,6 +274,8 @@ export async function runMibReportJob(jobId: number): Promise<void> {
   const simExtra = new Map<string, number>();   // simId → kech kod kuzatilgani uchun qo'shimcha kutish (ms)
   const lateSeen = new Set<number>();           // «egasiz» kech kod sifatida sanalgan SMS id'lari
   let lastSmsReqAt = 0;
+  const simRestLvl = new Map<string, number>(); // simId → nechanchi dam bosqichi (0 — normal)
+  const simRestFrom = new Map<string, number>(); // simId → dam qaysi so'rovdan keyin boshlangan (requestedAt)
   // SIM bo'yicha kutish muddati: sozlama (default 120 s) yoki shu SIMning kod kelish tezligiga qarab
   // (p90 × 2) — qaysi katta bo'lsa; kech kodlar kuzatilsa qo'shimcha. SIM_TIMEOUT_MAX_MS dan oshmaydi.
   const simTimeout = (simId: string): number => {
@@ -281,8 +288,15 @@ export async function runMibReportJob(jobId: number): Promise<void> {
   const simName = (x: { label: string; phone: string }) => `${x.label} …${x.phone.slice(-4)}`;
   const usableSims = () => { const now = Date.now(); const u = sims.filter((x) => (simBench.get(x.id) ?? 0) <= now); return u.length ? u : sims; };
   // Kodlar SIM bo'yicha ajratiladimi (hamma ishlatilayotgan SIM o'z manzilidan SMS olganmi).
-  const perSimMode = () => { const u = usableSims(); return u.length > 1 && u.every((x) => x.tagged); };
-  const windowCap = () => (perSimMode() ? SMS_WINDOW * usableSims().length : SMS_WINDOW);
+  // Kodlar SIM bo'yicha ajratiladi — hamma SIM o'z kodini belgilab olgan (dam olayotgani ham hisob).
+  const perSimMode = () => sims.length > 1 && sims.every((x) => x.tagged);
+  // Oyna: ishlatiladigan har SIMga SMS_WINDOW; dam olayotgan SIMning kutayotgan ishlari ALOHIDA hisob —
+  // ular boshqa SIMning joyini band qilmasin (aks holda bitta SIM jimib qolsa umumiy tezlik ikki barobar tushardi).
+  const windowCap = () => {
+    if (!perSimMode()) return SMS_WINDOW;
+    const u = new Set(usableSims().map((x) => x.id));
+    return SMS_WINDOW * u.size + inflight.filter((it) => !u.has(it.simId)).length;
+  };
   const simLoad = (id: string) => inflight.reduce((n, it) => n + (it.simId === id ? 1 : 0), 0);
   // Keyingi SMS qaysi SIMga so'raladi: eng kam yuklangani (teng bo'lsa navbat bilan). null → hammasi band.
   function pickSim(): ActiveSim | null {
@@ -306,6 +320,7 @@ export async function runMibReportJob(jobId: number): Promise<void> {
       const st = stat(x); st.label = x.label; st.phone = x.phone; st.tagged = x.tagged; st.inflight = simLoad(x.id);
       st.benchedUntil = (simBench.get(x.id) ?? 0) > now ? simBench.get(x.id) : undefined;
       st.timeoutMs = simTimeout(x.id);
+      st.restLvl = simRestLvl.get(x.id) ?? 0;
       st.waiting = inflight.filter((it) => it.simId === x.id).map((it) => ({ pinfl: it.pinfl, work: it.workNumber, at: it.requestedAt, until: it.requestedAt + simTimeout(x.id), tries: it.tries }));
     }
     const active = new Set(sims.map((x) => x.id));
@@ -375,6 +390,29 @@ export async function runMibReportJob(jobId: number): Promise<void> {
     } catch { return false; }
   }
 
+  // Jimib qolgan SIMni aniqlaydi: eng eski kutayotgan SMS'i odatdagi kelish vaqtidan (median × 3, 30-90 s)
+  // oshib ketgan va shu vaqt ichida bu SIMdan bitta ham kod kelmagan bo'lsa — dam beradi (yangi so'rov yo'q).
+  function checkStalls(now: number): void {
+    if (sims.length < 2) return; // yagona SIMga dam berilmaydi — boshqa yo'l yo'q
+    for (const x of sims) {
+      if ((simBench.get(x.id) ?? 0) > now) continue;
+      const waiting = inflight.filter((it) => it.simId === x.id);
+      if (!waiting.length) continue;
+      const oldest = Math.min(...waiting.map((it) => it.requestedAt));
+      if ((simRestFrom.get(x.id) ?? 0) >= oldest) continue; // shu so'rov bo'yicha allaqachon dam berilgan
+      const lat = [...(simLat.get(x.id) ?? [])].sort((a, b) => a - b);
+      const med = lat.length ? lat[Math.floor(lat.length / 2)]! : 15_000;
+      const stallAfter = Math.min(90_000, Math.max(30_000, med * 3));
+      const lastOk = stat(x).lastOkAt ?? 0;
+      if (now - oldest < stallAfter || lastOk > oldest) continue;
+      const lvl = Math.min(SIM_REST_STEPS_MIN.length, (simRestLvl.get(x.id) ?? 0) + 1);
+      const mins = SIM_REST_STEPS_MIN[lvl - 1]!;
+      simRestLvl.set(x.id, lvl); simRestFrom.set(x.id, oldest);
+      simBench.set(x.id, now + mins * 60_000);
+      log(`⏸ ${simName(x)} — ${Math.round((now - oldest) / 1000)} s dan beri SMS kelmayapti · ${mins} daq dam (ishlar ${sims.filter((y) => y.id !== x.id).map(simName).join(', ')} ga)`);
+    }
+  }
+
   // KOD → ISH moslash (noto'g'ri kiritishlarsiz, 2026-11-23). mib.uz bitta ishga 3 marta noto'g'ri kod
   // kiritilsa uni bloklaydi («Текширув коди нотўғри» ×3). Ilgari har ish kelgan hamma kodni ketma-ket sinardi:
   // bir SIMda 3 ta ish kutayotganda boshqalarning kodi bilan urinishlar tugab, ish bloklanardi. Endi:
@@ -422,6 +460,7 @@ export async function runMibReportJob(jobId: number): Promise<void> {
       const now = Date.now();
       const dead = inflight.find((it) => it.tries >= MAX_CODE_TRIES || now > it.requestedAt + simTimeout(it.simId));
       if (dead) { inflight.splice(inflight.indexOf(dead), 1); await finishCase(dead, false); return; }
+      checkStalls(now);
       publish();
       await sleep(2000);
     }
@@ -430,7 +469,15 @@ export async function runMibReportJob(jobId: number): Promise<void> {
   async function finishCase(item: Inflight, ok: boolean): Promise<void> {
     { const sm = sims.find((x) => x.id === item.simId); if (sm) { const st = stat(sm); if (ok) { st.ok += 1; st.lastOkAt = Date.now(); } else st.miss += 1; } }
     const simTag = sims.length > 1 ? ` · ${simName(sims.find((x) => x.id === item.simId) ?? { label: item.simId, phone: '' })}` : '';
-    if (ok) { simMiss.set(item.simId, 0); log(`${item.pinfl} · ${item.workNumber} ✓ kod${simTag}`); }
+    if (ok) {
+      simMiss.set(item.simId, 0);
+      log(`${item.pinfl} · ${item.workNumber} ✓ kod${simTag}`);
+      if ((simRestLvl.get(item.simId) ?? 0) > 0) {
+        simRestLvl.set(item.simId, 0); simBench.delete(item.simId);
+        const sm = sims.find((x) => x.id === item.simId);
+        if (sm) log(`▶ ${simName(sm)} — SMS yana kelyapti, toʻliq ishga qaytdi`);
+      }
+    }
     else {
       log(`${item.pinfl} · ${item.workNumber} ✗ SMS kelmadi${simTag}`);
       smsBad.set(item.clientId, true);

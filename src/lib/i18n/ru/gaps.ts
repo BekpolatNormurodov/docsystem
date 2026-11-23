@@ -226,4 +226,8 @@ export const gaps: Record<string, string> = {
   "60 daq ichida kelgan SMS": "SMS за 60 мин",
   "hisob": "учёт",
   "Avtomator holati, telefon va SIM kartalar, shu hisobot loglari — jonli": "Состояние автоматора, телефон и SIM-карты, логи этого отчёта — в реальном времени",
+  "dam": "пауза",
+  "Dam olmoqda — SMS kelmay qoldi": "Пауза — SMS перестали приходить",
+  "Yangi SMS boshqa SIMga soʻralyapti. Dam tugagach bitta sinov SMS — kod kelsa toʻliq qaytadi.": "Новые SMS запрашиваются на другую SIM. После паузы — одно пробное SMS; если код придёт, SIM вернётся полностью.",
+  "bosqich": "этап",
 };
