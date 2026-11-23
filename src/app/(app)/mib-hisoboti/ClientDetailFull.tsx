@@ -12,7 +12,7 @@ import { useT } from '@/lib/i18n/client';
 import { money, val, type ClientRow, type CaseRow } from './MibClientDetail';
 import { MibLogPanel } from './MibLogPanel';
 import { RecheckModal } from './RecheckModal';
-import { regionOf, parseMoney, clean, shortFirm } from '@/lib/mib/breakdown';
+import { regionOf, parseMoney, clean, shortFirm, bestFio } from '@/lib/mib/breakdown';
 
 const cx = (...c: (string | false | undefined | null)[]) => c.filter(Boolean).join(' ');
 const som = (x: number) => (x || 0).toLocaleString('ru-RU', { maximumFractionDigits: 0 });
@@ -69,7 +69,7 @@ export function ClientDetailFull({ reportId, clientId, backHref, onBack }: { rep
   if (loading) return <div className="space-y-4">{back}<div className="grid place-items-center py-20"><Spinner /></div></div>;
   if (missing || !client) return <div className="space-y-4">{back}<div className="card p-10 text-center text-sm text-muted">{t('Mijoz topilmadi.')}</div></div>;
 
-  const fullName = client.cases.map((k) => k.personFullName).find((nm) => nm && !nm.includes('***') && nm !== 'Nomaʼlum') || clean(client.fio2) || clean(client.fio) || client.pinfl;
+  const fullName = bestFio(client) || client.pinfl;
   const hasDetail = client.cases.some((k) => k.detailFetchedAt);
   const region = regionOf(client);
   const banks = [...new Set(client.cases.map((k) => clean(k.bankName)).filter(Boolean))];

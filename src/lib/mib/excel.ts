@@ -5,14 +5,15 @@
 import ExcelJS from 'exceljs';
 import type { MibCase, MibClient, MibReport } from '@prisma/client';
 import { parseMoney } from './stats';
-import { groupBreakdown, regionFromText, clean, type Dim } from './breakdown';
+import { groupBreakdown, regionFromText, clean, decodeEntities, bestFio, type Dim } from './breakdown';
 
 // Ishlarga server sudya va sud ish raqamini qo'shadi (src/lib/mib/judges.ts, attachJudgesToClients).
 type CaseRowX = MibCase & { judge?: string | null; courtCaseNumber?: string | null };
 type ClientWithCases = MibClient & { cases: CaseRowX[] };
 
 const num = (s: string | null) => (s ? parseMoney(s) : 0);
-const txt = (s: string | null | undefined) => (s && s !== 'Nomaʼlum' ? s : '');
+// HTML entity'lar ochiladi («O&#039;G&#039;LI» → «O'G'LI») — bazada eski tortilgan yozuvlarda bor.
+const txt = (s: string | null | undefined) => (s && s !== 'Nomaʼlum' ? decodeEntities(s) : '');
 const UNK = 'Aniqlanmagan';
 
 const DIMS: Dim[] = ['sudya', 'firma', 'region', 'hudud', 'bank'];
@@ -142,10 +143,9 @@ export async function buildMibExcel(
   ];
   const STATUS_UZ: Record<string, string> = { PENDING: 'Navbatda', RUNNING: 'Tekshirilmoqda', DONE: 'Topildi', CLEAN: 'Toza', FAILED: 'Xato' };
   for (const c of oursClients) {
-    const fullName = c.cases.map((k) => k.personFullName).find((nm) => nm && !nm.includes('***') && nm !== 'Nomaʼlum');
     const remaining = c.cases.reduce((s, k) => s + num(k.remainingDebt), 0);
     s1.addRow({
-      no: c.rowNo ?? '', pinfl: c.pinfl, fio: fullName || c.fio2 || c.fio || '', firm: c.firm || '', holat: c.holat || '',
+      no: c.rowNo ?? '', pinfl: c.pinfl, fio: bestFio(c), firm: c.firm || '', holat: c.holat || '',
       status: STATUS_UZ[c.status] ?? c.status, cases: c.cases.length, debt: num(c.totalDebt), remaining,
       checked: c.checkedAt ? new Date(c.checkedAt) : '',
     });
@@ -183,7 +183,7 @@ export async function buildMibExcel(
     { header: 'Qarorlar', key: 'decisions', width: 40 },
   ];
   for (const c of oursClients) {
-    const fullName = c.cases.map((k) => k.personFullName).find((nm) => nm && !nm.includes('***') && nm !== 'Nomaʼlum') || c.fio2 || c.fio || '';
+    const fullName = bestFio(c);
     if (!c.cases.length) continue;
     for (const k of c.cases) {
       const dec = Array.isArray(k.decisions) ? (k.decisions as { article: string; date: string }[]).map((d) => `${d.article} (${d.date})`).join('; ') : '';
