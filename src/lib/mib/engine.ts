@@ -402,10 +402,12 @@ export class MibEngine {
       if (m2 && m2[1] && m2[1].trim()) { const c = clean19(m2[1]); if (c && !isFurniture(c)) return c; }
       return null;
     };
+    // «simple-list» qatori: <li><span>Yorliq</span><strong>qiymat</strong></li>. QAT'IY — bitta <li> ichida.
+    // Ilgari `[\s\S]*?` sahifa bo'ylab sirg'alardi: yangiliklar bannerida «жарима» so'zi bo'lsa, undan keyingi
+    // BIRINCHI <strong> (ya'ni «Асосий қарздорлик» qiymati) olinib, «Jarima» ustuniga asosiy qarz yozilardi.
     const extractSimpleList = (pattern: string): string | null => {
-      const match = html.match(new RegExp(`<li>[\\s\\S]*?<span>[\\s\\S]*?${pattern}[\\s\\S]*?<\\/span>\\s*<strong>([^<]+)<\\/strong>`, 'i'));
-      if (match && match[1]) return match[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
-      return null;
+      const match = html.match(new RegExp(`<li>\\s*<span>\\s*${pattern}\\s*<\\/span>\\s*<strong>([^<]+)<\\/strong>`, 'i'));
+      return match && match[1] ? match[1].replace(/\s+/g, ' ').trim() : null;
     };
     const unmaskedNameMatch = html.match(/Тўловчининг номи[^\n<]*<\/td>\s*<td[^>]*>([^<]+)<\/td>/i) || html.match(/Тўловчининг номи[^\n<]*\n\s*([^<\n]+)/i);
     let personFullName = unmaskedNameMatch ? clean19(unmaskedNameMatch[1]!) : null;
@@ -441,11 +443,11 @@ export class MibEngine {
     const caseSubject = extractField('И[\\/ҳ\\s]*мазмуни') || (html.match(/Тўлов мақсади[^\n<]*<\/td>\s*<td[^>]*>([^<]+)<\/td>/i) || [])[1] || 'Qarzdorlik';
     const mibReceivedDate = extractField('МИБ га келиб тушган сана') || extractField('келиб тушган сана');
     const mibInitiatedDate = extractField('қўзғатиш санаси') || extractField('Ижро иши юритувни қўзғатиш санаси');
-    const totalAmount = (html.match(/И\/Ҳ кўрсатилган сумма<\/p>\s*<label>([^<]+)<\/label>/i) || [])[1] || extractSimpleList('Асосий қарздорлик') || '0.00';
+    const totalAmount = (html.match(/И\/Ҳ кўрсатилган сумма\s*<\/p>\s*<label>([^<]+)<\/label>/i) || [])[1]?.trim() || extractSimpleList('Асосий қарздорлик') || '0.00';
     const mainDebt = extractSimpleList('Асосий қарздорлик') || totalAmount || '0.00';
     const executionFee = extractSimpleList('Ижро йиғими') || '0.00';
     const fine = extractSimpleList('Жарима') || '0.00';
-    const remainingDebt = (html.match(/Қарздорлик қолдиғи<\/p>\s*<label>([^<]+)<\/label>/i) || [])[1] || mainDebt || '0.00';
+    const remainingDebt = (html.match(/Қарздорлик қолдиғи\s*<\/p>\s*<label>([^<]+)<\/label>/i) || [])[1]?.trim() || mainDebt || '0.00';
     const bankName = (html.match(/Банк номи[^\n<]*<\/td>\s*<td[^>]*>([^<]+)<\/td>/i) || [])[1] || (html.match(/Банк номи[^\n<]*\n\s*([^<\n]+)/i) || [])[1] || null;
     const mfo = (html.match(/БММ рақами \/ МФО[\s\S]*?(\d{5})/i) || [])[1] || (html.match(/МФО\s*(\d{5})/i) || [])[1] || null;
     const accountNumber = (html.match(/ҳ\/р[^\n<]*\n\s*(\d{20})/i) || [])[1] || (html.match(/(\d{20})/i) || [])[1] || null;
