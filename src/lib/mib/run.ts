@@ -143,6 +143,19 @@ const RUN_INFO = new Map<number, MibRunInfo>();
 export const getMibRunInfo = (reportId: number): MibRunInfo | null => RUN_INFO.get(reportId) ?? null;
 
 /**
+ * BIZNIKI ishi detalsiz qolgan (SMS kelmagan yoki tasnifi keyin tuzatilgan) tekshirilgan mijozlarni qayta
+ * navbatga qo'yadi — «detal baribir olinsin». Har mijoz jami MAX_DETAIL_ATTEMPTS martagacha. Run oxirida
+ * avtomatik, va GO bosilganda (tugagan hisobotda ham) chaqiriladi. Qaytaradi: nechta mijoz.
+ */
+export async function requeueMissingDetail(reportId: number): Promise<number> {
+  const r = await prisma.mibClient.updateMany({
+    where: { reportId, status: 'DONE', attempts: { lt: MAX_DETAIL_ATTEMPTS }, cases: { some: { isTargetFirm: true, detailFetchedAt: null, archivedAt: null } } },
+    data: { status: 'PENDING', error: 'Detal toʻliq emas — qayta tortiladi' },
+  });
+  return r.count;
+}
+
+/**
  * «Xato» (FAILED) bo'lib qolgan mijozlarni qayta navbatga (PENDING) qaytaradi — «Xatolarni davom
  * ettirish». Urinishlar soni nolga tushadi (SMS qayta urinish limiti yangidan). Qaytaradi: nechta.
  */
@@ -706,11 +719,8 @@ export async function runMibReportJob(jobId: number): Promise<void> {
         // Navbat tugadi. BIZNIKI ishi detalsiz qolgan mijozlar (SMS 3 urinishda ham kelmagan) yana bir bor
         // qayta tortiladi — «detal baribir olinsin». Cheklangan: har mijoz jami MAX_DETAIL_ATTEMPTS martagacha.
         if (noMore && cfg.deepDetail && sims.length) {
-          const again = await prisma.mibClient.updateMany({
-            where: { reportId, status: 'DONE', attempts: { lt: MAX_DETAIL_ATTEMPTS }, cases: { some: { isTargetFirm: true, detailFetchedAt: null, archivedAt: null } } },
-            data: { status: 'PENDING', error: 'Detal toʻliq emas — qayta tortiladi' },
-          });
-          if (again.count) { log(`↻ ${again.count} ta mijozda bizniki ish detalsiz qolgan — qayta tortiladi`); noMore = false; continue; }
+          const again = await requeueMissingDetail(reportId);
+          if (again) { log(`↻ ${again} ta mijozda bizniki ish detalsiz qolgan — qayta tortiladi`); noMore = false; continue; }
         }
         break; // hech narsa qolmadi
       }

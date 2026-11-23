@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAccess } from '@/lib/auth';
-import { runMibReportJob, isMibRunActive, requeueFailedClients } from '@/lib/mib/run';
+import { runMibReportJob, isMibRunActive, requeueFailedClients, requeueMissingDetail } from '@/lib/mib/run';
 import { getMibConfig } from '@/lib/mib/config';
 import { getT } from '@/lib/i18n/server';
 
@@ -25,6 +25,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // «Xatolarni davom ettirish»: body { retryFailed: true } → FAILED mijozlar qayta navbatga.
   const body = await req.json().catch(() => ({}));
   const requeued = body?.retryFailed ? await requeueFailedClients(id) : 0;
+  // GO — bizniki ishi detalsiz qolgan mijozlar ham qayta navbatga (tugagan hisobotda ham: navbat bo'sh
+  // bo'lsa-da shular tortiladi). Chuqur detal o'chiq yoki SIM yo'q bo'lsa foydasiz — tegilmaydi.
+  const cfg0 = await getMibConfig();
+  const redo = cfg0.deepDetail && cfg0.phone ? await requeueMissingDetail(id).catch(() => 0) : 0;
 
   // Recover any client stuck RUNNING (killed/duplicate loop) so it re-enters the queue.
   await prisma.mibClient.updateMany({ where: { reportId: id, status: 'RUNNING' }, data: { status: 'PENDING' } });
@@ -40,5 +44,5 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     await prisma.mibReport.update({ where: { id }, data: { autoRun: false, runJobId: null } }).catch(() => {});
   });
 
-  return NextResponse.json({ jobId: job.id, pending, requeued, phoneConfigured: !!cfg.phone, intervalSec: cfg.intervalSec });
+  return NextResponse.json({ jobId: job.id, pending, requeued, redo, phoneConfigured: !!cfg.phone, intervalSec: cfg.intervalSec });
 }
