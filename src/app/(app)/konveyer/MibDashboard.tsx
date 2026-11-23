@@ -125,7 +125,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   // Reused PINFL — modal (window.confirm o'rniga)
   const [reusedInfo, setReusedInfo] = useState<(RecheckInfo & { clientId: number }) | null>(null);
   // Avtomator o'zi pauza qilgan bo'lsa (ulanish uzildi) — sababi; «Ulanishni tekshirish» natijasi.
-  const [halt, setHalt] = useState<{ at: number; reason: string } | null>(null);
+  const [halt, setHalt] = useState<{ at: number; reason: string; waiting?: boolean; retryAt?: number; attempt?: number } | null>(null);
   const [health, setHealth] = useState<Health | null>(null);
 
   const load = useCallback(async () => {
@@ -400,7 +400,21 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
       )}
       {note && <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-600 dark:text-amber-300">{note}</p>}
       {/* Avtomator o'zi pauza qilgan (ulanish uzildi) — mijozlar navbatda qolgan, GO davom ettiradi. */}
-      {halt && !report.autoRun && !aggregate && (
+      {/* Ulanish yo'q — avtomator O'ZI kutyapti (1 → 3 → 5 → 10 daqiqa) va tiklangach davom etadi. */}
+      {halt?.waiting && report.autoRun && !aggregate && (
+        <div className="flex flex-wrap items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+          <Spinner size={15} className="mt-0.5 shrink-0" />
+          <span className="min-w-0 flex-1">
+            <b>{t('Ulanish yoʻq — avtomator kutyapti.')}</b> {halt.reason}
+          </span>
+          <span className="shrink-0 text-xs">
+            {halt.attempt ? `${halt.attempt}-${t('urinish')} · ` : ''}{t('keyingi tekshiruv')}{' '}
+            <b className="tabular-nums">{halt.retryAt ? new Date(halt.retryAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}</b>
+            {' · '}{t('tiklansa oʻzi davom etadi')}
+          </span>
+        </div>
+      )}
+      {halt && !halt.waiting && !report.autoRun && !aggregate && (
         <div className="flex flex-wrap items-start gap-2 rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-sm text-rose-700 dark:text-rose-300">
           <Ico.info size={16} className="mt-0.5 shrink-0" />
           <span className="min-w-0 flex-1">{halt.reason} <span className="text-xs opacity-70">· {new Date(halt.at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span></span>

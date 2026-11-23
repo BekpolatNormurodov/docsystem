@@ -128,4 +128,7 @@ export const gaps: Record<string, string> = {
   "PINFL qidiruv formasi topilmadi — sayt o‘zgargan yoki blok sahifasi qaytdi": "форма поиска по ПИНФЛ не найдена — сайт изменился или вернулась страница блокировки",
   "chuqur detal o‘chirilgan — SMS kerak emas": "глубокая детализация отключена — SMS не нужны",
   "SMS telefon raqami sozlanmagan": "номер телефона для SMS не настроен",
+  "Ulanish yoʻq — avtomator kutyapti.": "Нет соединения — автоматор ждёт.",
+  "keyingi tekshiruv": "следующая проверка",
+  "tiklansa oʻzi davom etadi": "при восстановлении продолжит сам",
 };
