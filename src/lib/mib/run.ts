@@ -336,6 +336,7 @@ export async function runMibReportJob(jobId: number): Promise<void> {
   const simLat = new Map<string, number[]>();   // simId → oxirgi kod kelish vaqtlari (ms)
   const simExtra = new Map<string, number>();   // simId → kech kod kuzatilgani uchun qo'shimcha kutish (ms)
   const lateSeen = new Set<number>();           // «egasiz» kech kod sifatida sanalgan SMS id'lari
+  const simLastMiss = new Map<string, { reqAt: number; at: number }>(); // simId → oxirgi «kelmadi» bo'lgan ish (so'ralgan / yopilgan vaqt)
   let lastSmsReqAt = 0;
   let lastSampleAt = 0;
   const simRestLvl = new Map<string, number>(); // simId → nechanchi dam bosqichi (0 — normal)
@@ -507,7 +508,13 @@ export async function runMibReportJob(jobId: number): Promise<void> {
         const cands = inflight.filter((it) => it.markerId < row.id && !it.tried.has(row.code) && it.tries < MAX_CODE_TRIES && (!row.sim || row.sim === it.simId));
         if (cands.length === 0) {
           // Egasiz kod: shu SIMning ishi allaqachon «kelmadi» bo'lgan — SMS kech kelyapti. Shu SIM kutishini uzaytiramiz.
-          if (row.sim && !lateSeen.has(row.id) && Date.now() - row.createdAt.getTime() < 60_000) {
+          // FAQAT shu run'da «kelmadi» deb yopilgan ishning kodi bo'lishi mumkin bo'lsa (kod o'sha ish so'ralgandan
+          // KEYIN va yopilganidan ko'p o'tmay kelgan). Aks holda bu — restartdan oldingi run so'ragan SMS'ning
+          // kodi: har restartdan keyin 5-6 ta shunday kod kelib, kutish bekorga 6 daqiqagacha cho'zilardi va
+          // SIMning 3 ta joyi 6 daqiqadan band bo'lib qolardi (2026-11-24 logi: SIM 1 — 8 so'rov, Ucell — 82).
+          const lm = row.sim ? simLastMiss.get(row.sim) : undefined;
+          const isLate = !!lm && row.createdAt.getTime() >= lm.reqAt && Date.now() - lm.at < 5 * 60_000;
+          if (row.sim && isLate && !lateSeen.has(row.id) && Date.now() - row.createdAt.getTime() < 60_000) {
             lateSeen.add(row.id);
             const cur = simExtra.get(row.sim) ?? 0;
             if (cur < SIM_TIMEOUT_MAX_MS) {
@@ -553,6 +560,7 @@ export async function runMibReportJob(jobId: number): Promise<void> {
       }
     }
     else {
+      simLastMiss.set(item.simId, { reqAt: item.requestedAt, at: Date.now() });
       log(`${item.pinfl} · ${item.workNumber} ✗ SMS kelmadi${simTag}`);
       smsBad.set(item.clientId, true);
       await prisma.mibCase.updateMany({ where: { id: item.caseId }, data: { error: 'SMS kod kelmadi' } }).catch(() => {});
