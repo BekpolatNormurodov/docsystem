@@ -113,9 +113,6 @@ services:
       fininvest_default:
         aliases:
           - docsystem-web
-      # role-service (markaziy login) bilan ichki aloqa: http://role-service:5300 (login ko'prigi, ROLE_SERVICE_URL).
-      # Tarmoq bir marta yaratiladi: `docker network create mko-internal`.
-      mko-internal: {}
     expose:
       - "5200"          # internal only — reached via the (fininvest) edge nginx over the shared network
     depends_on:
@@ -218,7 +215,3 @@ networks:
   fininvest_default:
     external: true
     name: fininvest_default
-  # role-service stack bilan umumiy ichki tarmoq (external, bir marta: docker network create mko-internal).
-  mko-internal:
-    external: true
-    name: mko-internal

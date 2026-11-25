@@ -5,7 +5,6 @@ import { createSession } from '@/core/session';
 import { Role } from '@/core/enums';
 import { audit, AuditAction } from '@/lib/audit';
 import { getT } from '@/lib/i18n/server';
-import { bridgeLogin } from '@/lib/role-service';
 
 export const runtime = 'nodejs';
 
@@ -49,18 +48,5 @@ export async function POST(req: NextRequest) {
     // Gated by env so first-run bring-up over plain HTTP (before certs) still works. Set COOKIE_SECURE=1.
     secure: process.env.COOKIE_SECURE === '1',
   });
-  // role-service ko'prigi (best effort): shu login/parol role-service'da ham bo'lsa, umumiy `mko_session` cookie'si beriladi —
-  // boshqa servislar (kadr) kirgan deb biladi. Xato kirishni HECH QACHON to'xtatmaydi (bridgeLogin throw qilmaydi).
-  const bridged = await bridgeLogin(admin.username, password);
-  if (bridged) {
-    res.cookies.set('mko_session', bridged.accessToken, {
-      httpOnly: true,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: bridged.expiresIn,
-      domain: process.env.ROLE_SERVICE_COOKIE_DOMAIN || undefined,
-      secure: process.env.COOKIE_SECURE === '1',
-    });
-  }
   return res;
 }
