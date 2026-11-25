@@ -85,6 +85,8 @@ describe('MIB decisions (moddalar)', () => {
     expect(L('21 Модда (Кўчмас мол-мулкга тақиқ солиш тўғрисида)')).toBe('21 · Koʻchmas mol-mulkka taqiq');
     expect(L('21-модда (ҳ/р га банд қўйиш)')).toBe('21 · Hisob raqamga band qoʻyish');
     expect(L('21-модда (Нотариусга тақиқ қўйиш)')).toBe('21 · Notariusga taqiq');
+    // birinchi «A» lotincha — mib.uz shunday yuboradi
+    expect(L('21 Модда (Aвтомототранспортга тақиқ солиш тўғрисида)')).toBe('21 · Avtotransportga taqiq');
     expect(L('64-Модда (Ундирувни қарздорнинг иш ҳақи …)')).toBe('64 · Ish haqiga qaratish');
     expect(L('35-Модда (Ижро иши юритишни тўхтатиб туриш)')).toBe('35 · Ijro ishini toʻxtatib turish');
     expect(L('42-Модда (Қарздорни … қидириш)')).toBe('42 · Qarzdor / mol-mulkni qidirish');

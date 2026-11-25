@@ -36,6 +36,8 @@ const ART21: [RegExp, string, string][] = [
   [/овир|ovir/i, '21-ovir', 'OVIR taqiq'],
   [/ҳ\s*\/\s*р|х\s*\/\s*р|ҳисоб|hisob|банд/i, '21-hisob', 'Hisob raqamga band qoʻyish'],
   [/нотариус|notarius/i, '21-notarius', 'Notariusga taqiq'],
+  // mib.uz «Aвтомототранспорт» — birinchi «A» lotincha keladi, shuning uchun «втомото»/«транспорт» bo'yicha.
+  [/втомото|транспорт|avto|transport/i, '21-avto', 'Avtotransportga taqiq'],
   [/кўчмас|кучмас|мол-мулк|mol-mulk|ko.?chmas/i, '21-mulk', 'Koʻchmas mol-mulkka taqiq'],
 ];
 
