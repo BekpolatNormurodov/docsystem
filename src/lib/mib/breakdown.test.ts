@@ -74,3 +74,35 @@ describe('creditorIsOurs — deep-pull decision (prod firm short names)', () => 
     for (const m of ['"**T RE***IL T**E CO***Y" MA***TI CH***AN JA***AT', '"**T EL KA***LI IS***GI "H***K" AK***IK TI***AT B**I', '"**D S**T T**E L**" MA***TI CH***AN JA***AT', '"**W M**A KR***T" MA***TI CH***AN JA***AT', '"**R B**" AK***IK JA***TI', 'Da***at']) expect(creditorIsOurs(m, W), m).toBe(false);
   });
 });
+
+import { classifyDecision, summarizeDecisions } from './decisions';
+describe('MIB decisions (moddalar)', () => {
+  const L = (a: string) => classifyDecision(a).label;
+  it('classifies every article form seen on mib.uz', () => {
+    expect(L('23-Модда (Ижро иши юритишни қўзғатиш)')).toBe('23 · Ijro ishini qoʻzgʻatish');
+    expect(L('21-Модда (Чегара) тақиқ солиш')).toBe('21 · Chegaradan chiqishga taqiq');
+    expect(L('21-Модда (ОВИР) тақиқ солиш')).toBe('21 · OVIR taqiq');
+    expect(L('21 Модда (Кўчмас мол-мулкга тақиқ солиш тўғрисида)')).toBe('21 · Koʻchmas mol-mulkka taqiq');
+    expect(L('21-модда (ҳ/р га банд қўйиш)')).toBe('21 · Hisob raqamga band qoʻyish');
+    expect(L('21-модда (Нотариусга тақиқ қўйиш)')).toBe('21 · Notariusga taqiq');
+    expect(L('64-Модда (Ундирувни қарздорнинг иш ҳақи …)')).toBe('64 · Ish haqiga qaratish');
+    expect(L('35-Модда (Ижро иши юритишни тўхтатиб туриш)')).toBe('35 · Ijro ishini toʻxtatib turish');
+    expect(L('42-Модда (Қарздорни … қидириш)')).toBe('42 · Qarzdor / mol-mulkni qidirish');
+    expect(L('33-модда')).toBe('33 · Ijro harakatlarini keyinga qoldirish');
+    expect(L('20-Модда (Мутахассис тайинлаш)')).toBe('20 · Mutaxassis tayinlash');
+    expect(L('56-модда. Хатланган мол-мулкни реализация қилиш')).toBe('56 · Mol-mulkni realizatsiya qilish');
+    expect(L('Ижро йигимини ундириш тугрисида')).toBe('Ijro yigʻimini undirish');
+    expect(L('Бирор номаълум қарор')).toBe('Boshqa (raqamsiz qaror)');
+    expect(L('99-Модда (Янги қарор)')).toBe('99 · Янги қарор');
+  });
+  it('summarizes codes and the latest action', () => {
+    const s = summarizeDecisions([
+      { article: '23-Модда (Ижро иши юритишни қўзғатиш)', date: '03.09.2026' },
+      { article: 'Ижро йигимини ундириш тугрисида', date: '05.09.2026' },
+      { article: '64-Модда (…)', date: '12.10.2026' },
+      { article: '21 Модда (Кўчмас мол-мулкга тақиқ)', date: '' },
+    ]);
+    expect(s.codes).toBe('21, 23, 64, yigʻim');
+    expect(s.last?.date).toBe('12.10.2026');
+  });
+});

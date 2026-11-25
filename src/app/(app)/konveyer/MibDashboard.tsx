@@ -19,6 +19,7 @@ import { MibLogPanel } from '../mib-hisoboti/MibLogPanel';
 import { regionOf, groupBreakdown, parseMoney, clean, bestFio, shortFirm, normalizeBank, isPostalFee, UNKNOWN, OTHER_FIRM, type Dim } from '@/lib/mib/breakdown';
 import { MIB_COMPANIES } from '@/lib/mib/companies';
 import { useT } from '@/lib/i18n/client';
+import { classifyDecision, moddaBreakdown, type Decision } from '@/lib/mib/decisions';
 import { RecheckModal, type RecheckInfo } from '../mib-hisoboti/RecheckModal';
 import { MibMonitorModal, PhaseSteps } from '../mib-hisoboti/MibMonitor';
 
@@ -49,6 +50,8 @@ interface Enriched extends ClientRow {
   judges: string[];
   ourFirms: string[];
   firmKeys: string[];
+  /** Ijro harakatlari — qaror turlari (modda guruhlari), kesim va filtr uchun. */
+  moddas: string[];
   ours: boolean;
   remainingSum: number;
   caseCount: number;
@@ -60,7 +63,9 @@ function enrich(c: ClientRow): Enriched {
   // bizniki (dropdown + «bizniki» belgisi uchun); firmKeys — HAMMA kesim yorlig'i (kesimni bosish uchun).
   const depts = new Set<string>(), banks = new Set<string>(), judges = new Set<string>(), ourFirms = new Set<string>(), firmKeys = new Set<string>();
   let remainingSum = 0, ours = false;
+  const moddas = new Set<string>();
   for (const k of c.cases) {
+    for (const d of ((Array.isArray(k.decisions) ? k.decisions : []) as Decision[])) if (d?.article) moddas.add(classifyDecision(d.article).label);
     depts.add(clean(k.executorDept) || UNKNOWN);
     banks.add(normalizeBank(k.bankName) || UNKNOWN);
     judges.add(clean(k.judge) || UNKNOWN);
@@ -69,25 +74,25 @@ function enrich(c: ClientRow): Enriched {
     remainingSum += parseMoney(k.remainingDebt);
   }
   const hay = [c.pinfl, c.fio2, c.fio, c.firm, c.ishRaqami, ...c.cases.map((k) => k.workNumber)].filter(Boolean).join(' ').toLowerCase();
-  return { ...c, region2: regionOf(c) ?? UNKNOWN, depts: [...depts], banks: [...banks], judges: [...judges], ourFirms: [...ourFirms], firmKeys: [...firmKeys], ours, remainingSum, caseCount: c.cases.length, hay };
+  return { ...c, region2: regionOf(c) ?? UNKNOWN, depts: [...depts], banks: [...banks], judges: [...judges], ourFirms: [...ourFirms], firmKeys: [...firmKeys], moddas: [...moddas], ours, remainingSum, caseCount: c.cases.length, hay };
 }
 
-type Tab = 'mijozlar' | Dim;
+type Tab = 'mijozlar' | Dim | 'modda';
 // Kesim (region/hudud/sudya/bank/firma) OLDINDA — default «Region»; «Mijozlar» ro'yxati oxirida.
 const TABS: { key: Tab; label: string }[] = [
   { key: 'region', label: 'Region' }, { key: 'hudud', label: 'Hudud (MIB)' }, { key: 'sudya', label: 'Sudya' },
-  { key: 'bank', label: 'Bank' }, { key: 'firma', label: 'Firma' }, { key: 'mijozlar', label: 'Mijozlar' },
+  { key: 'bank', label: 'Bank' }, { key: 'firma', label: 'Firma' }, { key: 'modda', label: 'Modda (qaror)' }, { key: 'mijozlar', label: 'Mijozlar' },
 ];
 const PAGE_SIZES = [25, 50, 100];
 type Own = 'all' | 'ours' | 'others'; // Hammasi / Bizga tegishli / Bizga tegishli emas
 // Ish turi: qarz ijrolari (default) / pochta xarajati (20 600 / 22 000 so'm) / hammasi.
 type Kind = 'debt' | 'postal' | 'all';
-const emptyFilters = { q: '', region: '', dept: '', judge: '', bank: '', firm: '', own: 'all' as Own, kind: 'debt' as Kind };
+const emptyFilters = { q: '', region: '', dept: '', judge: '', bank: '', firm: '', modda: '', own: 'all' as Own, kind: 'debt' as Kind };
 // Firma filtri — doim BIZNING barcha firmalarimiz (ishi bo'lmasa ham, 0 bilan).
 const OUR_FIRMS = MIB_COMPANIES.map((c) => shortFirm(c.name));
 type Filters = typeof emptyFilters;
 // Kesim tabi → uni filtrlaydigan maydon (kesim qatorini bosganda).
-const FILTER_KEY: Record<Dim, 'region' | 'dept' | 'judge' | 'bank' | 'firm'> = { region: 'region', hudud: 'dept', sudya: 'judge', bank: 'bank', firma: 'firm' };
+const FILTER_KEY: Record<Dim | 'modda', 'region' | 'dept' | 'judge' | 'bank' | 'firm' | 'modda'> = { region: 'region', hudud: 'dept', sudya: 'judge', bank: 'bank', firma: 'firm', modda: 'modda' };
 
 // ── component ────────────────────────────────────────────────────────────────
 export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged, clientHrefBase, aggregate = false }: {
@@ -175,7 +180,11 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
       for (const f of c.ourFirms) bump(F, f);
     }
     const sort = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-    return { regions: sort(R), depts: sort(D), judges: sort(J), banks: sort(B), firms: sort(F) };
+    // Modda — raqam tartibida (sanoq bo'yicha emas): 20, 21 …, 23, 33, 35, 42, 64 …, raqamsizlar oxirida.
+    const Md = new Map<string, number>(); for (const c of enriched) for (const m of c.moddas) bump(Md, m);
+    const moddaOrd = (l: string) => { const n = Number(l.match(/^(\d+)/)?.[1]); return Number.isFinite(n) ? n : 999; };
+    const moddas = [...Md.entries()].sort((a, b) => moddaOrd(a[0]) - moddaOrd(b[0]) || a[0].localeCompare(b[0]));
+    return { regions: sort(R), depts: sort(D), judges: sort(J), banks: sort(B), firms: sort(F), moddas };
   }, [enriched]);
 
   const filtered = useMemo(() => {
@@ -187,6 +196,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
       (!filters.judge || c.judges.includes(filters.judge)) &&
       (!filters.bank || c.banks.includes(filters.bank)) &&
       (!filters.firm || c.firmKeys.includes(filters.firm)) &&
+      (!filters.modda || c.moddas.includes(filters.modda)) &&
       (filters.own === 'all' || (filters.own === 'ours' ? c.ours : !c.ours)),
     );
   }, [enriched, filters]);
@@ -202,7 +212,14 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
     return { clients: filtered.length, cases, ours, debt };
   }, [filtered]);
 
-  const breakdown = useMemo(() => (tab === 'mijozlar' ? [] : groupBreakdown(filtered, tab)), [filtered, tab]);
+  const breakdown = useMemo(() => {
+    if (tab === 'mijozlar') return [];
+    if (tab === 'modda') {
+      // Modda kesimi: bir ish bir nechta moddada bo'lishi mumkin (jami qatori ishlar sonidan katta bo'ladi).
+      return moddaBreakdown(filtered as never, parseMoney).map((r) => ({ label: r.label, cases: r.cases, clients: r.clients, ours: r.cases, debt: r.debt }));
+    }
+    return groupBreakdown(filtered, tab);
+  }, [filtered, tab]);
 
   const oursCases = stats ? stats.firms.reduce((s, f) => s + f.cases, 0) : 0;
   const oursDebt = stats ? (stats.ourRemainingDebt ?? stats.firms.reduce((s, f) => s + f.remainingDebt, 0)) : 0;
@@ -242,9 +259,9 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
   const pageClamped = Math.min(page, totalPages);
   const pageRows = filtered.slice((pageClamped - 1) * pageSize, pageClamped * pageSize);
 
-  const anyFilter = !!(filters.q || filters.region || filters.dept || filters.judge || filters.bank || filters.firm || filters.own !== 'all' || filters.kind !== 'debt');
+  const anyFilter = !!(filters.q || filters.region || filters.dept || filters.judge || filters.bank || filters.firm || filters.modda || filters.own !== 'all' || filters.kind !== 'debt');
   const setF = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
-  const jumpFilter = (dim: Dim, label: string) => {
+  const jumpFilter = (dim: Dim | 'modda', label: string) => {
     const key = FILTER_KEY[dim];
     setF({ [key]: filters[key] === label ? '' : label } as Partial<Filters>);
     setTab('mijozlar');
@@ -533,6 +550,7 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
           <FilterSelect label={t('Sudya')} value={filters.judge} onChange={(v) => setF({ judge: v })} options={opts.judges} wide />
           <FilterSelect label={t('Bank')} value={filters.bank} onChange={(v) => setF({ bank: v })} options={opts.banks} wide />
           <FilterSelect label={t('Firma')} value={filters.firm} onChange={(v) => setF({ firm: v })} options={opts.firms} />
+          <FilterSelect label={t('Modda (qaror)')} value={filters.modda} onChange={(v) => setF({ modda: v })} options={opts.moddas} wide />
           <div className="shrink-0">
             <span className="field-label">{t('Tegishlilik')}</span>
             <div className="flex h-[42px] items-center gap-0.5 rounded-xl border border-line p-0.5">
@@ -653,10 +671,10 @@ export function MibDashboard({ reportId, reseed, variant = 'konveyer', onChanged
 
 // ── breakdown table (Firma / Region / Hudud / Bank tabs) ────────────────────────
 type BRow = { label: string; cases: number; clients: number; ours: number; debt: number };
-function BreakdownTable({ rows, dim, activeLabel, onPick }: { rows: BRow[]; dim: Dim; activeLabel: string; onPick: (label: string) => void }) {
+function BreakdownTable({ rows, dim, activeLabel, onPick }: { rows: BRow[]; dim: Dim | 'modda'; activeLabel: string; onPick: (label: string) => void }) {
   const t = useT();
   const [showOthers, setShowOthers] = useState(false);
-  const head = dim === 'firma' ? t('Firma') : dim === 'region' ? t('Region') : dim === 'hudud' ? t('Hudud (MIB boʻlimi)') : dim === 'sudya' ? t('Sudya') : t('Bank');
+  const head = dim === 'modda' ? t('Modda (qaror turi)') : dim === 'firma' ? t('Firma') : dim === 'region' ? t('Region') : dim === 'hudud' ? t('Hudud (MIB boʻlimi)') : dim === 'sudya' ? t('Sudya') : t('Bank');
   const totals = rows.reduce((a, r) => ({ cases: a.cases + r.cases, ours: a.ours + r.ours, debt: a.debt + r.debt }), { cases: 0, ours: 0, debt: 0 });
   if (rows.length === 0) return <p className="px-4 py-10 text-center text-sm text-muted">{t('Maʼlumot yoʻq — GO bosib tekshiring yoki filtrni oʻzgartiring.')}</p>;
 
@@ -712,7 +730,7 @@ function BreakdownTable({ rows, dim, activeLabel, onPick }: { rows: BRow[]; dim:
         </tbody>
         <tfoot className="sticky bottom-0 bg-surface">
           <tr className="border-t border-line font-semibold">
-            <td className="px-3 py-2.5">{t('Jami')} · {n(rows.length)} {t('guruh')}</td>
+            <td className="px-3 py-2.5">{t('Jami')} · {n(rows.length)} {t('guruh')}{dim === 'modda' && <span className="ml-1 text-[11px] font-normal text-muted">({t('bir ish bir nechta moddada boʻlishi mumkin')})</span>}</td>
             <td className="px-3 py-2.5 text-right tabular-nums">{n(totals.cases)}</td>
             <td className="px-3 py-2.5 text-right tabular-nums text-emerald-600 dark:text-emerald-300">{n(totals.ours)}</td>
             <td className="px-3 py-2.5 text-right tabular-nums text-muted">—</td>

@@ -462,12 +462,21 @@ export class MibEngine {
     const bankName = (html.match(/Банк номи[^\n<]*<\/td>\s*<td[^>]*>([^<]+)<\/td>/i) || [])[1] || (html.match(/Банк номи[^\n<]*\n\s*([^<\n]+)/i) || [])[1] || null;
     const mfo = (html.match(/БММ рақами \/ МФО[\s\S]*?(\d{5})/i) || [])[1] || (html.match(/МФО\s*(\d{5})/i) || [])[1] || null;
     const accountNumber = (html.match(/ҳ\/р[^\n<]*\n\s*(\d{20})/i) || [])[1] || (html.match(/(\d{20})/i) || [])[1] || null;
+    // «Ижро ҳаракатлари» jadvali: <tr><td>qaror</td><td>sana</td></tr>. Ilgari faqat «\d+-Модда» qatorlari
+    // olinardi — raqamsiz («Ижро йигимини ундириш тугрисида») va chiziqchasiz («21 Модда (…)») qarorlar
+    // tushib qolardi (2026-11-25). Endi jadvaldagi HAR qator olinadi; sana bo'sh bo'lishi mumkin.
     const decisions: { article: string; date: string }[] = [];
-    const decRegex = /(\d+-Модда[^\n<]+)\s*<\/td>\s*<td>\s*([\d.]+)/gi;
-    let dMatch: RegExpExecArray | null;
-    while ((dMatch = decRegex.exec(html)) !== null) decisions.push({ article: dMatch[1]!.trim(), date: dMatch[2]!.trim() });
+    const table = html.match(/Чиқарилган\s+қарорлар[\s\S]*?<\/table>/i)?.[0] ?? '';
+    for (const tr of table.match(/<tr[^>]*>[\s\S]*?<\/tr>/gi) ?? []) {
+      const tds = [...tr.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((m) => decodeEntities(m[1]!.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim());
+      if (!tds.length || !tds[0]) continue;
+      const date = tds.slice(1).find((t) => /^\d{2}\.\d{2}\.\d{4}/.test(t)) ?? '';
+      decisions.push({ article: tds[0], date });
+    }
     if (decisions.length === 0) {
-      const decRegex2 = /(\d+-Модда[^\n<]+)\s*<br\s*\/?>\s*([\d.]+)/gi;
+      // Eski/boshqa ko'rinish: «23-Модда (…)<br/>23.11.2026».
+      let dMatch: RegExpExecArray | null;
+      const decRegex2 = /(\d+\s*-?\s*[Мм]одда[^\n<]+)\s*<br\s*\/?>\s*([\d.]+)/g;
       while ((dMatch = decRegex2.exec(html)) !== null) decisions.push({ article: dMatch[1]!.trim(), date: dMatch[2]!.trim() });
     }
     return {

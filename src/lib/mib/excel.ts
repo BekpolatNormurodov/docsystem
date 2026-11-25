@@ -5,6 +5,7 @@
 import ExcelJS from 'exceljs';
 import type { MibCase, MibClient, MibReport } from '@prisma/client';
 import { parseMoney } from './stats';
+import { summarizeDecisions, moddaBreakdown, classifyDecision, type Decision } from './decisions';
 import { groupBreakdown, regionFromText, rowKey, clean, shortFirm, decodeEntities, bestFio, UNKNOWN, type Dim } from './breakdown';
 
 // Ishlarga server sudya va sud ish raqamini qo'shadi (src/lib/mib/judges.ts, attachJudgesToClients).
@@ -150,6 +151,40 @@ function addExecutorSheet(wb: ExcelJS.Workbook, clients: ClientWithCases[]): voi
   ws.getColumn('debt').numFmt = '#,##0';
 }
 
+// «Moddalar boʻyicha» — har qaror turi (modda) nechta ishda / mijozda uchraydi, ularning qoldig'i va eng oxirgi
+// sanasi. «Qarorlar» — har qaror alohida qator (modda bo'yicha Excel'da filtrlash uchun).
+function addModdaSheets(wb: ExcelJS.Workbook, clients: ClientWithCases[]): void {
+  const rows = moddaBreakdown(clients as never, (x) => num(x));
+  const ws = wb.addWorksheet('Moddalar boʻyicha');
+  ws.columns = [
+    { header: 'Modda (qaror turi)', key: 'label', width: 46 }, { header: 'Ijro ishi', key: 'cases', width: 12 },
+    { header: 'Mijoz', key: 'clients', width: 10 }, { header: 'Qoldiq qarz', key: 'debt', width: 20 }, { header: 'Oxirgi sana', key: 'last', width: 14 },
+  ];
+  for (const r of rows) ws.addRow({ label: r.label, cases: r.cases, clients: r.clients, debt: r.debt, last: mibDate(r.lastDate) });
+  const withAny = clients.reduce((a, c) => a + c.cases.filter((k) => Array.isArray(k.decisions) && (k.decisions as unknown[]).length).length, 0);
+  ws.addRow({ label: `Qarori bor ishlar: ${withAny} (bir ish bir nechta moddada boʻlishi mumkin — ustunlar qoʻshilmaydi)` });
+  styleHeader(ws);
+  ws.lastRow!.font = { italic: true, color: { argb: 'FF667085' } };
+  ws.getColumn('debt').numFmt = '#,##0'; ws.getColumn('last').numFmt = 'dd.mm.yyyy';
+
+  const q = wb.addWorksheet('Qarorlar');
+  q.columns = [
+    { header: 'PINFL', key: 'pinfl', width: 18 }, { header: 'F.I.O', key: 'fio', width: 32 }, { header: 'Ijro ishi raqami', key: 'work', width: 20 },
+    { header: 'Firma', key: 'firm', width: 24 }, { header: 'Modda', key: 'no', width: 9 }, { header: 'Qaror turi', key: 'group', width: 34 },
+    { header: 'Qaror (mib.uz matni)', key: 'article', width: 60 }, { header: 'Sana', key: 'date', width: 12 }, { header: 'Qoldiq qarz', key: 'rem', width: 16 },
+  ];
+  for (const c of clients) {
+    const fio = sp(bestFio(c));
+    for (const k of c.cases) for (const d of ((Array.isArray(k.decisions) ? k.decisions : []) as unknown as Decision[])) {
+      if (!d?.article) continue;
+      const g = classifyDecision(d.article);
+      q.addRow({ pinfl: c.pinfl, fio, work: k.workNumber, firm: k.firmName ? shortFirm(k.firmName) : '', no: g.no ?? '', group: g.label.replace(/^\d+ · /, ''), article: txt(d.article), date: mibDate(d.date), rem: num(k.remainingDebt) });
+    }
+  }
+  styleHeader(q);
+  q.getColumn('date').numFmt = 'dd.mm.yyyy'; q.getColumn('rem').numFmt = '#,##0';
+}
+
 export async function buildMibExcel(
   report: MibReport,
   clients: ClientWithCases[],
@@ -167,6 +202,10 @@ export async function buildMibExcel(
   wb.created = new Date();
 
   // Bitta kesim varag'i (dashboard tabidan «Excel») — kesimlar FAQAT BIZNIKI.
+  if (opts.tab === 'modda') {
+    addModdaSheets(wb, oursClients);
+    return Buffer.from(await wb.xlsx.writeBuffer());
+  }
   if (opts.tab === 'ijrochilar') {
     addExecutorSheet(wb, oursClients);
     return Buffer.from(await wb.xlsx.writeBuffer());
@@ -275,6 +314,9 @@ export async function buildMibExcel(
     { header: 'MFO', key: 'mfo', width: 10 },
     { header: 'Hisob raqami', key: 'account', width: 24 },
     { header: 'Qarorlar', key: 'decisions', width: 40 },
+    { header: 'Moddalar', key: 'moddalar', width: 14 },
+    { header: 'Oxirgi harakat', key: 'lastAct', width: 40 },
+    { header: 'Oxirgi harakat sanasi', key: 'lastActDate', width: 14 },
     { header: 'Tekshirilgan', key: 'checked', width: 16 },
     { header: 'Izoh', key: 'note', width: 30 },
   ];
@@ -282,7 +324,9 @@ export async function buildMibExcel(
     const fullName = sp(bestFio(c));
     if (!c.cases.length) continue;
     for (const k of c.cases) {
-      const dec = Array.isArray(k.decisions) ? (k.decisions as { article: string; date: string }[]).map((d) => `${txt(d.article)} (${d.date})`).join('; ') : '';
+      const decList = (Array.isArray(k.decisions) ? k.decisions : []) as unknown as Decision[];
+      const dec = decList.map((d) => (d.date ? `${txt(d.article)} (${d.date})` : txt(d.article))).join('; ');
+      const ds = summarizeDecisions(decList);
       const has = !!k.detailFetchedAt; // detal olinmagan ishda summalar noma'lum → bo'sh
       // Notarius ijro xati — sud ishi emas: sud raqami/sudya bo'sh qolishi TABIIY, buni yozib qo'yamiz.
       const notary = /нотариус|notarius/i.test(k.courtDocType ?? '');
@@ -294,6 +338,7 @@ export async function buildMibExcel(
         received: mibDate(k.mibReceivedDate), initiated: mibDate(k.mibInitiatedDate),
         total: numOrBlank(k.totalAmount, has), main: numOrBlank(k.mainDebt, has), fee: numOrBlank(k.executionFee, has), fine: fineOf(k, has), remaining: numOrBlank(k.remainingDebt, has),
         bank: txt(k.bankName), mfo: txt(k.bankMfo), account: txt(k.bankAccount), decisions: dec,
+        moddalar: ds.codes, lastAct: ds.last ? txt(ds.last.article) : '', lastActDate: ds.last ? mibDate(ds.last.date) : '',
         checked: local(c.checkedAt),
         note: [c.prior ? `Oldingi tekshiruvdan${c.prior.checkedAt ? ` (${dmy(c.prior.checkedAt)})` : ''}` : k.priorAt !== undefined ? `Detal oldingi tekshiruvdan${k.priorAt ? ` (${dmy(k.priorAt)})` : ''}` : '', has ? '' : `Detal olinmagan${k.error ? ` — ${txt(k.error)}` : ''}`].filter(Boolean).join('; '),
       });
@@ -332,7 +377,7 @@ export async function buildMibExcel(
   ['total', 'main', 'fee', 'fine', 'remaining'].forEach((k) => { const col = s2.getColumn(k); col.numFmt = '#,##0'; });
   s1.getColumn('checked').numFmt = 'dd.mm.yyyy hh:mm';
   s2.getColumn('checked').numFmt = 'dd.mm.yyyy';
-  for (const k of ['docdate', 'eff', 'received']) s2.getColumn(k).numFmt = 'dd.mm.yyyy';
+  for (const k of ['docdate', 'eff', 'received', 'lastActDate']) s2.getColumn(k).numFmt = 'dd.mm.yyyy';
   s2.getColumn('initiated').numFmt = 'dd.mm.yyyy hh:mm';
   dropEmptyColumns(s1, ['no', 'pinfl', 'fio', 'status', 'cases']);
   dropEmptyColumns(s2, ['no', 'pinfl', 'fio', 'work', 'total', 'main', 'fee', 'fine', 'remaining']); // summa ustunlari doim qoladi
@@ -341,7 +386,7 @@ export async function buildMibExcel(
 
   // To'liq hisobotga kesim varaqlarini ham qo'shamiz (bitta mijoz eksportida shart emas).
   // «Ijrochilar boʻyicha» — birinchi kesim varaq (eng koʻp soʻraladi), so'ng firma/region/hudud/bank.
-  if (!opts.clientId) { addExecutorSheet(wb, oursClients); for (const d of DIMS) addBreakdownSheet(wb, oursClients, d); }
+  if (!opts.clientId) { addExecutorSheet(wb, oursClients); for (const d of DIMS) addBreakdownSheet(wb, oursClients, d); addModdaSheets(wb, oursClients); }
 
   const out = await wb.xlsx.writeBuffer();
   return Buffer.from(out);
