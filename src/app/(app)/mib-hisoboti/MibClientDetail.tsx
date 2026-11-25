@@ -5,6 +5,7 @@
 // import qiladi — aylanma (circular) importdan qochish uchun alohida modul.
 import React from 'react';
 import { isPersonName } from '@/lib/mib/breakdown';
+import { classifyDecision } from '@/lib/mib/decisions';
 import { useT } from '@/lib/i18n/client';
 
 export interface CaseRow {
@@ -55,6 +56,40 @@ function DRow({ l, v, strong }: { l: string; v: string; strong?: boolean }) {
   return (<><dt className="text-muted">{l}</dt><dd className={cx('tabular-nums', strong && 'font-semibold text-fg')}>{v}</dd></>);
 }
 
+// Modda guruhiga qarab rang: to'xtatish/qaytarish — sariq, qidiruv/javobgarlik — qizil, undiruv
+// (ish haqi, realizatsiya, yig'im) — yashil, taqiqlar — ko'k, qolgani — neytral.
+function moddaTone(key: string): string {
+  if (key === '35' || key === '33' || key === '40') return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300';
+  if (key === '42' || key === '82') return 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300';
+  if (key === '64' || key === '67' || key === '56' || key === 'ijro-yigimi') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
+  if (key.startsWith('21')) return 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300';
+  return 'border-line bg-surface-2 text-muted';
+}
+
+const dmyTs = (s: string) => { const m = (s ?? '').match(/^(\d{2})\.(\d{2})\.(\d{4})/); return m ? Date.UTC(+m[3]!, +m[2]! - 1, +m[1]!) : Number.MAX_SAFE_INTEGER; };
+
+/** «Ijro harakatlari» — sana tartibida, har qaror modda nomi bilan; mib.uz asl matni ostida kichik. */
+function DecisionList({ list }: { list: { article: string; date: string }[] }) {
+  const t = useT();
+  const rows = list.map((d, i) => ({ ...d, i, g: classifyDecision(d.article) })).sort((a, b) => dmyTs(a.date) - dmyTs(b.date) || a.i - b.i);
+  return (
+    <div className="mt-2 border-t border-line pt-2 text-xs">
+      <div className="mb-1.5 text-muted">{t('Ijro harakatlari')} ({rows.length})</div>
+      <ul className="space-y-1.5">
+        {rows.map((d) => (
+          <li key={d.i} className="grid grid-cols-[72px_1fr] gap-x-2">
+            <span className="tabular-nums text-muted">{d.date || '—'}</span>
+            <span className="min-w-0">
+              <span className={cx('inline-block rounded-md border px-1.5 py-px font-medium', moddaTone(d.g.key))}>{d.g.label}</span>
+              <span className="mt-0.5 block truncate text-[11px] text-muted" title={d.article}>{d.article}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function CaseCard({ c }: { c: CaseRow }) {
   const t = useT();
   return (
@@ -82,12 +117,7 @@ function CaseCard({ c }: { c: CaseRow }) {
         <DRow l={t('Bank')} v={val(c.bankName)} />
         <DRow l={t('MFO / H/r')} v={`${val(c.bankMfo)} · ${val(c.bankAccount)}`} />
       </dl>
-      {c.decisions && c.decisions.length > 0 && (
-        <div className="mt-2 border-t border-line pt-2 text-xs">
-          <div className="mb-1 text-muted">{t('Qarorlar:')}</div>
-          <ul className="space-y-0.5">{c.decisions.map((d, i) => <li key={i}>· {d.article} <span className="text-muted">{d.date}</span></li>)}</ul>
-        </div>
-      )}
+      {c.decisions && c.decisions.length > 0 && <DecisionList list={c.decisions} />}
     </div>
   );
 }
