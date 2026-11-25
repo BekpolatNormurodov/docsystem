@@ -249,4 +249,5 @@ export const gaps: Record<string, string> = {
   "Modda (qaror)": "Статья (решение)",
   "Modda (qaror turi)": "Статья (тип решения)",
   "bir ish bir nechta moddada boʻlishi mumkin": "одно дело может быть в нескольких статьях",
+  "Ijro harakatlari": "Исполнительные действия",
 };
